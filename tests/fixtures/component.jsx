@@ -1,0 +1,5 @@
+export function Button({ label }) {
+  return <button>{label}</button>;
+}
+
+const styles = { color: "red" };

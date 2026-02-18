@@ -1,0 +1,68 @@
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub struct FileMetadata {
+    pub path: String,
+    pub name: String,
+    pub extension: String,
+    pub language: String,
+    pub size_bytes: u64,
+    pub line_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    Function,
+    Class,
+    Method,
+    Variable,
+    Interface,
+    TypeAlias,
+    Enum,
+    ArrowFunction,
+}
+
+impl fmt::Display for SymbolKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            SymbolKind::Function => "function",
+            SymbolKind::Class => "class",
+            SymbolKind::Method => "method",
+            SymbolKind::Variable => "variable",
+            SymbolKind::Interface => "interface",
+            SymbolKind::TypeAlias => "type_alias",
+            SymbolKind::Enum => "enum",
+            SymbolKind::ArrowFunction => "arrow_function",
+        };
+        f.write_str(s)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    pub name: String,
+    pub kind: SymbolKind,
+    pub file_path: String,
+    pub start_line: u32,
+    pub start_column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub is_exported: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symbol_kind_display() {
+        assert_eq!(SymbolKind::Function.to_string(), "function");
+        assert_eq!(SymbolKind::Class.to_string(), "class");
+        assert_eq!(SymbolKind::Method.to_string(), "method");
+        assert_eq!(SymbolKind::Variable.to_string(), "variable");
+        assert_eq!(SymbolKind::Interface.to_string(), "interface");
+        assert_eq!(SymbolKind::TypeAlias.to_string(), "type_alias");
+        assert_eq!(SymbolKind::Enum.to_string(), "enum");
+        assert_eq!(SymbolKind::ArrowFunction.to_string(), "arrow_function");
+    }
+}
