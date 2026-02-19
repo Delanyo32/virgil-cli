@@ -29,6 +29,7 @@ virgil <COMMAND> [OPTIONS]
 | `dependents` | Show what files import a given file (reverse dependencies) |
 | `callers` | Find which files import a specific symbol |
 | `imports` | List all imports with filters |
+| `comments` | List comments with filters |
 
 ### `parse`
 
@@ -178,6 +179,22 @@ virgil imports [OPTIONS]
 | `--limit` | Maximum results to return | `50` |
 | `--format` | Output format (table, json, csv) | `table` |
 
+### `comments`
+
+```bash
+virgil comments [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--data-dir` | Directory containing parquet files | `.` |
+| `--file` | Filter by file path prefix | none |
+| `--kind` | Filter by comment kind (line, block, doc) | all |
+| `--documented` | Only show comments associated with a symbol | false |
+| `--symbol` | Filter by associated symbol name (fuzzy match) | none |
+| `--limit` | Maximum results to return | `50` |
+| `--format` | Output format (table, json, csv) | `table` |
+
 ### Examples
 
 ```bash
@@ -238,7 +255,19 @@ virgil imports --internal --data-dir ./data
 # Sort files by number of dependents
 virgil files --sort dependents --data-dir ./data
 
-# Run a raw SQL query (tables: files, symbols, imports)
+# List all doc comments
+virgil comments --kind doc --data-dir ./data
+
+# List comments associated with symbols (documentation)
+virgil comments --documented --data-dir ./data
+
+# Find comments mentioning a specific symbol
+virgil comments --symbol handleClick --data-dir ./data
+
+# List comments in a specific file
+virgil comments --file src/utils --data-dir ./data
+
+# Run a raw SQL query (tables: files, symbols, imports, comments)
 virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
 
 # Get output as JSON
@@ -257,7 +286,7 @@ Most subcommands support three output formats via `--format`:
 
 ## Output
 
-Three Parquet files are generated:
+Four Parquet files are generated:
 
 ### files.parquet
 
@@ -296,9 +325,27 @@ Three Parquet files are generated:
 | line | UInt32 | Line number of the import |
 | is_external | Boolean | Whether the import is from an external library (true) or user code (false) |
 
+### comments.parquet
+
+| Column | Type | Description |
+|--------|------|-------------|
+| file_path | Utf8 | Relative file path |
+| text | Utf8 | Raw comment text including delimiters |
+| kind | Utf8 | Comment kind (line, block, doc) |
+| start_line | UInt32 | 0-based start line |
+| start_column | UInt32 | 0-based start column |
+| end_line | UInt32 | 0-based end line |
+| end_column | UInt32 | 0-based end column |
+| associated_symbol | Utf8 (nullable) | Name of the symbol this comment documents |
+| associated_symbol_kind | Utf8 (nullable) | Kind of the associated symbol |
+
 ### Symbol Kinds
 
 `function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`
+
+### Comment Kinds
+
+`line` (`//`), `block` (`/* */`), `doc` (`/** */`)
 
 ## Supported Languages
 
@@ -322,6 +369,7 @@ Three Parquet files are generated:
 - **Dependency navigation** — explore imports, dependents, and callers across the codebase
 - **Rich overview** — hub files, popular symbols, import kind distribution, barrel file detection
 - **File reading with line ranges** — read source files or specific line ranges directly from the CLI
+- **Comment tracking** — extracts comments with classification (line/block/doc) and automatic symbol association
 - **Multiple output formats** — table, JSON, and CSV output for all query commands
 
 ## Inspecting Output
@@ -332,10 +380,12 @@ import pyarrow.parquet as pq
 files = pq.read_table("files.parquet").to_pandas()
 symbols = pq.read_table("symbols.parquet").to_pandas()
 imports = pq.read_table("imports.parquet").to_pandas()
+comments = pq.read_table("comments.parquet").to_pandas()
 
 print(files)
 print(symbols)
 print(imports)
+print(comments)
 ```
 
 ## License

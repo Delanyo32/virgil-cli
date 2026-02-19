@@ -9,7 +9,7 @@ use virgil_cli::cli::{Cli, Command, OutputFormat};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
-use virgil_cli::models::{FileMetadata, ImportInfo, SymbolInfo};
+use virgil_cli::models::{CommentInfo, FileMetadata, ImportInfo, SymbolInfo};
 use virgil_cli::output;
 use virgil_cli::parser;
 use virgil_cli::query;
@@ -171,6 +171,29 @@ fn main() -> Result<()> {
             print!("{output}");
             Ok(())
         }
+
+        Command::Comments {
+            data_dir,
+            file,
+            kind,
+            documented,
+            symbol,
+            limit,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::comments::run_comments(
+                &engine,
+                file.as_deref(),
+                kind.as_deref(),
+                documented,
+                symbol.as_deref(),
+                limit,
+                &format,
+            )?;
+            print!("{output}");
+            Ok(())
+        }
     }
 }
 
@@ -207,14 +230,17 @@ fn run_parse(
     // Pre-compile queries per language (shared across threads)
     let mut query_map = std::collections::HashMap::new();
     let mut import_query_map = std::collections::HashMap::new();
+    let mut comment_query_map = std::collections::HashMap::new();
     for lang in &languages {
         query_map.insert(*lang, languages::compile_symbol_query(*lang)?);
         import_query_map.insert(*lang, languages::compile_import_query(*lang)?);
+        comment_query_map.insert(*lang, languages::compile_comment_query(*lang)?);
     }
     let query_map = Arc::new(query_map);
     let import_query_map = Arc::new(import_query_map);
+    let comment_query_map = Arc::new(comment_query_map);
 
-    // Phase 2-3: Parse files and extract symbols + imports (parallel)
+    // Phase 2-3: Parse files and extract symbols + imports + comments (parallel)
     let results: Vec<_> = files
         .par_iter()
         .filter_map(|path| {
@@ -222,6 +248,7 @@ fn run_parse(
             let lang = Language::from_extension(ext)?;
             let query = query_map.get(&lang)?;
             let import_query = import_query_map.get(&lang)?;
+            let comment_query = comment_query_map.get(&lang)?;
 
             let mut ts_parser = match parser::create_parser(lang) {
                 Ok(p) => p,
@@ -254,19 +281,27 @@ fn run_parse(
                 import_query,
                 &metadata.path,
             );
+            let cmts = languages::extract_comments(
+                &tree,
+                source.as_bytes(),
+                comment_query,
+                &metadata.path,
+            );
 
-            Some((metadata, syms, imps))
+            Some((metadata, syms, imps, cmts))
         })
         .collect();
 
     let mut all_files: Vec<FileMetadata> = Vec::new();
     let mut all_symbols: Vec<SymbolInfo> = Vec::new();
     let mut all_imports: Vec<ImportInfo> = Vec::new();
+    let mut all_comments: Vec<CommentInfo> = Vec::new();
 
-    for (metadata, syms, imps) in results {
+    for (metadata, syms, imps, cmts) in results {
         all_files.push(metadata);
         all_symbols.extend(syms);
         all_imports.extend(imps);
+        all_comments.extend(cmts);
     }
 
     // Phase 4: Write parquet output
@@ -276,17 +311,19 @@ fn run_parse(
     output::write_files_parquet(&all_files, output_dir)?;
     output::write_symbols_parquet(&all_symbols, output_dir)?;
     output::write_imports_parquet(&all_imports, output_dir)?;
+    output::write_comments_parquet(&all_comments, output_dir)?;
 
     let elapsed = start.elapsed();
     eprintln!(
-        "Done: {} files, {} symbols, {} imports in {:.2}s",
+        "Done: {} files, {} symbols, {} imports, {} comments in {:.2}s",
         all_files.len(),
         all_symbols.len(),
         all_imports.len(),
+        all_comments.len(),
         elapsed.as_secs_f64()
     );
     eprintln!(
-        "Output: {}/{{files,symbols,imports}}.parquet",
+        "Output: {}/{{files,symbols,imports,comments}}.parquet",
         output_dir.display(),
     );
 

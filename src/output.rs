@@ -8,7 +8,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
-use crate::models::{FileMetadata, ImportInfo, SymbolInfo};
+use crate::models::{CommentInfo, FileMetadata, ImportInfo, SymbolInfo};
 
 fn files_schema() -> Schema {
     Schema::new(vec![
@@ -157,6 +157,68 @@ pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Resul
     writer
         .write(&batch)
         .context("failed to write imports batch")?;
+    writer.close().context("failed to close parquet writer")?;
+
+    Ok(())
+}
+
+fn comments_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("text", DataType::Utf8, false),
+        Field::new("kind", DataType::Utf8, false),
+        Field::new("start_line", DataType::UInt32, false),
+        Field::new("start_column", DataType::UInt32, false),
+        Field::new("end_line", DataType::UInt32, false),
+        Field::new("end_column", DataType::UInt32, false),
+        Field::new("associated_symbol", DataType::Utf8, true),
+        Field::new("associated_symbol_kind", DataType::Utf8, true),
+    ])
+}
+
+pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Result<()> {
+    let schema = Arc::new(comments_schema());
+
+    let file_paths: Vec<&str> = comments.iter().map(|c| c.file_path.as_str()).collect();
+    let texts: Vec<&str> = comments.iter().map(|c| c.text.as_str()).collect();
+    let kinds: Vec<&str> = comments.iter().map(|c| c.kind.as_str()).collect();
+    let start_lines: Vec<u32> = comments.iter().map(|c| c.start_line).collect();
+    let start_cols: Vec<u32> = comments.iter().map(|c| c.start_column).collect();
+    let end_lines: Vec<u32> = comments.iter().map(|c| c.end_line).collect();
+    let end_cols: Vec<u32> = comments.iter().map(|c| c.end_column).collect();
+    let associated_symbols: Vec<Option<&str>> = comments
+        .iter()
+        .map(|c| c.associated_symbol.as_deref())
+        .collect();
+    let associated_symbol_kinds: Vec<Option<&str>> = comments
+        .iter()
+        .map(|c| c.associated_symbol_kind.as_deref())
+        .collect();
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(file_paths)),
+            Arc::new(StringArray::from(texts)),
+            Arc::new(StringArray::from(kinds)),
+            Arc::new(UInt32Array::from(start_lines)),
+            Arc::new(UInt32Array::from(start_cols)),
+            Arc::new(UInt32Array::from(end_lines)),
+            Arc::new(UInt32Array::from(end_cols)),
+            Arc::new(StringArray::from(associated_symbols)),
+            Arc::new(StringArray::from(associated_symbol_kinds)),
+        ],
+    )
+    .context("failed to create comments RecordBatch")?;
+
+    let path = output_dir.join("comments.parquet");
+    let file = File::create(&path)
+        .with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer = ArrowWriter::try_new(file, schema, None)
+        .context("failed to create parquet writer")?;
+    writer
+        .write(&batch)
+        .context("failed to write comments batch")?;
     writer.close().context("failed to close parquet writer")?;
 
     Ok(())

@@ -62,6 +62,19 @@ pub struct ImportInfo {
     pub is_external: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct CommentInfo {
+    pub file_path: String,
+    pub text: String,
+    pub kind: String,
+    pub start_line: u32,
+    pub start_column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub associated_symbol: Option<String>,
+    pub associated_symbol_kind: Option<String>,
+}
+
 impl ImportInfo {
     /// Classify a module specifier as external (library) or internal (user code).
     /// Internal: starts with `.` (relative path) or `#` (Node.js subpath import).

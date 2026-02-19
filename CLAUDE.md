@@ -28,24 +28,25 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 | `dependents` | Show what files import a given file (reverse dependencies) |
 | `callers` | Find which files import a specific symbol |
 | `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
+| `comments` | List comments with filters (`--file`, `--kind`, `--documented`, `--symbol`) |
 
 ## Project Structure
 
 ```
 src/
 ├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism
-├── cli.rs             # Clap subcommand definitions (11 subcommands + OutputFormat/FileSortField enums)
+├── cli.rs             # Clap subcommand definitions (12 subcommands + OutputFormat/FileSortField enums)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
 ├── language.rs        # Language enum, extension mapping, parser selection
-├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo
+├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
 ├── parser.rs          # Tree-sitter parsing, file metadata collection
-├── output.rs          # Arrow schemas + parquet writing (files, symbols, imports)
+├── output.rs          # Arrow schemas + parquet writing (files, symbols, imports, comments)
 ├── languages/
-│   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports
-│   └── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports)
+│   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
+│   └── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports + comments)
 └── query/
     ├── mod.rs         # Module re-exports
-    ├── db.rs          # QueryEngine: DuckDB connection, view registration (files, symbols, imports)
+    ├── db.rs          # QueryEngine: DuckDB connection, view registration (files, symbols, imports, comments)
     ├── format.rs      # Output formatting (table/json/csv)
     ├── search.rs      # Fuzzy symbol search
     ├── overview.rs    # Codebase overview (languages, top symbols, directories, dependency summary)
@@ -55,7 +56,8 @@ src/
     ├── deps.rs        # File dependency listing (what does this file import?)
     ├── dependents.rs  # Reverse dependency lookup (what files import this file?)
     ├── callers.rs     # Find which files import a specific symbol
-    └── imports.rs     # Import listing with filters
+    ├── imports.rs     # Import listing with filters
+    └── comments.rs    # Comment listing with filters
 ```
 
 ## Architecture
@@ -65,8 +67,8 @@ src/
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
 - **tree-sitter 0.25**: `QueryMatches` uses `streaming_iterator::StreamingIterator`, not `std::iter::Iterator`. Iterate with `while let Some(m) = matches.next()`.
-- **Output**: Three parquet files — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports).
-- **Querying**: DuckDB in-memory connection. `QueryEngine::new()` registers parquet files as views (`files`, `symbols`, conditionally `imports`) so all SQL uses plain table names. The `imports` view is backward-compatible — only registered if `imports.parquet` exists.
+- **Output**: Four parquet files — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments).
+- **Querying**: DuckDB in-memory connection. `QueryEngine::new()` registers parquet files as views (`files`, `symbols`, conditionally `imports`, conditionally `comments`) so all SQL uses plain table names. The `imports` and `comments` views are backward-compatible — only registered if their parquet files exist.
 - **Output formats**: `OutputFormat` enum (table/json/csv) shared across all query subcommands. Formatting logic in `query/format.rs`.
 
 ## Supported Languages
@@ -81,6 +83,10 @@ function, class, method, variable, interface, type_alias, enum, arrow_function
 
 static, dynamic, require, re_export
 
+## Comment Kinds
+
+line, block, doc
+
 ## Key Decisions
 
 - Export detection: checks if definition node's parent is an `export_statement`
@@ -91,3 +97,5 @@ static, dynamic, require, re_export
 - Import `kind` is a free-form String (not an enum) so new languages can define their own kinds without modifying a central type
 - `imports` view registered conditionally for backward compatibility with data dirs that predate import support
 - `is_external` classification: internal = starts with `.` or `#` (relative paths, Node.js subpath imports); external = everything else (bare specifiers, scoped packages, builtins). Computed at parse time and stored in parquet. Old parquet files without this column get it synthesized via SQL in the view registration.
+- Comment classification: `/**` → "doc", `/*` → "block", `//` → "line". Associated symbol detected via `next_named_sibling()` of comment node, drilling through `export_statement` and `variable_declarator` as needed.
+- `comments` view registered conditionally for backward compatibility with data dirs that predate comment support.

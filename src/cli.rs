@@ -234,6 +234,36 @@ pub enum Command {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+    /// List comments with filters
+    Comments {
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter by comment kind (line, block, doc)
+        #[arg(long)]
+        kind: Option<String>,
+
+        /// Only show comments associated with a symbol
+        #[arg(long)]
+        documented: bool,
+
+        /// Filter by associated symbol name (fuzzy match)
+        #[arg(long)]
+        symbol: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Clone, ValueEnum)]

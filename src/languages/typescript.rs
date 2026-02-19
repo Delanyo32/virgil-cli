@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
 
 // ── Symbol queries ──
 
@@ -90,6 +90,12 @@ const JS_IMPORT_QUERY: &str = r#"
   arguments: (arguments (string) @source)) @call
 "#;
 
+// ── Comment queries ──
+
+const COMMENT_QUERY: &str = r#"
+(comment) @comment
+"#;
+
 // ── Query compilation ──
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
@@ -111,6 +117,13 @@ pub fn compile_import_query(language: Language) -> Result<Arc<Query>> {
     };
     let query = Query::new(&ts_lang, source)
         .with_context(|| format!("failed to compile import query for {language}"))?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_comment_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query = Query::new(&ts_lang, COMMENT_QUERY)
+        .with_context(|| format!("failed to compile comment query for {language}"))?;
     Ok(Arc::new(query))
 }
 
@@ -515,6 +528,136 @@ fn extract_export_specifier(
         1 => (identifiers[0].clone(), identifiers[0].clone()),
         _ => (identifiers[0].clone(), identifiers[1].clone()),
     }
+}
+
+// ── Comment extraction ──
+
+pub fn extract_comments(
+    tree: &Tree,
+    source: &[u8],
+    query: &Query,
+    file_path: &str,
+) -> Vec<CommentInfo> {
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(query, tree.root_node(), source);
+
+    let comment_idx = query.capture_index_for_name("comment");
+
+    let mut comments = Vec::new();
+
+    while let Some(m) = matches.next() {
+        let comment_cap = comment_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+        let Some(comment_cap) = comment_cap else {
+            continue;
+        };
+
+        let node = comment_cap.node;
+        let text = node.utf8_text(source).unwrap_or("").to_string();
+        if text.is_empty() {
+            continue;
+        }
+
+        let kind = classify_comment(&text);
+        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+
+        comments.push(CommentInfo {
+            file_path: file_path.to_string(),
+            text,
+            kind,
+            start_line: node.start_position().row as u32,
+            start_column: node.start_position().column as u32,
+            end_line: node.end_position().row as u32,
+            end_column: node.end_position().column as u32,
+            associated_symbol,
+            associated_symbol_kind,
+        });
+    }
+
+    comments
+}
+
+fn classify_comment(text: &str) -> String {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("/**") {
+        "doc".to_string()
+    } else if trimmed.starts_with("/*") {
+        "block".to_string()
+    } else {
+        "line".to_string()
+    }
+}
+
+fn find_associated_symbol(
+    comment_node: tree_sitter::Node,
+    source: &[u8],
+) -> (Option<String>, Option<String>) {
+    let sibling = comment_node.next_named_sibling();
+    let Some(sibling) = sibling else {
+        return (None, None);
+    };
+
+    extract_symbol_from_node(sibling, source)
+}
+
+fn extract_symbol_from_node(
+    node: tree_sitter::Node,
+    source: &[u8],
+) -> (Option<String>, Option<String>) {
+    let kind_str = node.kind();
+
+    // If the sibling is an export_statement, look at its first named child
+    if kind_str == "export_statement" {
+        if let Some(child) = node.named_child(0) {
+            return extract_symbol_from_node(child, source);
+        }
+        return (None, None);
+    }
+
+    let symbol_kind = match kind_str {
+        "function_declaration" => "function",
+        "class_declaration" => "class",
+        "method_definition" => "method",
+        "interface_declaration" => "interface",
+        "type_alias_declaration" => "type_alias",
+        "enum_declaration" => "enum",
+        "lexical_declaration" | "variable_declaration" => {
+            // Drill into variable_declarator to get the name
+            if let Some(declarator) = find_child_by_kind(node, "variable_declarator") {
+                let name = declarator
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .map(|s| s.to_string());
+                let value_kind = declarator
+                    .child_by_field_name("value")
+                    .map(|n| n.kind());
+                let sk = if value_kind == Some("arrow_function") {
+                    "arrow_function"
+                } else {
+                    "variable"
+                };
+                return (name, Some(sk.to_string()));
+            }
+            return (None, None);
+        }
+        _ => return (None, None),
+    };
+
+    let name = node
+        .child_by_field_name("name")
+        .and_then(|n| n.utf8_text(source).ok())
+        .map(|s| s.to_string());
+
+    (name, Some(symbol_kind.to_string()))
+}
+
+fn find_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            return Some(child);
+        }
+    }
+    None
 }
 
 // ── Tests ──

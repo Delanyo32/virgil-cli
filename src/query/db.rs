@@ -93,6 +93,19 @@ impl QueryEngine {
                 .context("failed to create imports view")?;
         }
 
+        // Conditionally register comments view (backward compatible)
+        let comments_path = data_dir.join("comments.parquet");
+        if comments_path.exists() {
+            conn.execute(
+                &format!(
+                    "CREATE VIEW comments AS SELECT * FROM read_parquet('{}')",
+                    comments_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+            )
+            .context("failed to create comments view")?;
+        }
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
@@ -101,6 +114,10 @@ impl QueryEngine {
 
     pub fn has_imports(&self) -> bool {
         self.data_dir.join("imports.parquet").exists()
+    }
+
+    pub fn has_comments(&self) -> bool {
+        self.data_dir.join("comments.parquet").exists()
     }
 }
 
