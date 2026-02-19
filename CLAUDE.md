@@ -1,12 +1,12 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript/C/C++/C# codebases into structured Parquet files and queries them with DuckDB.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go codebases into structured Parquet files and queries them with DuckDB.
 
 ## Build & Run
 
 ```bash
 cargo build
-cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs]
+cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go]
 cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
 cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
 ```
@@ -46,7 +46,10 @@ src/
 │   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports + comments)
 │   ├── c_lang.rs      # C tree-sitter queries and extraction (symbols + #include imports + comments)
 │   ├── cpp.rs         # C++ tree-sitter queries and extraction (extends C with classes, namespaces)
-│   └── csharp.rs      # C# tree-sitter queries and extraction (classes, interfaces, using directives)
+│   ├── csharp.rs      # C# tree-sitter queries and extraction (classes, interfaces, using directives)
+│   ├── rust_lang.rs   # Rust tree-sitter queries and extraction (functions, structs, traits, use imports)
+│   ├── python.rs      # Python tree-sitter queries and extraction (functions, classes, imports, docstrings)
+│   └── go.rs          # Go tree-sitter queries and extraction (functions, methods, structs, interfaces)
 └── query/
     ├── mod.rs         # Module re-exports
     ├── db.rs          # QueryEngine: DuckDB connection, view registration (files, symbols, imports, comments)
@@ -65,7 +68,7 @@ src/
 
 ## Architecture
 
-- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js, `tree-sitter-c` for .c/.h, `tree-sitter-cpp` for .cpp/.cc/.cxx/.hpp/.hxx/.hh, `tree-sitter-c-sharp` for .cs.
+- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js, `tree-sitter-c` for .c/.h, `tree-sitter-cpp` for .cpp/.cc/.cxx/.hpp/.hxx/.hh, `tree-sitter-c-sharp` for .cs, `tree-sitter-rust` for .rs, `tree-sitter-python` for .py/.pyi, `tree-sitter-go` for .go.
 - **Language modules**: All tree-sitter queries and extraction logic for a language family live in one file (`languages/typescript.rs`). The `languages/mod.rs` dispatches based on `Language` enum. Adding a new language = add a new file, update the dispatch.
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
@@ -76,15 +79,15 @@ src/
 
 ## Supported Languages
 
-TypeScript (.ts), TSX (.tsx), JavaScript (.js), JSX (.jsx), C (.c, .h), C++ (.cpp, .cc, .cxx, .hpp, .hxx, .hh), C# (.cs)
+TypeScript (.ts), TSX (.tsx), JavaScript (.js), JSX (.jsx), C (.c, .h), C++ (.cpp, .cc, .cxx, .hpp, .hxx, .hh), C# (.cs), Rust (.rs), Python (.py, .pyi), Go (.go)
 
 ## Symbol Kinds
 
-function, class, method, variable, interface, type_alias, enum, arrow_function, struct, union, namespace, macro, property, typedef
+function, class, method, variable, interface, type_alias, enum, arrow_function, struct, union, namespace, macro, property, typedef, trait, constant, module
 
 ## Import Kinds
 
-static, dynamic, require, re_export, include, using
+static, dynamic, require, re_export, include, using, use, import, from
 
 ## Comment Kinds
 
@@ -108,3 +111,14 @@ line, block, doc
 - C# imports: `using` directives. Kind = "using". All treated as external (no syntactic way to distinguish).
 - `.h` files map to C (design choice). C++ headers should use `.hpp`/`.hxx`/`.hh`.
 - `Language::all_extensions()` returns all extensions per language (C++ has 6). Used in file discovery via `flat_map`.
+- Rust export detection: `visibility_modifier` child = exported (any `pub` variant). No modifier = not exported.
+- Rust imports: `use` declarations. Kind = "use". Internal = starts with `crate::`, `self::`, `super::`. External = everything else.
+- Rust methods: `function_item` inside `impl_item` or `trait_item` (via `declaration_list` parent).
+- Go export detection: first letter uppercase = exported, lowercase = not exported.
+- Go imports: `import` declarations. Kind = "import". All treated as external. Last path segment = imported_name.
+- Go type declarations: `struct_type` → Struct, `interface_type` → Interface, otherwise TypeAlias.
+- Python export detection: name starts with `_` = not exported, otherwise exported.
+- Python imports: `import` statements (kind = "import"), `from ... import` statements (kind = "from"). Relative imports (starts with `.`) = internal, absolute = external.
+- Python methods: `function_definition` inside `class_definition` (walk parent chain, stop at function boundary).
+- Python docstrings: `expression_statement > string` as first statement in function/class/module body → "doc" comment. Associated symbol from enclosing definition.
+- Python `decorated_definition`: unwrap to inner function/class; skip bare `function_definition`/`class_definition` if parent is `decorated_definition` (deduplication).

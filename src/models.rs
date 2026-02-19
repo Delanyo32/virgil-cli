@@ -26,6 +26,9 @@ pub enum SymbolKind {
     Macro,
     Property,
     Typedef,
+    Trait,
+    Constant,
+    Module,
 }
 
 impl fmt::Display for SymbolKind {
@@ -45,6 +48,9 @@ impl fmt::Display for SymbolKind {
             SymbolKind::Macro => "macro",
             SymbolKind::Property => "property",
             SymbolKind::Typedef => "typedef",
+            SymbolKind::Trait => "trait",
+            SymbolKind::Constant => "constant",
+            SymbolKind::Module => "module",
         };
         f.write_str(s)
     }
@@ -131,5 +137,8 @@ mod tests {
         assert_eq!(SymbolKind::Macro.to_string(), "macro");
         assert_eq!(SymbolKind::Property.to_string(), "property");
         assert_eq!(SymbolKind::Typedef.to_string(), "typedef");
+        assert_eq!(SymbolKind::Trait.to_string(), "trait");
+        assert_eq!(SymbolKind::Constant.to_string(), "constant");
+        assert_eq!(SymbolKind::Module.to_string(), "module");
     }
 }

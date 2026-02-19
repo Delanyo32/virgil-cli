@@ -19,7 +19,7 @@ pub enum Command {
         #[arg(short, long, default_value = ".")]
         output: PathBuf,
 
-        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs)
+        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go)
         #[arg(short, long)]
         language: Option<String>,
     },

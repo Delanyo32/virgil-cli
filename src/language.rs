@@ -9,6 +9,9 @@ pub enum Language {
     C,
     Cpp,
     CSharp,
+    Rust,
+    Python,
+    Go,
 }
 
 impl Language {
@@ -21,6 +24,9 @@ impl Language {
             "c" | "h" => Some(Language::C),
             "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Some(Language::Cpp),
             "cs" => Some(Language::CSharp),
+            "rs" => Some(Language::Rust),
+            "py" | "pyi" => Some(Language::Python),
+            "go" => Some(Language::Go),
             _ => None,
         }
     }
@@ -33,6 +39,9 @@ impl Language {
             Language::C => tree_sitter_c::LANGUAGE.into(),
             Language::Cpp => tree_sitter_cpp::LANGUAGE.into(),
             Language::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
+            Language::Rust => tree_sitter_rust::LANGUAGE.into(),
+            Language::Python => tree_sitter_python::LANGUAGE.into(),
+            Language::Go => tree_sitter_go::LANGUAGE.into(),
         }
     }
 
@@ -45,6 +54,9 @@ impl Language {
             Language::C => "c",
             Language::Cpp => "cpp",
             Language::CSharp => "csharp",
+            Language::Rust => "rust",
+            Language::Python => "python",
+            Language::Go => "go",
         }
     }
 
@@ -57,6 +69,9 @@ impl Language {
             Language::C => "c",
             Language::Cpp => "cpp",
             Language::CSharp => "cs",
+            Language::Rust => "rs",
+            Language::Python => "py",
+            Language::Go => "go",
         }
     }
 
@@ -69,6 +84,9 @@ impl Language {
             Language::C => &["c", "h"],
             Language::Cpp => &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
             Language::CSharp => &["cs"],
+            Language::Rust => &["rs"],
+            Language::Python => &["py", "pyi"],
+            Language::Go => &["go"],
         }
     }
 
@@ -81,6 +99,9 @@ impl Language {
             Language::C,
             Language::Cpp,
             Language::CSharp,
+            Language::Rust,
+            Language::Python,
+            Language::Go,
         ]
     }
 }
@@ -117,12 +138,16 @@ mod tests {
         assert_eq!(Language::from_extension("hxx"), Some(Language::Cpp));
         assert_eq!(Language::from_extension("hh"), Some(Language::Cpp));
         assert_eq!(Language::from_extension("cs"), Some(Language::CSharp));
+        assert_eq!(Language::from_extension("rs"), Some(Language::Rust));
+        assert_eq!(Language::from_extension("py"), Some(Language::Python));
+        assert_eq!(Language::from_extension("pyi"), Some(Language::Python));
+        assert_eq!(Language::from_extension("go"), Some(Language::Go));
     }
 
     #[test]
     fn from_extension_invalid() {
-        assert_eq!(Language::from_extension("py"), None);
-        assert_eq!(Language::from_extension("rs"), None);
+        assert_eq!(Language::from_extension("rb"), None);
+        assert_eq!(Language::from_extension("java"), None);
         assert_eq!(Language::from_extension(""), None);
     }
 
@@ -135,8 +160,8 @@ mod tests {
     }
 
     #[test]
-    fn all_returns_seven_variants() {
-        assert_eq!(Language::all().len(), 7);
+    fn all_returns_ten_variants() {
+        assert_eq!(Language::all().len(), 10);
     }
 
     #[test]
@@ -148,6 +173,10 @@ mod tests {
         // Single-extension languages
         assert_eq!(Language::TypeScript.all_extensions(), &["ts"]);
         assert_eq!(Language::CSharp.all_extensions(), &["cs"]);
+        // New languages
+        assert_eq!(Language::Rust.all_extensions(), &["rs"]);
+        assert_eq!(Language::Python.all_extensions(), &["py", "pyi"]);
+        assert_eq!(Language::Go.all_extensions(), &["go"]);
     }
 
     #[test]
@@ -170,13 +199,13 @@ mod tests {
 
     #[test]
     fn parse_language_filter_invalid_ignored() {
-        let result = parse_language_filter("ts,py,js");
+        let result = parse_language_filter("ts,rb,js");
         assert_eq!(result, vec![Language::TypeScript, Language::JavaScript]);
     }
 
     #[test]
     fn parse_language_filter_all_invalid() {
-        let result = parse_language_filter("py,rs");
+        let result = parse_language_filter("rb,java");
         assert!(result.is_empty());
     }
 

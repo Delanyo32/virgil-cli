@@ -2,6 +2,9 @@ mod typescript;
 mod c_lang;
 mod cpp;
 mod csharp;
+mod rust_lang;
+mod python;
+mod go;
 
 use std::sync::Arc;
 
@@ -19,6 +22,9 @@ pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
         Language::C => c_lang::compile_symbol_query(language),
         Language::Cpp => cpp::compile_symbol_query(language),
         Language::CSharp => csharp::compile_symbol_query(language),
+        Language::Rust => rust_lang::compile_symbol_query(language),
+        Language::Python => python::compile_symbol_query(language),
+        Language::Go => go::compile_symbol_query(language),
     }
 }
 
@@ -30,6 +36,9 @@ pub fn compile_import_query(language: Language) -> Result<Arc<Query>> {
         Language::C => c_lang::compile_import_query(language),
         Language::Cpp => cpp::compile_import_query(language),
         Language::CSharp => csharp::compile_import_query(language),
+        Language::Rust => rust_lang::compile_import_query(language),
+        Language::Python => python::compile_import_query(language),
+        Language::Go => go::compile_import_query(language),
     }
 }
 
@@ -41,6 +50,9 @@ pub fn compile_comment_query(language: Language) -> Result<Arc<Query>> {
         Language::C => c_lang::compile_comment_query(language),
         Language::Cpp => cpp::compile_comment_query(language),
         Language::CSharp => csharp::compile_comment_query(language),
+        Language::Rust => rust_lang::compile_comment_query(language),
+        Language::Python => python::compile_comment_query(language),
+        Language::Go => go::compile_comment_query(language),
     }
 }
 
@@ -58,6 +70,9 @@ pub fn extract_symbols(
         Language::C => c_lang::extract_symbols(tree, source, query, file_path),
         Language::Cpp => cpp::extract_symbols(tree, source, query, file_path),
         Language::CSharp => csharp::extract_symbols(tree, source, query, file_path),
+        Language::Rust => rust_lang::extract_symbols(tree, source, query, file_path),
+        Language::Python => python::extract_symbols(tree, source, query, file_path),
+        Language::Go => go::extract_symbols(tree, source, query, file_path),
     }
 }
 
@@ -75,6 +90,9 @@ pub fn extract_imports(
         Language::C => c_lang::extract_imports(tree, source, query, file_path),
         Language::Cpp => cpp::extract_imports(tree, source, query, file_path),
         Language::CSharp => csharp::extract_imports(tree, source, query, file_path),
+        Language::Rust => rust_lang::extract_imports(tree, source, query, file_path),
+        Language::Python => python::extract_imports(tree, source, query, file_path),
+        Language::Go => go::extract_imports(tree, source, query, file_path),
     }
 }
 
@@ -92,5 +110,8 @@ pub fn extract_comments(
         Language::C => c_lang::extract_comments(tree, source, query, file_path),
         Language::Cpp => cpp::extract_comments(tree, source, query, file_path),
         Language::CSharp => csharp::extract_comments(tree, source, query, file_path),
+        Language::Rust => rust_lang::extract_comments(tree, source, query, file_path),
+        Language::Python => python::extract_comments(tree, source, query, file_path),
+        Language::Go => go::extract_comments(tree, source, query, file_path),
     }
 }
