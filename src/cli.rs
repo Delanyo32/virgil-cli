@@ -1,17 +1,151 @@
-use clap::Parser;
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "virgil-cli", about = "Parse codebases and output structured parquet files")]
-pub struct Args {
-    /// Root directory to parse
-    pub dir: PathBuf,
+#[command(name = "virgil", about = "Parse codebases and query structured parquet files")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
+}
 
-    /// Output directory for parquet files
-    #[arg(short, long, default_value = ".")]
-    pub output: PathBuf,
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Parse a codebase and output parquet files
+    Parse {
+        /// Root directory to parse
+        dir: PathBuf,
 
-    /// Comma-separated language filter (ts,tsx,js,jsx)
-    #[arg(short, long)]
-    pub language: Option<String>,
+        /// Output directory for parquet files
+        #[arg(short, long, default_value = ".")]
+        output: PathBuf,
+
+        /// Comma-separated language filter (ts,tsx,js,jsx)
+        #[arg(short, long)]
+        language: Option<String>,
+    },
+
+    /// Show codebase overview (language breakdown, top symbols, directories)
+    Overview {
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Search for symbols by name
+    Search {
+        /// Search query (fuzzy match)
+        query: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Filter by symbol kind
+        #[arg(long)]
+        kind: Option<String>,
+
+        /// Only show exported symbols
+        #[arg(long)]
+        exported: bool,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Number of results to skip
+        #[arg(long, default_value = "0")]
+        offset: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Show all symbols in a file
+    Outline {
+        /// File path to get outline for
+        file_path: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// List parsed files
+    Files {
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Filter by language
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Filter by directory prefix
+        #[arg(long)]
+        directory: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "100")]
+        limit: usize,
+
+        /// Number of results to skip
+        #[arg(long, default_value = "0")]
+        offset: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Read source file content
+    Read {
+        /// File path to read (relative, as stored in parquet)
+        file_path: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Root directory of the source project
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+
+        /// Start line (1-indexed)
+        #[arg(long)]
+        start_line: Option<usize>,
+
+        /// End line (1-indexed, inclusive)
+        #[arg(long)]
+        end_line: Option<usize>,
+    },
+
+    /// Execute raw SQL against parquet files
+    Query {
+        /// SQL query to execute
+        sql: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum OutputFormat {
+    Table,
+    Json,
+    Csv,
 }

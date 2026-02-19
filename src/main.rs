@@ -5,23 +5,122 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
-use virgil_cli::cli::Args;
+use virgil_cli::cli::{Cli, Command, OutputFormat};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::models::{FileMetadata, SymbolInfo};
 use virgil_cli::output;
 use virgil_cli::parser;
+use virgil_cli::query;
 use virgil_cli::symbols;
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    let root = args
-        .dir
+    match cli.command {
+        Command::Parse {
+            dir,
+            output: output_dir,
+            language: lang_filter,
+        } => run_parse(&dir, &output_dir, lang_filter.as_deref()),
+
+        Command::Overview { data_dir, format } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::overview::run_overview(&engine, &format)?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Search {
+            query: q,
+            data_dir,
+            kind,
+            exported,
+            limit,
+            offset,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::search::run_search(
+                &engine,
+                &q,
+                kind.as_deref(),
+                exported,
+                limit,
+                offset,
+                &format,
+            )?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Outline {
+            file_path,
+            data_dir,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::outline::run_outline(&engine, &file_path, &format)?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Files {
+            data_dir,
+            language: lang,
+            directory,
+            limit,
+            offset,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::files::run_files(
+                &engine,
+                lang.as_deref(),
+                directory.as_deref(),
+                limit,
+                offset,
+                &format,
+            )?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Read {
+            file_path,
+            data_dir: _,
+            root,
+            start_line,
+            end_line,
+        } => {
+            let output = query::read::run_read(&file_path, &root, start_line, end_line)?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Query {
+            sql,
+            data_dir,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = run_raw_query(&engine, &sql, &format)?;
+            print!("{output}");
+            Ok(())
+        }
+    }
+}
+
+fn run_parse(
+    dir: &std::path::Path,
+    output_dir: &std::path::Path,
+    lang_filter: Option<&str>,
+) -> Result<()> {
+    let root = dir
         .canonicalize()
-        .with_context(|| format!("invalid directory: {}", args.dir.display()))?;
+        .with_context(|| format!("invalid directory: {}", dir.display()))?;
 
-    let languages: Vec<Language> = if let Some(ref filter) = args.language {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
     } else {
         Language::all().to_vec()
@@ -96,11 +195,11 @@ fn main() -> Result<()> {
     }
 
     // Phase 4: Write parquet output
-    std::fs::create_dir_all(&args.output)
-        .with_context(|| format!("failed to create output dir: {}", args.output.display()))?;
+    std::fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create output dir: {}", output_dir.display()))?;
 
-    output::write_files_parquet(&all_files, &args.output)?;
-    output::write_symbols_parquet(&all_symbols, &args.output)?;
+    output::write_files_parquet(&all_files, output_dir)?;
+    output::write_symbols_parquet(&all_symbols, output_dir)?;
 
     let elapsed = start.elapsed();
     eprintln!(
@@ -111,9 +210,148 @@ fn main() -> Result<()> {
     );
     eprintln!(
         "Output: {}/files.parquet, {}/symbols.parquet",
-        args.output.display(),
-        args.output.display()
+        output_dir.display(),
+        output_dir.display()
     );
 
     Ok(())
+}
+
+fn run_raw_query(
+    engine: &query::db::QueryEngine,
+    sql: &str,
+    format: &OutputFormat,
+) -> Result<String> {
+    use duckdb::types::ValueRef;
+    use serde_json::Value;
+
+    let mut stmt = engine
+        .conn
+        .prepare(sql)
+        .context("failed to prepare SQL query")?;
+
+    let mut rows = stmt.query([]).context("failed to execute query")?;
+
+    // Get column info after execution
+    let column_count = rows.as_ref().unwrap().column_count();
+    let column_names: Vec<String> = (0..column_count)
+        .map(|i| {
+            rows.as_ref()
+                .unwrap()
+                .column_name(i)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| "?".to_string())
+        })
+        .collect();
+
+    let mut collected: Vec<serde_json::Map<String, Value>> = Vec::new();
+    while let Some(row) = rows.next().context("failed to fetch row")? {
+        let mut map = serde_json::Map::new();
+        for i in 0..column_count {
+            let name = &column_names[i];
+            let value: Value = match row.get_ref(i) {
+                Ok(ValueRef::Null) => Value::Null,
+                Ok(ValueRef::Boolean(b)) => Value::Bool(b),
+                Ok(ValueRef::TinyInt(v)) => Value::Number(v.into()),
+                Ok(ValueRef::SmallInt(v)) => Value::Number(v.into()),
+                Ok(ValueRef::Int(v)) => Value::Number(v.into()),
+                Ok(ValueRef::BigInt(v)) => Value::Number(v.into()),
+                Ok(ValueRef::HugeInt(v)) => Value::Number((v as i64).into()),
+                Ok(ValueRef::Float(v)) => serde_json::Number::from_f64(v as f64)
+                    .map(Value::Number)
+                    .unwrap_or(Value::Null),
+                Ok(ValueRef::Double(v)) => serde_json::Number::from_f64(v)
+                    .map(Value::Number)
+                    .unwrap_or(Value::Null),
+                Ok(ValueRef::Text(bytes)) => {
+                    Value::String(String::from_utf8_lossy(bytes).to_string())
+                }
+                Ok(ValueRef::Blob(bytes)) => {
+                    Value::String(format!("<blob {} bytes>", bytes.len()))
+                }
+                _ => Value::Null,
+            };
+            map.insert(name.clone(), value);
+        }
+        collected.push(map);
+    }
+
+    match format {
+        OutputFormat::Json => Ok(serde_json::to_string_pretty(&collected)?),
+        OutputFormat::Csv => {
+            let mut out = String::new();
+            out.push_str(&column_names.join(","));
+            out.push('\n');
+            for row in &collected {
+                let cells: Vec<String> = column_names
+                    .iter()
+                    .map(|name| match row.get(name) {
+                        Some(Value::String(s)) => {
+                            if s.contains(',') || s.contains('"') {
+                                format!("\"{}\"", s.replace('"', "\"\""))
+                            } else {
+                                s.clone()
+                            }
+                        }
+                        Some(Value::Null) | None => String::new(),
+                        Some(v) => v.to_string(),
+                    })
+                    .collect();
+                out.push_str(&cells.join(","));
+                out.push('\n');
+            }
+            Ok(out)
+        }
+        OutputFormat::Table => {
+            if collected.is_empty() {
+                return Ok("(no results)\n".to_string());
+            }
+
+            let mut widths: Vec<usize> = column_names.iter().map(|n| n.len()).collect();
+            for row in &collected {
+                for (i, name) in column_names.iter().enumerate() {
+                    let cell = match row.get(name) {
+                        Some(Value::String(s)) => s.len(),
+                        Some(Value::Null) | None => 0,
+                        Some(v) => v.to_string().len(),
+                    };
+                    if cell > widths[i] {
+                        widths[i] = cell;
+                    }
+                }
+            }
+
+            let mut out = String::new();
+            let header: Vec<String> = column_names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| format!("{:<w$}", n, w = widths[i]))
+                .collect();
+            out.push_str(&header.join("  "));
+            out.push('\n');
+
+            let sep: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
+            out.push_str(&sep.join("  "));
+            out.push('\n');
+
+            for row in &collected {
+                let cells: Vec<String> = column_names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| {
+                        let cell = match row.get(name) {
+                            Some(Value::String(s)) => s.clone(),
+                            Some(Value::Null) | None => String::new(),
+                            Some(v) => v.to_string(),
+                        };
+                        format!("{:<w$}", cell, w = widths[i])
+                    })
+                    .collect();
+                out.push_str(&cells.join("  "));
+                out.push('\n');
+            }
+
+            Ok(out)
+        }
+    }
 }
