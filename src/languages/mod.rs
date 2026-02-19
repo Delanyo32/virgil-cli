@@ -5,6 +5,8 @@ mod csharp;
 mod rust_lang;
 mod python;
 mod go;
+mod java;
+mod php;
 
 use std::sync::Arc;
 
@@ -25,6 +27,8 @@ pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
         Language::Rust => rust_lang::compile_symbol_query(language),
         Language::Python => python::compile_symbol_query(language),
         Language::Go => go::compile_symbol_query(language),
+        Language::Java => java::compile_symbol_query(language),
+        Language::Php => php::compile_symbol_query(language),
     }
 }
 
@@ -39,6 +43,8 @@ pub fn compile_import_query(language: Language) -> Result<Arc<Query>> {
         Language::Rust => rust_lang::compile_import_query(language),
         Language::Python => python::compile_import_query(language),
         Language::Go => go::compile_import_query(language),
+        Language::Java => java::compile_import_query(language),
+        Language::Php => php::compile_import_query(language),
     }
 }
 
@@ -53,6 +59,8 @@ pub fn compile_comment_query(language: Language) -> Result<Arc<Query>> {
         Language::Rust => rust_lang::compile_comment_query(language),
         Language::Python => python::compile_comment_query(language),
         Language::Go => go::compile_comment_query(language),
+        Language::Java => java::compile_comment_query(language),
+        Language::Php => php::compile_comment_query(language),
     }
 }
 
@@ -73,6 +81,8 @@ pub fn extract_symbols(
         Language::Rust => rust_lang::extract_symbols(tree, source, query, file_path),
         Language::Python => python::extract_symbols(tree, source, query, file_path),
         Language::Go => go::extract_symbols(tree, source, query, file_path),
+        Language::Java => java::extract_symbols(tree, source, query, file_path),
+        Language::Php => php::extract_symbols(tree, source, query, file_path),
     }
 }
 
@@ -93,6 +103,8 @@ pub fn extract_imports(
         Language::Rust => rust_lang::extract_imports(tree, source, query, file_path),
         Language::Python => python::extract_imports(tree, source, query, file_path),
         Language::Go => go::extract_imports(tree, source, query, file_path),
+        Language::Java => java::extract_imports(tree, source, query, file_path),
+        Language::Php => php::extract_imports(tree, source, query, file_path),
     }
 }
 
@@ -113,5 +125,7 @@ pub fn extract_comments(
         Language::Rust => rust_lang::extract_comments(tree, source, query, file_path),
         Language::Python => python::extract_comments(tree, source, query, file_path),
         Language::Go => go::extract_comments(tree, source, query, file_path),
+        Language::Java => java::extract_comments(tree, source, query, file_path),
+        Language::Php => php::extract_comments(tree, source, query, file_path),
     }
 }

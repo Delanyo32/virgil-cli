@@ -1,6 +1,6 @@
 # virgil-cli
 
-A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C# codebases into structured Parquet files and queries the results with DuckDB. Built with [tree-sitter](https://tree-sitter.github.io/) for accurate parsing, [Apache Arrow](https://arrow.apache.org/) for efficient columnar output, and [DuckDB](https://duckdb.org/) for SQL-powered querying.
+A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases into structured Parquet files and queries the results with DuckDB. Built with [tree-sitter](https://tree-sitter.github.io/) for accurate parsing, [Apache Arrow](https://arrow.apache.org/) for efficient columnar output, and [DuckDB](https://duckdb.org/) for SQL-powered querying.
 
 ## Installation
 
@@ -41,7 +41,7 @@ virgil parse <DIR> [OPTIONS]
 |--------|-------------|---------|
 | `<DIR>` | Root directory to parse | required |
 | `-o`, `--output` | Output directory for parquet files | `.` |
-| `-l`, `--language` | Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,hxx,hh,cs) | all supported |
+| `-l`, `--language` | Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rs,py,pyi,go,java,php) | all supported |
 
 ### `overview`
 
@@ -171,7 +171,7 @@ virgil imports [OPTIONS]
 |--------|-------------|---------|
 | `--data-dir` | Directory containing parquet files | `.` |
 | `--module` | Filter by module specifier (fuzzy match) | none |
-| `--kind` | Filter by import kind (static, dynamic, require, re_export, include, using) | all |
+| `--kind` | Filter by import kind (static, dynamic, require, re_export, include, using, use, import, from) | all |
 | `--file` | Filter by source file prefix | none |
 | `--type-only` | Only show type-only imports | false |
 | `--external` | Only show external (library) imports | false |
@@ -212,6 +212,12 @@ virgil parse ./my-lib --language c,h,cpp,hpp
 
 # Parse a C# project
 virgil parse ./my-project --language cs
+
+# Parse a Java project
+virgil parse ./my-project --language java
+
+# Parse a PHP project
+virgil parse ./my-project --language php
 
 # Show codebase overview
 virgil overview --data-dir ./data
@@ -264,6 +270,12 @@ virgil imports --kind include --data-dir ./data
 # List C# using directives
 virgil imports --kind using --data-dir ./data
 
+# List Java imports
+virgil imports --kind import --file .java --data-dir ./data
+
+# List PHP use statements
+virgil imports --kind use --file .php --data-dir ./data
+
 # Sort files by number of dependents
 virgil files --sort dependents --data-dir ./data
 
@@ -307,7 +319,7 @@ Four Parquet files are generated:
 | path | Utf8 | Relative path from project root |
 | name | Utf8 | File name |
 | extension | Utf8 | Extension without dot |
-| language | Utf8 | typescript / tsx / javascript / jsx / c / cpp / csharp |
+| language | Utf8 | typescript / tsx / javascript / jsx / c / cpp / csharp / rust / python / go / java / php |
 | size_bytes | UInt64 | File size in bytes |
 | line_count | UInt64 | Number of lines |
 
@@ -332,7 +344,7 @@ Four Parquet files are generated:
 | module_specifier | Utf8 | Import path (e.g., `react`, `./utils/api`) |
 | imported_name | Utf8 | Imported symbol name (or `*` for namespace imports) |
 | local_name | Utf8 | Local binding name |
-| kind | Utf8 | Import kind (static, dynamic, require, re_export, include, using) |
+| kind | Utf8 | Import kind (static, dynamic, require, re_export, include, using, use, import, from) |
 | is_type_only | Boolean | Whether the import is type-only |
 | line | UInt32 | Line number of the import |
 | is_external | Boolean | Whether the import is from an external library (true) or user code (false) |
@@ -353,7 +365,7 @@ Four Parquet files are generated:
 
 ### Symbol Kinds
 
-`function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`, `struct`, `union`, `namespace`, `macro`, `property`, `typedef`
+`function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`, `struct`, `union`, `namespace`, `macro`, `property`, `typedef`, `trait`, `constant`, `module`
 
 ### Comment Kinds
 
@@ -370,14 +382,19 @@ Four Parquet files are generated:
 | C | `.c`, `.h` |
 | C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.hh` |
 | C# | `.cs` |
+| Rust | `.rs` |
+| Python | `.py`, `.pyi` |
+| Go | `.go` |
+| Java | `.java` |
+| PHP | `.php` |
 
 ## Features
 
-- **Multi-language** — TypeScript, JavaScript, C, C++, and C# with language-specific parsers
+- **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP with language-specific parsers
 - **Fast** — parallel file processing with rayon
 - **Accurate** — tree-sitter parsing (same parsers used by editors like Neovim and Zed)
 - **Gitignore-aware** — automatically skips `node_modules`, `dist`, `build`, and anything in `.gitignore`
-- **Export detection** — tracks whether symbols are exported (ES exports, C linkage, C# access modifiers)
+- **Export detection** — tracks whether symbols are exported (ES exports, C linkage, C#/Java access modifiers, Rust visibility, Go capitalization, Python underscore convention, PHP visibility)
 - **Arrow function support** — distinguishes arrow functions from regular variables
 - **Import tracking** — full import graph with kind, type-only, re-export detection, and external/internal classification
 - **DuckDB-powered querying** — run raw SQL against parsed parquet data

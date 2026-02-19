@@ -16,6 +16,8 @@ tree-sitter-c-sharp = "0.23"
 tree-sitter-rust = "0.24"
 tree-sitter-python = "0.25"
 tree-sitter-go = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-php = "0.24"
 arrow = { version = "54", default-features = false, features = ["prettyprint"] }
 parquet = { version = "54", default-features = false, features = ["arrow"] }
 rayon = "1.11"

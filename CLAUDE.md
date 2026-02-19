@@ -1,12 +1,12 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go codebases into structured Parquet files and queries them with DuckDB.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases into structured Parquet files and queries them with DuckDB.
 
 ## Build & Run
 
 ```bash
 cargo build
-cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go]
+cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php]
 cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
 cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
 ```
@@ -49,7 +49,9 @@ src/
 │   ├── csharp.rs      # C# tree-sitter queries and extraction (classes, interfaces, using directives)
 │   ├── rust_lang.rs   # Rust tree-sitter queries and extraction (functions, structs, traits, use imports)
 │   ├── python.rs      # Python tree-sitter queries and extraction (functions, classes, imports, docstrings)
-│   └── go.rs          # Go tree-sitter queries and extraction (functions, methods, structs, interfaces)
+│   ├── go.rs          # Go tree-sitter queries and extraction (functions, methods, structs, interfaces)
+│   ├── java.rs        # Java tree-sitter queries and extraction (classes, interfaces, enums, records, imports)
+│   └── php.rs         # PHP tree-sitter queries and extraction (classes, traits, namespaces, use/require imports)
 └── query/
     ├── mod.rs         # Module re-exports
     ├── db.rs          # QueryEngine: DuckDB connection, view registration (files, symbols, imports, comments)
@@ -68,7 +70,7 @@ src/
 
 ## Architecture
 
-- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js, `tree-sitter-c` for .c/.h, `tree-sitter-cpp` for .cpp/.cc/.cxx/.hpp/.hxx/.hh, `tree-sitter-c-sharp` for .cs, `tree-sitter-rust` for .rs, `tree-sitter-python` for .py/.pyi, `tree-sitter-go` for .go.
+- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js, `tree-sitter-c` for .c/.h, `tree-sitter-cpp` for .cpp/.cc/.cxx/.hpp/.hxx/.hh, `tree-sitter-c-sharp` for .cs, `tree-sitter-rust` for .rs, `tree-sitter-python` for .py/.pyi, `tree-sitter-go` for .go, `tree-sitter-java` for .java, `tree-sitter-php` (LANGUAGE_PHP) for .php.
 - **Language modules**: All tree-sitter queries and extraction logic for a language family live in one file (`languages/typescript.rs`). The `languages/mod.rs` dispatches based on `Language` enum. Adding a new language = add a new file, update the dispatch.
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
@@ -79,7 +81,7 @@ src/
 
 ## Supported Languages
 
-TypeScript (.ts), TSX (.tsx), JavaScript (.js), JSX (.jsx), C (.c, .h), C++ (.cpp, .cc, .cxx, .hpp, .hxx, .hh), C# (.cs), Rust (.rs), Python (.py, .pyi), Go (.go)
+TypeScript (.ts), TSX (.tsx), JavaScript (.js), JSX (.jsx), C (.c, .h), C++ (.cpp, .cc, .cxx, .hpp, .hxx, .hh), C# (.cs), Rust (.rs), Python (.py, .pyi), Go (.go), Java (.java), PHP (.php)
 
 ## Symbol Kinds
 
@@ -122,3 +124,11 @@ line, block, doc
 - Python methods: `function_definition` inside `class_definition` (walk parent chain, stop at function boundary).
 - Python docstrings: `expression_statement > string` as first statement in function/class/module body → "doc" comment. Associated symbol from enclosing definition.
 - Python `decorated_definition`: unwrap to inner function/class; skip bare `function_definition`/`class_definition` if parent is `decorated_definition` (deduplication).
+- Java export detection: `public` modifier (inside `modifiers` wrapper node) = exported; `private`/`protected`/package-private = not exported. Default = not exported (conservative).
+- Java imports: `import` declarations. Kind = "import" (or "static" for static imports). All treated as external. Wildcard `import java.util.*` uses `*` as imported_name.
+- Java `modifiers` wrapper: unlike C#'s flat `modifier` children, Java wraps access modifiers in a `modifiers` parent node.
+- Java symbol mapping: `record_declaration` → Class, `annotation_type_declaration` → Interface.
+- PHP grammar: uses `LANGUAGE_PHP` (handles `<?php` tags), not `LANGUAGE_PHP_ONLY`. Only `.php` extension (not `.phtml`).
+- PHP export detection: top-level functions/classes/interfaces/traits/enums/namespaces = always exported. Methods/properties/constants: `visibility_modifier` checked — `public` = exported, `private`/`protected` = not. Default = exported (PHP's default is public).
+- PHP imports: `use` statements (kind = "use", always external). `require`/`include` (kind = "require"/"include", starts with `.` = internal, else external). Grouped use (`use App\Models\{User, Post}`) expanded to individual imports.
+- PHP property names: `$` prefix stripped from variable names for clean symbol output.

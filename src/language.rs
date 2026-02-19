@@ -12,6 +12,8 @@ pub enum Language {
     Rust,
     Python,
     Go,
+    Java,
+    Php,
 }
 
 impl Language {
@@ -27,6 +29,8 @@ impl Language {
             "rs" => Some(Language::Rust),
             "py" | "pyi" => Some(Language::Python),
             "go" => Some(Language::Go),
+            "java" => Some(Language::Java),
+            "php" => Some(Language::Php),
             _ => None,
         }
     }
@@ -42,6 +46,8 @@ impl Language {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
             Language::Python => tree_sitter_python::LANGUAGE.into(),
             Language::Go => tree_sitter_go::LANGUAGE.into(),
+            Language::Java => tree_sitter_java::LANGUAGE.into(),
+            Language::Php => tree_sitter_php::LANGUAGE_PHP.into(),
         }
     }
 
@@ -57,6 +63,8 @@ impl Language {
             Language::Rust => "rust",
             Language::Python => "python",
             Language::Go => "go",
+            Language::Java => "java",
+            Language::Php => "php",
         }
     }
 
@@ -72,6 +80,8 @@ impl Language {
             Language::Rust => "rs",
             Language::Python => "py",
             Language::Go => "go",
+            Language::Java => "java",
+            Language::Php => "php",
         }
     }
 
@@ -87,6 +97,8 @@ impl Language {
             Language::Rust => &["rs"],
             Language::Python => &["py", "pyi"],
             Language::Go => &["go"],
+            Language::Java => &["java"],
+            Language::Php => &["php"],
         }
     }
 
@@ -102,6 +114,8 @@ impl Language {
             Language::Rust,
             Language::Python,
             Language::Go,
+            Language::Java,
+            Language::Php,
         ]
     }
 }
@@ -142,12 +156,13 @@ mod tests {
         assert_eq!(Language::from_extension("py"), Some(Language::Python));
         assert_eq!(Language::from_extension("pyi"), Some(Language::Python));
         assert_eq!(Language::from_extension("go"), Some(Language::Go));
+        assert_eq!(Language::from_extension("java"), Some(Language::Java));
+        assert_eq!(Language::from_extension("php"), Some(Language::Php));
     }
 
     #[test]
     fn from_extension_invalid() {
         assert_eq!(Language::from_extension("rb"), None);
-        assert_eq!(Language::from_extension("java"), None);
         assert_eq!(Language::from_extension(""), None);
     }
 
@@ -160,8 +175,8 @@ mod tests {
     }
 
     #[test]
-    fn all_returns_ten_variants() {
-        assert_eq!(Language::all().len(), 10);
+    fn all_returns_twelve_variants() {
+        assert_eq!(Language::all().len(), 12);
     }
 
     #[test]
@@ -177,6 +192,8 @@ mod tests {
         assert_eq!(Language::Rust.all_extensions(), &["rs"]);
         assert_eq!(Language::Python.all_extensions(), &["py", "pyi"]);
         assert_eq!(Language::Go.all_extensions(), &["go"]);
+        assert_eq!(Language::Java.all_extensions(), &["java"]);
+        assert_eq!(Language::Php.all_extensions(), &["php"]);
     }
 
     #[test]
@@ -205,7 +222,7 @@ mod tests {
 
     #[test]
     fn parse_language_filter_all_invalid() {
-        let result = parse_language_filter("rb,java");
+        let result = parse_language_filter("rb,swift");
         assert!(result.is_empty());
     }
 
