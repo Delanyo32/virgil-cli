@@ -1,4 +1,7 @@
 mod typescript;
+mod c_lang;
+mod cpp;
+mod csharp;
 
 use std::sync::Arc;
 
@@ -9,15 +12,36 @@ use crate::language::Language;
 use crate::models::{CommentInfo, ImportInfo, SymbolInfo};
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
-    typescript::compile_symbol_query(language)
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::compile_symbol_query(language)
+        }
+        Language::C => c_lang::compile_symbol_query(language),
+        Language::Cpp => cpp::compile_symbol_query(language),
+        Language::CSharp => csharp::compile_symbol_query(language),
+    }
 }
 
 pub fn compile_import_query(language: Language) -> Result<Arc<Query>> {
-    typescript::compile_import_query(language)
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::compile_import_query(language)
+        }
+        Language::C => c_lang::compile_import_query(language),
+        Language::Cpp => cpp::compile_import_query(language),
+        Language::CSharp => csharp::compile_import_query(language),
+    }
 }
 
 pub fn compile_comment_query(language: Language) -> Result<Arc<Query>> {
-    typescript::compile_comment_query(language)
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::compile_comment_query(language)
+        }
+        Language::C => c_lang::compile_comment_query(language),
+        Language::Cpp => cpp::compile_comment_query(language),
+        Language::CSharp => csharp::compile_comment_query(language),
+    }
 }
 
 pub fn extract_symbols(
@@ -25,8 +49,16 @@ pub fn extract_symbols(
     source: &[u8],
     query: &Query,
     file_path: &str,
+    language: Language,
 ) -> Vec<SymbolInfo> {
-    typescript::extract_symbols(tree, source, query, file_path)
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_symbols(tree, source, query, file_path)
+        }
+        Language::C => c_lang::extract_symbols(tree, source, query, file_path),
+        Language::Cpp => cpp::extract_symbols(tree, source, query, file_path),
+        Language::CSharp => csharp::extract_symbols(tree, source, query, file_path),
+    }
 }
 
 pub fn extract_imports(
@@ -34,8 +66,16 @@ pub fn extract_imports(
     source: &[u8],
     query: &Query,
     file_path: &str,
+    language: Language,
 ) -> Vec<ImportInfo> {
-    typescript::extract_imports(tree, source, query, file_path)
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_imports(tree, source, query, file_path)
+        }
+        Language::C => c_lang::extract_imports(tree, source, query, file_path),
+        Language::Cpp => cpp::extract_imports(tree, source, query, file_path),
+        Language::CSharp => csharp::extract_imports(tree, source, query, file_path),
+    }
 }
 
 pub fn extract_comments(
@@ -43,6 +83,14 @@ pub fn extract_comments(
     source: &[u8],
     query: &Query,
     file_path: &str,
+    language: Language,
 ) -> Vec<CommentInfo> {
-    typescript::extract_comments(tree, source, query, file_path)
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_comments(tree, source, query, file_path)
+        }
+        Language::C => c_lang::extract_comments(tree, source, query, file_path),
+        Language::Cpp => cpp::extract_comments(tree, source, query, file_path),
+        Language::CSharp => csharp::extract_comments(tree, source, query, file_path),
+    }
 }

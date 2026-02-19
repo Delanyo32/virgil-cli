@@ -1,12 +1,12 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript codebases into structured Parquet files and queries them with DuckDB.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C# codebases into structured Parquet files and queries them with DuckDB.
 
 ## Build & Run
 
 ```bash
 cargo build
-cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx]
+cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs]
 cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
 cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
 ```
@@ -43,7 +43,10 @@ src/
 ├── output.rs          # Arrow schemas + parquet writing (files, symbols, imports, comments)
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
-│   └── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports + comments)
+│   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports + comments)
+│   ├── c_lang.rs      # C tree-sitter queries and extraction (symbols + #include imports + comments)
+│   ├── cpp.rs         # C++ tree-sitter queries and extraction (extends C with classes, namespaces)
+│   └── csharp.rs      # C# tree-sitter queries and extraction (classes, interfaces, using directives)
 └── query/
     ├── mod.rs         # Module re-exports
     ├── db.rs          # QueryEngine: DuckDB connection, view registration (files, symbols, imports, comments)
@@ -62,7 +65,7 @@ src/
 
 ## Architecture
 
-- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js.
+- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js, `tree-sitter-c` for .c/.h, `tree-sitter-cpp` for .cpp/.cc/.cxx/.hpp/.hxx/.hh, `tree-sitter-c-sharp` for .cs.
 - **Language modules**: All tree-sitter queries and extraction logic for a language family live in one file (`languages/typescript.rs`). The `languages/mod.rs` dispatches based on `Language` enum. Adding a new language = add a new file, update the dispatch.
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
@@ -73,15 +76,15 @@ src/
 
 ## Supported Languages
 
-TypeScript (.ts), TSX (.tsx), JavaScript (.js), JSX (.jsx)
+TypeScript (.ts), TSX (.tsx), JavaScript (.js), JSX (.jsx), C (.c, .h), C++ (.cpp, .cc, .cxx, .hpp, .hxx, .hh), C# (.cs)
 
 ## Symbol Kinds
 
-function, class, method, variable, interface, type_alias, enum, arrow_function
+function, class, method, variable, interface, type_alias, enum, arrow_function, struct, union, namespace, macro, property, typedef
 
 ## Import Kinds
 
-static, dynamic, require, re_export
+static, dynamic, require, re_export, include, using
 
 ## Comment Kinds
 
@@ -99,3 +102,9 @@ line, block, doc
 - `is_external` classification: internal = starts with `.` or `#` (relative paths, Node.js subpath imports); external = everything else (bare specifiers, scoped packages, builtins). Computed at parse time and stored in parquet. Old parquet files without this column get it synthesized via SQL in the view registration.
 - Comment classification: `/**` → "doc", `/*` → "block", `//` → "line". Associated symbol detected via `next_named_sibling()` of comment node, drilling through `export_statement` and `variable_declarator` as needed.
 - `comments` view registered conditionally for backward compatibility with data dirs that predate comment support.
+- C export detection: `static` storage class = not exported, everything else = exported (external linkage). Macros/types always exported.
+- C/C++ imports: `#include <header>` → external, `#include "header"` → internal. Kind = "include".
+- C# export detection: `public`/`internal` modifier = exported, `private`/`protected` = not exported. Namespaces always exported. Default = not exported (conservative).
+- C# imports: `using` directives. Kind = "using". All treated as external (no syntactic way to distinguish).
+- `.h` files map to C (design choice). C++ headers should use `.hpp`/`.hxx`/`.hh`.
+- `Language::all_extensions()` returns all extensions per language (C++ has 6). Used in file discovery via `flat_map`.

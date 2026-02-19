@@ -6,6 +6,9 @@ pub enum Language {
     Tsx,
     JavaScript,
     Jsx,
+    C,
+    Cpp,
+    CSharp,
 }
 
 impl Language {
@@ -15,6 +18,9 @@ impl Language {
             "tsx" => Some(Language::Tsx),
             "js" => Some(Language::JavaScript),
             "jsx" => Some(Language::Jsx),
+            "c" | "h" => Some(Language::C),
+            "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Some(Language::Cpp),
+            "cs" => Some(Language::CSharp),
             _ => None,
         }
     }
@@ -24,6 +30,9 @@ impl Language {
             Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Language::Tsx | Language::Jsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
             Language::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
+            Language::C => tree_sitter_c::LANGUAGE.into(),
+            Language::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+            Language::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
         }
     }
 
@@ -33,6 +42,9 @@ impl Language {
             Language::Tsx => "tsx",
             Language::JavaScript => "javascript",
             Language::Jsx => "jsx",
+            Language::C => "c",
+            Language::Cpp => "cpp",
+            Language::CSharp => "csharp",
         }
     }
 
@@ -42,11 +54,34 @@ impl Language {
             Language::Tsx => "tsx",
             Language::JavaScript => "js",
             Language::Jsx => "jsx",
+            Language::C => "c",
+            Language::Cpp => "cpp",
+            Language::CSharp => "cs",
+        }
+    }
+
+    pub fn all_extensions(&self) -> &'static [&'static str] {
+        match self {
+            Language::TypeScript => &["ts"],
+            Language::Tsx => &["tsx"],
+            Language::JavaScript => &["js"],
+            Language::Jsx => &["jsx"],
+            Language::C => &["c", "h"],
+            Language::Cpp => &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
+            Language::CSharp => &["cs"],
         }
     }
 
     pub fn all() -> &'static [Language] {
-        &[Language::TypeScript, Language::Tsx, Language::JavaScript, Language::Jsx]
+        &[
+            Language::TypeScript,
+            Language::Tsx,
+            Language::JavaScript,
+            Language::Jsx,
+            Language::C,
+            Language::Cpp,
+            Language::CSharp,
+        ]
     }
 }
 
@@ -73,6 +108,15 @@ mod tests {
         assert_eq!(Language::from_extension("tsx"), Some(Language::Tsx));
         assert_eq!(Language::from_extension("js"), Some(Language::JavaScript));
         assert_eq!(Language::from_extension("jsx"), Some(Language::Jsx));
+        assert_eq!(Language::from_extension("c"), Some(Language::C));
+        assert_eq!(Language::from_extension("h"), Some(Language::C));
+        assert_eq!(Language::from_extension("cpp"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("cc"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("cxx"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("hpp"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("hxx"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("hh"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("cs"), Some(Language::CSharp));
     }
 
     #[test]
@@ -91,8 +135,19 @@ mod tests {
     }
 
     #[test]
-    fn all_returns_four_variants() {
-        assert_eq!(Language::all().len(), 4);
+    fn all_returns_seven_variants() {
+        assert_eq!(Language::all().len(), 7);
+    }
+
+    #[test]
+    fn all_extensions_covers_all() {
+        // C should have both .c and .h
+        assert_eq!(Language::C.all_extensions(), &["c", "h"]);
+        // C++ should have 6 extensions
+        assert_eq!(Language::Cpp.all_extensions().len(), 6);
+        // Single-extension languages
+        assert_eq!(Language::TypeScript.all_extensions(), &["ts"]);
+        assert_eq!(Language::CSharp.all_extensions(), &["cs"]);
     }
 
     #[test]
@@ -123,6 +178,18 @@ mod tests {
     fn parse_language_filter_all_invalid() {
         let result = parse_language_filter("py,rs");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_language_filter_new_languages() {
+        let result = parse_language_filter("c,cpp,cs");
+        assert_eq!(result, vec![Language::C, Language::Cpp, Language::CSharp]);
+    }
+
+    #[test]
+    fn parse_language_filter_cpp_extensions() {
+        let result = parse_language_filter("cpp,hpp,cc");
+        assert_eq!(result, vec![Language::Cpp, Language::Cpp, Language::Cpp]);
     }
 
     #[test]

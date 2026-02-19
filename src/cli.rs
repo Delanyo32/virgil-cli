@@ -19,7 +19,7 @@ pub enum Command {
         #[arg(short, long, default_value = ".")]
         output: PathBuf,
 
-        /// Comma-separated language filter (ts,tsx,js,jsx)
+        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs)
         #[arg(short, long)]
         language: Option<String>,
     },
@@ -206,7 +206,7 @@ pub enum Command {
         #[arg(long)]
         module: Option<String>,
 
-        /// Filter by import kind (static, dynamic, require, re_export)
+        /// Filter by import kind (static, dynamic, require, re_export, include, using)
         #[arg(long)]
         kind: Option<String>,
 

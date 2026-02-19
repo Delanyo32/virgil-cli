@@ -274,18 +274,20 @@ fn run_parse(
                 }
             };
 
-            let syms = languages::extract_symbols(&tree, source.as_bytes(), query, &metadata.path);
+            let syms = languages::extract_symbols(&tree, source.as_bytes(), query, &metadata.path, lang);
             let imps = languages::extract_imports(
                 &tree,
                 source.as_bytes(),
                 import_query,
                 &metadata.path,
+                lang,
             );
             let cmts = languages::extract_comments(
                 &tree,
                 source.as_bytes(),
                 comment_query,
                 &metadata.path,
+                lang,
             );
 
             Some((metadata, syms, imps, cmts))

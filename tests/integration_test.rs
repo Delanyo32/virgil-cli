@@ -28,13 +28,14 @@ fn parse_fixture_full(
         parser::parse_file(&mut ts_parser, &path, &dir, language).expect("parse_file");
     let source = std::fs::read_to_string(&path).expect("read source");
     let sym_query = languages::compile_symbol_query(language).expect("compile query");
-    let syms = languages::extract_symbols(&tree, source.as_bytes(), &sym_query, &metadata.path);
+    let syms = languages::extract_symbols(&tree, source.as_bytes(), &sym_query, &metadata.path, language);
     let imp_query = languages::compile_import_query(language).expect("compile import query");
     let imps = languages::extract_imports(
         &tree,
         source.as_bytes(),
         &imp_query,
         &metadata.path,
+        language,
     );
     (metadata, syms, imps)
 }
@@ -48,7 +49,7 @@ fn parse_fixture(filename: &str, language: Language) -> (FileMetadata, Vec<Symbo
         .expect("parse_file");
     let source = std::fs::read_to_string(&path).expect("read source");
     let query = languages::compile_symbol_query(language).expect("compile query");
-    let syms = languages::extract_symbols(&tree, source.as_bytes(), &query, &metadata.path);
+    let syms = languages::extract_symbols(&tree, source.as_bytes(), &query, &metadata.path, language);
     (metadata, syms)
 }
 

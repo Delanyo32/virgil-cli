@@ -20,6 +20,12 @@ pub enum SymbolKind {
     TypeAlias,
     Enum,
     ArrowFunction,
+    Struct,
+    Union,
+    Namespace,
+    Macro,
+    Property,
+    Typedef,
 }
 
 impl fmt::Display for SymbolKind {
@@ -33,6 +39,12 @@ impl fmt::Display for SymbolKind {
             SymbolKind::TypeAlias => "type_alias",
             SymbolKind::Enum => "enum",
             SymbolKind::ArrowFunction => "arrow_function",
+            SymbolKind::Struct => "struct",
+            SymbolKind::Union => "union",
+            SymbolKind::Namespace => "namespace",
+            SymbolKind::Macro => "macro",
+            SymbolKind::Property => "property",
+            SymbolKind::Typedef => "typedef",
         };
         f.write_str(s)
     }
@@ -113,5 +125,11 @@ mod tests {
         assert_eq!(SymbolKind::TypeAlias.to_string(), "type_alias");
         assert_eq!(SymbolKind::Enum.to_string(), "enum");
         assert_eq!(SymbolKind::ArrowFunction.to_string(), "arrow_function");
+        assert_eq!(SymbolKind::Struct.to_string(), "struct");
+        assert_eq!(SymbolKind::Union.to_string(), "union");
+        assert_eq!(SymbolKind::Namespace.to_string(), "namespace");
+        assert_eq!(SymbolKind::Macro.to_string(), "macro");
+        assert_eq!(SymbolKind::Property.to_string(), "property");
+        assert_eq!(SymbolKind::Typedef.to_string(), "typedef");
     }
 }

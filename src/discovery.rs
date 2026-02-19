@@ -6,7 +6,7 @@ use ignore::WalkBuilder;
 use crate::language::Language;
 
 pub fn discover_files(root: &Path, languages: &[Language]) -> Result<Vec<PathBuf>> {
-    let extensions: Vec<&str> = languages.iter().map(|l| l.extension()).collect();
+    let extensions: Vec<&str> = languages.iter().flat_map(|l| l.all_extensions()).copied().collect();
 
     let mut files = Vec::new();
     for entry in WalkBuilder::new(root).build() {
