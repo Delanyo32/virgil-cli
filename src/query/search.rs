@@ -61,14 +61,13 @@ fn query_symbols(
          CAST(start_line AS INTEGER) as start_line, \
          CAST(end_line AS INTEGER) as end_line, \
          is_exported \
-         FROM read_parquet('{}') \
+         FROM symbols \
          WHERE {} \
          ORDER BY \
            CASE WHEN lower(name) = lower('{}') THEN 0 ELSE 1 END, \
            length(name), \
            name \
          LIMIT {} OFFSET {}",
-        engine.symbols_parquet(),
         where_clause,
         query.replace('\'', "''"),
         limit,

@@ -60,11 +60,10 @@ fn query_files(
         "SELECT path, name, language, \
          CAST(size_bytes AS INTEGER) as size_bytes, \
          CAST(line_count AS INTEGER) as line_count \
-         FROM read_parquet('{}') \
+         FROM files \
          {} \
          ORDER BY path \
          LIMIT {} OFFSET {}",
-        engine.files_parquet(),
         where_clause,
         limit,
         offset

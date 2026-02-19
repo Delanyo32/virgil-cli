@@ -51,8 +51,7 @@ pub fn run_outline(
 
 fn query_file_language(engine: &QueryEngine, file_path: &str) -> Result<String> {
     let sql = format!(
-        "SELECT language FROM read_parquet('{}') WHERE path = '{}' LIMIT 1",
-        engine.files_parquet(),
+        "SELECT language FROM files WHERE path = '{}' LIMIT 1",
         file_path.replace('\'', "''")
     );
 
@@ -73,10 +72,9 @@ fn query_file_symbols(engine: &QueryEngine, file_path: &str) -> Result<Vec<Outli
          CAST(start_line AS INTEGER) as start_line, \
          CAST(end_line AS INTEGER) as end_line, \
          is_exported \
-         FROM read_parquet('{}') \
+         FROM symbols \
          WHERE file_path = '{}' \
          ORDER BY start_line",
-        engine.symbols_parquet(),
         file_path.replace('\'', "''")
     );
 

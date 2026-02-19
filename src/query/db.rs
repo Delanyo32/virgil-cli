@@ -37,24 +37,30 @@ impl QueryEngine {
         let conn = Connection::open_in_memory()
             .context("failed to open DuckDB in-memory connection")?;
 
+        // Register parquet files as named views so queries can use
+        // `FROM files` and `FROM symbols` instead of read_parquet().
+        conn.execute(
+            &format!(
+                "CREATE VIEW files AS SELECT * FROM read_parquet('{}')",
+                files_path.to_string_lossy().replace('\'', "''")
+            ),
+            [],
+        )
+        .context("failed to create files view")?;
+
+        conn.execute(
+            &format!(
+                "CREATE VIEW symbols AS SELECT * FROM read_parquet('{}')",
+                symbols_path.to_string_lossy().replace('\'', "''")
+            ),
+            [],
+        )
+        .context("failed to create symbols view")?;
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
         })
-    }
-
-    pub fn files_parquet(&self) -> String {
-        self.data_dir
-            .join("files.parquet")
-            .to_string_lossy()
-            .to_string()
-    }
-
-    pub fn symbols_parquet(&self) -> String {
-        self.data_dir
-            .join("symbols.parquet")
-            .to_string_lossy()
-            .to_string()
     }
 }
 

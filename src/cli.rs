@@ -24,7 +24,7 @@ pub enum Command {
         language: Option<String>,
     },
 
-    /// Show codebase overview (language breakdown, top symbols, directories)
+    /// Show codebase overview (semantic structure, module tree, API surface)
     Overview {
         /// Directory containing parquet files
         #[arg(long, default_value = ".")]
@@ -33,6 +33,10 @@ pub enum Command {
         /// Output format
         #[arg(long, default_value = "table")]
         format: OutputFormat,
+
+        /// Maximum directory depth for module tree
+        #[arg(long, default_value = "3")]
+        depth: usize,
     },
 
     /// Search for symbols by name

@@ -24,9 +24,9 @@ fn main() -> Result<()> {
             language: lang_filter,
         } => run_parse(&dir, &output_dir, lang_filter.as_deref()),
 
-        Command::Overview { data_dir, format } => {
+        Command::Overview { data_dir, format, depth } => {
             let engine = query::db::QueryEngine::new(&data_dir)?;
-            let output = query::overview::run_overview(&engine, &format)?;
+            let output = query::overview::run_overview(&engine, &format, depth)?;
             print!("{output}");
             Ok(())
         }
