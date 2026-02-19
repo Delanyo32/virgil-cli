@@ -19,12 +19,16 @@ virgil <COMMAND> [OPTIONS]
 | Command | Description |
 |---------|-------------|
 | `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories) |
+| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
 | `search` | Search for symbols by name (fuzzy match) |
 | `outline` | Show all symbols in a file |
 | `files` | List parsed files |
 | `read` | Read source file content |
 | `query` | Execute raw SQL against parquet files |
+| `deps` | Show what a file imports (dependencies) |
+| `dependents` | Show what files import a given file (reverse dependencies) |
+| `callers` | Find which files import a specific symbol |
+| `imports` | List all imports with filters |
 
 ### `parse`
 
@@ -90,6 +94,7 @@ virgil files [OPTIONS]
 | `--directory` | Filter by directory prefix | none |
 | `--limit` | Maximum results to return | `100` |
 | `--offset` | Number of results to skip | `0` |
+| `--sort` | Sort by field (path, lines, size, imports, dependents) | `path` |
 | `--format` | Output format (table, json, csv) | `table` |
 
 ### `read`
@@ -116,6 +121,59 @@ virgil query <SQL> [OPTIONS]
 |--------|-------------|---------|
 | `<SQL>` | SQL query to execute | required |
 | `--data-dir` | Directory containing parquet files | `.` |
+| `--format` | Output format (table, json, csv) | `table` |
+
+### `deps`
+
+```bash
+virgil deps <FILE_PATH> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<FILE_PATH>` | File path to show dependencies for | required |
+| `--data-dir` | Directory containing parquet files | `.` |
+| `--format` | Output format (table, json, csv) | `table` |
+
+### `dependents`
+
+```bash
+virgil dependents <FILE_PATH> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<FILE_PATH>` | File path to find dependents for | required |
+| `--data-dir` | Directory containing parquet files | `.` |
+| `--format` | Output format (table, json, csv) | `table` |
+
+### `callers`
+
+```bash
+virgil callers <SYMBOL_NAME> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<SYMBOL_NAME>` | Symbol name to search for (fuzzy match) | required |
+| `--data-dir` | Directory containing parquet files | `.` |
+| `--limit` | Maximum results to return | `50` |
+| `--format` | Output format (table, json, csv) | `table` |
+
+### `imports`
+
+```bash
+virgil imports [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--data-dir` | Directory containing parquet files | `.` |
+| `--module` | Filter by module specifier (fuzzy match) | none |
+| `--kind` | Filter by import kind (static, dynamic, require, re_export) | all |
+| `--file` | Filter by source file prefix | none |
+| `--type-only` | Only show type-only imports | false |
+| `--limit` | Maximum results to return | `50` |
 | `--format` | Output format (table, json, csv) | `table` |
 
 ### Examples
@@ -154,7 +212,25 @@ virgil read src/index.ts --data-dir ./data --root ./my-app
 # Read specific lines from a file
 virgil read src/index.ts --start-line 10 --end-line 50 --data-dir ./data --root ./my-app
 
-# Run a raw SQL query (tables: files, symbols)
+# Show what a file imports
+virgil deps src/app.ts --data-dir ./data
+
+# Show what files import a given module
+virgil dependents src/utils/api.ts --data-dir ./data
+
+# Find which files import a specific symbol
+virgil callers useState --data-dir ./data
+
+# List all imports from a specific module
+virgil imports --module react --data-dir ./data
+
+# List re-exports only
+virgil imports --kind re_export --data-dir ./data
+
+# Sort files by number of dependents
+virgil files --sort dependents --data-dir ./data
+
+# Run a raw SQL query (tables: files, symbols, imports)
 virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
 
 # Get output as JSON
@@ -173,7 +249,7 @@ Most subcommands support three output formats via `--format`:
 
 ## Output
 
-Two Parquet files are generated:
+Three Parquet files are generated:
 
 ### files.parquet
 
@@ -199,6 +275,18 @@ Two Parquet files are generated:
 | end_column | UInt32 | 0-based end column |
 | is_exported | Boolean | Whether the symbol is exported |
 
+### imports.parquet
+
+| Column | Type | Description |
+|--------|------|-------------|
+| source_file | Utf8 | File containing the import |
+| module_specifier | Utf8 | Import path (e.g., `react`, `./utils/api`) |
+| imported_name | Utf8 | Imported symbol name (or `*` for namespace imports) |
+| local_name | Utf8 | Local binding name |
+| kind | Utf8 | Import kind (static, dynamic, require, re_export) |
+| is_type_only | Boolean | Whether the import is type-only |
+| line | UInt32 | Line number of the import |
+
 ### Symbol Kinds
 
 `function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`
@@ -219,8 +307,11 @@ Two Parquet files are generated:
 - **Gitignore-aware** — automatically skips `node_modules`, `dist`, `build`, and anything in `.gitignore`
 - **Export detection** — tracks whether symbols are exported
 - **Arrow function support** — distinguishes arrow functions from regular variables
+- **Import tracking** — full import graph with kind, type-only, and re-export detection
 - **DuckDB-powered querying** — run raw SQL against parsed parquet data
-- **Fuzzy symbol search** — find symbols by approximate name match
+- **Fuzzy symbol search** — find symbols by approximate name match, ranked by usage count
+- **Dependency navigation** — explore imports, dependents, and callers across the codebase
+- **Rich overview** — hub files, popular symbols, import kind distribution, barrel file detection
 - **File reading with line ranges** — read source files or specific line ranges directly from the CLI
 - **Multiple output formats** — table, JSON, and CSV output for all query commands
 
@@ -231,9 +322,11 @@ import pyarrow.parquet as pq
 
 files = pq.read_table("files.parquet").to_pandas()
 symbols = pq.read_table("symbols.parquet").to_pandas()
+imports = pq.read_table("imports.parquet").to_pandas()
 
 print(files)
 print(symbols)
+print(imports)
 ```
 
 ## License

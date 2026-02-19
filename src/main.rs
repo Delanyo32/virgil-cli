@@ -71,6 +71,7 @@ fn main() -> Result<()> {
             directory,
             limit,
             offset,
+            sort,
             format,
         } => {
             let engine = query::db::QueryEngine::new(&data_dir)?;
@@ -80,6 +81,7 @@ fn main() -> Result<()> {
                 directory.as_deref(),
                 limit,
                 offset,
+                &sort,
                 &format,
             )?;
             print!("{output}");
@@ -127,6 +129,18 @@ fn main() -> Result<()> {
         } => {
             let engine = query::db::QueryEngine::new(&data_dir)?;
             let output = query::dependents::run_dependents(&engine, &file_path, &format)?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Callers {
+            symbol_name,
+            data_dir,
+            limit,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::callers::run_callers(&engine, &symbol_name, limit, &format)?;
             print!("{output}");
             Ok(())
         }

@@ -74,12 +74,44 @@ struct DependencySummary {
     external_modules: i64,
     internal_modules: i64,
     top_external: Vec<ModuleUsage>,
+    hub_files: Vec<HubFile>,
+    popular_symbols: Vec<PopularSymbol>,
+    kind_distribution: Vec<ImportKindCount>,
+    barrel_files: Vec<BarrelFile>,
 }
 
 #[derive(Debug, Serialize)]
 struct ModuleUsage {
     module: String,
     count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct HubFile {
+    module_path: String,
+    dependent_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct PopularSymbol {
+    imported_name: String,
+    module_specifier: String,
+    usage_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ImportKindCount {
+    kind: String,
+    count: i64,
+    percentage: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct BarrelFile {
+    file_path: String,
+    re_export_count: i64,
+    total_imports: i64,
+    re_export_ratio: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -357,6 +389,51 @@ fn query_insights(engine: &QueryEngine, summary: &OverviewSummary) -> Result<Vec
         }
     }
 
+    // Import density (when imports data is available)
+    if engine.has_imports() {
+        let mut stmt = engine
+            .conn
+            .prepare(
+                "SELECT COUNT(*) AS total_imports, \
+                 (SELECT COUNT(*) FROM files) AS total_files \
+                 FROM imports",
+            )
+            .context("failed to prepare import density query")?;
+        if let Ok((total_imports, total_files)) = stmt.query_row([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        }) {
+            if total_files > 0 {
+                let avg = total_imports as f64 / total_files as f64;
+                insights.push(Insight {
+                    label: "Import density".to_string(),
+                    value: format!("{:.1} imports per file on average", avg),
+                });
+            }
+        }
+
+        // Type-only ratio
+        let mut stmt = engine
+            .conn
+            .prepare(
+                "SELECT \
+                 SUM(CASE WHEN is_type_only THEN 1 ELSE 0 END) AS type_only, \
+                 COUNT(*) AS total \
+                 FROM imports",
+            )
+            .context("failed to prepare type-only ratio query")?;
+        if let Ok((type_only, total)) = stmt.query_row([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        }) {
+            if total > 0 {
+                let pct = type_only as f64 / total as f64 * 100.0;
+                insights.push(Insight {
+                    label: "Type-only imports".to_string(),
+                    value: format!("{:.1}% of imports are type-only ({}/{})", pct, type_only, total),
+                });
+            }
+        }
+    }
+
     Ok(insights)
 }
 
@@ -421,12 +498,115 @@ fn query_dependency_summary(engine: &QueryEngine) -> Result<Option<DependencySum
         .collect::<Result<Vec<_>, _>>()
         .context("failed to collect top external deps")?;
 
+    // Hub files: most depended-on internal modules
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT module_specifier AS module_path, \
+             COUNT(DISTINCT source_file) AS dependent_count \
+             FROM imports \
+             WHERE module_specifier LIKE '.%' OR module_specifier LIKE '/%' \
+             GROUP BY module_specifier \
+             ORDER BY dependent_count DESC \
+             LIMIT 10",
+        )
+        .context("failed to prepare hub files query")?;
+    let hub_files = stmt
+        .query_map([], |row| {
+            Ok(HubFile {
+                module_path: row.get(0)?,
+                dependent_count: row.get(1)?,
+            })
+        })
+        .context("failed to query hub files")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to collect hub files")?;
+
+    // Popular symbols: most imported named exports
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT imported_name, module_specifier, \
+             COUNT(DISTINCT source_file) AS usage_count \
+             FROM imports \
+             WHERE imported_name != '*' AND imported_name != '' \
+             GROUP BY imported_name, module_specifier \
+             ORDER BY usage_count DESC \
+             LIMIT 10",
+        )
+        .context("failed to prepare popular symbols query")?;
+    let popular_symbols = stmt
+        .query_map([], |row| {
+            Ok(PopularSymbol {
+                imported_name: row.get(0)?,
+                module_specifier: row.get(1)?,
+                usage_count: row.get(2)?,
+            })
+        })
+        .context("failed to query popular symbols")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to collect popular symbols")?;
+
+    // Import kind distribution
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT kind, COUNT(*) AS count, \
+             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS percentage \
+             FROM imports \
+             GROUP BY kind ORDER BY count DESC",
+        )
+        .context("failed to prepare kind distribution query")?;
+    let kind_distribution = stmt
+        .query_map([], |row| {
+            Ok(ImportKindCount {
+                kind: row.get(0)?,
+                count: row.get(1)?,
+                percentage: row.get(2)?,
+            })
+        })
+        .context("failed to query kind distribution")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to collect kind distribution")?;
+
+    // Barrel files: re-export aggregators
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT source_file AS file_path, \
+             SUM(CASE WHEN kind = 're_export' THEN 1 ELSE 0 END) AS re_export_count, \
+             COUNT(*) AS total_imports, \
+             ROUND(SUM(CASE WHEN kind = 're_export' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS re_export_ratio \
+             FROM imports \
+             GROUP BY source_file \
+             HAVING re_export_count > 0 \
+             ORDER BY re_export_ratio DESC, re_export_count DESC \
+             LIMIT 10",
+        )
+        .context("failed to prepare barrel files query")?;
+    let barrel_files = stmt
+        .query_map([], |row| {
+            Ok(BarrelFile {
+                file_path: row.get(0)?,
+                re_export_count: row.get(1)?,
+                total_imports: row.get(2)?,
+                re_export_ratio: row.get(3)?,
+            })
+        })
+        .context("failed to query barrel files")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to collect barrel files")?;
+
     Ok(Some(DependencySummary {
         total_imports,
         unique_modules,
         external_modules,
         internal_modules,
         top_external,
+        hub_files,
+        popular_symbols,
+        kind_distribution,
+        barrel_files,
     }))
 }
 
@@ -443,6 +623,42 @@ fn format_dependency_summary(summary: &DependencySummary) -> String {
         out.push_str("\nTop external dependencies:\n");
         for dep in &summary.top_external {
             out.push_str(&format!("  {:<40} {} imports\n", dep.module, dep.count));
+        }
+    }
+    if !summary.hub_files.is_empty() {
+        out.push_str("\nMost depended-on internal modules:\n");
+        for hub in &summary.hub_files {
+            out.push_str(&format!(
+                "  {:<40} {} dependents\n",
+                hub.module_path, hub.dependent_count
+            ));
+        }
+    }
+    if !summary.popular_symbols.is_empty() {
+        out.push_str("\nMost imported symbols:\n");
+        for sym in &summary.popular_symbols {
+            out.push_str(&format!(
+                "  {:<30} ({:<20}) {} files\n",
+                sym.imported_name, sym.module_specifier, sym.usage_count
+            ));
+        }
+    }
+    if !summary.kind_distribution.is_empty() {
+        out.push_str("\nImport kinds:\n");
+        for kind in &summary.kind_distribution {
+            out.push_str(&format!(
+                "  {:<14} {:>6}  ({:>5.1}%)\n",
+                kind.kind, kind.count, kind.percentage
+            ));
+        }
+    }
+    if !summary.barrel_files.is_empty() {
+        out.push_str("\nBarrel files (re-export aggregators):\n");
+        for barrel in &summary.barrel_files {
+            out.push_str(&format!(
+                "  {:<40} {} re-exports / {} total ({:.1}%)\n",
+                barrel.file_path, barrel.re_export_count, barrel.total_imports, barrel.re_export_ratio
+            ));
         }
     }
     out

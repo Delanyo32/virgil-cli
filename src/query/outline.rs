@@ -15,8 +15,17 @@ pub struct OutlineEntry {
 }
 
 #[derive(Debug, Serialize)]
+pub struct OutlineImport {
+    pub module_specifier: String,
+    pub imported_names: String,
+    pub kind: String,
+    pub is_type_only: bool,
+}
+
+#[derive(Debug, Serialize)]
 pub struct FileOutline {
     pub language: String,
+    pub imports: Vec<OutlineImport>,
     pub symbols: Vec<OutlineEntry>,
 }
 
@@ -27,11 +36,13 @@ pub fn run_outline(
 ) -> Result<String> {
     let language = query_file_language(engine, file_path)?;
     let symbols = query_file_symbols(engine, file_path)?;
+    let imports = query_file_imports(engine, file_path)?;
 
     match format {
         OutputFormat::Json => {
             let outline = FileOutline {
                 language: language.clone(),
+                imports,
                 symbols,
             };
             Ok(serde_json::to_string_pretty(&outline)?)
@@ -39,6 +50,21 @@ pub fn run_outline(
         _ => {
             let mut out = String::new();
             out.push_str(&format!("File: {}  Language: {}\n\n", file_path, language));
+
+            if !imports.is_empty() {
+                out.push_str(&format!("--- Imports ({}) ---\n", imports.len()));
+                for imp in &imports {
+                    let type_tag = if imp.is_type_only { " (type-only)" } else { "" };
+                    out.push_str(&format!(
+                        "  {:<30} {}{}\n",
+                        imp.module_specifier, imp.imported_names, type_tag
+                    ));
+                }
+                out.push('\n');
+            }
+
+            let sym_count = symbols.len();
+            out.push_str(&format!("--- Symbols ({}) ---\n", sym_count));
             out.push_str(&format_output(
                 &symbols,
                 &["name", "kind", "start_line", "end_line", "is_exported"],
@@ -64,6 +90,44 @@ fn query_file_language(engine: &QueryEngine, file_path: &str) -> Result<String> 
         Some(Ok(lang)) => Ok(lang),
         _ => Ok("unknown".to_string()),
     }
+}
+
+fn query_file_imports(engine: &QueryEngine, file_path: &str) -> Result<Vec<OutlineImport>> {
+    if !engine.has_imports() {
+        return Ok(Vec::new());
+    }
+
+    let sql = format!(
+        "SELECT module_specifier, \
+         STRING_AGG(imported_name, ', ' ORDER BY imported_name) AS imported_names, \
+         kind, \
+         BOOL_OR(is_type_only) AS is_type_only \
+         FROM imports \
+         WHERE source_file = '{}' \
+         GROUP BY module_specifier, kind \
+         ORDER BY \
+           CASE WHEN module_specifier NOT LIKE '.%' AND module_specifier NOT LIKE '/%' THEN 0 ELSE 1 END, \
+           module_specifier",
+        file_path.replace('\'', "''")
+    );
+
+    let mut stmt = engine
+        .conn
+        .prepare(&sql)
+        .context("failed to prepare outline imports query")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(OutlineImport {
+                module_specifier: row.get(0)?,
+                imported_names: row.get(1)?,
+                kind: row.get(2)?,
+                is_type_only: row.get(3)?,
+            })
+        })
+        .context("failed to execute outline imports query")?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .context("failed to collect outline imports")
 }
 
 fn query_file_symbols(engine: &QueryEngine, file_path: &str) -> Result<Vec<OutlineEntry>> {

@@ -26,6 +26,7 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 | `query` | Execute raw SQL against parquet files |
 | `deps` | Show what a file imports (dependencies) |
 | `dependents` | Show what files import a given file (reverse dependencies) |
+| `callers` | Find which files import a specific symbol |
 | `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`) |
 
 ## Project Structure
@@ -33,7 +34,7 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 ```
 src/
 ├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism
-├── cli.rs             # Clap subcommand definitions (10 subcommands + OutputFormat enum)
+├── cli.rs             # Clap subcommand definitions (11 subcommands + OutputFormat/FileSortField enums)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
 ├── language.rs        # Language enum, extension mapping, parser selection
 ├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo
@@ -53,6 +54,7 @@ src/
     ├── read.rs        # Source file reading with line ranges
     ├── deps.rs        # File dependency listing (what does this file import?)
     ├── dependents.rs  # Reverse dependency lookup (what files import this file?)
+    ├── callers.rs     # Find which files import a specific symbol
     └── imports.rs     # Import listing with filters
 ```
 

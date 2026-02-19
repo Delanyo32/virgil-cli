@@ -105,6 +105,10 @@ pub enum Command {
         #[arg(long, default_value = "0")]
         offset: usize,
 
+        /// Sort by field
+        #[arg(long, default_value = "path")]
+        sort: FileSortField,
+
         /// Output format
         #[arg(long, default_value = "table")]
         format: OutputFormat,
@@ -174,6 +178,24 @@ pub enum Command {
         format: OutputFormat,
     },
 
+    /// Find which files import a specific symbol
+    Callers {
+        /// Symbol name to search for (fuzzy match)
+        symbol_name: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
     /// List all imports with filters
     Imports {
         /// Directory containing parquet files
@@ -211,4 +233,13 @@ pub enum OutputFormat {
     Table,
     Json,
     Csv,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum FileSortField {
+    Path,
+    Lines,
+    Size,
+    Imports,
+    Dependents,
 }

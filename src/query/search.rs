@@ -13,6 +13,7 @@ pub struct SymbolMatch {
     pub start_line: i64,
     pub end_line: i64,
     pub is_exported: bool,
+    pub usage_count: i64,
 }
 
 pub fn run_search(
@@ -27,7 +28,7 @@ pub fn run_search(
     let results = query_symbols(engine, query, kind, exported, limit, offset)?;
     format_output(
         &results,
-        &["name", "kind", "file_path", "start_line", "end_line", "is_exported"],
+        &["name", "kind", "file_path", "start_line", "end_line", "is_exported", "usage_count"],
         format,
     )
 }
@@ -40,39 +41,56 @@ fn query_symbols(
     limit: usize,
     offset: usize,
 ) -> Result<Vec<SymbolMatch>> {
-    let mut conditions = vec![format!(
-        "name ILIKE '%{}%'",
-        query.replace('\'', "''")
-    )];
+    let safe_query = query.replace('\'', "''");
+
+    let mut conditions = vec![format!("s.name ILIKE '%{}%'", safe_query)];
 
     if let Some(k) = kind {
-        conditions.push(format!("kind = '{}'", k.replace('\'', "''")));
+        conditions.push(format!("s.kind = '{}'", k.replace('\'', "''")));
     }
 
     if exported {
-        conditions.push("is_exported = true".to_string());
+        conditions.push("s.is_exported = true".to_string());
     }
 
     let where_clause = conditions.join(" AND ");
 
-    // Order: exact matches first, then shorter names (more specific), then alphabetical
-    let sql = format!(
-        "SELECT name, kind, file_path, \
-         CAST(start_line AS INTEGER) as start_line, \
-         CAST(end_line AS INTEGER) as end_line, \
-         is_exported \
-         FROM symbols \
-         WHERE {} \
-         ORDER BY \
-           CASE WHEN lower(name) = lower('{}') THEN 0 ELSE 1 END, \
-           length(name), \
-           name \
-         LIMIT {} OFFSET {}",
-        where_clause,
-        query.replace('\'', "''"),
-        limit,
-        offset
-    );
+    let sql = if engine.has_imports() {
+        format!(
+            "SELECT s.name, s.kind, s.file_path, \
+             CAST(s.start_line AS INTEGER) as start_line, \
+             CAST(s.end_line AS INTEGER) as end_line, \
+             s.is_exported, \
+             COALESCE(ic.usage_count, 0) AS usage_count \
+             FROM symbols s \
+             LEFT JOIN ( \
+                 SELECT imported_name, COUNT(DISTINCT source_file) AS usage_count \
+                 FROM imports GROUP BY imported_name \
+             ) ic ON s.name = ic.imported_name AND s.is_exported = true \
+             WHERE {} \
+             ORDER BY \
+               CASE WHEN lower(s.name) = lower('{}') THEN 0 ELSE 1 END, \
+               COALESCE(ic.usage_count, 0) DESC, \
+               length(s.name), s.name \
+             LIMIT {} OFFSET {}",
+            where_clause, safe_query, limit, offset
+        )
+    } else {
+        format!(
+            "SELECT s.name, s.kind, s.file_path, \
+             CAST(s.start_line AS INTEGER) as start_line, \
+             CAST(s.end_line AS INTEGER) as end_line, \
+             s.is_exported, \
+             0 AS usage_count \
+             FROM symbols s \
+             WHERE {} \
+             ORDER BY \
+               CASE WHEN lower(s.name) = lower('{}') THEN 0 ELSE 1 END, \
+               length(s.name), s.name \
+             LIMIT {} OFFSET {}",
+            where_clause, safe_query, limit, offset
+        )
+    };
 
     let mut stmt = engine.conn.prepare(&sql).context("failed to prepare search query")?;
     let rows = stmt
@@ -84,6 +102,7 @@ fn query_symbols(
                 start_line: row.get(3)?,
                 end_line: row.get(4)?,
                 is_exported: row.get(5)?,
+                usage_count: row.get(6)?,
             })
         })
         .context("failed to execute search query")?;
