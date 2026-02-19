@@ -1,6 +1,9 @@
 pub mod db;
+pub mod dependents;
+pub mod deps;
 pub mod files;
 pub mod format;
+pub mod imports;
 pub mod outline;
 pub mod overview;
 pub mod read;

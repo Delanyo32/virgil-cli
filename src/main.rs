@@ -8,11 +8,11 @@ use rayon::prelude::*;
 use virgil_cli::cli::{Cli, Command, OutputFormat};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
-use virgil_cli::models::{FileMetadata, SymbolInfo};
+use virgil_cli::languages;
+use virgil_cli::models::{FileMetadata, ImportInfo, SymbolInfo};
 use virgil_cli::output;
 use virgil_cli::parser;
 use virgil_cli::query;
-use virgil_cli::symbols;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -108,6 +108,51 @@ fn main() -> Result<()> {
             print!("{output}");
             Ok(())
         }
+
+        Command::Deps {
+            file_path,
+            data_dir,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::deps::run_deps(&engine, &file_path, &format)?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Dependents {
+            file_path,
+            data_dir,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::dependents::run_dependents(&engine, &file_path, &format)?;
+            print!("{output}");
+            Ok(())
+        }
+
+        Command::Imports {
+            data_dir,
+            module,
+            kind,
+            file,
+            type_only,
+            limit,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::imports::run_imports(
+                &engine,
+                module.as_deref(),
+                kind.as_deref(),
+                file.as_deref(),
+                type_only,
+                limit,
+                &format,
+            )?;
+            print!("{output}");
+            Ok(())
+        }
     }
 }
 
@@ -143,18 +188,22 @@ fn run_parse(
 
     // Pre-compile queries per language (shared across threads)
     let mut query_map = std::collections::HashMap::new();
+    let mut import_query_map = std::collections::HashMap::new();
     for lang in &languages {
-        query_map.insert(*lang, symbols::compile_query(*lang)?);
+        query_map.insert(*lang, languages::compile_symbol_query(*lang)?);
+        import_query_map.insert(*lang, languages::compile_import_query(*lang)?);
     }
     let query_map = Arc::new(query_map);
+    let import_query_map = Arc::new(import_query_map);
 
-    // Phase 2-3: Parse files and extract symbols (parallel)
+    // Phase 2-3: Parse files and extract symbols + imports (parallel)
     let results: Vec<_> = files
         .par_iter()
         .filter_map(|path| {
             let ext = path.extension()?.to_str()?;
             let lang = Language::from_extension(ext)?;
             let query = query_map.get(&lang)?;
+            let import_query = import_query_map.get(&lang)?;
 
             let mut ts_parser = match parser::create_parser(lang) {
                 Ok(p) => p,
@@ -180,18 +229,26 @@ fn run_parse(
                 }
             };
 
-            let syms = symbols::extract_symbols(&tree, source.as_bytes(), query, &metadata.path);
+            let syms = languages::extract_symbols(&tree, source.as_bytes(), query, &metadata.path);
+            let imps = languages::extract_imports(
+                &tree,
+                source.as_bytes(),
+                import_query,
+                &metadata.path,
+            );
 
-            Some((metadata, syms))
+            Some((metadata, syms, imps))
         })
         .collect();
 
     let mut all_files: Vec<FileMetadata> = Vec::new();
     let mut all_symbols: Vec<SymbolInfo> = Vec::new();
+    let mut all_imports: Vec<ImportInfo> = Vec::new();
 
-    for (metadata, syms) in results {
+    for (metadata, syms, imps) in results {
         all_files.push(metadata);
         all_symbols.extend(syms);
+        all_imports.extend(imps);
     }
 
     // Phase 4: Write parquet output
@@ -200,18 +257,19 @@ fn run_parse(
 
     output::write_files_parquet(&all_files, output_dir)?;
     output::write_symbols_parquet(&all_symbols, output_dir)?;
+    output::write_imports_parquet(&all_imports, output_dir)?;
 
     let elapsed = start.elapsed();
     eprintln!(
-        "Done: {} files, {} symbols in {:.2}s",
+        "Done: {} files, {} symbols, {} imports in {:.2}s",
         all_files.len(),
         all_symbols.len(),
+        all_imports.len(),
         elapsed.as_secs_f64()
     );
     eprintln!(
-        "Output: {}/files.parquet, {}/symbols.parquet",
+        "Output: {}/{{files,symbols,imports}}.parquet",
         output_dir.display(),
-        output_dir.display()
     );
 
     Ok(())

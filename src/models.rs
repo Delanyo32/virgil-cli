@@ -50,6 +50,17 @@ pub struct SymbolInfo {
     pub is_exported: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ImportInfo {
+    pub source_file: String,
+    pub module_specifier: String,
+    pub imported_name: String,
+    pub local_name: String,
+    pub kind: String,
+    pub is_type_only: bool,
+    pub line: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,7 +8,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
-use crate::models::{FileMetadata, SymbolInfo};
+use crate::models::{FileMetadata, ImportInfo, SymbolInfo};
 
 fn files_schema() -> Schema {
     Schema::new(vec![
@@ -104,6 +104,56 @@ pub fn write_symbols_parquet(symbols: &[SymbolInfo], output_dir: &Path) -> Resul
     writer
         .write(&batch)
         .context("failed to write symbols batch")?;
+    writer.close().context("failed to close parquet writer")?;
+
+    Ok(())
+}
+
+fn imports_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("source_file", DataType::Utf8, false),
+        Field::new("module_specifier", DataType::Utf8, false),
+        Field::new("imported_name", DataType::Utf8, false),
+        Field::new("local_name", DataType::Utf8, false),
+        Field::new("kind", DataType::Utf8, false),
+        Field::new("is_type_only", DataType::Boolean, false),
+        Field::new("line", DataType::UInt32, false),
+    ])
+}
+
+pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Result<()> {
+    let schema = Arc::new(imports_schema());
+
+    let source_files: Vec<&str> = imports.iter().map(|i| i.source_file.as_str()).collect();
+    let module_specifiers: Vec<&str> = imports.iter().map(|i| i.module_specifier.as_str()).collect();
+    let imported_names: Vec<&str> = imports.iter().map(|i| i.imported_name.as_str()).collect();
+    let local_names: Vec<&str> = imports.iter().map(|i| i.local_name.as_str()).collect();
+    let kinds: Vec<&str> = imports.iter().map(|i| i.kind.as_str()).collect();
+    let is_type_only: Vec<bool> = imports.iter().map(|i| i.is_type_only).collect();
+    let lines: Vec<u32> = imports.iter().map(|i| i.line).collect();
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(source_files)),
+            Arc::new(StringArray::from(module_specifiers)),
+            Arc::new(StringArray::from(imported_names)),
+            Arc::new(StringArray::from(local_names)),
+            Arc::new(StringArray::from(kinds)),
+            Arc::new(BooleanArray::from(is_type_only)),
+            Arc::new(UInt32Array::from(lines)),
+        ],
+    )
+    .context("failed to create imports RecordBatch")?;
+
+    let path = output_dir.join("imports.parquet");
+    let file = File::create(&path)
+        .with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer = ArrowWriter::try_new(file, schema, None)
+        .context("failed to create parquet writer")?;
+    writer
+        .write(&batch)
+        .context("failed to write imports batch")?;
     writer.close().context("failed to close parquet writer")?;
 
     Ok(())
@@ -266,6 +316,90 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         write_symbols_parquet(&[], dir.path()).expect("write empty");
         let path = dir.path().join("symbols.parquet");
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn imports_schema_has_seven_columns() {
+        let schema = imports_schema();
+        assert_eq!(schema.fields().len(), 7);
+        let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "source_file",
+                "module_specifier",
+                "imported_name",
+                "local_name",
+                "kind",
+                "is_type_only",
+                "line"
+            ]
+        );
+    }
+
+    #[test]
+    fn write_imports_parquet_round_trip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let imports = vec![
+            ImportInfo {
+                source_file: "src/main.ts".to_string(),
+                module_specifier: "./utils".to_string(),
+                imported_name: "foo".to_string(),
+                local_name: "foo".to_string(),
+                kind: "static".to_string(),
+                is_type_only: false,
+                line: 0,
+            },
+            ImportInfo {
+                source_file: "src/main.ts".to_string(),
+                module_specifier: "react".to_string(),
+                imported_name: "default".to_string(),
+                local_name: "React".to_string(),
+                kind: "static".to_string(),
+                is_type_only: false,
+                line: 1,
+            },
+        ];
+
+        write_imports_parquet(&imports, dir.path()).expect("write");
+
+        let path = dir.path().join("imports.parquet");
+        let file = File::open(&path).expect("open");
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+            .expect("reader builder")
+            .build()
+            .expect("reader");
+
+        let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().expect("read batches");
+        assert_eq!(batches.len(), 1);
+        let batch = &batches[0];
+        assert_eq!(batch.num_rows(), 2);
+
+        let source_files = batch.column(0).as_string::<i32>();
+        assert_eq!(source_files.value(0), "src/main.ts");
+
+        let module_specs = batch.column(1).as_string::<i32>();
+        assert_eq!(module_specs.value(0), "./utils");
+        assert_eq!(module_specs.value(1), "react");
+
+        let imported_names = batch.column(2).as_string::<i32>();
+        assert_eq!(imported_names.value(0), "foo");
+        assert_eq!(imported_names.value(1), "default");
+
+        let local_names = batch.column(3).as_string::<i32>();
+        assert_eq!(local_names.value(1), "React");
+
+        let lines = batch.column(6).as_primitive::<UInt32Type>();
+        assert_eq!(lines.value(0), 0);
+        assert_eq!(lines.value(1), 1);
+    }
+
+    #[test]
+    fn write_empty_imports_parquet() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_imports_parquet(&[], dir.path()).expect("write empty");
+        let path = dir.path().join("imports.parquet");
         assert!(path.exists());
     }
 }

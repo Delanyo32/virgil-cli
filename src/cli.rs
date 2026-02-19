@@ -145,6 +145,65 @@ pub enum Command {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+
+    /// Show what a file imports (dependencies)
+    Deps {
+        /// File path to show dependencies for
+        file_path: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Show what files import a given file (reverse dependencies)
+    Dependents {
+        /// File path to find dependents for
+        file_path: String,
+
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// List all imports with filters
+    Imports {
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Filter by module specifier (fuzzy match)
+        #[arg(long)]
+        module: Option<String>,
+
+        /// Filter by import kind (static, dynamic, require, re_export)
+        #[arg(long)]
+        kind: Option<String>,
+
+        /// Filter by source file prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Only show type-only imports
+        #[arg(long)]
+        type_only: bool,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Clone, ValueEnum)]

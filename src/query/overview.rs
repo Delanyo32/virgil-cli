@@ -68,6 +68,21 @@ struct Insight {
 }
 
 #[derive(Debug, Serialize)]
+struct DependencySummary {
+    total_imports: i64,
+    unique_modules: i64,
+    external_modules: i64,
+    internal_modules: i64,
+    top_external: Vec<ModuleUsage>,
+}
+
+#[derive(Debug, Serialize)]
+struct ModuleUsage {
+    module: String,
+    count: i64,
+}
+
+#[derive(Debug, Serialize)]
 struct ModuleTreeNode {
     path: String,
     name: String,
@@ -343,6 +358,94 @@ fn query_insights(engine: &QueryEngine, summary: &OverviewSummary) -> Result<Vec
     }
 
     Ok(insights)
+}
+
+fn query_dependency_summary(engine: &QueryEngine) -> Result<Option<DependencySummary>> {
+    if !engine.has_imports() {
+        return Ok(None);
+    }
+
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT COUNT(*) AS total_imports, \
+             COUNT(DISTINCT module_specifier) AS unique_modules \
+             FROM imports",
+        )
+        .context("failed to prepare dependency summary query")?;
+    let (total_imports, unique_modules) = stmt
+        .query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        .context("failed to query dependency summary")?;
+
+    if total_imports == 0 {
+        return Ok(None);
+    }
+
+    // External = not starting with "." or "/"; Internal = starts with "." or "/"
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT \
+             COUNT(DISTINCT CASE WHEN module_specifier NOT LIKE '.%' \
+               AND module_specifier NOT LIKE '/%' THEN module_specifier END) AS external_modules, \
+             COUNT(DISTINCT CASE WHEN module_specifier LIKE '.%' \
+               OR module_specifier LIKE '/%' THEN module_specifier END) AS internal_modules \
+             FROM imports",
+        )
+        .context("failed to prepare ext/int module query")?;
+    let (external_modules, internal_modules) = stmt
+        .query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        .context("failed to query ext/int modules")?;
+
+    // Top external dependencies
+    let mut stmt = engine
+        .conn
+        .prepare(
+            "SELECT module_specifier, COUNT(*) AS usage_count \
+             FROM imports \
+             WHERE module_specifier NOT LIKE '.%' \
+               AND module_specifier NOT LIKE '/%' \
+             GROUP BY module_specifier \
+             ORDER BY usage_count DESC \
+             LIMIT 10",
+        )
+        .context("failed to prepare top external deps query")?;
+    let top_external = stmt
+        .query_map([], |row| {
+            Ok(ModuleUsage {
+                module: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
+        .context("failed to query top external deps")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to collect top external deps")?;
+
+    Ok(Some(DependencySummary {
+        total_imports,
+        unique_modules,
+        external_modules,
+        internal_modules,
+        top_external,
+    }))
+}
+
+fn format_dependency_summary(summary: &DependencySummary) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{} imports | {} unique modules ({} external, {} internal)\n",
+        summary.total_imports,
+        summary.unique_modules,
+        summary.external_modules,
+        summary.internal_modules
+    ));
+    if !summary.top_external.is_empty() {
+        out.push_str("\nTop external dependencies:\n");
+        for dep in &summary.top_external {
+            out.push_str(&format!("  {:<40} {} imports\n", dep.module, dep.count));
+        }
+    }
+    out
 }
 
 // ── Tree building ──
@@ -678,16 +781,20 @@ pub fn run_overview(engine: &QueryEngine, format: &OutputFormat, depth: usize) -
     let top_symbols = query_top_symbols(engine)?;
     let insights = query_insights(engine, &summary)?;
     let module_tree = build_module_tree(&file_exports, &dir_stats, depth);
+    let dep_summary = query_dependency_summary(engine)?;
 
     match format {
         OutputFormat::Json => {
-            let combined = serde_json::json!({
+            let mut combined = serde_json::json!({
                 "summary": summary,
                 "module_tree": module_tree,
                 "api_surface": api_surface,
                 "largest_symbols": top_symbols,
                 "insights": insights,
             });
+            if let Some(ref ds) = dep_summary {
+                combined["dependency_summary"] = serde_json::to_value(ds).unwrap_or_default();
+            }
             Ok(serde_json::to_string_pretty(&combined)?)
         }
         OutputFormat::Csv => {
@@ -764,7 +871,15 @@ pub fn run_overview(engine: &QueryEngine, format: &OutputFormat, depth: usize) -
                 ));
             }
 
-            // Section 5: Insights
+            // Section 5: Dependency Summary
+            if let Some(ref ds) = dep_summary {
+                out.push_str(&format_section(
+                    "Dependency Summary",
+                    &format_dependency_summary(ds),
+                ));
+            }
+
+            // Section 6: Insights
             if !insights.is_empty() {
                 out.push_str(&format_section("Insights", &format_insights(&insights)));
             }

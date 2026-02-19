@@ -57,10 +57,27 @@ impl QueryEngine {
         )
         .context("failed to create symbols view")?;
 
+        // Conditionally register imports view (backward compatible)
+        let imports_path = data_dir.join("imports.parquet");
+        if imports_path.exists() {
+            conn.execute(
+                &format!(
+                    "CREATE VIEW imports AS SELECT * FROM read_parquet('{}')",
+                    imports_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+            )
+            .context("failed to create imports view")?;
+        }
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
         })
+    }
+
+    pub fn has_imports(&self) -> bool {
+        self.data_dir.join("imports.parquet").exists()
     }
 }
 
