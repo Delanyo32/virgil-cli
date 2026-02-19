@@ -118,6 +118,7 @@ fn imports_schema() -> Schema {
         Field::new("kind", DataType::Utf8, false),
         Field::new("is_type_only", DataType::Boolean, false),
         Field::new("line", DataType::UInt32, false),
+        Field::new("is_external", DataType::Boolean, false),
     ])
 }
 
@@ -131,6 +132,7 @@ pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Resul
     let kinds: Vec<&str> = imports.iter().map(|i| i.kind.as_str()).collect();
     let is_type_only: Vec<bool> = imports.iter().map(|i| i.is_type_only).collect();
     let lines: Vec<u32> = imports.iter().map(|i| i.line).collect();
+    let is_external: Vec<bool> = imports.iter().map(|i| i.is_external).collect();
 
     let batch = RecordBatch::try_new(
         schema.clone(),
@@ -142,6 +144,7 @@ pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Resul
             Arc::new(StringArray::from(kinds)),
             Arc::new(BooleanArray::from(is_type_only)),
             Arc::new(UInt32Array::from(lines)),
+            Arc::new(BooleanArray::from(is_external)),
         ],
     )
     .context("failed to create imports RecordBatch")?;
@@ -320,9 +323,9 @@ mod tests {
     }
 
     #[test]
-    fn imports_schema_has_seven_columns() {
+    fn imports_schema_has_eight_columns() {
         let schema = imports_schema();
-        assert_eq!(schema.fields().len(), 7);
+        assert_eq!(schema.fields().len(), 8);
         let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
         assert_eq!(
             names,
@@ -333,7 +336,8 @@ mod tests {
                 "local_name",
                 "kind",
                 "is_type_only",
-                "line"
+                "line",
+                "is_external"
             ]
         );
     }
@@ -350,6 +354,7 @@ mod tests {
                 kind: "static".to_string(),
                 is_type_only: false,
                 line: 0,
+                is_external: false,
             },
             ImportInfo {
                 source_file: "src/main.ts".to_string(),
@@ -359,6 +364,7 @@ mod tests {
                 kind: "static".to_string(),
                 is_type_only: false,
                 line: 1,
+                is_external: true,
             },
         ];
 
@@ -393,6 +399,10 @@ mod tests {
         let lines = batch.column(6).as_primitive::<UInt32Type>();
         assert_eq!(lines.value(0), 0);
         assert_eq!(lines.value(1), 1);
+
+        let is_external = batch.column(7).as_boolean();
+        assert!(!is_external.value(0)); // ./utils = internal
+        assert!(is_external.value(1));  // react = external
     }
 
     #[test]

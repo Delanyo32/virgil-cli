@@ -151,6 +151,8 @@ fn main() -> Result<()> {
             kind,
             file,
             type_only,
+            external,
+            internal,
             limit,
             format,
         } => {
@@ -161,6 +163,8 @@ fn main() -> Result<()> {
                 kind.as_deref(),
                 file.as_deref(),
                 type_only,
+                external,
+                internal,
                 limit,
                 &format,
             )?;

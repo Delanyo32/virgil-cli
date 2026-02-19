@@ -173,6 +173,8 @@ virgil imports [OPTIONS]
 | `--kind` | Filter by import kind (static, dynamic, require, re_export) | all |
 | `--file` | Filter by source file prefix | none |
 | `--type-only` | Only show type-only imports | false |
+| `--external` | Only show external (library) imports | false |
+| `--internal` | Only show internal (user code) imports | false |
 | `--limit` | Maximum results to return | `50` |
 | `--format` | Output format (table, json, csv) | `table` |
 
@@ -226,6 +228,12 @@ virgil imports --module react --data-dir ./data
 
 # List re-exports only
 virgil imports --kind re_export --data-dir ./data
+
+# List only external (library) imports
+virgil imports --external --data-dir ./data
+
+# List only internal (user code) imports
+virgil imports --internal --data-dir ./data
 
 # Sort files by number of dependents
 virgil files --sort dependents --data-dir ./data
@@ -286,6 +294,7 @@ Three Parquet files are generated:
 | kind | Utf8 | Import kind (static, dynamic, require, re_export) |
 | is_type_only | Boolean | Whether the import is type-only |
 | line | UInt32 | Line number of the import |
+| is_external | Boolean | Whether the import is from an external library (true) or user code (false) |
 
 ### Symbol Kinds
 
@@ -307,7 +316,7 @@ Three Parquet files are generated:
 - **Gitignore-aware** — automatically skips `node_modules`, `dist`, `build`, and anything in `.gitignore`
 - **Export detection** — tracks whether symbols are exported
 - **Arrow function support** — distinguishes arrow functions from regular variables
-- **Import tracking** — full import graph with kind, type-only, and re-export detection
+- **Import tracking** — full import graph with kind, type-only, re-export detection, and external/internal classification
 - **DuckDB-powered querying** — run raw SQL against parsed parquet data
 - **Fuzzy symbol search** — find symbols by approximate name match, ranked by usage count
 - **Dependency navigation** — explore imports, dependents, and callers across the codebase

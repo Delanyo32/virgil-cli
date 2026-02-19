@@ -14,6 +14,7 @@ pub struct ImportEntry {
     pub kind: String,
     pub is_type_only: bool,
     pub line: i64,
+    pub is_external: bool,
 }
 
 pub fn run_imports(
@@ -22,6 +23,8 @@ pub fn run_imports(
     kind: Option<&str>,
     file: Option<&str>,
     type_only: bool,
+    external: bool,
+    internal: bool,
     limit: usize,
     format: &OutputFormat,
 ) -> Result<String> {
@@ -29,7 +32,7 @@ pub fn run_imports(
         bail!("imports.parquet not found. Re-run `virgil parse` to generate import data.");
     }
 
-    let results = query_imports(engine, module, kind, file, type_only, limit)?;
+    let results = query_imports(engine, module, kind, file, type_only, external, internal, limit)?;
     format_output(
         &results,
         &[
@@ -40,6 +43,7 @@ pub fn run_imports(
             "kind",
             "is_type_only",
             "line",
+            "is_external",
         ],
         format,
     )
@@ -51,6 +55,8 @@ fn query_imports(
     kind: Option<&str>,
     file: Option<&str>,
     type_only: bool,
+    external: bool,
+    internal: bool,
     limit: usize,
 ) -> Result<Vec<ImportEntry>> {
     let mut conditions: Vec<String> = Vec::new();
@@ -77,6 +83,14 @@ fn query_imports(
         conditions.push("is_type_only = true".to_string());
     }
 
+    if external {
+        conditions.push("is_external = true".to_string());
+    }
+
+    if internal {
+        conditions.push("is_external = false".to_string());
+    }
+
     let where_clause = if conditions.is_empty() {
         String::new()
     } else {
@@ -85,7 +99,7 @@ fn query_imports(
 
     let sql = format!(
         "SELECT source_file, module_specifier, imported_name, local_name, kind, \
-         is_type_only, CAST(line AS INTEGER) as line \
+         is_type_only, CAST(line AS INTEGER) as line, is_external \
          FROM imports \
          {} \
          ORDER BY source_file, line \
@@ -107,6 +121,7 @@ fn query_imports(
                 kind: row.get(4)?,
                 is_type_only: row.get(5)?,
                 line: row.get(6)?,
+                is_external: row.get(7)?,
             })
         })
         .context("failed to execute imports query")?;

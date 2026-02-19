@@ -27,7 +27,7 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 | `deps` | Show what a file imports (dependencies) |
 | `dependents` | Show what files import a given file (reverse dependencies) |
 | `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`) |
+| `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
 
 ## Project Structure
 
@@ -90,3 +90,4 @@ static, dynamic, require, re_export
 - DuckDB views: parquet files registered as `files`, `symbols`, and `imports` views at connection time — no raw `read_parquet()` paths in queries
 - Import `kind` is a free-form String (not an enum) so new languages can define their own kinds without modifying a central type
 - `imports` view registered conditionally for backward compatibility with data dirs that predate import support
+- `is_external` classification: internal = starts with `.` or `#` (relative paths, Node.js subpath imports); external = everything else (bare specifiers, scoped packages, builtins). Computed at parse time and stored in parquet. Old parquet files without this column get it synthesized via SQL in the view registration.

@@ -218,6 +218,14 @@ pub enum Command {
         #[arg(long)]
         type_only: bool,
 
+        /// Only show external (library) imports
+        #[arg(long)]
+        external: bool,
+
+        /// Only show internal (user code) imports
+        #[arg(long)]
+        internal: bool,
+
         /// Maximum results to return
         #[arg(long, default_value = "50")]
         limit: usize,

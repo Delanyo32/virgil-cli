@@ -59,11 +59,36 @@ pub struct ImportInfo {
     pub kind: String,
     pub is_type_only: bool,
     pub line: u32,
+    pub is_external: bool,
+}
+
+impl ImportInfo {
+    /// Classify a module specifier as external (library) or internal (user code).
+    /// Internal: starts with `.` (relative path) or `#` (Node.js subpath import).
+    /// External: everything else (bare specifiers like `react`, `@scope/pkg`, builtins).
+    pub fn is_external_specifier(module_specifier: &str) -> bool {
+        !(module_specifier.starts_with('.') || module_specifier.starts_with('#'))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_external_specifier_classifies_correctly() {
+        // External: bare specifiers, scoped packages, builtins
+        assert!(ImportInfo::is_external_specifier("react"));
+        assert!(ImportInfo::is_external_specifier("@scope/pkg"));
+        assert!(ImportInfo::is_external_specifier("fs"));
+        assert!(ImportInfo::is_external_specifier("lodash/merge"));
+
+        // Internal: relative paths and subpath imports
+        assert!(!ImportInfo::is_external_specifier("./utils"));
+        assert!(!ImportInfo::is_external_specifier("../components/Button"));
+        assert!(!ImportInfo::is_external_specifier("."));
+        assert!(!ImportInfo::is_external_specifier("#internal/utils"));
+    }
 
     #[test]
     fn symbol_kind_display() {

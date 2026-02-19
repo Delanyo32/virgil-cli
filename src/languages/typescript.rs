@@ -249,6 +249,8 @@ pub fn extract_imports(
             let is_type_only = has_type_keyword(import_node);
             let extracted = extract_import_bindings(import_node, source);
 
+            let is_external = ImportInfo::is_external_specifier(&module_specifier);
+
             if extracted.is_empty() {
                 // Side-effect import: import "./polyfill"
                 imports.push(ImportInfo {
@@ -259,6 +261,7 @@ pub fn extract_imports(
                     kind: "static".to_string(),
                     is_type_only,
                     line,
+                    is_external,
                 });
             } else {
                 for (imported, local, binding_type_only) in extracted {
@@ -270,6 +273,7 @@ pub fn extract_imports(
                         kind: "static".to_string(),
                         is_type_only: is_type_only || binding_type_only,
                         line,
+                        is_external,
                     });
                 }
             }
@@ -280,6 +284,7 @@ pub fn extract_imports(
                 .node;
             let line = reexport_node.start_position().row as u32;
             let extracted = extract_reexport_bindings(reexport_node, source);
+            let is_external = ImportInfo::is_external_specifier(&module_specifier);
 
             if extracted.is_empty() {
                 imports.push(ImportInfo {
@@ -290,6 +295,7 @@ pub fn extract_imports(
                     kind: "re_export".to_string(),
                     is_type_only: has_type_keyword(reexport_node),
                     line,
+                    is_external,
                 });
             } else {
                 for (imported, local) in extracted {
@@ -301,6 +307,7 @@ pub fn extract_imports(
                         kind: "re_export".to_string(),
                         is_type_only: has_type_keyword(reexport_node),
                         line,
+                        is_external,
                     });
                 }
             }
@@ -317,6 +324,7 @@ pub fn extract_imports(
                 kind: "dynamic".to_string(),
                 is_type_only: false,
                 line: dynamic_node.start_position().row as u32,
+                is_external: ImportInfo::is_external_specifier(&module_specifier),
             });
         } else if has_call {
             let fn_name_cap =
@@ -336,6 +344,7 @@ pub fn extract_imports(
                         kind: "require".to_string(),
                         is_type_only: false,
                         line: call_node.start_position().row as u32,
+                        is_external: ImportInfo::is_external_specifier(&module_specifier),
                     });
                 }
             }
@@ -699,6 +708,7 @@ mod tests {
         assert_eq!(imports[0].module_specifier, "./utils");
         assert_eq!(imports[0].kind, "static");
         assert!(!imports[0].is_type_only);
+        assert!(!imports[0].is_external); // relative path = internal
         assert_eq!(imports[1].imported_name, "bar");
     }
 
@@ -712,6 +722,7 @@ mod tests {
         assert_eq!(imports[0].imported_name, "default");
         assert_eq!(imports[0].local_name, "React");
         assert_eq!(imports[0].module_specifier, "react");
+        assert!(imports[0].is_external); // bare specifier = external
     }
 
     #[test]
@@ -804,6 +815,7 @@ mod tests {
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, "require");
         assert_eq!(imports[0].module_specifier, "express");
+        assert!(imports[0].is_external);
     }
 
     #[test]
@@ -840,6 +852,44 @@ mod tests {
         assert_eq!(strip_quotes("'world'"), "world");
         assert_eq!(strip_quotes("`tpl`"), "tpl");
         assert_eq!(strip_quotes("bare"), "bare");
+    }
+
+    #[test]
+    fn is_external_classification() {
+        let source = r#"
+import { useState } from "react";
+import { helper } from "./utils";
+import type { Config } from "@scope/config";
+export { foo } from "../shared";
+const lazy = import("./lazy-module");
+const fs = require("fs");
+"#;
+        let imports = parse_and_extract_imports(source, Language::TypeScript);
+        assert_eq!(imports.len(), 6);
+
+        // react = external
+        assert_eq!(imports[0].module_specifier, "react");
+        assert!(imports[0].is_external);
+
+        // ./utils = internal
+        assert_eq!(imports[1].module_specifier, "./utils");
+        assert!(!imports[1].is_external);
+
+        // @scope/config = external
+        assert_eq!(imports[2].module_specifier, "@scope/config");
+        assert!(imports[2].is_external);
+
+        // ../shared = internal
+        assert_eq!(imports[3].module_specifier, "../shared");
+        assert!(!imports[3].is_external);
+
+        // ./lazy-module = internal (dynamic)
+        assert_eq!(imports[4].module_specifier, "./lazy-module");
+        assert!(!imports[4].is_external);
+
+        // fs = external (require)
+        assert_eq!(imports[5].module_specifier, "fs");
+        assert!(imports[5].is_external);
     }
 
     #[test]

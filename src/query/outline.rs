@@ -20,6 +20,7 @@ pub struct OutlineImport {
     pub imported_names: String,
     pub kind: String,
     pub is_type_only: bool,
+    pub is_external: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -101,13 +102,12 @@ fn query_file_imports(engine: &QueryEngine, file_path: &str) -> Result<Vec<Outli
         "SELECT module_specifier, \
          STRING_AGG(imported_name, ', ' ORDER BY imported_name) AS imported_names, \
          kind, \
-         BOOL_OR(is_type_only) AS is_type_only \
+         BOOL_OR(is_type_only) AS is_type_only, \
+         BOOL_OR(is_external) AS is_external \
          FROM imports \
          WHERE source_file = '{}' \
          GROUP BY module_specifier, kind \
-         ORDER BY \
-           CASE WHEN module_specifier NOT LIKE '.%' AND module_specifier NOT LIKE '/%' THEN 0 ELSE 1 END, \
-           module_specifier",
+         ORDER BY is_external DESC, module_specifier",
         file_path.replace('\'', "''")
     );
 
@@ -122,6 +122,7 @@ fn query_file_imports(engine: &QueryEngine, file_path: &str) -> Result<Vec<Outli
                 imported_names: row.get(1)?,
                 kind: row.get(2)?,
                 is_type_only: row.get(3)?,
+                is_external: row.get(4)?,
             })
         })
         .context("failed to execute outline imports query")?;

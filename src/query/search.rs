@@ -14,6 +14,8 @@ pub struct SymbolMatch {
     pub end_line: i64,
     pub is_exported: bool,
     pub usage_count: i64,
+    pub internal_usage: i64,
+    pub external_usage: i64,
 }
 
 pub fn run_search(
@@ -28,7 +30,17 @@ pub fn run_search(
     let results = query_symbols(engine, query, kind, exported, limit, offset)?;
     format_output(
         &results,
-        &["name", "kind", "file_path", "start_line", "end_line", "is_exported", "usage_count"],
+        &[
+            "name",
+            "kind",
+            "file_path",
+            "start_line",
+            "end_line",
+            "is_exported",
+            "usage_count",
+            "internal_usage",
+            "external_usage",
+        ],
         format,
     )
 }
@@ -61,15 +73,21 @@ fn query_symbols(
              CAST(s.start_line AS INTEGER) as start_line, \
              CAST(s.end_line AS INTEGER) as end_line, \
              s.is_exported, \
-             COALESCE(ic.usage_count, 0) AS usage_count \
+             COALESCE(ic.usage_count, 0) AS usage_count, \
+             COALESCE(ic.internal_usage, 0) AS internal_usage, \
+             COALESCE(ic.external_usage, 0) AS external_usage \
              FROM symbols s \
              LEFT JOIN ( \
-                 SELECT imported_name, COUNT(DISTINCT source_file) AS usage_count \
+                 SELECT imported_name, \
+                   COUNT(DISTINCT source_file) AS usage_count, \
+                   COUNT(DISTINCT CASE WHEN NOT is_external THEN source_file END) AS internal_usage, \
+                   COUNT(DISTINCT CASE WHEN is_external THEN source_file END) AS external_usage \
                  FROM imports GROUP BY imported_name \
              ) ic ON s.name = ic.imported_name AND s.is_exported = true \
              WHERE {} \
              ORDER BY \
                CASE WHEN lower(s.name) = lower('{}') THEN 0 ELSE 1 END, \
+               COALESCE(ic.internal_usage, 0) DESC, \
                COALESCE(ic.usage_count, 0) DESC, \
                length(s.name), s.name \
              LIMIT {} OFFSET {}",
@@ -81,7 +99,9 @@ fn query_symbols(
              CAST(s.start_line AS INTEGER) as start_line, \
              CAST(s.end_line AS INTEGER) as end_line, \
              s.is_exported, \
-             0 AS usage_count \
+             0 AS usage_count, \
+             0 AS internal_usage, \
+             0 AS external_usage \
              FROM symbols s \
              WHERE {} \
              ORDER BY \
@@ -103,6 +123,8 @@ fn query_symbols(
                 end_line: row.get(4)?,
                 is_exported: row.get(5)?,
                 usage_count: row.get(6)?,
+                internal_usage: row.get(7)?,
+                external_usage: row.get(8)?,
             })
         })
         .context("failed to execute search query")?;

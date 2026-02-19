@@ -13,6 +13,7 @@ pub struct DepEntry {
     pub kind: String,
     pub is_type_only: bool,
     pub line: i64,
+    pub is_external: bool,
 }
 
 pub fn run_deps(
@@ -34,6 +35,7 @@ pub fn run_deps(
             "kind",
             "is_type_only",
             "line",
+            "is_external",
         ],
         format,
     )
@@ -42,10 +44,10 @@ pub fn run_deps(
 fn query_deps(engine: &QueryEngine, file_path: &str) -> Result<Vec<DepEntry>> {
     let sql = format!(
         "SELECT module_specifier, imported_name, local_name, kind, is_type_only, \
-         CAST(line AS INTEGER) as line \
+         CAST(line AS INTEGER) as line, is_external \
          FROM imports \
          WHERE source_file = '{}' \
-         ORDER BY line",
+         ORDER BY is_external ASC, line",
         file_path.replace('\'', "''")
     );
 
@@ -62,6 +64,7 @@ fn query_deps(engine: &QueryEngine, file_path: &str) -> Result<Vec<DepEntry>> {
                 kind: row.get(3)?,
                 is_type_only: row.get(4)?,
                 line: row.get(5)?,
+                is_external: row.get(6)?,
             })
         })
         .context("failed to execute deps query")?;

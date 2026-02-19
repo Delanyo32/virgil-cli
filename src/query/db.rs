@@ -60,14 +60,37 @@ impl QueryEngine {
         // Conditionally register imports view (backward compatible)
         let imports_path = data_dir.join("imports.parquet");
         if imports_path.exists() {
-            conn.execute(
-                &format!(
+            let imports_escaped = imports_path.to_string_lossy().replace('\'', "''");
+
+            // Check if the parquet file has the is_external column
+            let has_is_external = {
+                let sql = format!(
+                    "SELECT COUNT(*) FROM parquet_schema('{}') WHERE name = 'is_external'",
+                    imports_escaped
+                );
+                let count: i64 = conn
+                    .query_row(&sql, [], |row| row.get(0))
+                    .unwrap_or(0);
+                count > 0
+            };
+
+            let view_sql = if has_is_external {
+                format!(
                     "CREATE VIEW imports AS SELECT * FROM read_parquet('{}')",
-                    imports_path.to_string_lossy().replace('\'', "''")
-                ),
-                [],
-            )
-            .context("failed to create imports view")?;
+                    imports_escaped
+                )
+            } else {
+                // Synthesize is_external for old parquet files
+                format!(
+                    "CREATE VIEW imports AS SELECT *, \
+                     (module_specifier NOT LIKE '.%' AND module_specifier NOT LIKE '#%') AS is_external \
+                     FROM read_parquet('{}')",
+                    imports_escaped
+                )
+            };
+
+            conn.execute(&view_sql, [])
+                .context("failed to create imports view")?;
         }
 
         Ok(Self {

@@ -458,15 +458,13 @@ fn query_dependency_summary(engine: &QueryEngine) -> Result<Option<DependencySum
         return Ok(None);
     }
 
-    // External = not starting with "." or "/"; Internal = starts with "." or "/"
+    // External vs internal module counts using is_external column
     let mut stmt = engine
         .conn
         .prepare(
             "SELECT \
-             COUNT(DISTINCT CASE WHEN module_specifier NOT LIKE '.%' \
-               AND module_specifier NOT LIKE '/%' THEN module_specifier END) AS external_modules, \
-             COUNT(DISTINCT CASE WHEN module_specifier LIKE '.%' \
-               OR module_specifier LIKE '/%' THEN module_specifier END) AS internal_modules \
+             COUNT(DISTINCT CASE WHEN is_external THEN module_specifier END) AS external_modules, \
+             COUNT(DISTINCT CASE WHEN NOT is_external THEN module_specifier END) AS internal_modules \
              FROM imports",
         )
         .context("failed to prepare ext/int module query")?;
@@ -480,8 +478,7 @@ fn query_dependency_summary(engine: &QueryEngine) -> Result<Option<DependencySum
         .prepare(
             "SELECT module_specifier, COUNT(*) AS usage_count \
              FROM imports \
-             WHERE module_specifier NOT LIKE '.%' \
-               AND module_specifier NOT LIKE '/%' \
+             WHERE is_external = true \
              GROUP BY module_specifier \
              ORDER BY usage_count DESC \
              LIMIT 10",
@@ -505,7 +502,7 @@ fn query_dependency_summary(engine: &QueryEngine) -> Result<Option<DependencySum
             "SELECT module_specifier AS module_path, \
              COUNT(DISTINCT source_file) AS dependent_count \
              FROM imports \
-             WHERE module_specifier LIKE '.%' OR module_specifier LIKE '/%' \
+             WHERE is_external = false \
              GROUP BY module_specifier \
              ORDER BY dependent_count DESC \
              LIMIT 10",

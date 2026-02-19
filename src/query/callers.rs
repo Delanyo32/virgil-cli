@@ -13,6 +13,7 @@ pub struct CallerEntry {
     pub kind: String,
     pub is_type_only: bool,
     pub line: i64,
+    pub is_external: bool,
 }
 
 pub fn run_callers(
@@ -28,7 +29,7 @@ pub fn run_callers(
     let results = query_callers(engine, symbol_name, limit)?;
     format_output(
         &results,
-        &["source_file", "module_specifier", "local_name", "kind", "is_type_only", "line"],
+        &["source_file", "module_specifier", "local_name", "kind", "is_type_only", "line", "is_external"],
         format,
     )
 }
@@ -42,11 +43,12 @@ fn query_callers(
 
     let sql = format!(
         "SELECT source_file, module_specifier, local_name, kind, is_type_only, \
-         CAST(line AS INTEGER) as line \
+         CAST(line AS INTEGER) as line, is_external \
          FROM imports \
          WHERE imported_name ILIKE '%{safe_name}%' \
          ORDER BY \
            CASE WHEN lower(imported_name) = lower('{safe_name}') THEN 0 ELSE 1 END, \
+           is_external ASC, \
            source_file, line \
          LIMIT {limit}",
     );
@@ -64,6 +66,7 @@ fn query_callers(
                 kind: row.get(3)?,
                 is_type_only: row.get(4)?,
                 line: row.get(5)?,
+                is_external: row.get(6)?,
             })
         })
         .context("failed to execute callers query")?;
