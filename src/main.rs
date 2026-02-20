@@ -221,7 +221,12 @@ fn main() -> Result<()> {
 }
 
 enum ParseResult {
-    Success(FileMetadata, Vec<SymbolInfo>, Vec<ImportInfo>, Vec<CommentInfo>),
+    Success(
+        FileMetadata,
+        Vec<SymbolInfo>,
+        Vec<ImportInfo>,
+        Vec<CommentInfo>,
+    ),
     Error(ParseError),
 }
 

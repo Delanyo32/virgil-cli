@@ -144,7 +144,11 @@ mod tests {
 
         let files = discover_all_files(dir.path()).unwrap();
         // Should find .gitignore, keep.json, keep.ts but NOT ignored/skip.css
-        assert!(files.iter().all(|f| !f.to_string_lossy().contains("skip.css")));
+        assert!(
+            files
+                .iter()
+                .all(|f| !f.to_string_lossy().contains("skip.css"))
+        );
         assert!(files.iter().any(|f| f.ends_with("keep.json")));
         assert!(files.iter().any(|f| f.ends_with("keep.ts")));
     }
