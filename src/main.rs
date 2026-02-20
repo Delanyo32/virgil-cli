@@ -9,7 +9,7 @@ use virgil_cli::cli::{Cli, Command, OutputFormat};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
-use virgil_cli::models::{CommentInfo, FileMetadata, ImportInfo, SymbolInfo};
+use virgil_cli::models::{CommentInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
 use virgil_cli::output;
 use virgil_cli::parser;
 use virgil_cli::query;
@@ -198,7 +198,31 @@ fn main() -> Result<()> {
             print!("{output}");
             Ok(())
         }
+
+        Command::Errors {
+            data_dir,
+            error_type,
+            language: lang,
+            limit,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let output = query::errors::run_errors(
+                &engine,
+                error_type.as_deref(),
+                lang.as_deref(),
+                limit,
+                &format,
+            )?;
+            print!("{output}");
+            Ok(())
+        }
     }
+}
+
+enum ParseResult {
+    Success(FileMetadata, Vec<SymbolInfo>, Vec<ImportInfo>, Vec<CommentInfo>),
+    Error(ParseError),
 }
 
 fn run_parse(
@@ -222,14 +246,74 @@ fn run_parse(
 
     let start = Instant::now();
 
-    // Phase 1: Discover files
-    let files = discovery::discover_files(&root, &languages)?;
-    eprintln!("Discovered {} files", files.len());
+    // Phase 1: Discover ALL files (regardless of extension)
+    let all_discovered = discovery::discover_all_files(&root)?;
+    eprintln!("Discovered {} files", all_discovered.len());
 
-    if files.is_empty() {
+    if all_discovered.is_empty() {
         eprintln!("No files found. Nothing to do.");
         return Ok(());
     }
+
+    // Phase 2: Partition into supported and unsupported
+    let supported_extensions: Vec<&str> = languages
+        .iter()
+        .flat_map(|l| l.all_extensions())
+        .copied()
+        .collect();
+
+    let (supported_files, unsupported_files): (Vec<_>, Vec<_>) =
+        all_discovered.into_iter().partition(|path| {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| supported_extensions.contains(&ext))
+        });
+
+    eprintln!(
+        "Supported: {}, Unsupported: {}",
+        supported_files.len(),
+        unsupported_files.len()
+    );
+
+    // Phase 3: Build FileMetadata for unsupported files (parallel)
+    let unsupported_metadata: Vec<FileMetadata> = unsupported_files
+        .par_iter()
+        .map(|path| {
+            let relative_path = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            let extension = path
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            let (size_bytes, line_count) = match std::fs::read_to_string(path) {
+                Ok(content) => (content.len() as u64, content.lines().count() as u64),
+                Err(_) => {
+                    // Fall back to file size from metadata, 0 lines
+                    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    (size, 0)
+                }
+            };
+
+            FileMetadata {
+                path: relative_path,
+                name,
+                extension,
+                language: "unsupported".to_string(),
+                size_bytes,
+                line_count,
+            }
+        })
+        .collect();
 
     // Pre-compile queries per language (shared across threads)
     let mut query_map = std::collections::HashMap::new();
@@ -244,8 +328,9 @@ fn run_parse(
     let import_query_map = Arc::new(import_query_map);
     let comment_query_map = Arc::new(comment_query_map);
 
-    // Phase 2-3: Parse files and extract symbols + imports + comments (parallel)
-    let results: Vec<_> = files
+    // Phase 4: Parse supported files and extract symbols + imports + comments (parallel)
+    // Capture errors instead of dropping them
+    let results: Vec<_> = supported_files
         .par_iter()
         .filter_map(|path| {
             let ext = path.extension()?.to_str()?;
@@ -254,6 +339,22 @@ fn run_parse(
             let import_query = import_query_map.get(&lang)?;
             let comment_query = comment_query_map.get(&lang)?;
 
+            // Compute path info up front (needed for both success and error paths)
+            let relative_path = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let file_ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
             let mut ts_parser = match parser::create_parser(lang) {
                 Ok(p) => p,
                 Err(e) => {
@@ -261,7 +362,15 @@ fn run_parse(
                         "Warning: failed to create parser for {}: {e}",
                         path.display()
                     );
-                    return None;
+                    return Some(ParseResult::Error(ParseError {
+                        file_path: relative_path,
+                        file_name,
+                        extension: file_ext,
+                        language: lang.as_str().to_string(),
+                        error_type: "parser_creation".to_string(),
+                        error_message: e.to_string(),
+                        size_bytes,
+                    }));
                 }
             };
 
@@ -269,7 +378,15 @@ fn run_parse(
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("Warning: failed to read {}: {e}", path.display());
-                    return None;
+                    return Some(ParseResult::Error(ParseError {
+                        file_path: relative_path,
+                        file_name,
+                        extension: file_ext,
+                        language: lang.as_str().to_string(),
+                        error_type: "file_read".to_string(),
+                        error_message: e.to_string(),
+                        size_bytes,
+                    }));
                 }
             };
 
@@ -277,7 +394,15 @@ fn run_parse(
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("Warning: failed to parse {}: {e}", path.display());
-                    return None;
+                    return Some(ParseResult::Error(ParseError {
+                        file_path: relative_path,
+                        file_name,
+                        extension: file_ext,
+                        language: lang.as_str().to_string(),
+                        error_type: "parse_failure".to_string(),
+                        error_message: e.to_string(),
+                        size_bytes,
+                    }));
                 }
             };
 
@@ -298,23 +423,36 @@ fn run_parse(
                 lang,
             );
 
-            Some((metadata, syms, imps, cmts))
+            Some(ParseResult::Success(metadata, syms, imps, cmts))
         })
         .collect();
 
+    // Phase 5: Collect results — split successes and errors
     let mut all_files: Vec<FileMetadata> = Vec::new();
     let mut all_symbols: Vec<SymbolInfo> = Vec::new();
     let mut all_imports: Vec<ImportInfo> = Vec::new();
     let mut all_comments: Vec<CommentInfo> = Vec::new();
+    let mut all_errors: Vec<ParseError> = Vec::new();
 
-    for (metadata, syms, imps, cmts) in results {
-        all_files.push(metadata);
-        all_symbols.extend(syms);
-        all_imports.extend(imps);
-        all_comments.extend(cmts);
+    for result in results {
+        match result {
+            ParseResult::Success(metadata, syms, imps, cmts) => {
+                all_files.push(metadata);
+                all_symbols.extend(syms);
+                all_imports.extend(imps);
+                all_comments.extend(cmts);
+            }
+            ParseResult::Error(err) => {
+                all_errors.push(err);
+            }
+        }
     }
 
-    // Phase 4: Write parquet output
+    // Merge unsupported file metadata
+    let supported_count = all_files.len();
+    all_files.extend(unsupported_metadata);
+
+    // Phase 6: Write parquet output
     std::fs::create_dir_all(output_dir)
         .with_context(|| format!("failed to create output dir: {}", output_dir.display()))?;
 
@@ -322,18 +460,22 @@ fn run_parse(
     output::write_symbols_parquet(&all_symbols, output_dir)?;
     output::write_imports_parquet(&all_imports, output_dir)?;
     output::write_comments_parquet(&all_comments, output_dir)?;
+    output::write_errors_parquet(&all_errors, output_dir)?;
 
     let elapsed = start.elapsed();
     eprintln!(
-        "Done: {} files, {} symbols, {} imports, {} comments in {:.2}s",
+        "Done: {} files ({} supported, {} unsupported), {} symbols, {} imports, {} comments, {} errors in {:.2}s",
         all_files.len(),
+        supported_count,
+        all_files.len() - supported_count,
         all_symbols.len(),
         all_imports.len(),
         all_comments.len(),
+        all_errors.len(),
         elapsed.as_secs_f64()
     );
     eprintln!(
-        "Output: {}/{{files,symbols,imports,comments}}.parquet",
+        "Output: {}/{{files,symbols,imports,comments,errors}}.parquet",
         output_dir.display(),
     );
 

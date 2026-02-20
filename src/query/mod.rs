@@ -3,6 +3,7 @@ pub mod comments;
 pub mod db;
 pub mod dependents;
 pub mod deps;
+pub mod errors;
 pub mod files;
 pub mod format;
 pub mod imports;

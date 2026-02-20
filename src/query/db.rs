@@ -98,6 +98,19 @@ impl QueryEngine {
             .context("failed to create comments view")?;
         }
 
+        // Conditionally register errors view (backward compatible)
+        let errors_path = data_dir.join("errors.parquet");
+        if errors_path.exists() {
+            conn.execute(
+                &format!(
+                    "CREATE VIEW errors AS SELECT * FROM read_parquet('{}')",
+                    errors_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+            )
+            .context("failed to create errors view")?;
+        }
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
@@ -110,6 +123,10 @@ impl QueryEngine {
 
     pub fn has_comments(&self) -> bool {
         self.data_dir.join("comments.parquet").exists()
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.data_dir.join("errors.parquet").exists()
     }
 }
 

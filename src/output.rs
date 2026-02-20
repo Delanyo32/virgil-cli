@@ -8,7 +8,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
-use crate::models::{CommentInfo, FileMetadata, ImportInfo, SymbolInfo};
+use crate::models::{CommentInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
 
 fn files_schema() -> Schema {
     Schema::new(vec![
@@ -224,6 +224,56 @@ pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Re
     writer
         .write(&batch)
         .context("failed to write comments batch")?;
+    writer.close().context("failed to close parquet writer")?;
+
+    Ok(())
+}
+
+fn errors_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("file_name", DataType::Utf8, false),
+        Field::new("extension", DataType::Utf8, false),
+        Field::new("language", DataType::Utf8, false),
+        Field::new("error_type", DataType::Utf8, false),
+        Field::new("error_message", DataType::Utf8, false),
+        Field::new("size_bytes", DataType::UInt64, false),
+    ])
+}
+
+pub fn write_errors_parquet(errors: &[ParseError], output_dir: &Path) -> Result<()> {
+    let schema = Arc::new(errors_schema());
+
+    let file_paths: Vec<&str> = errors.iter().map(|e| e.file_path.as_str()).collect();
+    let file_names: Vec<&str> = errors.iter().map(|e| e.file_name.as_str()).collect();
+    let extensions: Vec<&str> = errors.iter().map(|e| e.extension.as_str()).collect();
+    let languages: Vec<&str> = errors.iter().map(|e| e.language.as_str()).collect();
+    let error_types: Vec<&str> = errors.iter().map(|e| e.error_type.as_str()).collect();
+    let error_messages: Vec<&str> = errors.iter().map(|e| e.error_message.as_str()).collect();
+    let sizes: Vec<u64> = errors.iter().map(|e| e.size_bytes).collect();
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(file_paths)),
+            Arc::new(StringArray::from(file_names)),
+            Arc::new(StringArray::from(extensions)),
+            Arc::new(StringArray::from(languages)),
+            Arc::new(StringArray::from(error_types)),
+            Arc::new(StringArray::from(error_messages)),
+            Arc::new(UInt64Array::from(sizes)),
+        ],
+    )
+    .context("failed to create errors RecordBatch")?;
+
+    let path = output_dir.join("errors.parquet");
+    let file =
+        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer =
+        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
+    writer
+        .write(&batch)
+        .context("failed to write errors batch")?;
     writer.close().context("failed to close parquet writer")?;
 
     Ok(())

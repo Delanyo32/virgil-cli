@@ -5,6 +5,20 @@ use ignore::WalkBuilder;
 
 use crate::language::Language;
 
+pub fn discover_all_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in WalkBuilder::new(root).build() {
+        let entry = entry?;
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+            continue;
+        }
+        files.push(entry.path().to_path_buf());
+    }
+
+    files.sort();
+    Ok(files)
+}
+
 pub fn discover_files(root: &Path, languages: &[Language]) -> Result<Vec<PathBuf>> {
     let extensions: Vec<&str> = languages
         .iter()
@@ -103,6 +117,36 @@ mod tests {
         let files = discover_files(dir.path(), &[Language::TypeScript]).unwrap();
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with("keep.ts"));
+    }
+
+    #[test]
+    fn discover_all_files_returns_everything() {
+        let dir = create_test_dir();
+        let files = discover_all_files(dir.path()).unwrap();
+        assert_eq!(files.len(), 3); // main.ts, util.js, style.css
+    }
+
+    #[test]
+    fn discover_all_files_respects_gitignore() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .expect("git init");
+
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        let ignored = dir.path().join("ignored");
+        std::fs::create_dir_all(&ignored).unwrap();
+        std::fs::write(ignored.join("skip.css"), "body {}").unwrap();
+        std::fs::write(dir.path().join("keep.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("keep.ts"), "const x = 1;").unwrap();
+
+        let files = discover_all_files(dir.path()).unwrap();
+        // Should find .gitignore, keep.json, keep.ts but NOT ignored/skip.css
+        assert!(files.iter().all(|f| !f.to_string_lossy().contains("skip.css")));
+        assert!(files.iter().any(|f| f.ends_with("keep.json")));
+        assert!(files.iter().any(|f| f.ends_with("keep.ts")));
     }
 
     #[test]

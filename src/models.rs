@@ -93,6 +93,17 @@ pub struct CommentInfo {
     pub associated_symbol_kind: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    pub file_path: String,
+    pub file_name: String,
+    pub extension: String,
+    pub language: String,
+    pub error_type: String,
+    pub error_message: String,
+    pub size_bytes: u64,
+}
+
 impl ImportInfo {
     /// Classify a module specifier as external (library) or internal (user code).
     /// Internal: starts with `.` (relative path) or `#` (Node.js subpath import).

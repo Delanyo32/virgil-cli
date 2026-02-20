@@ -237,6 +237,29 @@ pub enum Command {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+    /// List parse errors
+    Errors {
+        /// Directory containing parquet files
+        #[arg(long, default_value = ".")]
+        data_dir: PathBuf,
+
+        /// Filter by error type (parser_creation, file_read, parse_failure)
+        #[arg(long)]
+        error_type: Option<String>,
+
+        /// Filter by language
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
     /// List comments with filters
     Comments {
         /// Directory containing parquet files
