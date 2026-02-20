@@ -28,3 +28,18 @@ serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+strip = true
+lto = "thin"
+opt-level = 3
+codegen-units = 1
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/release/v{ version }/{ name }-{ target }.tar.gz"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/release/v{ version }/{ name }-{ target }.zip"
+pkg-fmt = "zip"
