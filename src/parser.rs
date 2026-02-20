@@ -30,7 +30,7 @@ pub fn parse_file(
         .strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
-        .into_owned();
+        .replace('\\', "/");
 
     let name = path
         .file_name()
