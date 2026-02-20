@@ -16,11 +16,7 @@ pub struct DepEntry {
     pub is_external: bool,
 }
 
-pub fn run_deps(
-    engine: &QueryEngine,
-    file_path: &str,
-    format: &OutputFormat,
-) -> Result<String> {
+pub fn run_deps(engine: &QueryEngine, file_path: &str, format: &OutputFormat) -> Result<String> {
     if !engine.has_imports() {
         bail!("imports.parquet not found. Re-run `virgil parse` to generate import data.");
     }

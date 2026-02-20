@@ -30,11 +30,7 @@ pub struct FileOutline {
     pub symbols: Vec<OutlineEntry>,
 }
 
-pub fn run_outline(
-    engine: &QueryEngine,
-    file_path: &str,
-    format: &OutputFormat,
-) -> Result<String> {
+pub fn run_outline(engine: &QueryEngine, file_path: &str, format: &OutputFormat) -> Result<String> {
     let language = query_file_language(engine, file_path)?;
     let symbols = query_file_symbols(engine, file_path)?;
     let imports = query_file_imports(engine, file_path)?;
@@ -82,7 +78,10 @@ fn query_file_language(engine: &QueryEngine, file_path: &str) -> Result<String> 
         file_path.replace('\'', "''")
     );
 
-    let mut stmt = engine.conn.prepare(&sql).context("failed to prepare language query")?;
+    let mut stmt = engine
+        .conn
+        .prepare(&sql)
+        .context("failed to prepare language query")?;
     let mut rows = stmt
         .query_map([], |row| row.get::<_, String>(0))
         .context("failed to query file language")?;
@@ -143,7 +142,10 @@ fn query_file_symbols(engine: &QueryEngine, file_path: &str) -> Result<Vec<Outli
         file_path.replace('\'', "''")
     );
 
-    let mut stmt = engine.conn.prepare(&sql).context("failed to prepare outline query")?;
+    let mut stmt = engine
+        .conn
+        .prepare(&sql)
+        .context("failed to prepare outline query")?;
     let rows = stmt
         .query_map([], |row| {
             Ok(OutlineEntry {

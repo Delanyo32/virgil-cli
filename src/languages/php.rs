@@ -118,7 +118,11 @@ pub fn extract_symbols(
             let name_cap = name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
             name_cap.and_then(|cap| {
                 let text = cap.node.utf8_text(source).unwrap_or("");
-                if text.is_empty() { None } else { Some(text.to_string()) }
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text.to_string())
+                }
             })
         };
 
@@ -200,8 +204,12 @@ fn extract_const_name(node: tree_sitter::Node, source: &[u8]) -> Option<String> 
 fn is_exported_php(def_node: tree_sitter::Node, source: &[u8]) -> bool {
     match def_node.kind() {
         // Top-level definitions are always exported
-        "function_definition" | "class_declaration" | "interface_declaration"
-        | "trait_declaration" | "enum_declaration" | "namespace_definition" => true,
+        "function_definition"
+        | "class_declaration"
+        | "interface_declaration"
+        | "trait_declaration"
+        | "enum_declaration"
+        | "namespace_definition" => true,
         // Methods, properties, constants: check visibility modifier
         "method_declaration" | "property_declaration" | "const_declaration" => {
             let mut cursor = def_node.walk();
@@ -241,7 +249,12 @@ pub fn extract_imports(
         {
             let node = import_cap.node;
             let text = node.utf8_text(source).unwrap_or("").to_string();
-            parse_use_declaration(&text, file_path, node.start_position().row as u32, &mut imports);
+            parse_use_declaration(
+                &text,
+                file_path,
+                node.start_position().row as u32,
+                &mut imports,
+            );
             continue;
         }
 
@@ -314,8 +327,7 @@ fn parse_use_declaration(text: &str, file_path: &str, line: u32, imports: &mut V
                 continue;
             }
 
-            let (imported_name, local_name) = if let Some((name, alias)) = item.split_once(" as ")
-            {
+            let (imported_name, local_name) = if let Some((name, alias)) = item.split_once(" as ") {
                 let name = name.trim();
                 let imported = name.rsplit('\\').next().unwrap_or(name);
                 (imported.to_string(), alias.trim().to_string())
@@ -324,7 +336,11 @@ fn parse_use_declaration(text: &str, file_path: &str, line: u32, imports: &mut V
                 (imported.to_string(), imported.to_string())
             };
 
-            let module = format!("{}\\{}", prefix, item.split(" as ").next().unwrap_or(item).trim());
+            let module = format!(
+                "{}\\{}",
+                prefix,
+                item.split(" as ").next().unwrap_or(item).trim()
+            );
 
             imports.push(ImportInfo {
                 source_file: file_path.to_string(),
@@ -651,8 +667,7 @@ mod tests {
 
     #[test]
     fn grouped_use() {
-        let imports =
-            parse_and_extract_imports("<?php\nuse App\\Models\\{User, Post};");
+        let imports = parse_and_extract_imports("<?php\nuse App\\Models\\{User, Post};");
         assert_eq!(imports.len(), 2);
         assert_eq!(imports[0].imported_name, "User");
         assert_eq!(imports[1].imported_name, "Post");
@@ -709,8 +724,7 @@ mod tests {
 
     #[test]
     fn comment_associated_symbol() {
-        let comments =
-            parse_and_extract_comments("<?php\n/** Describes Foo */\nclass Foo {}");
+        let comments = parse_and_extract_comments("<?php\n/** Describes Foo */\nclass Foo {}");
         let c = comments.iter().find(|c| c.text.contains("Describes Foo"));
         assert!(c.is_some());
         assert_eq!(c.unwrap().associated_symbol.as_deref(), Some("Foo"));

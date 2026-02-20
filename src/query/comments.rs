@@ -56,10 +56,7 @@ fn query_comments(
     let mut conditions: Vec<String> = Vec::new();
 
     if let Some(f) = file {
-        conditions.push(format!(
-            "file_path LIKE '{}%'",
-            f.replace('\'', "''")
-        ));
+        conditions.push(format!("file_path LIKE '{}%'", f.replace('\'', "''")));
     }
 
     if let Some(k) = kind {

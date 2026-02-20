@@ -24,7 +24,11 @@ fn main() -> Result<()> {
             language: lang_filter,
         } => run_parse(&dir, &output_dir, lang_filter.as_deref()),
 
-        Command::Overview { data_dir, format, depth } => {
+        Command::Overview {
+            data_dir,
+            format,
+            depth,
+        } => {
             let engine = query::db::QueryEngine::new(&data_dir)?;
             let output = query::overview::run_overview(&engine, &format, depth)?;
             print!("{output}");
@@ -253,7 +257,10 @@ fn run_parse(
             let mut ts_parser = match parser::create_parser(lang) {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!("Warning: failed to create parser for {}: {e}", path.display());
+                    eprintln!(
+                        "Warning: failed to create parser for {}: {e}",
+                        path.display()
+                    );
                     return None;
                 }
             };
@@ -274,7 +281,8 @@ fn run_parse(
                 }
             };
 
-            let syms = languages::extract_symbols(&tree, source.as_bytes(), query, &metadata.path, lang);
+            let syms =
+                languages::extract_symbols(&tree, source.as_bytes(), query, &metadata.path, lang);
             let imps = languages::extract_imports(
                 &tree,
                 source.as_bytes(),
@@ -362,8 +370,7 @@ fn run_raw_query(
     let mut collected: Vec<serde_json::Map<String, Value>> = Vec::new();
     while let Some(row) = rows.next().context("failed to fetch row")? {
         let mut map = serde_json::Map::new();
-        for i in 0..column_count {
-            let name = &column_names[i];
+        for (i, name) in column_names.iter().enumerate() {
             let value: Value = match row.get_ref(i) {
                 Ok(ValueRef::Null) => Value::Null,
                 Ok(ValueRef::Boolean(b)) => Value::Bool(b),
@@ -381,9 +388,7 @@ fn run_raw_query(
                 Ok(ValueRef::Text(bytes)) => {
                     Value::String(String::from_utf8_lossy(bytes).to_string())
                 }
-                Ok(ValueRef::Blob(bytes)) => {
-                    Value::String(format!("<blob {} bytes>", bytes.len()))
-                }
+                Ok(ValueRef::Blob(bytes)) => Value::String(format!("<blob {} bytes>", bytes.len())),
                 _ => Value::Null,
             };
             map.insert(name.clone(), value);

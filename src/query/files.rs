@@ -28,7 +28,15 @@ pub fn run_files(
     let results = query_files(engine, language, directory, limit, offset, sort)?;
     format_output(
         &results,
-        &["path", "name", "language", "size_bytes", "line_count", "import_count", "dependent_count"],
+        &[
+            "path",
+            "name",
+            "language",
+            "size_bytes",
+            "line_count",
+            "import_count",
+            "dependent_count",
+        ],
         format,
     )
 }
@@ -58,10 +66,7 @@ fn query_files(
     }
 
     if let Some(dir) = directory {
-        conditions.push(format!(
-            "f.path LIKE '{}%'",
-            dir.replace('\'', "''")
-        ));
+        conditions.push(format!("f.path LIKE '{}%'", dir.replace('\'', "''")));
     }
 
     let where_clause = if conditions.is_empty() {
@@ -110,7 +115,10 @@ fn query_files(
         )
     };
 
-    let mut stmt = engine.conn.prepare(&sql).context("failed to prepare files query")?;
+    let mut stmt = engine
+        .conn
+        .prepare(&sql)
+        .context("failed to prepare files query")?;
     let rows = stmt
         .query_map([], |row| {
             Ok(FileEntry {

@@ -440,7 +440,9 @@ mod tests {
     #[test]
     fn extract_constructor() {
         let syms = parse_and_extract("public class Foo { public Foo() { } }");
-        let ctor = syms.iter().find(|s| s.name == "Foo" && s.kind == SymbolKind::Method);
+        let ctor = syms
+            .iter()
+            .find(|s| s.name == "Foo" && s.kind == SymbolKind::Method);
         assert!(ctor.is_some());
     }
 
@@ -522,8 +524,7 @@ mod tests {
 
     #[test]
     fn comment_associated_symbol() {
-        let comments =
-            parse_and_extract_comments("/** Describes Foo */\npublic class Foo {}");
+        let comments = parse_and_extract_comments("/** Describes Foo */\npublic class Foo {}");
         let c = comments.iter().find(|c| c.text.contains("Describes Foo"));
         assert!(c.is_some());
         assert_eq!(c.unwrap().associated_symbol.as_deref(), Some("Foo"));

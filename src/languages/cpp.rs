@@ -175,10 +175,14 @@ fn determine_cpp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
 fn is_exported_cpp(def_node: tree_sitter::Node, source: &[u8]) -> bool {
     // Macros, types, and namespaces are always "exported"
     match def_node.kind() {
-        "preproc_def" | "preproc_function_def" | "struct_specifier" | "union_specifier"
-        | "enum_specifier" | "type_definition" | "class_specifier" | "namespace_definition" => {
-            return true
-        }
+        "preproc_def"
+        | "preproc_function_def"
+        | "struct_specifier"
+        | "union_specifier"
+        | "enum_specifier"
+        | "type_definition"
+        | "class_specifier"
+        | "namespace_definition" => return true,
         _ => {}
     }
 
@@ -247,10 +251,8 @@ pub fn extract_imports(
 
 fn strip_include_path(s: &str) -> String {
     let s = s.trim();
-    if s.starts_with('<') && s.ends_with('>') {
-        s[1..s.len() - 1].to_string()
-    } else if s.starts_with('"') && s.ends_with('"') {
-        s[1..s.len() - 1].to_string()
+    if (s.starts_with('<') && s.ends_with('>')) || (s.starts_with('"') && s.ends_with('"')) {
+        s[1..s.len() - 1].trim().to_string()
     } else {
         s.to_string()
     }

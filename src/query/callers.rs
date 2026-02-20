@@ -29,7 +29,15 @@ pub fn run_callers(
     let results = query_callers(engine, symbol_name, limit)?;
     format_output(
         &results,
-        &["source_file", "module_specifier", "local_name", "kind", "is_type_only", "line", "is_external"],
+        &[
+            "source_file",
+            "module_specifier",
+            "local_name",
+            "kind",
+            "is_type_only",
+            "line",
+            "is_external",
+        ],
         format,
     )
 }

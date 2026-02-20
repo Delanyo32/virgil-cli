@@ -205,7 +205,10 @@ mod tests {
     #[test]
     fn parse_language_filter_multiple() {
         let result = parse_language_filter("ts,js,tsx");
-        assert_eq!(result, vec![Language::TypeScript, Language::JavaScript, Language::Tsx]);
+        assert_eq!(
+            result,
+            vec![Language::TypeScript, Language::JavaScript, Language::Tsx]
+        );
     }
 
     #[test]

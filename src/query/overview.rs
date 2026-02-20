@@ -379,14 +379,13 @@ fn query_insights(engine: &QueryEngine, summary: &OverviewSummary) -> Result<Vec
         .context("failed to prepare hotspot query")?;
     if let Ok((dir, sym_count)) = stmt.query_row([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    }) {
-        if summary.total_symbols > 0 {
-            let pct = (sym_count as f64 / summary.total_symbols as f64 * 100.0) as i64;
-            insights.push(Insight {
-                label: "Hotspot".to_string(),
-                value: format!("{} has {}% of all symbols", dir, pct),
-            });
-        }
+    }) && summary.total_symbols > 0
+    {
+        let pct = (sym_count as f64 / summary.total_symbols as f64 * 100.0) as i64;
+        insights.push(Insight {
+            label: "Hotspot".to_string(),
+            value: format!("{} has {}% of all symbols", dir, pct),
+        });
     }
 
     // Import density (when imports data is available)
@@ -399,16 +398,15 @@ fn query_insights(engine: &QueryEngine, summary: &OverviewSummary) -> Result<Vec
                  FROM imports",
             )
             .context("failed to prepare import density query")?;
-        if let Ok((total_imports, total_files)) = stmt.query_row([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-        }) {
-            if total_files > 0 {
-                let avg = total_imports as f64 / total_files as f64;
-                insights.push(Insight {
-                    label: "Import density".to_string(),
-                    value: format!("{:.1} imports per file on average", avg),
-                });
-            }
+        if let Ok((total_imports, total_files)) =
+            stmt.query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            && total_files > 0
+        {
+            let avg = total_imports as f64 / total_files as f64;
+            insights.push(Insight {
+                label: "Import density".to_string(),
+                value: format!("{:.1} imports per file on average", avg),
+            });
         }
 
         // Type-only ratio
@@ -421,16 +419,18 @@ fn query_insights(engine: &QueryEngine, summary: &OverviewSummary) -> Result<Vec
                  FROM imports",
             )
             .context("failed to prepare type-only ratio query")?;
-        if let Ok((type_only, total)) = stmt.query_row([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-        }) {
-            if total > 0 {
-                let pct = type_only as f64 / total as f64 * 100.0;
-                insights.push(Insight {
-                    label: "Type-only imports".to_string(),
-                    value: format!("{:.1}% of imports are type-only ({}/{})", pct, type_only, total),
-                });
-            }
+        if let Ok((type_only, total)) =
+            stmt.query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            && total > 0
+        {
+            let pct = type_only as f64 / total as f64 * 100.0;
+            insights.push(Insight {
+                label: "Type-only imports".to_string(),
+                value: format!(
+                    "{:.1}% of imports are type-only ({}/{})",
+                    pct, type_only, total
+                ),
+            });
         }
     }
 
@@ -654,7 +654,10 @@ fn format_dependency_summary(summary: &DependencySummary) -> String {
         for barrel in &summary.barrel_files {
             out.push_str(&format!(
                 "  {:<40} {} re-exports / {} total ({:.1}%)\n",
-                barrel.file_path, barrel.re_export_count, barrel.total_imports, barrel.re_export_ratio
+                barrel.file_path,
+                barrel.re_export_count,
+                barrel.total_imports,
+                barrel.re_export_ratio
             ));
         }
     }
@@ -785,10 +788,10 @@ fn build_module_tree(
         if let Some(child_dirs) = children_map.get(dir) {
             for child_dir in child_dirs {
                 // Use actual directory depth to decide whether to recurse
-                if dir_depth(child_dir) <= max_depth {
-                    if let Some(child) = assemble(child_dir, tree, children_map, max_depth) {
-                        node.children.push(child);
-                    }
+                if dir_depth(child_dir) <= max_depth
+                    && let Some(child) = assemble(child_dir, tree, children_map, max_depth)
+                {
+                    node.children.push(child);
                 }
             }
         }

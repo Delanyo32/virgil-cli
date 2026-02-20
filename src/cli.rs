@@ -2,7 +2,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "virgil", about = "Parse codebases and query structured parquet files")]
+#[command(
+    name = "virgil",
+    about = "Parse codebases and query structured parquet files"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

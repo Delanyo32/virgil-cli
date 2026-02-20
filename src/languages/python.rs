@@ -228,23 +228,14 @@ pub fn extract_imports(
         match import_node.kind() {
             "import_statement" => {
                 // import foo, import foo.bar
-                let path_cap =
-                    path_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+                let path_cap = path_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
                 if let Some(path_cap) = path_cap {
-                    let module = path_cap
-                        .node
-                        .utf8_text(source)
-                        .unwrap_or("")
-                        .to_string();
+                    let module = path_cap.node.utf8_text(source).unwrap_or("").to_string();
                     if module.is_empty() {
                         continue;
                     }
 
-                    let imported_name = module
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(&module)
-                        .to_string();
+                    let imported_name = module.rsplit('.').next().unwrap_or(&module).to_string();
 
                     imports.push(ImportInfo {
                         source_file: file_path.to_string(),
@@ -273,8 +264,7 @@ pub fn extract_imports(
                             // Skip the module part (first dotted_name is the module)
                             // Subsequent dotted_names are imported names
                             if found_names || is_import_name_position(import_node, child) {
-                                let name =
-                                    child.utf8_text(source).unwrap_or("").to_string();
+                                let name = child.utf8_text(source).unwrap_or("").to_string();
                                 if !name.is_empty() && name != module {
                                     imports.push(ImportInfo {
                                         source_file: file_path.to_string(),
@@ -294,10 +284,7 @@ pub fn extract_imports(
                             let name_node = child.child_by_field_name("name");
                             let alias_node = child.child_by_field_name("alias");
                             if let Some(name_node) = name_node {
-                                let name = name_node
-                                    .utf8_text(source)
-                                    .unwrap_or("")
-                                    .to_string();
+                                let name = name_node.utf8_text(source).unwrap_or("").to_string();
                                 let local = alias_node
                                     .and_then(|n| n.utf8_text(source).ok())
                                     .map(|s| s.to_string())
@@ -418,8 +405,7 @@ pub fn extract_comments(
                 continue;
             }
 
-            let (associated_symbol, associated_symbol_kind) =
-                find_associated_symbol(node, source);
+            let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
 
             comments.push(CommentInfo {
                 file_path: file_path.to_string(),
@@ -691,7 +677,7 @@ mod tests {
     #[test]
     fn relative_import() {
         let imports = parse_and_extract_imports("from . import utils");
-        assert!(imports.len() >= 1);
+        assert!(!imports.is_empty());
         assert!(!imports[0].is_external);
     }
 
@@ -704,8 +690,9 @@ mod tests {
 
     #[test]
     fn docstring() {
-        let comments =
-            parse_and_extract_comments("def foo():\n    \"\"\"This is a docstring.\"\"\"\n    pass");
+        let comments = parse_and_extract_comments(
+            "def foo():\n    \"\"\"This is a docstring.\"\"\"\n    pass",
+        );
         let doc = comments.iter().find(|c| c.kind == "doc");
         assert!(doc.is_some());
         assert_eq!(doc.unwrap().associated_symbol.as_deref(), Some("foo"));

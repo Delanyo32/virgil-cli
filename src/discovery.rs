@@ -6,7 +6,11 @@ use ignore::WalkBuilder;
 use crate::language::Language;
 
 pub fn discover_files(root: &Path, languages: &[Language]) -> Result<Vec<PathBuf>> {
-    let extensions: Vec<&str> = languages.iter().flat_map(|l| l.all_extensions()).copied().collect();
+    let extensions: Vec<&str> = languages
+        .iter()
+        .flat_map(|l| l.all_extensions())
+        .copied()
+        .collect();
 
     let mut files = Vec::new();
     for entry in WalkBuilder::new(root).build() {
@@ -15,10 +19,10 @@ pub fn discover_files(root: &Path, languages: &[Language]) -> Result<Vec<PathBuf
             continue;
         }
         let path = entry.path();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if extensions.contains(&ext) {
-                files.push(path.to_path_buf());
-            }
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && extensions.contains(&ext)
+        {
+            files.push(path.to_path_buf());
         }
     }
 
@@ -49,7 +53,8 @@ mod tests {
     #[test]
     fn discover_multiple_languages() {
         let dir = create_test_dir();
-        let files = discover_files(dir.path(), &[Language::TypeScript, Language::JavaScript]).unwrap();
+        let files =
+            discover_files(dir.path(), &[Language::TypeScript, Language::JavaScript]).unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -108,7 +113,10 @@ mod tests {
         std::fs::write(dir.path().join("m.ts"), "").unwrap();
 
         let files = discover_files(dir.path(), &[Language::TypeScript]).unwrap();
-        let names: Vec<&str> = files.iter().map(|f| f.file_name().unwrap().to_str().unwrap()).collect();
+        let names: Vec<&str> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap())
+            .collect();
         assert_eq!(names, vec!["a.ts", "m.ts", "z.ts"]);
     }
 }

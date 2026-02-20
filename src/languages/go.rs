@@ -177,9 +177,7 @@ pub fn extract_imports(
 
         let raw_path = path_node.utf8_text(source).unwrap_or("").to_string();
         // Strip quotes
-        let module_specifier = raw_path
-            .trim_matches('"')
-            .to_string();
+        let module_specifier = raw_path.trim_matches('"').to_string();
         if module_specifier.is_empty() {
             continue;
         }
@@ -449,8 +447,7 @@ mod tests {
 
     #[test]
     fn grouped_imports() {
-        let imports =
-            parse_and_extract_imports("package main\nimport (\n\t\"fmt\"\n\t\"os\"\n)");
+        let imports = parse_and_extract_imports("package main\nimport (\n\t\"fmt\"\n\t\"os\"\n)");
         assert_eq!(imports.len(), 2);
         assert_eq!(imports[0].module_specifier, "fmt");
         assert_eq!(imports[1].module_specifier, "os");
@@ -458,8 +455,7 @@ mod tests {
 
     #[test]
     fn import_with_path() {
-        let imports =
-            parse_and_extract_imports("package main\nimport \"net/http\"");
+        let imports = parse_and_extract_imports("package main\nimport \"net/http\"");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "net/http");
         assert_eq!(imports[0].imported_name, "http");
@@ -468,7 +464,11 @@ mod tests {
     #[test]
     fn line_comment() {
         let comments = parse_and_extract_comments("package main\n// a comment");
-        assert!(comments.iter().any(|c| c.kind == "line" && c.text.contains("a comment")));
+        assert!(
+            comments
+                .iter()
+                .any(|c| c.kind == "line" && c.text.contains("a comment"))
+        );
     }
 
     #[test]
@@ -479,7 +479,8 @@ mod tests {
 
     #[test]
     fn comment_associated_symbol() {
-        let comments = parse_and_extract_comments("package main\n// Hello says hello\nfunc Hello() {}");
+        let comments =
+            parse_and_extract_comments("package main\n// Hello says hello\nfunc Hello() {}");
         let c = comments.iter().find(|c| c.text.contains("Hello says"));
         assert!(c.is_some());
         assert_eq!(c.unwrap().associated_symbol.as_deref(), Some("Hello"));

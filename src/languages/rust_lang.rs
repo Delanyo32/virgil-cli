@@ -223,12 +223,7 @@ pub fn extract_imports(
     imports
 }
 
-fn extract_use_imports(
-    path_text: &str,
-    file_path: &str,
-    line: u32,
-    imports: &mut Vec<ImportInfo>,
-) {
+fn extract_use_imports(path_text: &str, file_path: &str, line: u32, imports: &mut Vec<ImportInfo>) {
     let is_internal = path_text.starts_with("crate::")
         || path_text.starts_with("self::")
         || path_text.starts_with("super::");
@@ -245,8 +240,7 @@ fn extract_use_imports(
                 continue;
             }
 
-            let (imported_name, local_name) = if let Some((name, alias)) = item.split_once(" as ")
-            {
+            let (imported_name, local_name) = if let Some((name, alias)) = item.split_once(" as ") {
                 (name.trim().to_string(), alias.trim().to_string())
             } else {
                 let name = item.split("::").last().unwrap_or(item).trim().to_string();
@@ -271,17 +265,9 @@ fn extract_use_imports(
         let (module, imported_name, local_name) =
             if let Some((path, alias)) = path_text.split_once(" as ") {
                 let name = path.split("::").last().unwrap_or(path).trim().to_string();
-                (
-                    path.trim().to_string(),
-                    name,
-                    alias.trim().to_string(),
-                )
+                (path.trim().to_string(), name, alias.trim().to_string())
             } else if path_text.ends_with("::*") {
-                (
-                    path_text.to_string(),
-                    "*".to_string(),
-                    "*".to_string(),
-                )
+                (path_text.to_string(), "*".to_string(), "*".to_string())
             } else {
                 let name = path_text
                     .split("::")
@@ -353,9 +339,11 @@ pub fn extract_comments(
 
 fn classify_comment(text: &str) -> String {
     let trimmed = text.trim_start();
-    if trimmed.starts_with("///") || trimmed.starts_with("//!") {
-        "doc".to_string()
-    } else if trimmed.starts_with("/**") || trimmed.starts_with("/*!") {
+    if trimmed.starts_with("///")
+        || trimmed.starts_with("//!")
+        || trimmed.starts_with("/**")
+        || trimmed.starts_with("/*!")
+    {
         "doc".to_string()
     } else if trimmed.starts_with("/*") {
         "block".to_string()

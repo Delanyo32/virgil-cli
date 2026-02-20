@@ -17,6 +17,7 @@ pub struct ImportEntry {
     pub is_external: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_imports(
     engine: &QueryEngine,
     module: Option<&str>,
@@ -32,7 +33,9 @@ pub fn run_imports(
         bail!("imports.parquet not found. Re-run `virgil parse` to generate import data.");
     }
 
-    let results = query_imports(engine, module, kind, file, type_only, external, internal, limit)?;
+    let results = query_imports(
+        engine, module, kind, file, type_only, external, internal, limit,
+    )?;
     format_output(
         &results,
         &[
@@ -49,6 +52,7 @@ pub fn run_imports(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn query_imports(
     engine: &QueryEngine,
     module: Option<&str>,
@@ -73,10 +77,7 @@ fn query_imports(
     }
 
     if let Some(f) = file {
-        conditions.push(format!(
-            "source_file LIKE '{}%'",
-            f.replace('\'', "''")
-        ));
+        conditions.push(format!("source_file LIKE '{}%'", f.replace('\'', "''")));
     }
 
     if type_only {

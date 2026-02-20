@@ -4,17 +4,15 @@ use serde::Serialize;
 use crate::cli::OutputFormat;
 
 /// Format a vector of serializable rows into the requested output format.
-pub fn format_output<T: Serialize>(rows: &[T], headers: &[&str], format: &OutputFormat) -> Result<String> {
+pub fn format_output<T: Serialize>(
+    rows: &[T],
+    headers: &[&str],
+    format: &OutputFormat,
+) -> Result<String> {
     match format {
-        OutputFormat::Json => {
-            Ok(serde_json::to_string_pretty(rows)?)
-        }
-        OutputFormat::Csv => {
-            format_csv(rows, headers)
-        }
-        OutputFormat::Table => {
-            format_table(rows, headers)
-        }
+        OutputFormat::Json => Ok(serde_json::to_string_pretty(rows)?),
+        OutputFormat::Csv => format_csv(rows, headers),
+        OutputFormat::Table => format_table(rows, headers),
     }
 }
 
@@ -58,7 +56,7 @@ fn format_table<T: Serialize>(rows: &[T], headers: &[&str]) -> Result<String> {
     // Convert all rows to JSON values to extract fields
     let json_rows: Vec<serde_json::Value> = rows
         .iter()
-        .map(|r| serde_json::to_value(r))
+        .map(serde_json::to_value)
         .collect::<Result<Vec<_>, _>>()?;
 
     // Calculate column widths

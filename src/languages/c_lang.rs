@@ -166,8 +166,12 @@ fn determine_c_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
 fn is_exported_c(def_node: tree_sitter::Node, source: &[u8]) -> bool {
     // Macros, structs, unions, enums, and typedefs are always "exported"
     match def_node.kind() {
-        "preproc_def" | "preproc_function_def" | "struct_specifier" | "union_specifier"
-        | "enum_specifier" | "type_definition" => return true,
+        "preproc_def"
+        | "preproc_function_def"
+        | "struct_specifier"
+        | "union_specifier"
+        | "enum_specifier"
+        | "type_definition" => return true,
         _ => {}
     }
 
@@ -236,10 +240,8 @@ pub fn extract_imports(
 
 fn strip_include_path(s: &str) -> String {
     let s = s.trim();
-    if s.starts_with('<') && s.ends_with('>') {
-        s[1..s.len() - 1].to_string()
-    } else if s.starts_with('"') && s.ends_with('"') {
-        s[1..s.len() - 1].to_string()
+    if (s.starts_with('<') && s.ends_with('>')) || (s.starts_with('"') && s.ends_with('"')) {
+        s[1..s.len() - 1].trim().to_string()
     } else {
         s.to_string()
     }
@@ -515,7 +517,8 @@ mod tests {
 
     #[test]
     fn comment_classification() {
-        let comments = parse_and_extract_comments("/** Doc comment */\n// Line comment\n/* Block comment */");
+        let comments =
+            parse_and_extract_comments("/** Doc comment */\n// Line comment\n/* Block comment */");
         assert_eq!(comments.len(), 3);
         assert_eq!(comments[0].kind, "doc");
         assert_eq!(comments[1].kind, "line");
@@ -524,17 +527,23 @@ mod tests {
 
     #[test]
     fn triple_slash_doc_comment() {
-        let comments = parse_and_extract_comments("/// This is a doc comment\nint foo() { return 0; }");
+        let comments =
+            parse_and_extract_comments("/// This is a doc comment\nint foo() { return 0; }");
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].kind, "doc");
     }
 
     #[test]
     fn comment_associated_symbol() {
-        let comments = parse_and_extract_comments("/** Calculate sum */\nint sum(int a, int b) { return a + b; }");
+        let comments = parse_and_extract_comments(
+            "/** Calculate sum */\nint sum(int a, int b) { return a + b; }",
+        );
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].associated_symbol.as_deref(), Some("sum"));
-        assert_eq!(comments[0].associated_symbol_kind.as_deref(), Some("function"));
+        assert_eq!(
+            comments[0].associated_symbol_kind.as_deref(),
+            Some("function")
+        );
     }
 
     #[test]

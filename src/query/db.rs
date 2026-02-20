@@ -22,20 +22,14 @@ impl QueryEngine {
         let symbols_path = data_dir.join("symbols.parquet");
 
         if !files_path.exists() {
-            bail!(
-                "files.parquet not found in {}",
-                data_dir.display()
-            );
+            bail!("files.parquet not found in {}", data_dir.display());
         }
         if !symbols_path.exists() {
-            bail!(
-                "symbols.parquet not found in {}",
-                data_dir.display()
-            );
+            bail!("symbols.parquet not found in {}", data_dir.display());
         }
 
-        let conn = Connection::open_in_memory()
-            .context("failed to open DuckDB in-memory connection")?;
+        let conn =
+            Connection::open_in_memory().context("failed to open DuckDB in-memory connection")?;
 
         // Register parquet files as named views so queries can use
         // `FROM files` and `FROM symbols` instead of read_parquet().
@@ -68,9 +62,7 @@ impl QueryEngine {
                     "SELECT COUNT(*) FROM parquet_schema('{}') WHERE name = 'is_external'",
                     imports_escaped
                 );
-                let count: i64 = conn
-                    .query_row(&sql, [], |row| row.get(0))
-                    .unwrap_or(0);
+                let count: i64 = conn.query_row(&sql, [], |row| row.get(0)).unwrap_or(0);
                 count > 0
             };
 

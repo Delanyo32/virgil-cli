@@ -112,7 +112,10 @@ fn query_symbols(
         )
     };
 
-    let mut stmt = engine.conn.prepare(&sql).context("failed to prepare search query")?;
+    let mut stmt = engine
+        .conn
+        .prepare(&sql)
+        .context("failed to prepare search query")?;
     let rows = stmt
         .query_map([], |row| {
             Ok(SymbolMatch {

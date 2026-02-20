@@ -28,7 +28,13 @@ fn parse_fixture_full(
         parser::parse_file(&mut ts_parser, &path, &dir, language).expect("parse_file");
     let source = std::fs::read_to_string(&path).expect("read source");
     let sym_query = languages::compile_symbol_query(language).expect("compile query");
-    let syms = languages::extract_symbols(&tree, source.as_bytes(), &sym_query, &metadata.path, language);
+    let syms = languages::extract_symbols(
+        &tree,
+        source.as_bytes(),
+        &sym_query,
+        &metadata.path,
+        language,
+    );
     let imp_query = languages::compile_import_query(language).expect("compile import query");
     let imps = languages::extract_imports(
         &tree,
@@ -45,11 +51,12 @@ fn parse_fixture(filename: &str, language: Language) -> (FileMetadata, Vec<Symbo
     let dir = fixtures_dir();
     let path = dir.join(filename);
     let mut ts_parser = parser::create_parser(language).expect("create parser");
-    let (metadata, tree) = parser::parse_file(&mut ts_parser, &path, &dir, language)
-        .expect("parse_file");
+    let (metadata, tree) =
+        parser::parse_file(&mut ts_parser, &path, &dir, language).expect("parse_file");
     let source = std::fs::read_to_string(&path).expect("read source");
     let query = languages::compile_symbol_query(language).expect("compile query");
-    let syms = languages::extract_symbols(&tree, source.as_bytes(), &query, &metadata.path, language);
+    let syms =
+        languages::extract_symbols(&tree, source.as_bytes(), &query, &metadata.path, language);
     (metadata, syms)
 }
 
@@ -65,8 +72,16 @@ fn full_pipeline_typescript() {
 
     // Verify all expected names are present
     let expected = [
-        "greet", "UserService", "API_URL", "fetchData", "User",
-        "UserId", "Role", "helper", "getName", "internalHandler",
+        "greet",
+        "UserService",
+        "API_URL",
+        "fetchData",
+        "User",
+        "UserId",
+        "Role",
+        "helper",
+        "getName",
+        "internalHandler",
     ];
     for name in &expected {
         assert!(names.contains(name), "missing symbol: {name}");
@@ -86,7 +101,9 @@ fn full_pipeline_typescript() {
     assert_eq!(batch.num_rows(), 10);
 
     let parquet_names = batch.column(0).as_string::<i32>();
-    let read_names: Vec<&str> = (0..batch.num_rows()).map(|i| parquet_names.value(i)).collect();
+    let read_names: Vec<&str> = (0..batch.num_rows())
+        .map(|i| parquet_names.value(i))
+        .collect();
     for name in &expected {
         assert!(read_names.contains(name), "parquet missing symbol: {name}");
     }
@@ -169,13 +186,29 @@ fn parquet_preserves_export_flag() {
     }
 
     // Exported symbols
-    for name in &["greet", "UserService", "API_URL", "fetchData", "User", "UserId", "Role"] {
-        assert_eq!(export_map.get(*name), Some(&true), "{name} should be exported");
+    for name in &[
+        "greet",
+        "UserService",
+        "API_URL",
+        "fetchData",
+        "User",
+        "UserId",
+        "Role",
+    ] {
+        assert_eq!(
+            export_map.get(*name),
+            Some(&true),
+            "{name} should be exported"
+        );
     }
 
     // Non-exported symbols
     for name in &["helper", "getName", "internalHandler"] {
-        assert_eq!(export_map.get(*name), Some(&false), "{name} should not be exported");
+        assert_eq!(
+            export_map.get(*name),
+            Some(&false),
+            "{name} should not be exported"
+        );
     }
 }
 
@@ -188,9 +221,15 @@ fn import_extraction_typescript() {
     let dynamic_count = imps.iter().filter(|i| i.kind == "dynamic").count();
     let reexport_count = imps.iter().filter(|i| i.kind == "re_export").count();
 
-    assert!(static_count >= 8, "expected at least 8 static imports, got {static_count}");
+    assert!(
+        static_count >= 8,
+        "expected at least 8 static imports, got {static_count}"
+    );
     assert_eq!(dynamic_count, 1, "expected 1 dynamic import");
-    assert!(reexport_count >= 2, "expected at least 2 re-exports, got {reexport_count}");
+    assert!(
+        reexport_count >= 2,
+        "expected at least 2 re-exports, got {reexport_count}"
+    );
 
     // Check specific imports
     let react_default = imps
@@ -199,24 +238,33 @@ fn import_extraction_typescript() {
     assert!(react_default.is_some(), "missing default import from react");
     assert_eq!(react_default.unwrap().local_name, "React");
 
-    let namespace = imps.iter().find(|i| i.imported_name == "*" && i.local_name == "path");
+    let namespace = imps
+        .iter()
+        .find(|i| i.imported_name == "*" && i.local_name == "path");
     assert!(namespace.is_some(), "missing namespace import for path");
 
     let aliased = imps
         .iter()
         .find(|i| i.imported_name == "useState" && i.local_name == "useMyState");
-    assert!(aliased.is_some(), "missing aliased import useState as useMyState");
+    assert!(
+        aliased.is_some(),
+        "missing aliased import useState as useMyState"
+    );
 
     let type_only = imps
         .iter()
         .find(|i| i.imported_name == "User" && i.module_specifier == "./models");
     assert!(type_only.is_some(), "missing type-only import User");
-    assert!(type_only.unwrap().is_type_only, "User import should be type-only");
+    assert!(
+        type_only.unwrap().is_type_only,
+        "User import should be type-only"
+    );
 
-    let side_effect = imps
-        .iter()
-        .find(|i| i.module_specifier == "./polyfill");
-    assert!(side_effect.is_some(), "missing side-effect import ./polyfill");
+    let side_effect = imps.iter().find(|i| i.module_specifier == "./polyfill");
+    assert!(
+        side_effect.is_some(),
+        "missing side-effect import ./polyfill"
+    );
 
     let dynamic = imps.iter().find(|i| i.kind == "dynamic");
     assert!(dynamic.is_some(), "missing dynamic import");
@@ -231,7 +279,10 @@ fn import_extraction_javascript() {
     let require_count = imps.iter().filter(|i| i.kind == "require").count();
     let dynamic_count = imps.iter().filter(|i| i.kind == "dynamic").count();
 
-    assert!(static_count >= 2, "expected at least 2 static imports, got {static_count}");
+    assert!(
+        static_count >= 2,
+        "expected at least 2 static imports, got {static_count}"
+    );
     assert_eq!(require_count, 2, "expected 2 require calls");
     assert_eq!(dynamic_count, 1, "expected 1 dynamic import");
 }
@@ -265,6 +316,12 @@ fn imports_parquet_round_trip() {
     // Verify module_specifier column has expected values
     let specs = batch.column(1).as_string::<i32>();
     let spec_values: Vec<&str> = (0..batch.num_rows()).map(|i| specs.value(i)).collect();
-    assert!(spec_values.contains(&"react"), "parquet missing 'react' module specifier");
-    assert!(spec_values.contains(&"./utils"), "parquet missing './utils' module specifier");
+    assert!(
+        spec_values.contains(&"react"),
+        "parquet missing 'react' module specifier; got: {spec_values:?}"
+    );
+    assert!(
+        spec_values.contains(&"./utils"),
+        "parquet missing './utils' module specifier; got: {spec_values:?}"
+    );
 }

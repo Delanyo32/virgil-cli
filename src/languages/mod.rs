@@ -1,12 +1,12 @@
-mod typescript;
 mod c_lang;
 mod cpp;
 mod csharp;
-mod rust_lang;
-mod python;
 mod go;
 mod java;
 mod php;
+mod python;
+mod rust_lang;
+mod typescript;
 
 use std::sync::Arc;
 

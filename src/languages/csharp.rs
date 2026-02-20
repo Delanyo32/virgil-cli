@@ -281,10 +281,8 @@ pub fn extract_comments(
 
 fn classify_comment(text: &str) -> String {
     let trimmed = text.trim_start();
-    // C# XML doc comments use ///
-    if trimmed.starts_with("///") {
-        "doc".to_string()
-    } else if trimmed.starts_with("/**") {
+    // C# XML doc comments use ///, JavaDoc-style use /**
+    if trimmed.starts_with("///") || trimmed.starts_with("/**") {
         "doc".to_string()
     } else if trimmed.starts_with("/*") {
         "block".to_string()

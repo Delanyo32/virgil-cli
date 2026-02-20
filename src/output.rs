@@ -58,11 +58,13 @@ pub fn write_files_parquet(files: &[FileMetadata], output_dir: &Path) -> Result<
     .context("failed to create files RecordBatch")?;
 
     let path = output_dir.join("files.parquet");
-    let file = File::create(&path)
-        .with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer = ArrowWriter::try_new(file, schema, None)
-        .context("failed to create parquet writer")?;
-    writer.write(&batch).context("failed to write files batch")?;
+    let file =
+        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer =
+        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
+    writer
+        .write(&batch)
+        .context("failed to write files batch")?;
     writer.close().context("failed to close parquet writer")?;
 
     Ok(())
@@ -97,10 +99,10 @@ pub fn write_symbols_parquet(symbols: &[SymbolInfo], output_dir: &Path) -> Resul
     .context("failed to create symbols RecordBatch")?;
 
     let path = output_dir.join("symbols.parquet");
-    let file = File::create(&path)
-        .with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer = ArrowWriter::try_new(file, schema, None)
-        .context("failed to create parquet writer")?;
+    let file =
+        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer =
+        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
     writer
         .write(&batch)
         .context("failed to write symbols batch")?;
@@ -126,7 +128,10 @@ pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Resul
     let schema = Arc::new(imports_schema());
 
     let source_files: Vec<&str> = imports.iter().map(|i| i.source_file.as_str()).collect();
-    let module_specifiers: Vec<&str> = imports.iter().map(|i| i.module_specifier.as_str()).collect();
+    let module_specifiers: Vec<&str> = imports
+        .iter()
+        .map(|i| i.module_specifier.as_str())
+        .collect();
     let imported_names: Vec<&str> = imports.iter().map(|i| i.imported_name.as_str()).collect();
     let local_names: Vec<&str> = imports.iter().map(|i| i.local_name.as_str()).collect();
     let kinds: Vec<&str> = imports.iter().map(|i| i.kind.as_str()).collect();
@@ -150,10 +155,10 @@ pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Resul
     .context("failed to create imports RecordBatch")?;
 
     let path = output_dir.join("imports.parquet");
-    let file = File::create(&path)
-        .with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer = ArrowWriter::try_new(file, schema, None)
-        .context("failed to create parquet writer")?;
+    let file =
+        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer =
+        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
     writer
         .write(&batch)
         .context("failed to write imports batch")?;
@@ -212,10 +217,10 @@ pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Re
     .context("failed to create comments RecordBatch")?;
 
     let path = output_dir.join("comments.parquet");
-    let file = File::create(&path)
-        .with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer = ArrowWriter::try_new(file, schema, None)
-        .context("failed to create parquet writer")?;
+    let file =
+        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer =
+        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
     writer
         .write(&batch)
         .context("failed to write comments batch")?;
@@ -237,7 +242,17 @@ mod tests {
         let schema = files_schema();
         assert_eq!(schema.fields().len(), 6);
         let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
-        assert_eq!(names, vec!["path", "name", "extension", "language", "size_bytes", "line_count"]);
+        assert_eq!(
+            names,
+            vec![
+                "path",
+                "name",
+                "extension",
+                "language",
+                "size_bytes",
+                "line_count"
+            ]
+        );
     }
 
     #[test]
@@ -247,7 +262,16 @@ mod tests {
         let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
         assert_eq!(
             names,
-            vec!["name", "kind", "file_path", "start_line", "start_column", "end_line", "end_column", "is_exported"]
+            vec![
+                "name",
+                "kind",
+                "file_path",
+                "start_line",
+                "start_column",
+                "end_line",
+                "end_column",
+                "is_exported"
+            ]
         );
     }
 
@@ -464,7 +488,7 @@ mod tests {
 
         let is_external = batch.column(7).as_boolean();
         assert!(!is_external.value(0)); // ./utils = internal
-        assert!(is_external.value(1));  // react = external
+        assert!(is_external.value(1)); // react = external
     }
 
     #[test]

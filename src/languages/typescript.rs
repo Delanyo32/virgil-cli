@@ -375,7 +375,7 @@ fn strip_quotes(s: &str) -> String {
         || (s.starts_with('\'') && s.ends_with('\''))
         || (s.starts_with('`') && s.ends_with('`'))
     {
-        s[1..s.len() - 1].to_string()
+        s[1..s.len() - 1].trim().to_string()
     } else {
         s.to_string()
     }
@@ -459,10 +459,7 @@ fn extract_named_imports(
     }
 }
 
-fn extract_import_specifier(
-    node: tree_sitter::Node,
-    source: &[u8],
-) -> (String, String, bool) {
+fn extract_import_specifier(node: tree_sitter::Node, source: &[u8]) -> (String, String, bool) {
     let mut identifiers = Vec::new();
     let mut is_type = false;
     let mut cursor = node.walk();
@@ -510,10 +507,7 @@ fn extract_reexport_bindings(
     results
 }
 
-fn extract_export_specifier(
-    node: tree_sitter::Node,
-    source: &[u8],
-) -> (String, String) {
+fn extract_export_specifier(node: tree_sitter::Node, source: &[u8]) -> (String, String) {
     let mut identifiers = Vec::new();
     let mut cursor = node.walk();
 
@@ -627,9 +621,7 @@ fn extract_symbol_from_node(
                     .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(source).ok())
                     .map(|s| s.to_string());
-                let value_kind = declarator
-                    .child_by_field_name("value")
-                    .map(|n| n.kind());
+                let value_kind = declarator.child_by_field_name("value").map(|n| n.kind());
                 let sk = if value_kind == Some("arrow_function") {
                     "arrow_function"
                 } else {
@@ -650,14 +642,13 @@ fn extract_symbol_from_node(
     (name, Some(symbol_kind.to_string()))
 }
 
-fn find_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+fn find_child_by_kind<'a>(
+    node: tree_sitter::Node<'a>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut cursor)
+        .find(|child| child.kind() == kind)
 }
 
 // ── Tests ──
@@ -689,32 +680,50 @@ mod tests {
 
     #[test]
     fn determine_kind_function() {
-        assert_eq!(determine_kind("function_declaration", None), Some(SymbolKind::Function));
+        assert_eq!(
+            determine_kind("function_declaration", None),
+            Some(SymbolKind::Function)
+        );
     }
 
     #[test]
     fn determine_kind_class() {
-        assert_eq!(determine_kind("class_declaration", None), Some(SymbolKind::Class));
+        assert_eq!(
+            determine_kind("class_declaration", None),
+            Some(SymbolKind::Class)
+        );
     }
 
     #[test]
     fn determine_kind_method() {
-        assert_eq!(determine_kind("method_definition", None), Some(SymbolKind::Method));
+        assert_eq!(
+            determine_kind("method_definition", None),
+            Some(SymbolKind::Method)
+        );
     }
 
     #[test]
     fn determine_kind_interface() {
-        assert_eq!(determine_kind("interface_declaration", None), Some(SymbolKind::Interface));
+        assert_eq!(
+            determine_kind("interface_declaration", None),
+            Some(SymbolKind::Interface)
+        );
     }
 
     #[test]
     fn determine_kind_type_alias() {
-        assert_eq!(determine_kind("type_alias_declaration", None), Some(SymbolKind::TypeAlias));
+        assert_eq!(
+            determine_kind("type_alias_declaration", None),
+            Some(SymbolKind::TypeAlias)
+        );
     }
 
     #[test]
     fn determine_kind_enum() {
-        assert_eq!(determine_kind("enum_declaration", None), Some(SymbolKind::Enum));
+        assert_eq!(
+            determine_kind("enum_declaration", None),
+            Some(SymbolKind::Enum)
+        );
     }
 
     #[test]
@@ -857,10 +866,8 @@ mod tests {
 
     #[test]
     fn default_import() {
-        let imports = parse_and_extract_imports(
-            r#"import React from "react";"#,
-            Language::TypeScript,
-        );
+        let imports =
+            parse_and_extract_imports(r#"import React from "react";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].imported_name, "default");
         assert_eq!(imports[0].local_name, "React");
@@ -870,10 +877,8 @@ mod tests {
 
     #[test]
     fn namespace_import() {
-        let imports = parse_and_extract_imports(
-            r#"import * as path from "path";"#,
-            Language::TypeScript,
-        );
+        let imports =
+            parse_and_extract_imports(r#"import * as path from "path";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].imported_name, "*");
         assert_eq!(imports[0].local_name, "path");
@@ -903,10 +908,7 @@ mod tests {
 
     #[test]
     fn side_effect_import() {
-        let imports = parse_and_extract_imports(
-            r#"import "./polyfill";"#,
-            Language::TypeScript,
-        );
+        let imports = parse_and_extract_imports(r#"import "./polyfill";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].imported_name, "*");
         assert_eq!(imports[0].local_name, "*");
@@ -915,10 +917,8 @@ mod tests {
 
     #[test]
     fn dynamic_import() {
-        let imports = parse_and_extract_imports(
-            r#"const mod = import("./lazy");"#,
-            Language::TypeScript,
-        );
+        let imports =
+            parse_and_extract_imports(r#"const mod = import("./lazy");"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, "dynamic");
         assert_eq!(imports[0].module_specifier, "./lazy");
@@ -926,10 +926,7 @@ mod tests {
 
     #[test]
     fn reexport_star() {
-        let imports = parse_and_extract_imports(
-            r#"export * from "./base";"#,
-            Language::TypeScript,
-        );
+        let imports = parse_and_extract_imports(r#"export * from "./base";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, "re_export");
         assert_eq!(imports[0].imported_name, "*");
