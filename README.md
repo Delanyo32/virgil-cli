@@ -8,6 +8,31 @@ A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/P
 cargo install --path .
 ```
 
+## AI Skill
+
+Virgil includes an [Agent Skills](https://agentskills.io/) compatible skill that teaches AI assistants how to use virgil-cli for codebase exploration. Works with Claude Code, Cursor, Gemini CLI, VS Code, and other compatible agents.
+
+### Install via npx
+
+```bash
+npx @anthropic-ai/agent-skills add virgil --from github:virgil-cli/virgil-cli
+```
+
+### Manual install (Claude Code)
+
+Copy the `virgil/` skill directory to your skills folder:
+
+```bash
+cp -r .agents/skills/virgil ~/.claude/skills/
+```
+
+### What the skill provides
+
+- **Core workflow**: Parse → Overview → Drill-down exploration pattern
+- **6 strategic playbooks**: Architecture understanding, symbol tracing, onboarding, bug investigation, dependency mapping, API surface mapping
+- **Full command reference**: Flag-by-flag docs for all 13 commands
+- **30+ SQL recipes**: Reusable DuckDB queries for file, symbol, dependency, and comment analysis
+
 ## Usage
 
 ```bash
