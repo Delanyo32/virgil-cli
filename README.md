@@ -15,7 +15,7 @@ Virgil includes an [Agent Skills](https://agentskills.io/) compatible skill that
 ### Install via npx
 
 ```bash
-npx @anthropic-ai/agent-skills add virgil --from github:virgil-cli/virgil-cli
+npx skills add delanyo32/virgil-cli
 ```
 
 ### Manual install (Claude Code)
