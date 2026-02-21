@@ -39,6 +39,12 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 virgil <COMMAND> [OPTIONS]
 ```
 
+### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--env` | Use S3 storage — reads credentials from environment variables (see [S3 Storage](#s3-storage)) |
+
 ### Subcommands
 
 | Command | Description |
@@ -429,6 +435,38 @@ Four Parquet files are generated:
 - **File reading with line ranges** — read source files or specific line ranges directly from the CLI
 - **Comment tracking** — extracts comments with classification (line/block/doc) and automatic symbol association
 - **Multiple output formats** — table, JSON, and CSV output for all query commands
+- **S3 storage** — parse codebases from S3, write parquet output to S3, and query parquet files stored in S3
+
+## S3 Storage
+
+All commands support reading from and writing to S3-compatible storage (AWS S3, MinIO, Cloudflare R2, etc.) via the `--env` global flag. When `--env` is set, path arguments (`dir`, `--output`, `--data-dir`, `--root`) are reinterpreted as S3 key prefixes.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `S3_ACCESS_KEY_ID` | Yes | S3 access key ID |
+| `S3_SECRET_ACCESS_KEY` | Yes | S3 secret access key |
+| `S3_BUCKET_NAME` | Yes | S3 bucket name |
+| `S3_ENDPOINT` | Yes | S3 endpoint URL (e.g., `https://s3.amazonaws.com`, `http://localhost:9000` for MinIO, or `https://<account_id>.r2.cloudflarestorage.com` for Cloudflare R2) |
+| `S3_REGION` | No | S3 region (default: `us-east-1`) |
+
+### S3 Examples
+
+```bash
+# Parse files from S3 and write parquet to S3
+virgil parse my-prefix/src --output parsed --env
+
+# Query parquet files stored in S3
+virgil search "main" --data-dir parsed --env
+virgil overview --data-dir parsed --env
+
+# Read a source file from S3
+virgil read src/main.ts --root my-prefix/src --env
+
+# Run raw SQL against S3-hosted parquet
+virgil query "SELECT * FROM symbols LIMIT 10" --data-dir parsed --env
+```
 
 ## Inspecting Output
 

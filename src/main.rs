@@ -13,23 +13,41 @@ use virgil_cli::models::{CommentInfo, FileMetadata, ImportInfo, ParseError, Symb
 use virgil_cli::output;
 use virgil_cli::parser;
 use virgil_cli::query;
+use virgil_cli::s3;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    let s3_config = if cli.env {
+        Some(s3::S3Config::from_env()?)
+    } else {
+        None
+    };
 
     match cli.command {
         Command::Parse {
             dir,
             output: output_dir,
             language: lang_filter,
-        } => run_parse(&dir, &output_dir, lang_filter.as_deref()),
+        } => {
+            if let Some(cfg) = &s3_config {
+                run_parse_s3(
+                    cfg,
+                    &dir.to_string_lossy(),
+                    &output_dir.to_string_lossy(),
+                    lang_filter.as_deref(),
+                )
+            } else {
+                run_parse(&dir, &output_dir, lang_filter.as_deref())
+            }
+        }
 
         Command::Overview {
             data_dir,
             format,
             depth,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::overview::run_overview(&engine, &format, depth)?;
             print!("{output}");
             Ok(())
@@ -44,7 +62,7 @@ fn main() -> Result<()> {
             offset,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::search::run_search(
                 &engine,
                 &q,
@@ -63,7 +81,7 @@ fn main() -> Result<()> {
             data_dir,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::outline::run_outline(&engine, &file_path, &format)?;
             print!("{output}");
             Ok(())
@@ -78,7 +96,7 @@ fn main() -> Result<()> {
             sort,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::files::run_files(
                 &engine,
                 lang.as_deref(),
@@ -99,7 +117,18 @@ fn main() -> Result<()> {
             start_line,
             end_line,
         } => {
-            let output = query::read::run_read(&file_path, &root, start_line, end_line)?;
+            let output = if let Some(cfg) = &s3_config {
+                let client = s3::S3Client::new(cfg)?;
+                query::read::run_read_s3(
+                    &file_path,
+                    &root.to_string_lossy(),
+                    &client,
+                    start_line,
+                    end_line,
+                )?
+            } else {
+                query::read::run_read(&file_path, &root, start_line, end_line)?
+            };
             print!("{output}");
             Ok(())
         }
@@ -109,7 +138,7 @@ fn main() -> Result<()> {
             data_dir,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = run_raw_query(&engine, &sql, &format)?;
             print!("{output}");
             Ok(())
@@ -120,7 +149,7 @@ fn main() -> Result<()> {
             data_dir,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::deps::run_deps(&engine, &file_path, &format)?;
             print!("{output}");
             Ok(())
@@ -131,7 +160,7 @@ fn main() -> Result<()> {
             data_dir,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::dependents::run_dependents(&engine, &file_path, &format)?;
             print!("{output}");
             Ok(())
@@ -143,7 +172,7 @@ fn main() -> Result<()> {
             limit,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::callers::run_callers(&engine, &symbol_name, limit, &format)?;
             print!("{output}");
             Ok(())
@@ -160,7 +189,7 @@ fn main() -> Result<()> {
             limit,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::imports::run_imports(
                 &engine,
                 module.as_deref(),
@@ -185,7 +214,7 @@ fn main() -> Result<()> {
             limit,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::comments::run_comments(
                 &engine,
                 file.as_deref(),
@@ -206,7 +235,7 @@ fn main() -> Result<()> {
             limit,
             format,
         } => {
-            let engine = query::db::QueryEngine::new(&data_dir)?;
+            let engine = make_engine(&s3_config, &data_dir)?;
             let output = query::errors::run_errors(
                 &engine,
                 error_type.as_deref(),
@@ -217,6 +246,17 @@ fn main() -> Result<()> {
             print!("{output}");
             Ok(())
         }
+    }
+}
+
+fn make_engine(
+    s3_config: &Option<s3::S3Config>,
+    data_dir: &std::path::Path,
+) -> Result<query::db::QueryEngine> {
+    if let Some(cfg) = s3_config {
+        query::db::QueryEngine::new_s3(cfg, &data_dir.to_string_lossy())
+    } else {
+        query::db::QueryEngine::new(data_dir)
     }
 }
 
@@ -482,6 +522,269 @@ fn run_parse(
     eprintln!(
         "Output: {}/{{files,symbols,imports,comments,errors}}.parquet",
         output_dir.display(),
+    );
+
+    Ok(())
+}
+
+fn run_parse_s3(
+    s3_config: &s3::S3Config,
+    dir_prefix: &str,
+    output_prefix: &str,
+    lang_filter: Option<&str>,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        Language::all().to_vec()
+    };
+
+    if languages.is_empty() {
+        anyhow::bail!("no valid languages specified");
+    }
+
+    let start = Instant::now();
+
+    let client = s3::S3Client::new(s3_config)?;
+
+    // Phase 1: List ALL files from S3 prefix
+    let all_files_s3 = client.list_files(dir_prefix, &[])?;
+    eprintln!("Discovered {} files from S3", all_files_s3.len());
+
+    if all_files_s3.is_empty() {
+        eprintln!("No files found. Nothing to do.");
+        return Ok(());
+    }
+
+    // Phase 2: Partition into supported and unsupported
+    let supported_extensions: Vec<&str> = languages
+        .iter()
+        .flat_map(|l| l.all_extensions())
+        .copied()
+        .collect();
+
+    let prefix_for_relative = dir_prefix.trim_end_matches('/');
+
+    let (supported_s3, unsupported_s3): (Vec<_>, Vec<_>) =
+        all_files_s3.into_iter().partition(|f| {
+            f.key
+                .rsplit('.')
+                .next()
+                .is_some_and(|ext| supported_extensions.contains(&ext))
+        });
+
+    eprintln!(
+        "Supported: {}, Unsupported: {}",
+        supported_s3.len(),
+        unsupported_s3.len()
+    );
+
+    // Phase 3: Build FileMetadata for unsupported files (use size from listing, no download)
+    let unsupported_metadata: Vec<FileMetadata> = unsupported_s3
+        .iter()
+        .map(|f| {
+            let relative_path = f
+                .key
+                .strip_prefix(prefix_for_relative)
+                .unwrap_or(&f.key)
+                .trim_start_matches('/')
+                .to_string();
+
+            let name = relative_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&relative_path)
+                .to_string();
+
+            let extension = name.rsplit('.').next().unwrap_or("").to_string();
+
+            FileMetadata {
+                path: relative_path,
+                name,
+                extension,
+                language: "unsupported".to_string(),
+                size_bytes: f.size,
+                line_count: 0,
+            }
+        })
+        .collect();
+
+    // Pre-compile queries per language (shared across threads)
+    let mut query_map = std::collections::HashMap::new();
+    let mut import_query_map = std::collections::HashMap::new();
+    let mut comment_query_map = std::collections::HashMap::new();
+    for lang in &languages {
+        query_map.insert(*lang, languages::compile_symbol_query(*lang)?);
+        import_query_map.insert(*lang, languages::compile_import_query(*lang)?);
+        comment_query_map.insert(*lang, languages::compile_comment_query(*lang)?);
+    }
+    let query_map = Arc::new(query_map);
+    let import_query_map = Arc::new(import_query_map);
+    let comment_query_map = Arc::new(comment_query_map);
+    let s3_config_arc = Arc::new(s3_config.clone());
+
+    // Phase 4: Parse supported files (parallel — each task creates its own S3Client)
+    let results: Vec<_> = supported_s3
+        .par_iter()
+        .filter_map(|s3_file| {
+            let ext = s3_file.key.rsplit('.').next()?;
+            let lang = Language::from_extension(ext)?;
+            let query = query_map.get(&lang)?;
+            let import_query = import_query_map.get(&lang)?;
+            let comment_query = comment_query_map.get(&lang)?;
+
+            let relative_path = s3_file
+                .key
+                .strip_prefix(prefix_for_relative)
+                .unwrap_or(&s3_file.key)
+                .trim_start_matches('/')
+                .to_string();
+
+            let file_name = relative_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&relative_path)
+                .to_string();
+
+            let file_ext = file_name.rsplit('.').next().unwrap_or("").to_string();
+
+            // Each rayon task creates its own S3Client
+            let task_client = match s3::S3Client::new(&s3_config_arc) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Warning: failed to create S3 client for {}: {e}", s3_file.key);
+                    return Some(ParseResult::Error(ParseError {
+                        file_path: relative_path,
+                        file_name,
+                        extension: file_ext,
+                        language: lang.as_str().to_string(),
+                        error_type: "file_read".to_string(),
+                        error_message: e.to_string(),
+                        size_bytes: s3_file.size,
+                    }));
+                }
+            };
+
+            let source = match task_client.get_file_string(&s3_file.key) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Warning: failed to download {}: {e}", s3_file.key);
+                    return Some(ParseResult::Error(ParseError {
+                        file_path: relative_path,
+                        file_name,
+                        extension: file_ext,
+                        language: lang.as_str().to_string(),
+                        error_type: "file_read".to_string(),
+                        error_message: e.to_string(),
+                        size_bytes: s3_file.size,
+                    }));
+                }
+            };
+
+            let mut ts_parser = match parser::create_parser(lang) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to create parser for {}: {e}",
+                        s3_file.key
+                    );
+                    return Some(ParseResult::Error(ParseError {
+                        file_path: relative_path,
+                        file_name,
+                        extension: file_ext,
+                        language: lang.as_str().to_string(),
+                        error_type: "parser_creation".to_string(),
+                        error_message: e.to_string(),
+                        size_bytes: s3_file.size,
+                    }));
+                }
+            };
+
+            let (metadata, tree) =
+                match parser::parse_content(&mut ts_parser, &source, &relative_path, lang) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("Warning: failed to parse {}: {e}", s3_file.key);
+                        return Some(ParseResult::Error(ParseError {
+                            file_path: relative_path,
+                            file_name,
+                            extension: file_ext,
+                            language: lang.as_str().to_string(),
+                            error_type: "parse_failure".to_string(),
+                            error_message: e.to_string(),
+                            size_bytes: s3_file.size,
+                        }));
+                    }
+                };
+
+            let syms =
+                languages::extract_symbols(&tree, source.as_bytes(), query, &metadata.path, lang);
+            let imps = languages::extract_imports(
+                &tree,
+                source.as_bytes(),
+                import_query,
+                &metadata.path,
+                lang,
+            );
+            let cmts = languages::extract_comments(
+                &tree,
+                source.as_bytes(),
+                comment_query,
+                &metadata.path,
+                lang,
+            );
+
+            Some(ParseResult::Success(metadata, syms, imps, cmts))
+        })
+        .collect();
+
+    // Phase 5: Collect results
+    let mut all_files: Vec<FileMetadata> = Vec::new();
+    let mut all_symbols: Vec<SymbolInfo> = Vec::new();
+    let mut all_imports: Vec<ImportInfo> = Vec::new();
+    let mut all_comments: Vec<CommentInfo> = Vec::new();
+    let mut all_errors: Vec<ParseError> = Vec::new();
+
+    for result in results {
+        match result {
+            ParseResult::Success(metadata, syms, imps, cmts) => {
+                all_files.push(metadata);
+                all_symbols.extend(syms);
+                all_imports.extend(imps);
+                all_comments.extend(cmts);
+            }
+            ParseResult::Error(err) => {
+                all_errors.push(err);
+            }
+        }
+    }
+
+    let supported_count = all_files.len();
+    all_files.extend(unsupported_metadata);
+
+    // Phase 6: Write parquet to S3
+    output::write_files_parquet_s3(&all_files, &client, output_prefix)?;
+    output::write_symbols_parquet_s3(&all_symbols, &client, output_prefix)?;
+    output::write_imports_parquet_s3(&all_imports, &client, output_prefix)?;
+    output::write_comments_parquet_s3(&all_comments, &client, output_prefix)?;
+    output::write_errors_parquet_s3(&all_errors, &client, output_prefix)?;
+
+    let elapsed = start.elapsed();
+    eprintln!(
+        "Done: {} files ({} supported, {} unsupported), {} symbols, {} imports, {} comments, {} errors in {:.2}s",
+        all_files.len(),
+        supported_count,
+        all_files.len() - supported_count,
+        all_symbols.len(),
+        all_imports.len(),
+        all_comments.len(),
+        all_errors.len(),
+        elapsed.as_secs_f64()
+    );
+    eprintln!(
+        "Output: s3://{}/{}/{{files,symbols,imports,comments,errors}}.parquet",
+        s3_config.bucket_name,
+        output_prefix.trim_end_matches('/'),
     );
 
     Ok(())

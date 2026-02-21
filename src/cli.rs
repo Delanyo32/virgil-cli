@@ -7,6 +7,10 @@ use std::path::PathBuf;
     about = "Parse codebases and query structured parquet files"
 )]
 pub struct Cli {
+    /// Use S3 storage (reads credentials from S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET_NAME, S3_ENDPOINT, S3_REGION env vars)
+    #[arg(long, global = true)]
+    pub env: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

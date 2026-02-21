@@ -6,3 +6,4 @@ pub mod models;
 pub mod output;
 pub mod parser;
 pub mod query;
+pub mod s3;

@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
 use crate::models::{CommentInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
+use crate::s3::S3Client;
 
 fn files_schema() -> Schema {
     Schema::new(vec![
@@ -34,7 +36,48 @@ fn symbols_schema() -> Schema {
     ])
 }
 
-pub fn write_files_parquet(files: &[FileMetadata], output_dir: &Path) -> Result<()> {
+fn imports_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("source_file", DataType::Utf8, false),
+        Field::new("module_specifier", DataType::Utf8, false),
+        Field::new("imported_name", DataType::Utf8, false),
+        Field::new("local_name", DataType::Utf8, false),
+        Field::new("kind", DataType::Utf8, false),
+        Field::new("is_type_only", DataType::Boolean, false),
+        Field::new("line", DataType::UInt32, false),
+        Field::new("is_external", DataType::Boolean, false),
+    ])
+}
+
+fn comments_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("text", DataType::Utf8, false),
+        Field::new("kind", DataType::Utf8, false),
+        Field::new("start_line", DataType::UInt32, false),
+        Field::new("start_column", DataType::UInt32, false),
+        Field::new("end_line", DataType::UInt32, false),
+        Field::new("end_column", DataType::UInt32, false),
+        Field::new("associated_symbol", DataType::Utf8, true),
+        Field::new("associated_symbol_kind", DataType::Utf8, true),
+    ])
+}
+
+fn errors_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("file_name", DataType::Utf8, false),
+        Field::new("extension", DataType::Utf8, false),
+        Field::new("language", DataType::Utf8, false),
+        Field::new("error_type", DataType::Utf8, false),
+        Field::new("error_message", DataType::Utf8, false),
+        Field::new("size_bytes", DataType::UInt64, false),
+    ])
+}
+
+// --- Batch builders ---
+
+fn build_files_batch(files: &[FileMetadata]) -> Result<(Arc<Schema>, RecordBatch)> {
     let schema = Arc::new(files_schema());
 
     let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
@@ -57,20 +100,10 @@ pub fn write_files_parquet(files: &[FileMetadata], output_dir: &Path) -> Result<
     )
     .context("failed to create files RecordBatch")?;
 
-    let path = output_dir.join("files.parquet");
-    let file =
-        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer =
-        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
-    writer
-        .write(&batch)
-        .context("failed to write files batch")?;
-    writer.close().context("failed to close parquet writer")?;
-
-    Ok(())
+    Ok((schema, batch))
 }
 
-pub fn write_symbols_parquet(symbols: &[SymbolInfo], output_dir: &Path) -> Result<()> {
+fn build_symbols_batch(symbols: &[SymbolInfo]) -> Result<(Arc<Schema>, RecordBatch)> {
     let schema = Arc::new(symbols_schema());
 
     let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
@@ -98,33 +131,10 @@ pub fn write_symbols_parquet(symbols: &[SymbolInfo], output_dir: &Path) -> Resul
     )
     .context("failed to create symbols RecordBatch")?;
 
-    let path = output_dir.join("symbols.parquet");
-    let file =
-        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer =
-        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
-    writer
-        .write(&batch)
-        .context("failed to write symbols batch")?;
-    writer.close().context("failed to close parquet writer")?;
-
-    Ok(())
+    Ok((schema, batch))
 }
 
-fn imports_schema() -> Schema {
-    Schema::new(vec![
-        Field::new("source_file", DataType::Utf8, false),
-        Field::new("module_specifier", DataType::Utf8, false),
-        Field::new("imported_name", DataType::Utf8, false),
-        Field::new("local_name", DataType::Utf8, false),
-        Field::new("kind", DataType::Utf8, false),
-        Field::new("is_type_only", DataType::Boolean, false),
-        Field::new("line", DataType::UInt32, false),
-        Field::new("is_external", DataType::Boolean, false),
-    ])
-}
-
-pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Result<()> {
+fn build_imports_batch(imports: &[ImportInfo]) -> Result<(Arc<Schema>, RecordBatch)> {
     let schema = Arc::new(imports_schema());
 
     let source_files: Vec<&str> = imports.iter().map(|i| i.source_file.as_str()).collect();
@@ -154,34 +164,10 @@ pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Resul
     )
     .context("failed to create imports RecordBatch")?;
 
-    let path = output_dir.join("imports.parquet");
-    let file =
-        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer =
-        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
-    writer
-        .write(&batch)
-        .context("failed to write imports batch")?;
-    writer.close().context("failed to close parquet writer")?;
-
-    Ok(())
+    Ok((schema, batch))
 }
 
-fn comments_schema() -> Schema {
-    Schema::new(vec![
-        Field::new("file_path", DataType::Utf8, false),
-        Field::new("text", DataType::Utf8, false),
-        Field::new("kind", DataType::Utf8, false),
-        Field::new("start_line", DataType::UInt32, false),
-        Field::new("start_column", DataType::UInt32, false),
-        Field::new("end_line", DataType::UInt32, false),
-        Field::new("end_column", DataType::UInt32, false),
-        Field::new("associated_symbol", DataType::Utf8, true),
-        Field::new("associated_symbol_kind", DataType::Utf8, true),
-    ])
-}
-
-pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Result<()> {
+fn build_comments_batch(comments: &[CommentInfo]) -> Result<(Arc<Schema>, RecordBatch)> {
     let schema = Arc::new(comments_schema());
 
     let file_paths: Vec<&str> = comments.iter().map(|c| c.file_path.as_str()).collect();
@@ -216,32 +202,10 @@ pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Re
     )
     .context("failed to create comments RecordBatch")?;
 
-    let path = output_dir.join("comments.parquet");
-    let file =
-        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-    let mut writer =
-        ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
-    writer
-        .write(&batch)
-        .context("failed to write comments batch")?;
-    writer.close().context("failed to close parquet writer")?;
-
-    Ok(())
+    Ok((schema, batch))
 }
 
-fn errors_schema() -> Schema {
-    Schema::new(vec![
-        Field::new("file_path", DataType::Utf8, false),
-        Field::new("file_name", DataType::Utf8, false),
-        Field::new("extension", DataType::Utf8, false),
-        Field::new("language", DataType::Utf8, false),
-        Field::new("error_type", DataType::Utf8, false),
-        Field::new("error_message", DataType::Utf8, false),
-        Field::new("size_bytes", DataType::UInt64, false),
-    ])
-}
-
-pub fn write_errors_parquet(errors: &[ParseError], output_dir: &Path) -> Result<()> {
+fn build_errors_batch(errors: &[ParseError]) -> Result<(Arc<Schema>, RecordBatch)> {
     let schema = Arc::new(errors_schema());
 
     let file_paths: Vec<&str> = errors.iter().map(|e| e.file_path.as_str()).collect();
@@ -266,17 +230,112 @@ pub fn write_errors_parquet(errors: &[ParseError], output_dir: &Path) -> Result<
     )
     .context("failed to create errors RecordBatch")?;
 
-    let path = output_dir.join("errors.parquet");
+    Ok((schema, batch))
+}
+
+// --- Helper: write batch to in-memory parquet bytes ---
+
+fn write_batch_to_bytes(schema: Arc<Schema>, batch: &RecordBatch) -> Result<Vec<u8>> {
+    let mut cursor = Cursor::new(Vec::new());
+    let mut writer = ArrowWriter::try_new(&mut cursor, schema, None)
+        .context("failed to create in-memory parquet writer")?;
+    writer.write(batch).context("failed to write parquet batch")?;
+    writer.close().context("failed to close parquet writer")?;
+    Ok(cursor.into_inner())
+}
+
+// --- Local filesystem writers ---
+
+fn write_batch_to_file(schema: Arc<Schema>, batch: &RecordBatch, path: &Path) -> Result<()> {
     let file =
-        File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
     let mut writer =
         ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
-    writer
-        .write(&batch)
-        .context("failed to write errors batch")?;
+    writer.write(batch).context("failed to write parquet batch")?;
     writer.close().context("failed to close parquet writer")?;
-
     Ok(())
+}
+
+pub fn write_files_parquet(files: &[FileMetadata], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_files_batch(files)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("files.parquet"))
+}
+
+pub fn write_symbols_parquet(symbols: &[SymbolInfo], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_symbols_batch(symbols)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("symbols.parquet"))
+}
+
+pub fn write_imports_parquet(imports: &[ImportInfo], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_imports_batch(imports)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("imports.parquet"))
+}
+
+pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_comments_batch(comments)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("comments.parquet"))
+}
+
+pub fn write_errors_parquet(errors: &[ParseError], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_errors_batch(errors)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("errors.parquet"))
+}
+
+// --- S3 writers ---
+
+pub fn write_files_parquet_s3(
+    files: &[FileMetadata],
+    client: &S3Client,
+    output_prefix: &str,
+) -> Result<()> {
+    let (schema, batch) = build_files_batch(files)?;
+    let bytes = write_batch_to_bytes(schema, &batch)?;
+    let key = format!("{}/files.parquet", output_prefix.trim_end_matches('/'));
+    client.put_file(&key, &bytes, "application/octet-stream")
+}
+
+pub fn write_symbols_parquet_s3(
+    symbols: &[SymbolInfo],
+    client: &S3Client,
+    output_prefix: &str,
+) -> Result<()> {
+    let (schema, batch) = build_symbols_batch(symbols)?;
+    let bytes = write_batch_to_bytes(schema, &batch)?;
+    let key = format!("{}/symbols.parquet", output_prefix.trim_end_matches('/'));
+    client.put_file(&key, &bytes, "application/octet-stream")
+}
+
+pub fn write_imports_parquet_s3(
+    imports: &[ImportInfo],
+    client: &S3Client,
+    output_prefix: &str,
+) -> Result<()> {
+    let (schema, batch) = build_imports_batch(imports)?;
+    let bytes = write_batch_to_bytes(schema, &batch)?;
+    let key = format!("{}/imports.parquet", output_prefix.trim_end_matches('/'));
+    client.put_file(&key, &bytes, "application/octet-stream")
+}
+
+pub fn write_comments_parquet_s3(
+    comments: &[CommentInfo],
+    client: &S3Client,
+    output_prefix: &str,
+) -> Result<()> {
+    let (schema, batch) = build_comments_batch(comments)?;
+    let bytes = write_batch_to_bytes(schema, &batch)?;
+    let key = format!("{}/comments.parquet", output_prefix.trim_end_matches('/'));
+    client.put_file(&key, &bytes, "application/octet-stream")
+}
+
+pub fn write_errors_parquet_s3(
+    errors: &[ParseError],
+    client: &S3Client,
+    output_prefix: &str,
+) -> Result<()> {
+    let (schema, batch) = build_errors_batch(errors)?;
+    let bytes = write_batch_to_bytes(schema, &batch)?;
+    let key = format!("{}/errors.parquet", output_prefix.trim_end_matches('/'));
+    client.put_file(&key, &bytes, "application/octet-stream")
 }
 
 #[cfg(test)]
