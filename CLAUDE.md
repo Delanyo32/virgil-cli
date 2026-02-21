@@ -9,6 +9,10 @@ cargo build
 cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php]
 cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
 cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
+
+# S3 mode (reads credentials from env vars)
+cargo run -- --env parse <S3_PREFIX> [--output <s3_prefix>]
+cargo run -- --env search <QUERY> [--data-dir <s3_prefix>]
 ```
 
 Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
@@ -39,8 +43,9 @@ src/
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
 ├── language.rs        # Language enum, extension mapping, parser selection
 ├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
-├── parser.rs          # Tree-sitter parsing, file metadata collection
-├── output.rs          # Arrow schemas + parquet writing (files, symbols, imports, comments)
+├── parser.rs          # Tree-sitter parsing, file metadata collection (parse_file + parse_content for S3)
+├── output.rs          # Arrow schemas + parquet writing (local + S3 variants)
+├── s3.rs              # S3 configuration (S3Config), client (S3Client), file listing/download/upload
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
 │   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports + comments)
@@ -54,13 +59,13 @@ src/
 │   └── php.rs         # PHP tree-sitter queries and extraction (classes, traits, namespaces, use/require imports)
 └── query/
     ├── mod.rs         # Module re-exports
-    ├── db.rs          # QueryEngine: DuckDB connection, view registration (files, symbols, imports, comments)
+    ├── db.rs          # QueryEngine: DuckDB connection, view registration (local + S3 via httpfs)
     ├── format.rs      # Output formatting (table/json/csv)
     ├── search.rs      # Fuzzy symbol search
     ├── overview.rs    # Codebase overview (languages, top symbols, directories, dependency summary)
     ├── outline.rs     # File symbol outline
     ├── files.rs       # File listing with filters
-    ├── read.rs        # Source file reading with line ranges
+    ├── read.rs        # Source file reading with line ranges (local + S3)
     ├── deps.rs        # File dependency listing (what does this file import?)
     ├── dependents.rs  # Reverse dependency lookup (what files import this file?)
     ├── callers.rs     # Find which files import a specific symbol
@@ -78,6 +83,10 @@ src/
 - **Output**: Four parquet files — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments).
 - **Querying**: DuckDB in-memory connection. `QueryEngine::new()` registers parquet files as views (`files`, `symbols`, conditionally `imports`, conditionally `comments`) so all SQL uses plain table names. The `imports` and `comments` views are backward-compatible — only registered if their parquet files exist.
 - **Output formats**: `OutputFormat` enum (table/json/csv) shared across all query subcommands. Formatting logic in `query/format.rs`.
+- **S3 storage**: `--env` global flag enables S3 mode. `rust-s3` crate with `sync-native-tls` feature (no async runtime). `S3Config::from_env()` reads credentials. `S3Client` wraps `s3::Bucket` with `list`/`get_object`/`put_object`/`head_object` sync methods. DuckDB's `httpfs` extension reads S3 parquet natively via `CREATE SECRET` + `s3://` URLs.
+- **S3 parse pipeline**: `run_parse_s3()` lists files from S3 prefix, downloads each in parallel (rayon), parses via `parse_content()`, writes parquet to S3 via in-memory `Cursor<Vec<u8>>`. Each rayon task creates its own `S3Client` (mirrors `Parser` per-task pattern).
+- **S3 query pipeline**: `QueryEngine::new_s3()` installs httpfs, creates S3 secret, registers views pointing to `s3://bucket/prefix/*.parquet`. Optional views (imports, comments, errors) swallow creation errors if parquet doesn't exist.
+- **View existence check**: `has_imports()`/`has_comments()`/`has_errors()` query `information_schema.tables` instead of filesystem — works for both local and S3 modes.
 
 ## Supported Languages
 
@@ -132,3 +141,8 @@ line, block, doc
 - PHP export detection: top-level functions/classes/interfaces/traits/enums/namespaces = always exported. Methods/properties/constants: `visibility_modifier` checked — `public` = exported, `private`/`protected` = not. Default = exported (PHP's default is public).
 - PHP imports: `use` statements (kind = "use", always external). `require`/`include` (kind = "require"/"include", starts with `.` = internal, else external). Grouped use (`use App\Models\{User, Post}`) expanded to individual imports.
 - PHP property names: `$` prefix stripped from variable names for clean symbol output.
+- S3 `--env` flag: global clap flag. Reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_ENDPOINT` (required), `S3_REGION` (optional, default `us-east-1`). Path args reinterpreted as S3 key prefixes.
+- S3 output refactor: `output.rs` uses shared `build_*_batch()` functions returning `(Arc<Schema>, RecordBatch)`. Local writers use `write_batch_to_file()`, S3 writers use `write_batch_to_bytes()` + `client.put_file()`.
+- S3 unsupported files: uses `S3File.size` from listing, sets `line_count = 0` (avoids downloading non-parsed files).
+- S3 `parse_content()`: parses source already in memory (from S3 download). Extracts name/extension from the key string. `parse_file()` remains unchanged for local mode.
+- S3 DuckDB: `httpfs` extension bundled with DuckDB 1.4. `CREATE SECRET` with `URL_STYLE 'path'` for S3-compatible endpoints (MinIO, Cloudflare R2, etc.). Endpoint scheme (`https://`/`http://`) is stripped before passing to DuckDB — httpfs prepends the scheme itself.

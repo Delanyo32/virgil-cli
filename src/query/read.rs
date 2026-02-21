@@ -2,6 +2,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+use crate::s3::S3Client;
+
 pub fn run_read(
     file_path: &str,
     root: &Path,
@@ -17,6 +19,26 @@ pub fn run_read(
     let content = std::fs::read_to_string(&full_path)
         .with_context(|| format!("failed to read {}", full_path.display()))?;
 
+    format_lines(&content, start_line, end_line)
+}
+
+pub fn run_read_s3(
+    file_path: &str,
+    root: &str,
+    client: &S3Client,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> Result<String> {
+    let key = format!("{}/{}", root.trim_end_matches('/'), file_path);
+    let content = client.get_file_string(&key)?;
+    format_lines(&content, start_line, end_line)
+}
+
+fn format_lines(
+    content: &str,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> Result<String> {
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len();
 

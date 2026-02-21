@@ -57,6 +57,40 @@ pub fn parse_file(
     Ok((metadata, tree))
 }
 
+pub fn parse_content(
+    parser: &mut tree_sitter::Parser,
+    source: &str,
+    relative_path: &str,
+    language: Language,
+) -> Result<(FileMetadata, tree_sitter::Tree)> {
+    let tree = parser
+        .parse(source, None)
+        .with_context(|| format!("tree-sitter failed to parse {relative_path}"))?;
+
+    // Extract name and extension from the key/path string
+    let name = relative_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(relative_path)
+        .to_string();
+
+    let extension = name.rsplit('.').next().unwrap_or("").to_string();
+
+    let size_bytes = source.len() as u64;
+    let line_count = source.lines().count() as u64;
+
+    let metadata = FileMetadata {
+        path: relative_path.to_string(),
+        name,
+        extension,
+        language: language.as_str().to_string(),
+        size_bytes,
+        line_count,
+    };
+
+    Ok((metadata, tree))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
