@@ -14,8 +14,14 @@ $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/l
 $Version = $Release.tag_name
 Write-Host "Latest version: $Version"
 
-$Archive = "$Binary-$Target.zip"
-$Url = "https://github.com/$Repo/releases/download/$Version/$Archive"
+# Find the matching asset download URL directly from the release API
+# This avoids constructing URLs manually which can break with tags containing slashes
+$Asset = $Release.assets | Where-Object { $_.name -eq "$Binary-$Target.zip" }
+if (-not $Asset) {
+    Write-Error "Error: could not find asset $Binary-$Target.zip in release $Version"
+    exit 1
+}
+$Url = $Asset.browser_download_url
 
 Write-Host "Downloading $Binary $Version for $Target..."
 
@@ -24,7 +30,7 @@ $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().
 New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
 
 try {
-    $ZipPath = Join-Path $TmpDir $Archive
+    $ZipPath = Join-Path $TmpDir "$Binary-$Target.zip"
     Invoke-WebRequest -Uri $Url -OutFile $ZipPath -UseBasicParsing
 
     # Extract

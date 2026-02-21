@@ -49,23 +49,37 @@ esac
 
 TARGET="${ARCH_TARGET}-${OS_TARGET}"
 
-# Resolve version
-if [ -z "$VERSION" ]; then
-    echo "Fetching latest release..."
-    if command -v curl >/dev/null 2>&1; then
-        VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')"
-    elif command -v wget >/dev/null 2>&1; then
-        VERSION="$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')"
-    else
-        echo "Error: curl or wget is required"; exit 1
-    fi
-    if [ -z "$VERSION" ]; then
-        echo "Error: could not determine latest version"; exit 1
-    fi
+# Fetch release JSON
+ARCHIVE="${BINARY}-${TARGET}.tar.gz"
+
+if command -v curl >/dev/null 2>&1; then
+    FETCH="curl -fsSL"
+elif command -v wget >/dev/null 2>&1; then
+    FETCH="wget -qO-"
+else
+    echo "Error: curl or wget is required"; exit 1
 fi
 
-ARCHIVE="${BINARY}-${TARGET}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
+if [ -z "$VERSION" ]; then
+    echo "Fetching latest release..."
+    RELEASE_JSON="$($FETCH "https://api.github.com/repos/${REPO}/releases/latest")"
+else
+    # Fetch specific release by tag — URL-encode the slash in tags like "release/v0.1.4"
+    ENCODED_VERSION="$(echo "$VERSION" | sed 's|/|%2F|g')"
+    RELEASE_JSON="$($FETCH "https://api.github.com/repos/${REPO}/releases/tags/${ENCODED_VERSION}")"
+fi
+
+VERSION="$(echo "$RELEASE_JSON" | grep '"tag_name"' | sed -E 's/.*"tag_name":[[:space:]]*"([^"]+)".*/\1/')"
+if [ -z "$VERSION" ]; then
+    echo "Error: could not determine release version"; exit 1
+fi
+
+# Extract the browser_download_url for our asset directly from the API response
+# This avoids constructing URLs manually which can break with tags containing slashes
+URL="$(echo "$RELEASE_JSON" | grep "\"browser_download_url\"" | grep "$ARCHIVE" | sed -E 's/.*"browser_download_url":[[:space:]]*"([^"]+)".*/\1/')"
+if [ -z "$URL" ]; then
+    echo "Error: could not find asset ${ARCHIVE} in release ${VERSION}"; exit 1
+fi
 
 echo "Installing ${BINARY} ${VERSION} for ${TARGET}..."
 
@@ -73,11 +87,7 @@ echo "Installing ${BINARY} ${VERSION} for ${TARGET}..."
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$URL" -o "${TMPDIR}/${ARCHIVE}"
-elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${TMPDIR}/${ARCHIVE}" "$URL"
-fi
+$FETCH "$URL" > "${TMPDIR}/${ARCHIVE}"
 
 # Extract
 tar xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
