@@ -239,7 +239,9 @@ fn write_batch_to_bytes(schema: Arc<Schema>, batch: &RecordBatch) -> Result<Vec<
     let mut cursor = Cursor::new(Vec::new());
     let mut writer = ArrowWriter::try_new(&mut cursor, schema, None)
         .context("failed to create in-memory parquet writer")?;
-    writer.write(batch).context("failed to write parquet batch")?;
+    writer
+        .write(batch)
+        .context("failed to write parquet batch")?;
     writer.close().context("failed to close parquet writer")?;
     Ok(cursor.into_inner())
 }
@@ -251,7 +253,9 @@ fn write_batch_to_file(schema: Arc<Schema>, batch: &RecordBatch, path: &Path) ->
         File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
     let mut writer =
         ArrowWriter::try_new(file, schema, None).context("failed to create parquet writer")?;
-    writer.write(batch).context("failed to write parquet batch")?;
+    writer
+        .write(batch)
+        .context("failed to write parquet batch")?;
     writer.close().context("failed to close parquet writer")?;
     Ok(())
 }

@@ -74,11 +74,7 @@ pub fn parse_content(
         .unwrap_or(relative_path)
         .to_string();
 
-    let extension = name
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let extension = name.rsplit('.').next().unwrap_or("").to_string();
 
     let size_bytes = source.len() as u64;
     let line_count = source.lines().count() as u64;

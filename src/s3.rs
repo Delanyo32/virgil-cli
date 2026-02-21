@@ -17,8 +17,8 @@ impl S3Config {
             .context("S3_ACCESS_KEY_ID environment variable not set")?;
         let secret_access_key = std::env::var("S3_SECRET_ACCESS_KEY")
             .context("S3_SECRET_ACCESS_KEY environment variable not set")?;
-        let bucket_name =
-            std::env::var("S3_BUCKET_NAME").context("S3_BUCKET_NAME environment variable not set")?;
+        let bucket_name = std::env::var("S3_BUCKET_NAME")
+            .context("S3_BUCKET_NAME environment variable not set")?;
         let endpoint =
             std::env::var("S3_ENDPOINT").context("S3_ENDPOINT environment variable not set")?;
         let region = std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string());
@@ -103,16 +103,11 @@ impl S3Client {
             .with_context(|| format!("failed to get S3 object: {key}"))?;
 
         if response.status_code() != 200 {
-            bail!(
-                "S3 GET {} returned status {}",
-                key,
-                response.status_code()
-            );
+            bail!("S3 GET {} returned status {}", key, response.status_code());
         }
 
         let bytes = response.to_vec();
-        String::from_utf8(bytes)
-            .with_context(|| format!("S3 object {key} is not valid UTF-8"))
+        String::from_utf8(bytes).with_context(|| format!("S3 object {key} is not valid UTF-8"))
     }
 
     pub fn put_file(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<()> {

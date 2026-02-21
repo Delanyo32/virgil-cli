@@ -652,7 +652,10 @@ fn run_parse_s3(
             let task_client = match s3::S3Client::new(&s3_config_arc) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Warning: failed to create S3 client for {}: {e}", s3_file.key);
+                    eprintln!(
+                        "Warning: failed to create S3 client for {}: {e}",
+                        s3_file.key
+                    );
                     return Some(ParseResult::Error(ParseError {
                         file_path: relative_path,
                         file_name,
@@ -684,10 +687,7 @@ fn run_parse_s3(
             let mut ts_parser = match parser::create_parser(lang) {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!(
-                        "Warning: failed to create parser for {}: {e}",
-                        s3_file.key
-                    );
+                    eprintln!("Warning: failed to create parser for {}: {e}", s3_file.key);
                     return Some(ParseResult::Error(ParseError {
                         file_path: relative_path,
                         file_name,
