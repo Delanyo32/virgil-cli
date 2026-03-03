@@ -1,0 +1,19 @@
+{
+  "name": "virgil-benchmarks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "bun run src/index.ts",
+    "bench:baseline": "bun run src/index.ts -- --mode baseline",
+    "bench:virgil": "bun run src/index.ts -- --mode virgil",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.2.15"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}

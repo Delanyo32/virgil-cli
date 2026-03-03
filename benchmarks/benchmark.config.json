@@ -1,0 +1,11 @@
+{
+  "$schema": "./benchmark.config.schema.json",
+  "repo": "anomalyco/opencode",
+  "issue": "random",
+  "mode": "both",
+  "model": "openrouter/z-ai/glm-5",
+  "judgeModel": "openrouter/anthropic/claude-sonnet-4.6",
+  "timeout": 600000,
+  "output": "results",
+  "virgilBin": "virgil-cli"
+}

@@ -4,3 +4,8 @@
 skills-lock.json
 .agents/
 .env
+
+# Benchmarks
+benchmarks/results/*.json
+benchmarks/repos/
+benchmarks/node_modules/

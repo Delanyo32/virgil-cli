@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "description": "GitHub repo in owner/name format (e.g. facebook/react)"
+    },
+    "issue": {
+      "type": ["number", "string"],
+      "description": "Issue number or 'random' to pick a random open issue",
+      "default": "random"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["baseline", "virgil", "both"],
+      "description": "Which benchmark runs to execute",
+      "default": "both"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model for benchmark runs in provider/model format (e.g. anthropic/claude-sonnet-4-20250514)",
+      "default": "anthropic/claude-sonnet-4-20250514"
+    },
+    "judgeModel": {
+      "type": "string",
+      "description": "Model for AI-as-judge scoring. Defaults to the benchmark model if empty.",
+      "default": ""
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Timeout per session in milliseconds",
+      "default": 300000
+    },
+    "output": {
+      "type": "string",
+      "description": "Directory for result JSON files",
+      "default": "results"
+    },
+    "virgilBin": {
+      "type": "string",
+      "description": "Path to virgil-cli binary",
+      "default": "virgil-cli"
+    }
+  },
+  "additionalProperties": false
+}

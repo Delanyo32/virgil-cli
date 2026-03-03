@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "tools": {
+    "read": { "enabled": true },
+    "grep": { "enabled": true },
+    "glob": { "enabled": true },
+    "bash": { "enabled": true },
+    "edit": { "enabled": false },
+    "write": { "enabled": false }
+  }
+}
