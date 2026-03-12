@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -5,13 +6,17 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
-use virgil_cli::cli::{Cli, Command, OutputFormat};
+use virgil_cli::cli::{
+    Cli, Command, CommentsAction, FileAction, OutputFormat, ProjectAction, ProjectQueryCommand,
+    SymbolAction,
+};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
 use virgil_cli::models::{CommentInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
 use virgil_cli::output;
 use virgil_cli::parser;
+use virgil_cli::project;
 use virgil_cli::query;
 use virgil_cli::s3;
 
@@ -24,7 +29,11 @@ fn main() -> Result<()> {
         None
     };
 
-    match cli.command {
+    dispatch_command(cli.command, s3_config)
+}
+
+fn dispatch_command(command: Command, s3_config: Option<s3::S3Config>) -> Result<()> {
+    match command {
         Command::Parse {
             dir,
             output: output_dir,
@@ -246,6 +255,20 @@ fn main() -> Result<()> {
             print!("{output}");
             Ok(())
         }
+
+        Command::Project { action } => match action {
+            ProjectAction::Create {
+                dir,
+                name,
+                language: lang_filter,
+            } => project_create(&dir, name.as_deref(), lang_filter.as_deref()),
+
+            ProjectAction::List => project_list(),
+
+            ProjectAction::Delete { name } => project_delete(&name),
+
+            ProjectAction::Query { name, command } => dispatch_project_query(&name, command),
+        },
     }
 }
 
@@ -924,4 +947,280 @@ fn run_raw_query(
             Ok(out)
         }
     }
+}
+
+fn project_create(
+    dir: &std::path::Path,
+    name_override: Option<&str>,
+    lang_filter: Option<&str>,
+) -> Result<()> {
+    let canonical = dir
+        .canonicalize()
+        .with_context(|| format!("invalid directory: {}", dir.display()))?;
+
+    let name = match name_override {
+        Some(n) => n.to_string(),
+        None => project::derive_project_name(&canonical)?,
+    };
+    project::validate_project_name(&name)?;
+
+    let mut meta = project::load_metadata()?;
+    if project::find_project(&meta, &name).is_some() {
+        anyhow::bail!("project '{}' already exists", name);
+    }
+
+    let data_dir = project::project_data_dir(&name)?;
+    std::fs::create_dir_all(&data_dir)
+        .with_context(|| format!("failed to create {}", data_dir.display()))?;
+
+    if let Err(e) = run_parse(&canonical, &data_dir, lang_filter) {
+        // Clean up on failure
+        let _ = std::fs::remove_dir_all(&data_dir);
+        return Err(e);
+    }
+
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    meta.projects.push(project::ProjectEntry {
+        name: name.clone(),
+        repo_path: canonical.to_string_lossy().into_owned(),
+        data_path: data_dir.to_string_lossy().into_owned(),
+        created_at,
+    });
+    project::save_metadata(&meta)?;
+
+    eprintln!("Project '{}' created", name);
+    Ok(())
+}
+
+fn project_list() -> Result<()> {
+    let meta = project::load_metadata()?;
+
+    if meta.projects.is_empty() {
+        println!("No projects registered.");
+        return Ok(());
+    }
+
+    // Compute column widths
+    let mut name_w = 4; // "NAME"
+    let mut repo_w = 4; // "REPO"
+    for p in &meta.projects {
+        name_w = name_w.max(p.name.len());
+        repo_w = repo_w.max(p.repo_path.len());
+    }
+
+    println!(
+        "{:<nw$}  {:<rw$}  CREATED",
+        "NAME",
+        "REPO",
+        nw = name_w,
+        rw = repo_w
+    );
+    println!(
+        "{:<nw$}  {:<rw$}  -------",
+        "-".repeat(name_w),
+        "-".repeat(repo_w),
+        nw = name_w,
+        rw = repo_w
+    );
+
+    for p in &meta.projects {
+        let ts = chrono_lite(p.created_at);
+        println!(
+            "{:<nw$}  {:<rw$}  {ts}",
+            p.name,
+            p.repo_path,
+            nw = name_w,
+            rw = repo_w
+        );
+    }
+
+    Ok(())
+}
+
+fn chrono_lite(epoch_secs: u64) -> String {
+    // Simple UTC timestamp without pulling in chrono
+    let s = epoch_secs;
+    let days = s / 86400;
+    let time_of_day = s % 86400;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+
+    // Days since 1970-01-01
+    let mut y = 1970i64;
+    let mut remaining_days = days as i64;
+    loop {
+        let days_in_year = if is_leap(y) { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        y += 1;
+    }
+
+    let month_days = if is_leap(y) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut m = 0;
+    for (i, &md) in month_days.iter().enumerate() {
+        if remaining_days < md {
+            m = i;
+            break;
+        }
+        remaining_days -= md;
+    }
+
+    format!(
+        "{y:04}-{:02}-{:02} {:02}:{:02}Z",
+        m + 1,
+        remaining_days + 1,
+        hours,
+        minutes
+    )
+}
+
+fn is_leap(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
+fn project_delete(name: &str) -> Result<()> {
+    let mut meta = project::load_metadata()?;
+
+    let idx = meta
+        .projects
+        .iter()
+        .position(|p| p.name == name)
+        .with_context(|| format!("project '{}' not found", name))?;
+
+    let entry = meta.projects.remove(idx);
+
+    let data_path = PathBuf::from(&entry.data_path);
+    if data_path.exists() {
+        std::fs::remove_dir_all(&data_path)
+            .with_context(|| format!("failed to remove {}", data_path.display()))?;
+    }
+
+    project::save_metadata(&meta)?;
+    eprintln!("Project '{}' deleted", name);
+    Ok(())
+}
+
+fn dispatch_project_query(name: &str, command: ProjectQueryCommand) -> Result<()> {
+    let meta = project::load_metadata()?;
+    let entry = project::find_project(&meta, name)
+        .with_context(|| format!("project '{}' not found", name))?;
+
+    let data_dir = PathBuf::from(&entry.data_path);
+
+    let output = match command {
+        ProjectQueryCommand::Overview { format, depth } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            query::overview::run_overview(&engine, &format, depth)?
+        }
+        ProjectQueryCommand::Search {
+            query: q,
+            kind,
+            exported,
+            limit,
+            offset,
+            format,
+        } => {
+            let engine = query::db::QueryEngine::new(&data_dir)?;
+            query::search::run_search(
+                &engine,
+                &q,
+                kind.as_deref(),
+                exported,
+                limit,
+                offset,
+                &format,
+            )?
+        }
+        ProjectQueryCommand::File { action } => match action {
+            FileAction::Get { path, format } => {
+                let engine = query::db::QueryEngine::new(&data_dir)?;
+                query::outline::run_outline(&engine, &path, &format)?
+            }
+            FileAction::List {
+                language,
+                directory,
+                limit,
+                offset,
+                sort,
+                format,
+            } => {
+                let engine = query::db::QueryEngine::new(&data_dir)?;
+                query::files::run_files(
+                    &engine,
+                    language.as_deref(),
+                    directory.as_deref(),
+                    limit,
+                    offset,
+                    &sort,
+                    &format,
+                )?
+            }
+            FileAction::Read {
+                path,
+                start_line,
+                end_line,
+            } => {
+                let root = PathBuf::from(&entry.repo_path);
+                query::read::run_read(&path, &root, start_line, end_line)?
+            }
+        },
+        ProjectQueryCommand::Symbol { action } => match action {
+            SymbolAction::Get { name: sym_name, format } => {
+                let engine = query::db::QueryEngine::new(&data_dir)?;
+                query::symbol::run_symbol_get(&engine, &sym_name, &format)?
+            }
+        },
+        ProjectQueryCommand::Comments { action } => match action {
+            CommentsAction::List {
+                file,
+                kind,
+                documented,
+                symbol,
+                limit,
+                format,
+            } => {
+                let engine = query::db::QueryEngine::new(&data_dir)?;
+                query::comments::run_comments(
+                    &engine,
+                    file.as_deref(),
+                    kind.as_deref(),
+                    documented,
+                    symbol.as_deref(),
+                    limit,
+                    &format,
+                )?
+            }
+            CommentsAction::Search {
+                query: q,
+                file,
+                kind,
+                limit,
+                format,
+            } => {
+                let engine = query::db::QueryEngine::new(&data_dir)?;
+                query::comments::run_comments_search(
+                    &engine,
+                    &q,
+                    file.as_deref(),
+                    kind.as_deref(),
+                    limit,
+                    &format,
+                )?
+            }
+        },
+    };
+
+    print!("{output}");
+    Ok(())
 }

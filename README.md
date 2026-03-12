@@ -61,6 +61,7 @@ virgil <COMMAND> [OPTIONS]
 | `callers` | Find which files import a specific symbol |
 | `imports` | List all imports with filters |
 | `comments` | List comments with filters |
+| `project` | Manage persistent projects (create, list, delete, query) |
 
 ### `parse`
 
@@ -226,6 +227,58 @@ virgil comments [OPTIONS]
 | `--limit` | Maximum results to return | `50` |
 | `--format` | Output format (table, json, csv) | `table` |
 
+### `project`
+
+Manage persistent projects stored in `~/.virgil/`. Parse once, query by name — no need to track `--data-dir` paths manually.
+
+```bash
+virgil project <SUBCOMMAND> [OPTIONS]
+```
+
+#### `project create`
+
+```bash
+virgil project create <DIR> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<DIR>` | Directory to parse | required |
+| `-n`, `--name` | Custom project name | directory basename |
+| `-l`, `--language` | Comma-separated language filter | all supported |
+
+#### `project list`
+
+```bash
+virgil project list
+```
+
+Lists all registered projects with name, repo path, and creation timestamp.
+
+#### `project delete`
+
+```bash
+virgil project delete <NAME>
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Project name to delete | required |
+
+#### `project query`
+
+```bash
+virgil project query <NAME> <SUBCOMMAND> [ARGS...]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Project name | required |
+| `<SUBCOMMAND>` | Any query subcommand (overview, search, files, read, etc.) | required |
+| `[ARGS...]` | Arguments forwarded to the subcommand | none |
+
+Auto-injects `--data-dir` pointing to the project's stored parquet data. For `read`, also auto-injects `--root` pointing to the original repo path.
+
 ### Examples
 
 ```bash
@@ -327,6 +380,21 @@ virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-di
 
 # Get output as JSON
 virgil search handleClick --data-dir ./data --format json
+
+# Register a project (parse once)
+virgil project create ./my-app
+virgil project create ./my-app --name my-app-v2
+
+# List registered projects
+virgil project list
+
+# Query a project by name (no --data-dir needed)
+virgil project query my-app overview
+virgil project query my-app search "handleClick" --kind function
+virgil project query my-app read src/index.ts --start-line 1 --end-line 20
+
+# Delete a project
+virgil project delete my-app
 ```
 
 ## Output Formats
@@ -435,6 +503,7 @@ Four Parquet files are generated:
 - **File reading with line ranges** — read source files or specific line ranges directly from the CLI
 - **Comment tracking** — extracts comments with classification (line/block/doc) and automatic symbol association
 - **Multiple output formats** — table, JSON, and CSV output for all query commands
+- **Project management** — register codebases as named projects, query by name without tracking paths
 - **S3 storage** — parse codebases from S3, write parquet output to S3, and query parquet files stored in S3
 
 ## S3 Storage

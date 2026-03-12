@@ -11,3 +11,4 @@ pub mod outline;
 pub mod overview;
 pub mod read;
 pub mod search;
+pub mod symbol;

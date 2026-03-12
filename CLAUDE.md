@@ -10,6 +10,21 @@ cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,c
 cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
 cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
 
+# Project management (persistent, query by name)
+cargo run -- project create <DIR> [--name <name>] [--language <filter>]
+cargo run -- project list
+cargo run -- project delete <NAME>
+
+# Project query (native subcommands, auto-resolves data paths)
+cargo run -- project query <NAME> overview [--format] [--depth]
+cargo run -- project query <NAME> search <QUERY> [--kind] [--exported] [--limit] [--offset] [--format]
+cargo run -- project query <NAME> file get <PATH> [--format]
+cargo run -- project query <NAME> file list [--language] [--directory] [--limit] [--offset] [--sort] [--format]
+cargo run -- project query <NAME> file read <PATH> [--start-line] [--end-line]
+cargo run -- project query <NAME> symbol get <NAME> [--format]
+cargo run -- project query <NAME> comments list [--file] [--kind] [--documented] [--symbol] [--limit] [--format]
+cargo run -- project query <NAME> comments search <QUERY> [--file] [--kind] [--limit] [--format]
+
 # S3 mode (reads credentials from env vars)
 cargo run -- --env parse <S3_PREFIX> [--output <s3_prefix>]
 cargo run -- --env search <QUERY> [--data-dir <s3_prefix>]
@@ -33,18 +48,20 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 | `callers` | Find which files import a specific symbol |
 | `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
 | `comments` | List comments with filters (`--file`, `--kind`, `--documented`, `--symbol`) |
+| `project` | Manage persistent projects (`create`, `list`, `delete`, `query`) |
 
 ## Project Structure
 
 ```
 src/
-├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism
-├── cli.rs             # Clap subcommand definitions (12 subcommands + OutputFormat/FileSortField enums)
+├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism, project handlers
+├── cli.rs             # Clap subcommand definitions (13 subcommands + OutputFormat/FileSortField/ProjectAction/ProjectQueryCommand enums)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
 ├── language.rs        # Language enum, extension mapping, parser selection
 ├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
 ├── parser.rs          # Tree-sitter parsing, file metadata collection (parse_file + parse_content for S3)
 ├── output.rs          # Arrow schemas + parquet writing (local + S3 variants)
+├── project.rs         # Project metadata types, JSON persistence (~/.virgil/), path helpers
 ├── s3.rs              # S3 configuration (S3Config), client (S3Client), file listing/download/upload
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
@@ -70,7 +87,8 @@ src/
     ├── dependents.rs  # Reverse dependency lookup (what files import this file?)
     ├── callers.rs     # Find which files import a specific symbol
     ├── imports.rs     # Import listing with filters
-    └── comments.rs    # Comment listing with filters
+    ├── comments.rs    # Comment listing with filters + text search
+    └── symbol.rs      # Symbol detail view (definition, callers, deps, docs)
 ```
 
 ## Architecture
@@ -87,6 +105,7 @@ src/
 - **S3 parse pipeline**: `run_parse_s3()` lists files from S3 prefix, downloads each in parallel (rayon), parses via `parse_content()`, writes parquet to S3 via in-memory `Cursor<Vec<u8>>`. Each rayon task creates its own `S3Client` (mirrors `Parser` per-task pattern).
 - **S3 query pipeline**: `QueryEngine::new_s3()` installs httpfs, creates S3 secret, registers views pointing to `s3://bucket/prefix/*.parquet`. Optional views (imports, comments, errors) swallow creation errors if parquet doesn't exist.
 - **View existence check**: `has_imports()`/`has_comments()`/`has_errors()` query `information_schema.tables` instead of filesystem — works for both local and S3 modes.
+- **Project management**: `project` subcommand with `create`/`list`/`delete`/`query` actions. Metadata stored as JSON at `~/.virgil/projects.json`. Parquet data stored under `~/.virgil/projects/<name>/`. `project query` uses native clap nesting (`ProjectQueryCommand` → `FileAction`/`SymbolAction`/`CommentsAction`) with `dispatch_project_query()` — auto-resolves `data_dir` and `repo_path` from project metadata.
 
 ## Supported Languages
 
@@ -146,3 +165,10 @@ line, block, doc
 - S3 unsupported files: uses `S3File.size` from listing, sets `line_count = 0` (avoids downloading non-parsed files).
 - S3 `parse_content()`: parses source already in memory (from S3 download). Extracts name/extension from the key string. `parse_file()` remains unchanged for local mode.
 - S3 DuckDB: `httpfs` extension bundled with DuckDB 1.4. `CREATE SECRET` with `URL_STYLE 'path'` for S3-compatible endpoints (MinIO, Cloudflare R2, etc.). Endpoint scheme (`https://`/`http://`) is stripped before passing to DuckDB — httpfs prepends the scheme itself.
+- Project storage: `~/.virgil/projects/<name>/` for parquet data, `~/.virgil/projects.json` for metadata. `dirs` crate for cross-platform home directory.
+- Project names: validated (no path separators, no leading dot, no empty). Derived from directory basename if `--name` not provided.
+- `project create`: canonicalizes directory path immediately, stores absolute `repo_path` in metadata. Reuses `run_parse()` directly. Cleans up data dir on parse failure.
+- `project query`: uses native clap subcommand hierarchy (`ProjectQueryCommand` with `FileAction`, `SymbolAction`, `CommentsAction` nested enums). `dispatch_project_query()` loads project metadata and calls `run_*` functions directly — no synthetic arg building or re-parsing. Supports: `overview`, `search`, `file {get,list,read}`, `symbol get`, `comments {list,search}`. Dropped from project query: `deps`, `dependents`, `callers`, `imports`, `query` (raw SQL), `errors` — these remain as top-level commands usable with `--data-dir`.
+- `symbol get`: queries symbol definition, import count, callers (top 20), file dependencies, and doc comments. Table output uses sections (like overview). JSON returns full `SymbolDetail` struct. CSV returns definitions only.
+- `comments search`: text search via `ILIKE '%query%'` with optional file/kind filters. Reuses `CommentEntry` struct.
+- `dispatch_command()`: handles top-level commands. `dispatch_project_query()` handles project-scoped commands separately.

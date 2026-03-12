@@ -45,6 +45,79 @@ pub fn run_comments(
     )
 }
 
+pub fn run_comments_search(
+    engine: &QueryEngine,
+    query: &str,
+    file: Option<&str>,
+    kind: Option<&str>,
+    limit: usize,
+    format: &OutputFormat,
+) -> Result<String> {
+    if !engine.has_comments() {
+        bail!("comments.parquet not found. Re-run `virgil parse` to generate comment data.");
+    }
+
+    let escaped_query = query.replace('\'', "''");
+    let mut conditions = vec![format!("text ILIKE '%{}%'", escaped_query)];
+
+    if let Some(f) = file {
+        conditions.push(format!("file_path LIKE '{}%'", f.replace('\'', "''")));
+    }
+    if let Some(k) = kind {
+        conditions.push(format!("kind = '{}'", k.replace('\'', "''")));
+    }
+
+    let where_clause = format!("WHERE {}", conditions.join(" AND "));
+
+    let sql = format!(
+        "SELECT file_path, text, kind, \
+         CAST(start_line AS INTEGER) as start_line, \
+         CAST(end_line AS INTEGER) as end_line, \
+         associated_symbol, associated_symbol_kind \
+         FROM comments \
+         {} \
+         ORDER BY file_path, start_line \
+         LIMIT {}",
+        where_clause, limit
+    );
+
+    let mut stmt = engine
+        .conn
+        .prepare(&sql)
+        .context("failed to prepare comments search query")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(CommentEntry {
+                file_path: row.get(0)?,
+                text: row.get(1)?,
+                kind: row.get(2)?,
+                start_line: row.get(3)?,
+                end_line: row.get(4)?,
+                associated_symbol: row.get(5)?,
+                associated_symbol_kind: row.get(6)?,
+            })
+        })
+        .context("failed to execute comments search query")?;
+
+    let results: Vec<CommentEntry> = rows
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to collect comments search results")?;
+
+    format_output(
+        &results,
+        &[
+            "file_path",
+            "text",
+            "kind",
+            "start_line",
+            "end_line",
+            "associated_symbol",
+            "associated_symbol_kind",
+        ],
+        format,
+    )
+}
+
 fn query_comments(
     engine: &QueryEngine,
     file: Option<&str>,
