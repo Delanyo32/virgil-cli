@@ -34,6 +34,11 @@ cargo run -- audit quality <NAME> duplication [--file] [--min-group] [--limit] [
 cargo run -- audit security <NAME> unsafe-calls [--file] [--limit] [--format]
 cargo run -- audit security <NAME> string-risks [--file] [--limit] [--format]
 cargo run -- audit security <NAME> hardcoded-secrets [--file] [--limit] [--format]
+cargo run -- audit antipatterns <NAME> all [--file] [--category] [--severity] [--limit] [--format]
+cargo run -- audit antipatterns <NAME> type-safety [--file] [--limit] [--format]
+cargo run -- audit antipatterns <NAME> error-handling [--file] [--limit] [--format]
+cargo run -- audit antipatterns <NAME> correctness [--file] [--limit] [--format]
+cargo run -- audit antipatterns <NAME> maintainability [--file] [--limit] [--format]
 ```
 
 Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
@@ -43,7 +48,7 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 | Command | Description |
 |---------|-------------|
 | `project` | Manage persistent projects (`create`, `list`, `delete`, `query`) |
-| `audit` | Run code audits with complexity + quality analysis (`create`, `list`, `delete`, `complexity`, `overview`, `quality`) |
+| `audit` | Run code audits with complexity + quality + security + antipatterns analysis (`create`, `list`, `delete`, `complexity`, `overview`, `quality`, `security`, `antipatterns`) |
 
 ## Project Structure
 
@@ -60,6 +65,7 @@ src/
 ├── audit.rs           # Audit metadata types, JSON persistence (~/.virgil/audits/), path helpers
 ├── complexity.rs      # Complexity engine: cyclomatic + cognitive + line count, per-language node-kind configs
 ├── security.rs        # Security engine: unsafe calls, string risks, hardcoded secrets detection via AST traversal
+├── antipatterns.rs    # Antipatterns engine: type safety, error handling, correctness, maintainability detection via AST traversal
 ├── s3.rs              # S3 configuration (S3Config), client (S3Client), file listing/download/upload
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
@@ -89,6 +95,7 @@ src/
     ├── complexity.rs  # Complexity query functions (run_complexity, run_complexity_overview)
     ├── quality.rs     # Quality analysis (dead code, coupling/cohesion, duplication)
     ├── security.rs    # Security query functions (unsafe calls, string risks, hardcoded secrets)
+    ├── antipatterns.rs # Antipattern query functions (all, type-safety, error-handling, correctness, maintainability)
     └── symbol.rs      # Symbol detail view (definition, callers, deps, docs)
 ```
 
@@ -99,7 +106,7 @@ src/
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
 - **tree-sitter 0.25**: `QueryMatches` uses `streaming_iterator::StreamingIterator`, not `std::iter::Iterator`. Iterate with `while let Some(m) = matches.next()`.
-- **Output**: Four parquet files for projects — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments). Audits additionally produce `complexity.parquet` (per-symbol complexity metrics).
+- **Output**: Four parquet files for projects — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments). Audits additionally produce `complexity.parquet` (per-symbol complexity metrics), `security.parquet` (security issues), and `antipatterns.parquet` (antipattern issues).
 - **Querying**: DuckDB in-memory connection. `QueryEngine::new()` registers parquet files as views (`files`, `symbols`, conditionally `imports`, conditionally `comments`) so all SQL uses plain table names. The `imports` and `comments` views are backward-compatible — only registered if their parquet files exist.
 - **Output formats**: `OutputFormat` enum (table/json/csv) shared across all query subcommands. Formatting logic in `query/format.rs`.
 - **View existence check**: `has_imports()`/`has_comments()`/`has_errors()`/`has_complexity()` query `information_schema.tables` instead of filesystem.
@@ -198,3 +205,11 @@ line, block, doc
 - Unsafe function detection: matches function-position child text against per-language unsafe function list. Supports dotted names (e.g. `os.system`, `exec.Command`).
 - String risk detection: case-insensitive pattern matching for SQL keywords (`SELECT...FROM`, `INSERT INTO`, etc.) and HTML tags (`<script`, `<iframe`, etc.) in string literal nodes.
 - Hardcoded secret detection: variable name checked case-insensitively against secret patterns (`api_key`, `password`, `token`, etc.); value must be a string literal node kind.
+- Antipatterns engine (`antipatterns.rs`): AST traversal (like `security.rs`) with per-language `AntipatternConfig` struct. Detects type safety, error handling, correctness, and maintainability antipatterns. Runs under `compute_complexity` flag — only during `audit create`.
+- `AntipatternConfig`: per-language struct with boolean flags for pattern-specific checks and `NodeKindCheck` array for node-kind-based detection. Covers all 12 languages (C has no antipatterns currently).
+- `AntipatternIssue`: model with `issue_type`, `category` (type_safety, error_handling, correctness, maintainability), `severity` (high, medium, low), and `language` fields.
+- `antipatterns.parquet`: stored alongside `security.parquet` in audit data dir. Schema: file_path, issue_type, category, severity, language, line, column, end_line, end_column, description, snippet, symbol_name.
+- `antipatterns` view registered conditionally in `QueryEngine::new()` (same pattern as security). `has_antipatterns()` method for backward compat.
+- `audit antipatterns`: nested subcommand (`AuditAction::Antipatterns { name, command: AntipatternCommand }`). `AntipatternCommand` has `All`, `TypeSafety`, `ErrorHandling`, `Correctness`, `Maintainability` variants. `All` supports `--file`, `--category`, `--severity`, `--limit` filters. Category subcommands support `--file` and `--limit`.
+- `audit overview`: includes antipatterns summary section (total, per-category counts, per-severity counts). Gated behind `has_antipatterns()` for backward compat.
+- Antipattern categories: `type_safety` (any type, type assertions, non-null assertions — TS/TSX), `error_handling` (unwrap/panic — Rust, bare except — Python, empty catch — Java/C#, ignored errors — Go), `correctness` (var declarations, loose equality — JS/TS, mutable defaults — Python, async void — C#), `maintainability` (global statements, wildcard imports — Python, using namespace in headers — C++, error suppression, deprecated mysql — PHP).

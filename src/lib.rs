@@ -1,3 +1,4 @@
+pub mod antipatterns;
 pub mod audit;
 pub mod cli;
 pub mod complexity;

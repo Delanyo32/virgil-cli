@@ -709,6 +709,20 @@ fn run_audit_overview_json(engine: &QueryEngine) -> Result<String> {
         });
     }
 
+    if engine.has_antipatterns() {
+        let ap = super::antipatterns::antipatterns_summary(engine)?;
+        combined["antipatterns"] = serde_json::json!({
+            "total": ap.total,
+            "type_safety": ap.type_safety,
+            "error_handling": ap.error_handling,
+            "correctness": ap.correctness,
+            "maintainability": ap.maintainability,
+            "high_severity": ap.high_severity,
+            "medium_severity": ap.medium_severity,
+            "low_severity": ap.low_severity,
+        });
+    }
+
     Ok(serde_json::to_string_pretty(&combined)?)
 }
 
@@ -752,6 +766,18 @@ fn run_audit_overview_csv(engine: &QueryEngine) -> Result<String> {
         out.push_str(&format!("security_total,{}\n", sec.total));
         out.push_str(&format!("security_high_severity,{}\n", sec.high_severity));
         out.push_str(&format!("security_medium_severity,{}\n", sec.medium_severity));
+    }
+
+    if engine.has_antipatterns() {
+        let ap = super::antipatterns::antipatterns_summary(engine)?;
+        out.push_str(&format!("antipatterns_total,{}\n", ap.total));
+        out.push_str(&format!("antipatterns_type_safety,{}\n", ap.type_safety));
+        out.push_str(&format!("antipatterns_error_handling,{}\n", ap.error_handling));
+        out.push_str(&format!("antipatterns_correctness,{}\n", ap.correctness));
+        out.push_str(&format!("antipatterns_maintainability,{}\n", ap.maintainability));
+        out.push_str(&format!("antipatterns_high_severity,{}\n", ap.high_severity));
+        out.push_str(&format!("antipatterns_medium_severity,{}\n", ap.medium_severity));
+        out.push_str(&format!("antipatterns_low_severity,{}\n", ap.low_severity));
     }
 
     Ok(out)
@@ -871,6 +897,24 @@ fn run_audit_overview_table(engine: &QueryEngine) -> Result<String> {
             sec.hardcoded_secrets, sec.high_severity, sec.medium_severity
         );
         out.push_str(&format_section("Security", &sec_text));
+    }
+
+    if engine.has_antipatterns() {
+        let ap = super::antipatterns::antipatterns_summary(engine)?;
+        let ap_text = format!(
+            "  Total issues:                 {}\n\
+             \x20 Type safety:                  {}\n\
+             \x20 Error handling:               {}\n\
+             \x20 Correctness:                  {}\n\
+             \x20 Maintainability:              {}\n\
+             \x20 High severity:                {}\n\
+             \x20 Medium severity:              {}\n\
+             \x20 Low severity:                 {}\n",
+            ap.total, ap.type_safety, ap.error_handling,
+            ap.correctness, ap.maintainability,
+            ap.high_severity, ap.medium_severity, ap.low_severity
+        );
+        out.push_str(&format_section("Antipatterns", &ap_text));
     }
 
     Ok(out)

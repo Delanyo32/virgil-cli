@@ -340,6 +340,15 @@ pub enum AuditAction {
         #[command(subcommand)]
         command: SecurityCommand,
     },
+
+    /// Detect common programming antipatterns
+    Antipatterns {
+        /// Audit name
+        name: String,
+
+        #[command(subcommand)]
+        command: AntipatternCommand,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -440,6 +449,92 @@ pub enum SecurityCommand {
 
     /// Find variables with secret-like names set to string literals
     HardcodedSecrets {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AntipatternCommand {
+    /// Show all detected antipatterns
+    All {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter by category (type_safety, error_handling, correctness, maintainability)
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Filter by severity (high, medium, low)
+        #[arg(long)]
+        severity: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Detect type safety issues (any types, type assertions, non-null assertions)
+    TypeSafety {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Detect error handling issues (unwrap, panic, bare except, empty catch)
+    ErrorHandling {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Detect correctness issues (var declarations, loose equality, mutable defaults)
+    Correctness {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Detect maintainability issues (global statements, wildcard imports, namespace pollution)
+    Maintainability {
         /// Filter by file path prefix
         #[arg(long)]
         file: Option<String>,

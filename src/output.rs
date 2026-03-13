@@ -9,7 +9,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
-use crate::models::{CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SecurityIssue, SymbolInfo};
+use crate::models::{AntipatternIssue, CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SecurityIssue, SymbolInfo};
 use crate::s3::S3Client;
 
 fn files_schema() -> Schema {
@@ -94,6 +94,23 @@ fn security_schema() -> Schema {
         Field::new("file_path", DataType::Utf8, false),
         Field::new("issue_type", DataType::Utf8, false),
         Field::new("severity", DataType::Utf8, false),
+        Field::new("line", DataType::UInt32, false),
+        Field::new("column", DataType::UInt32, false),
+        Field::new("end_line", DataType::UInt32, false),
+        Field::new("end_column", DataType::UInt32, false),
+        Field::new("description", DataType::Utf8, false),
+        Field::new("snippet", DataType::Utf8, false),
+        Field::new("symbol_name", DataType::Utf8, false),
+    ])
+}
+
+fn antipatterns_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("issue_type", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("severity", DataType::Utf8, false),
+        Field::new("language", DataType::Utf8, false),
         Field::new("line", DataType::UInt32, false),
         Field::new("column", DataType::UInt32, false),
         Field::new("end_line", DataType::UInt32, false),
@@ -328,6 +345,44 @@ fn build_security_batch(items: &[SecurityIssue]) -> Result<(Arc<Schema>, RecordB
     Ok((schema, batch))
 }
 
+fn build_antipatterns_batch(items: &[AntipatternIssue]) -> Result<(Arc<Schema>, RecordBatch)> {
+    let schema = Arc::new(antipatterns_schema());
+
+    let file_paths: Vec<&str> = items.iter().map(|a| a.file_path.as_str()).collect();
+    let issue_types: Vec<&str> = items.iter().map(|a| a.issue_type.as_str()).collect();
+    let categories: Vec<&str> = items.iter().map(|a| a.category.as_str()).collect();
+    let severities: Vec<&str> = items.iter().map(|a| a.severity.as_str()).collect();
+    let languages: Vec<&str> = items.iter().map(|a| a.language.as_str()).collect();
+    let lines: Vec<u32> = items.iter().map(|a| a.line).collect();
+    let columns: Vec<u32> = items.iter().map(|a| a.column).collect();
+    let end_lines: Vec<u32> = items.iter().map(|a| a.end_line).collect();
+    let end_columns: Vec<u32> = items.iter().map(|a| a.end_column).collect();
+    let descriptions: Vec<&str> = items.iter().map(|a| a.description.as_str()).collect();
+    let snippets: Vec<&str> = items.iter().map(|a| a.snippet.as_str()).collect();
+    let symbol_names: Vec<&str> = items.iter().map(|a| a.symbol_name.as_str()).collect();
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(file_paths)),
+            Arc::new(StringArray::from(issue_types)),
+            Arc::new(StringArray::from(categories)),
+            Arc::new(StringArray::from(severities)),
+            Arc::new(StringArray::from(languages)),
+            Arc::new(UInt32Array::from(lines)),
+            Arc::new(UInt32Array::from(columns)),
+            Arc::new(UInt32Array::from(end_lines)),
+            Arc::new(UInt32Array::from(end_columns)),
+            Arc::new(StringArray::from(descriptions)),
+            Arc::new(StringArray::from(snippets)),
+            Arc::new(StringArray::from(symbol_names)),
+        ],
+    )
+    .context("failed to create antipatterns RecordBatch")?;
+
+    Ok((schema, batch))
+}
+
 // --- Helper: write batch to in-memory parquet bytes ---
 
 fn write_batch_to_bytes(schema: Arc<Schema>, batch: &RecordBatch) -> Result<Vec<u8>> {
@@ -388,6 +443,11 @@ pub fn write_complexity_parquet(items: &[ComplexityInfo], output_dir: &Path) -> 
 pub fn write_security_parquet(items: &[SecurityIssue], output_dir: &Path) -> Result<()> {
     let (schema, batch) = build_security_batch(items)?;
     write_batch_to_file(schema, &batch, &output_dir.join("security.parquet"))
+}
+
+pub fn write_antipatterns_parquet(items: &[AntipatternIssue], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_antipatterns_batch(items)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("antipatterns.parquet"))
 }
 
 // --- S3 writers ---

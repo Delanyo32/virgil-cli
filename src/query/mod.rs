@@ -1,3 +1,4 @@
+pub mod antipatterns;
 pub mod callers;
 pub mod comments;
 pub mod complexity;

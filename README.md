@@ -50,7 +50,7 @@ virgil-cli <COMMAND> [OPTIONS]
 | Command | Description |
 |---------|-------------|
 | `project` | Manage persistent projects (create, list, delete, query) |
-| `audit` | Run code audits with complexity, quality, and security analysis (create, list, delete, complexity, overview, quality, security) |
+| `audit` | Run code audits with complexity, quality, security, and antipattern analysis (create, list, delete, complexity, overview, quality, security, antipatterns) |
 
 ### `project`
 
@@ -133,7 +133,7 @@ virgil-cli project delete my-app
 
 ### `audit`
 
-Run code audits with complexity, quality, and security analysis. Parses a codebase, computes cyclomatic complexity, cognitive complexity, and function/method line counts per symbol, and stores the results in `~/.virgil/audits/`. Quality analysis includes dead code detection, coupling/cohesion metrics, and structural duplication. Security analysis detects unsafe function calls, inline SQL/HTML string risks, and hardcoded secrets.
+Run code audits with complexity, quality, security, and antipattern analysis. Parses a codebase, computes cyclomatic complexity, cognitive complexity, and function/method line counts per symbol, and stores the results in `~/.virgil/audits/`. Quality analysis includes dead code detection, coupling/cohesion metrics, and structural duplication. Security analysis detects unsafe function calls, inline SQL/HTML string risks, and hardcoded secrets. Antipattern analysis detects common programming antipatterns across type safety, error handling, correctness, and maintainability categories.
 
 ```bash
 virgil-cli audit <SUBCOMMAND> [OPTIONS]
@@ -196,7 +196,7 @@ virgil-cli audit overview <NAME> [OPTIONS]
 | `<NAME>` | Audit name | required |
 | `--format` | Output format (table, json, csv) | table |
 
-Shows combined complexity + quality + security overview: summary stats (avg/max cyclomatic, cognitive, and line count), cyclomatic distribution buckets, top 10 most complex symbols, per-file complexity rankings, dead code summary, coupling summary, duplication summary, and security issue counts.
+Shows combined complexity + quality + security + antipatterns overview: summary stats (avg/max cyclomatic, cognitive, and line count), cyclomatic distribution buckets, top 10 most complex symbols, per-file complexity rankings, dead code summary, coupling summary, duplication summary, security issue counts, and antipattern counts by category and severity.
 
 #### `audit quality dead-code`
 
@@ -292,6 +292,83 @@ virgil-cli audit security <NAME> hardcoded-secrets [OPTIONS]
 | `--limit` | Maximum results to return | 50 |
 | `--format` | Output format (table, json, csv) | table |
 
+#### `audit antipatterns all`
+
+Show all detected antipatterns with optional category and severity filters.
+
+```bash
+virgil-cli audit antipatterns <NAME> all [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--file` | Filter by file path prefix | none |
+| `--category` | Filter by category (type_safety, error_handling, correctness, maintainability) | none |
+| `--severity` | Filter by severity (high, medium, low) | none |
+| `--limit` | Maximum results to return | 50 |
+| `--format` | Output format (table, json, csv) | table |
+
+#### `audit antipatterns type-safety`
+
+Detect type safety issues: `any` types, type assertions, non-null assertions (TS/TSX).
+
+```bash
+virgil-cli audit antipatterns <NAME> type-safety [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--file` | Filter by file path prefix | none |
+| `--limit` | Maximum results to return | 50 |
+| `--format` | Output format (table, json, csv) | table |
+
+#### `audit antipatterns error-handling`
+
+Detect error handling issues: `.unwrap()` and `panic!()` (Rust), bare `except:` (Python), empty catch blocks (Java/C#), ignored errors with `_` (Go).
+
+```bash
+virgil-cli audit antipatterns <NAME> error-handling [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--file` | Filter by file path prefix | none |
+| `--limit` | Maximum results to return | 50 |
+| `--format` | Output format (table, json, csv) | table |
+
+#### `audit antipatterns correctness`
+
+Detect correctness issues: `var` declarations and loose equality (JS/TS), mutable default arguments (Python), `async void` methods (C#).
+
+```bash
+virgil-cli audit antipatterns <NAME> correctness [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--file` | Filter by file path prefix | none |
+| `--limit` | Maximum results to return | 50 |
+| `--format` | Output format (table, json, csv) | table |
+
+#### `audit antipatterns maintainability`
+
+Detect maintainability issues: `global` statements and wildcard imports (Python), `using namespace` in headers (C++), error suppression `@` and deprecated `mysql_*` functions (PHP).
+
+```bash
+virgil-cli audit antipatterns <NAME> maintainability [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--file` | Filter by file path prefix | none |
+| `--limit` | Maximum results to return | 50 |
+| `--format` | Output format (table, json, csv) | table |
+
 #### Audit Examples
 
 ```bash
@@ -334,6 +411,15 @@ virgil-cli audit security my-app unsafe-calls
 virgil-cli audit security my-app string-risks --file src/
 virgil-cli audit security my-app hardcoded-secrets --format json
 
+# Detect antipatterns
+virgil-cli audit antipatterns my-app all
+virgil-cli audit antipatterns my-app all --severity high
+virgil-cli audit antipatterns my-app all --category correctness --file src/
+virgil-cli audit antipatterns my-app type-safety
+virgil-cli audit antipatterns my-app error-handling --format json
+virgil-cli audit antipatterns my-app correctness
+virgil-cli audit antipatterns my-app maintainability
+
 # Delete an audit
 virgil-cli audit delete my-app
 ```
@@ -350,7 +436,7 @@ Most subcommands support three output formats via `--format`:
 
 ## Output
 
-Parquet files are generated per command. `project create` produces four files (files, symbols, imports, comments). `audit create` produces those same four plus `complexity.parquet` and `security.parquet`.
+Parquet files are generated per command. `project create` produces four files (files, symbols, imports, comments). `audit create` produces those same four plus `complexity.parquet`, `security.parquet`, and `antipatterns.parquet`.
 
 ### files.parquet
 
@@ -436,6 +522,25 @@ Generated by `audit create` only. Contains security issues detected via AST trav
 | snippet | Utf8 | Offending source text (truncated to 200 chars) |
 | symbol_name | Utf8 | Enclosing function/method name (empty if top-level) |
 
+### antipatterns.parquet
+
+Generated by `audit create` only. Contains programming antipatterns detected via AST traversal across all supported languages.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| file_path | Utf8 | Relative file path |
+| issue_type | Utf8 | Issue type (any_type, type_assertion, non_null_assertion, var_declaration, loose_equality, unwrap_call, panic_call, bare_except, mutable_default, wildcard_import, global_statement, empty_catch, async_void, ignored_error, using_namespace_header, error_suppression, deprecated_mysql) |
+| category | Utf8 | Category (type_safety, error_handling, correctness, maintainability) |
+| severity | Utf8 | Severity level (high, medium, low) |
+| language | Utf8 | Source language |
+| line | UInt32 | 0-based start line |
+| column | UInt32 | 0-based start column |
+| end_line | UInt32 | 0-based end line |
+| end_column | UInt32 | 0-based end column |
+| description | Utf8 | Human-readable description of the antipattern |
+| snippet | Utf8 | Offending source text (truncated to 200 chars) |
+| symbol_name | Utf8 | Enclosing function/method name (empty if top-level) |
+
 ### Symbol Kinds
 
 `function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`, `struct`, `union`, `namespace`, `macro`, `property`, `typedef`, `trait`, `constant`, `module`
@@ -482,6 +587,7 @@ Generated by `audit create` only. Contains security issues detected via AST trav
 - **Audit management** — register audits with complexity metrics, query with filters, thresholds, and sorting
 - **Quality analysis** — dead code detection, file coupling/cohesion (fan-in/fan-out/instability), circular dependency detection via Tarjan's SCC, and structural duplication via AST hashing
 - **Security analysis** — detects unsafe function calls (eval, exec, system, etc.), inline SQL/HTML string risks, and hardcoded secrets across all 12 languages
+- **Antipattern detection** — identifies common programming antipatterns across type safety (any types, type assertions), error handling (unwrap, panic, bare except, empty catch), correctness (var declarations, loose equality, mutable defaults), and maintainability (wildcard imports, namespace pollution, deprecated APIs)
 
 ## Inspecting Output
 

@@ -160,6 +160,19 @@ impl QueryEngine {
             .context("failed to create security view")?;
         }
 
+        // Conditionally register antipatterns view (backward compatible)
+        let antipatterns_path = data_dir.join("antipatterns.parquet");
+        if antipatterns_path.exists() {
+            conn.execute(
+                &format!(
+                    "CREATE VIEW antipatterns AS SELECT * FROM read_parquet('{}')",
+                    antipatterns_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+            )
+            .context("failed to create antipatterns view")?;
+        }
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
@@ -260,6 +273,10 @@ impl QueryEngine {
 
     pub fn has_security(&self) -> bool {
         self.has_view("security")
+    }
+
+    pub fn has_antipatterns(&self) -> bool {
+        self.has_view("antipatterns")
     }
 
     fn has_view(&self, view_name: &str) -> bool {

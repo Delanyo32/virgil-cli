@@ -6,17 +6,19 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
+use virgil_cli::antipatterns;
 use virgil_cli::audit;
 use virgil_cli::cli::{
-    AuditAction, Cli, Command, CommentsAction, FileAction, ProjectAction, ProjectQueryCommand,
-    QualityCommand, SecurityCommand, SymbolAction,
+    AntipatternCommand, AuditAction, Cli, Command, CommentsAction, FileAction, ProjectAction,
+    ProjectQueryCommand, QualityCommand, SecurityCommand, SymbolAction,
 };
 use virgil_cli::complexity;
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
 use virgil_cli::models::{
-    CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SecurityIssue, SymbolInfo,
+    AntipatternIssue, CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError,
+    SecurityIssue, SymbolInfo,
 };
 use virgil_cli::output;
 use virgil_cli::parser;
@@ -75,6 +77,10 @@ fn main() -> Result<()> {
             AuditAction::Quality { name, command } => dispatch_audit_quality(&name, &command),
 
             AuditAction::Security { name, command } => dispatch_audit_security(&name, &command),
+
+            AuditAction::Antipatterns { name, command } => {
+                dispatch_audit_antipatterns(&name, &command)
+            }
         },
     }
 }
@@ -87,6 +93,7 @@ enum ParseResult {
         Vec<CommentInfo>,
         Vec<ComplexityInfo>,
         Vec<SecurityIssue>,
+        Vec<AntipatternIssue>,
     ),
     Error(ParseError),
 }
@@ -302,7 +309,13 @@ fn run_parse(
                 Vec::new()
             };
 
-            Some(ParseResult::Success(metadata, syms, imps, cmts, cplx, sec))
+            let anti = if compute_complexity {
+                antipatterns::extract_antipatterns(&tree, source.as_bytes(), &metadata.path, lang)
+            } else {
+                Vec::new()
+            };
+
+            Some(ParseResult::Success(metadata, syms, imps, cmts, cplx, sec, anti))
         })
         .collect();
 
@@ -313,17 +326,19 @@ fn run_parse(
     let mut all_comments: Vec<CommentInfo> = Vec::new();
     let mut all_complexities: Vec<ComplexityInfo> = Vec::new();
     let mut all_security: Vec<SecurityIssue> = Vec::new();
+    let mut all_antipatterns: Vec<AntipatternIssue> = Vec::new();
     let mut all_errors: Vec<ParseError> = Vec::new();
 
     for result in results {
         match result {
-            ParseResult::Success(metadata, syms, imps, cmts, cplx, sec) => {
+            ParseResult::Success(metadata, syms, imps, cmts, cplx, sec, anti) => {
                 all_files.push(metadata);
                 all_symbols.extend(syms);
                 all_imports.extend(imps);
                 all_comments.extend(cmts);
                 all_complexities.extend(cplx);
                 all_security.extend(sec);
+                all_antipatterns.extend(anti);
             }
             ParseResult::Error(err) => {
                 all_errors.push(err);
@@ -348,12 +363,13 @@ fn run_parse(
     if compute_complexity {
         output::write_complexity_parquet(&all_complexities, output_dir)?;
         output::write_security_parquet(&all_security, output_dir)?;
+        output::write_antipatterns_parquet(&all_antipatterns, output_dir)?;
     }
 
     let elapsed = start.elapsed();
     if compute_complexity {
         eprintln!(
-            "Done: {} files ({} supported, {} unsupported), {} symbols, {} imports, {} comments, {} complexity entries, {} security issues, {} errors in {:.2}s",
+            "Done: {} files ({} supported, {} unsupported), {} symbols, {} imports, {} comments, {} complexity entries, {} security issues, {} antipatterns, {} errors in {:.2}s",
             all_files.len(),
             supported_count,
             all_files.len() - supported_count,
@@ -362,6 +378,7 @@ fn run_parse(
             all_comments.len(),
             all_complexities.len(),
             all_security.len(),
+            all_antipatterns.len(),
             all_errors.len(),
             elapsed.as_secs_f64()
         );
@@ -835,6 +852,54 @@ fn dispatch_audit_security(name: &str, command: &SecurityCommand) -> Result<()> 
             limit,
             format,
         } => query::security::run_hardcoded_secrets(&engine, file.as_deref(), *limit, format)?,
+    };
+    print!("{output}");
+    Ok(())
+}
+
+fn dispatch_audit_antipatterns(name: &str, command: &AntipatternCommand) -> Result<()> {
+    let meta = audit::load_audit_metadata()?;
+    let entry = audit::find_audit(&meta, name)
+        .with_context(|| format!("audit '{}' not found", name))?;
+
+    let data_dir = PathBuf::from(&entry.data_path);
+    let engine = query::db::QueryEngine::new(&data_dir)?;
+
+    let output = match command {
+        AntipatternCommand::All {
+            file,
+            category,
+            severity,
+            limit,
+            format,
+        } => query::antipatterns::run_antipatterns_all(
+            &engine,
+            file.as_deref(),
+            category.as_deref(),
+            severity.as_deref(),
+            *limit,
+            format,
+        )?,
+        AntipatternCommand::TypeSafety {
+            file,
+            limit,
+            format,
+        } => query::antipatterns::run_type_safety(&engine, file.as_deref(), *limit, format)?,
+        AntipatternCommand::ErrorHandling {
+            file,
+            limit,
+            format,
+        } => query::antipatterns::run_error_handling(&engine, file.as_deref(), *limit, format)?,
+        AntipatternCommand::Correctness {
+            file,
+            limit,
+            format,
+        } => query::antipatterns::run_correctness(&engine, file.as_deref(), *limit, format)?,
+        AntipatternCommand::Maintainability {
+            file,
+            limit,
+            format,
+        } => query::antipatterns::run_maintainability(&engine, file.as_deref(), *limit, format)?,
     };
     print!("{output}");
     Ok(())
