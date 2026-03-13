@@ -22,12 +22,15 @@ cargo run -- project query <NAME> symbol get <NAME> [--format]
 cargo run -- project query <NAME> comments list [--file] [--kind] [--documented] [--symbol] [--limit] [--format]
 cargo run -- project query <NAME> comments search <QUERY> [--file] [--kind] [--limit] [--format]
 
-# Audit management (complexity analysis)
+# Audit management (complexity + quality analysis)
 cargo run -- audit create <DIR> [--name <name>] [--language <filter>]
 cargo run -- audit list
 cargo run -- audit delete <NAME>
 cargo run -- audit complexity <NAME> [--file] [--kind] [--sort cyclomatic|cognitive|name|file|lines] [--limit] [--threshold] [--format]
-cargo run -- audit overview <NAME> [--format]
+cargo run -- audit overview <NAME> [--format]                          # Combined complexity + quality overview
+cargo run -- audit quality <NAME> dead-code [--file] [--kind] [--limit] [--format]
+cargo run -- audit quality <NAME> coupling [--file] [--sort instability|fan-in|fan-out|file] [--limit] [--cycles] [--format]
+cargo run -- audit quality <NAME> duplication [--file] [--min-group] [--limit] [--format]
 ```
 
 Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
@@ -37,7 +40,7 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 | Command | Description |
 |---------|-------------|
 | `project` | Manage persistent projects (`create`, `list`, `delete`, `query`) |
-| `audit` | Run code audits with complexity analysis (`create`, `list`, `delete`, `complexity`, `overview`) |
+| `audit` | Run code audits with complexity + quality analysis (`create`, `list`, `delete`, `complexity`, `overview`, `quality`) |
 
 ## Project Structure
 
@@ -80,6 +83,7 @@ src/
     ├── imports.rs     # Import listing with filters
     ├── comments.rs    # Comment listing with filters + text search
     ├── complexity.rs  # Complexity query functions (run_complexity, run_complexity_overview)
+    ├── quality.rs     # Quality analysis (dead code, coupling/cohesion, duplication)
     └── symbol.rs      # Symbol detail view (definition, callers, deps, docs)
 ```
 
@@ -170,4 +174,11 @@ line, block, doc
 - `complexity` view registered conditionally in `QueryEngine::new()` (same pattern as imports/comments).
 - `ComplexitySortField` enum: Cyclomatic, Cognitive, Name, File, Lines. Default sort = Cyclomatic DESC.
 - `audit complexity`: supports `--file`, `--kind`, `--sort`, `--limit`, `--threshold` filters. Threshold filters on `cyclomatic_complexity >= N`.
-- `audit overview`: summary stats (avg/max cyclomatic, cognitive, line count), distribution buckets (1-5 simple, 6-10 moderate, 11-20 complex, 21+ very complex), top 10 most complex symbols, per-file complexity aggregation.
+- `audit overview`: combined complexity + quality overview. Complexity sections: summary stats (avg/max cyclomatic, cognitive, line count), distribution buckets (1-5 simple, 6-10 moderate, 11-20 complex, 21+ very complex), top 10 most complex symbols, per-file complexity aggregation. Quality sections: dead code summary, coupling summary, duplication summary. Dispatched to `query::quality::run_audit_overview`.
+- `structural_hash`: u64 hash of a function's AST node-kind sequence (identifiers/literals stripped). Stored in `complexity.parquet`. Old audits without this column get it synthesized as `0` in the view registration.
+- `audit quality`: nested subcommand (`AuditAction::Quality { name, command: QualityCommand }`). `QualityCommand` has `DeadCode`, `Coupling`, `Duplication` variants.
+- `audit quality dead-code`: LEFT JOIN exported symbols with internal imports by name. Matches by exact symbol name only — may produce false positives for dynamic references or renamed re-exports.
+- `audit quality coupling`: Fan-in/fan-out computed from `imports` view (internal only). Instability = fan_out / (fan_in + fan_out). `--cycles` flag runs Tarjan's SCC algorithm on the import graph built in Rust.
+- `audit quality duplication`: Groups functions by (structural_hash, symbol_kind, line_count, cyclomatic, cognitive) where hash != 0 and count >= min_group. Old audits with synthesized hash=0 are filtered out.
+- `CouplingSortField` enum: Instability, FanIn, FanOut, File.
+- `dispatch_audit_quality()`: follows the same pattern as `dispatch_audit_complexity()` — load metadata, create engine, match on `QualityCommand`, print output.

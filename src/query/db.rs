@@ -113,17 +113,38 @@ impl QueryEngine {
             .context("failed to create errors view")?;
         }
 
-        // Conditionally register complexity view
+        // Conditionally register complexity view (backward compatible with structural_hash)
         let complexity_path = data_dir.join("complexity.parquet");
         if complexity_path.exists() {
-            conn.execute(
-                &format!(
+            let complexity_escaped = complexity_path.to_string_lossy().replace('\'', "''");
+
+            // Check if the parquet file has the structural_hash column
+            let has_structural_hash = {
+                let sql = format!(
+                    "SELECT COUNT(*) FROM parquet_schema('{}') WHERE name = 'structural_hash'",
+                    complexity_escaped
+                );
+                let count: i64 = conn.query_row(&sql, [], |row| row.get(0)).unwrap_or(0);
+                count > 0
+            };
+
+            let view_sql = if has_structural_hash {
+                format!(
                     "CREATE VIEW complexity AS SELECT * FROM read_parquet('{}')",
-                    complexity_path.to_string_lossy().replace('\'', "''")
-                ),
-                [],
-            )
-            .context("failed to create complexity view")?;
+                    complexity_escaped
+                )
+            } else {
+                // Synthesize structural_hash for old parquet files
+                format!(
+                    "CREATE VIEW complexity AS SELECT *, \
+                     CAST(0 AS UBIGINT) AS structural_hash \
+                     FROM read_parquet('{}')",
+                    complexity_escaped
+                )
+            };
+
+            conn.execute(&view_sql, [])
+                .context("failed to create complexity view")?;
         }
 
         Ok(Self {

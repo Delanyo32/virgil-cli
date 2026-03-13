@@ -103,6 +103,7 @@ pub struct ComplexityInfo {
     pub line_count: u32,
     pub cyclomatic_complexity: u32,
     pub cognitive_complexity: u32,
+    pub structural_hash: u64,
 }
 
 #[derive(Debug, Clone)]

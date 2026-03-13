@@ -313,7 +313,7 @@ pub enum AuditAction {
         format: OutputFormat,
     },
 
-    /// Show audit overview with complexity summary
+    /// Show audit overview (complexity + quality summary)
     Overview {
         /// Audit name
         name: String,
@@ -322,6 +322,87 @@ pub enum AuditAction {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+
+    /// Analyze code quality (dead code, coupling, duplication)
+    Quality {
+        /// Audit name
+        name: String,
+
+        #[command(subcommand)]
+        command: QualityCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum QualityCommand {
+    /// Find exported symbols with no internal imports
+    DeadCode {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter by symbol kind
+        #[arg(long)]
+        kind: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Analyze file coupling and dependency cycles
+    Coupling {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Sort by field
+        #[arg(long, default_value = "instability")]
+        sort: CouplingSortField,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Show circular dependencies
+        #[arg(long)]
+        cycles: bool,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Find structurally similar functions (DRY violations)
+    Duplication {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Minimum group size (default 2 = pairs)
+        #[arg(long, default_value = "2")]
+        min_group: usize,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum CouplingSortField {
+    Instability,
+    FanIn,
+    FanOut,
+    File,
 }
 
 #[derive(Debug, Clone, ValueEnum)]

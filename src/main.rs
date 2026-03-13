@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use virgil_cli::audit;
 use virgil_cli::cli::{
     AuditAction, Cli, Command, CommentsAction, FileAction, ProjectAction, ProjectQueryCommand,
-    SymbolAction,
+    QualityCommand, SymbolAction,
 };
 use virgil_cli::complexity;
 use virgil_cli::discovery;
@@ -70,6 +70,8 @@ fn main() -> Result<()> {
             ),
 
             AuditAction::Overview { name, format } => dispatch_audit_overview(&name, &format),
+
+            AuditAction::Quality { name, command } => dispatch_audit_quality(&name, &command),
         },
     }
 }
@@ -790,7 +792,59 @@ fn dispatch_audit_overview(
 
     let data_dir = PathBuf::from(&entry.data_path);
     let engine = query::db::QueryEngine::new(&data_dir)?;
-    let output = query::complexity::run_complexity_overview(&engine, format)?;
+    let output = query::quality::run_audit_overview(&engine, format)?;
+    print!("{output}");
+    Ok(())
+}
+
+fn dispatch_audit_quality(name: &str, command: &QualityCommand) -> Result<()> {
+    let meta = audit::load_audit_metadata()?;
+    let entry = audit::find_audit(&meta, name)
+        .with_context(|| format!("audit '{}' not found", name))?;
+
+    let data_dir = PathBuf::from(&entry.data_path);
+    let engine = query::db::QueryEngine::new(&data_dir)?;
+
+    let output = match command {
+        QualityCommand::DeadCode {
+            file,
+            kind,
+            limit,
+            format,
+        } => query::quality::run_dead_code(
+            &engine,
+            file.as_deref(),
+            kind.as_deref(),
+            *limit,
+            format,
+        )?,
+        QualityCommand::Coupling {
+            file,
+            sort,
+            limit,
+            cycles,
+            format,
+        } => query::quality::run_coupling(
+            &engine,
+            file.as_deref(),
+            sort,
+            *limit,
+            *cycles,
+            format,
+        )?,
+        QualityCommand::Duplication {
+            file,
+            min_group,
+            limit,
+            format,
+        } => query::quality::run_duplication(
+            &engine,
+            file.as_deref(),
+            *min_group,
+            *limit,
+            format,
+        )?,
+    };
     print!("{output}");
     Ok(())
 }

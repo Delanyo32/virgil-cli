@@ -1,3 +1,6 @@
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+
 use tree_sitter::{Node, Tree};
 
 use crate::language::Language;
@@ -344,6 +347,45 @@ fn calculate_cognitive(node: Node, source: &[u8], config: &ComplexityConfig, nes
     complexity
 }
 
+/// Compute a structural hash of an AST subtree by hashing the ordered node-kind
+/// sequence, ignoring identifiers and literals so that two functions with identical
+/// control flow but different names produce the same hash.
+fn compute_structural_hash(node: Node) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hash_node_structure(node, &mut hasher);
+    hasher.finish()
+}
+
+fn hash_node_structure(node: Node, hasher: &mut impl Hasher) {
+    node.kind().hash(hasher);
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            let ck = child.kind();
+            // Skip identifiers and literals — we want structure only
+            if !matches!(
+                ck,
+                "identifier"
+                    | "type_identifier"
+                    | "field_identifier"
+                    | "string"
+                    | "string_literal"
+                    | "string_fragment"
+                    | "number"
+                    | "integer_literal"
+                    | "float_literal"
+                    | "true"
+                    | "false"
+                    | "null"
+                    | "none"
+                    | "nil"
+            ) {
+                hash_node_structure(child, hasher);
+            }
+        }
+    }
+}
+
 /// Extract complexity metrics for all relevant symbols in a file.
 pub fn extract_complexity(
     tree: &Tree,
@@ -368,6 +410,7 @@ pub fn extract_complexity(
             let cyclomatic = 1 + calculate_cyclomatic(node, source, &config);
             let cognitive = calculate_cognitive(node, source, &config, 0);
             let line_count = sym.end_line.saturating_sub(sym.start_line).saturating_add(1);
+            let structural_hash = compute_structural_hash(node);
 
             Some(ComplexityInfo {
                 file_path: file_path.to_string(),
@@ -378,6 +421,7 @@ pub fn extract_complexity(
                 line_count,
                 cyclomatic_complexity: cyclomatic,
                 cognitive_complexity: cognitive,
+                structural_hash,
             })
         })
         .collect()
@@ -463,6 +507,39 @@ mod tests {
         let results = parse_and_extract(source, Language::Python);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].cyclomatic_complexity, 2); // base 1 + 1 for
+    }
+
+    #[test]
+    fn structural_hash_deterministic() {
+        let source = "fn hello() { if true { return 1; } else { return 2; } }";
+        let r1 = parse_and_extract(source, Language::Rust);
+        let r2 = parse_and_extract(source, Language::Rust);
+        assert_eq!(r1.len(), 1);
+        assert_eq!(r2.len(), 1);
+        assert_eq!(r1[0].structural_hash, r2[0].structural_hash);
+        assert_ne!(r1[0].structural_hash, 0);
+    }
+
+    #[test]
+    fn structural_hash_same_structure_different_names() {
+        let source1 = "fn foo(x: i32) -> i32 { if x > 0 { x + 1 } else { x - 1 } }";
+        let source2 = "fn bar(y: i32) -> i32 { if y > 0 { y + 1 } else { y - 1 } }";
+        let r1 = parse_and_extract(source1, Language::Rust);
+        let r2 = parse_and_extract(source2, Language::Rust);
+        assert_eq!(r1.len(), 1);
+        assert_eq!(r2.len(), 1);
+        assert_eq!(r1[0].structural_hash, r2[0].structural_hash);
+    }
+
+    #[test]
+    fn structural_hash_different_structure() {
+        let source1 = "fn foo() { if true { return 1; } }";
+        let source2 = "fn bar() { for i in 0..10 { println!(\"{}\", i); } }";
+        let r1 = parse_and_extract(source1, Language::Rust);
+        let r2 = parse_and_extract(source2, Language::Rust);
+        assert_eq!(r1.len(), 1);
+        assert_eq!(r2.len(), 1);
+        assert_ne!(r1[0].structural_hash, r2[0].structural_hash);
     }
 
     #[test]

@@ -85,6 +85,7 @@ fn complexity_schema() -> Schema {
         Field::new("line_count", DataType::UInt32, false),
         Field::new("cyclomatic_complexity", DataType::UInt32, false),
         Field::new("cognitive_complexity", DataType::UInt32, false),
+        Field::new("structural_hash", DataType::UInt64, false),
     ])
 }
 
@@ -257,6 +258,7 @@ fn build_complexity_batch(items: &[ComplexityInfo]) -> Result<(Arc<Schema>, Reco
     let line_counts: Vec<u32> = items.iter().map(|c| c.line_count).collect();
     let cyclomatic: Vec<u32> = items.iter().map(|c| c.cyclomatic_complexity).collect();
     let cognitive: Vec<u32> = items.iter().map(|c| c.cognitive_complexity).collect();
+    let structural_hashes: Vec<u64> = items.iter().map(|c| c.structural_hash).collect();
 
     let batch = RecordBatch::try_new(
         schema.clone(),
@@ -269,6 +271,7 @@ fn build_complexity_batch(items: &[ComplexityInfo]) -> Result<(Arc<Schema>, Reco
             Arc::new(UInt32Array::from(line_counts)),
             Arc::new(UInt32Array::from(cyclomatic)),
             Arc::new(UInt32Array::from(cognitive)),
+            Arc::new(UInt64Array::from(structural_hashes)),
         ],
     )
     .context("failed to create complexity RecordBatch")?;

@@ -10,6 +10,7 @@ pub mod format;
 pub mod imports;
 pub mod outline;
 pub mod overview;
+pub mod quality;
 pub mod read;
 pub mod search;
 pub mod symbol;
