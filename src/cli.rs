@@ -331,6 +331,15 @@ pub enum AuditAction {
         #[command(subcommand)]
         command: QualityCommand,
     },
+
+    /// Analyze security issues (unsafe calls, string risks, hardcoded secrets)
+    Security {
+        /// Audit name
+        name: String,
+
+        #[command(subcommand)]
+        command: SecurityCommand,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -389,6 +398,54 @@ pub enum QualityCommand {
 
         /// Maximum results to return
         #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SecurityCommand {
+    /// Find calls to dangerous functions (eval, exec, system, etc.)
+    UnsafeCalls {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Find string literals containing SQL or HTML patterns
+    StringRisks {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Find variables with secret-like names set to string literals
+    HardcodedSecrets {
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "50")]
         limit: usize,
 
         /// Output format

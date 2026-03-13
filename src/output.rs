@@ -9,7 +9,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
-use crate::models::{CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
+use crate::models::{CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SecurityIssue, SymbolInfo};
 use crate::s3::S3Client;
 
 fn files_schema() -> Schema {
@@ -86,6 +86,21 @@ fn complexity_schema() -> Schema {
         Field::new("cyclomatic_complexity", DataType::UInt32, false),
         Field::new("cognitive_complexity", DataType::UInt32, false),
         Field::new("structural_hash", DataType::UInt64, false),
+    ])
+}
+
+fn security_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("issue_type", DataType::Utf8, false),
+        Field::new("severity", DataType::Utf8, false),
+        Field::new("line", DataType::UInt32, false),
+        Field::new("column", DataType::UInt32, false),
+        Field::new("end_line", DataType::UInt32, false),
+        Field::new("end_column", DataType::UInt32, false),
+        Field::new("description", DataType::Utf8, false),
+        Field::new("snippet", DataType::Utf8, false),
+        Field::new("symbol_name", DataType::Utf8, false),
     ])
 }
 
@@ -279,6 +294,40 @@ fn build_complexity_batch(items: &[ComplexityInfo]) -> Result<(Arc<Schema>, Reco
     Ok((schema, batch))
 }
 
+fn build_security_batch(items: &[SecurityIssue]) -> Result<(Arc<Schema>, RecordBatch)> {
+    let schema = Arc::new(security_schema());
+
+    let file_paths: Vec<&str> = items.iter().map(|s| s.file_path.as_str()).collect();
+    let issue_types: Vec<&str> = items.iter().map(|s| s.issue_type.as_str()).collect();
+    let severities: Vec<&str> = items.iter().map(|s| s.severity.as_str()).collect();
+    let lines: Vec<u32> = items.iter().map(|s| s.line).collect();
+    let columns: Vec<u32> = items.iter().map(|s| s.column).collect();
+    let end_lines: Vec<u32> = items.iter().map(|s| s.end_line).collect();
+    let end_columns: Vec<u32> = items.iter().map(|s| s.end_column).collect();
+    let descriptions: Vec<&str> = items.iter().map(|s| s.description.as_str()).collect();
+    let snippets: Vec<&str> = items.iter().map(|s| s.snippet.as_str()).collect();
+    let symbol_names: Vec<&str> = items.iter().map(|s| s.symbol_name.as_str()).collect();
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(file_paths)),
+            Arc::new(StringArray::from(issue_types)),
+            Arc::new(StringArray::from(severities)),
+            Arc::new(UInt32Array::from(lines)),
+            Arc::new(UInt32Array::from(columns)),
+            Arc::new(UInt32Array::from(end_lines)),
+            Arc::new(UInt32Array::from(end_columns)),
+            Arc::new(StringArray::from(descriptions)),
+            Arc::new(StringArray::from(snippets)),
+            Arc::new(StringArray::from(symbol_names)),
+        ],
+    )
+    .context("failed to create security RecordBatch")?;
+
+    Ok((schema, batch))
+}
+
 // --- Helper: write batch to in-memory parquet bytes ---
 
 fn write_batch_to_bytes(schema: Arc<Schema>, batch: &RecordBatch) -> Result<Vec<u8>> {
@@ -334,6 +383,11 @@ pub fn write_errors_parquet(errors: &[ParseError], output_dir: &Path) -> Result<
 pub fn write_complexity_parquet(items: &[ComplexityInfo], output_dir: &Path) -> Result<()> {
     let (schema, batch) = build_complexity_batch(items)?;
     write_batch_to_file(schema, &batch, &output_dir.join("complexity.parquet"))
+}
+
+pub fn write_security_parquet(items: &[SecurityIssue], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_security_batch(items)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("security.parquet"))
 }
 
 // --- S3 writers ---

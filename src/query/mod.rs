@@ -12,5 +12,6 @@ pub mod outline;
 pub mod overview;
 pub mod quality;
 pub mod read;
+pub mod security;
 pub mod search;
 pub mod symbol;

@@ -9,19 +9,20 @@ use rayon::prelude::*;
 use virgil_cli::audit;
 use virgil_cli::cli::{
     AuditAction, Cli, Command, CommentsAction, FileAction, ProjectAction, ProjectQueryCommand,
-    QualityCommand, SymbolAction,
+    QualityCommand, SecurityCommand, SymbolAction,
 };
 use virgil_cli::complexity;
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
 use virgil_cli::models::{
-    CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo,
+    CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SecurityIssue, SymbolInfo,
 };
 use virgil_cli::output;
 use virgil_cli::parser;
 use virgil_cli::project;
 use virgil_cli::query;
+use virgil_cli::security;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -72,6 +73,8 @@ fn main() -> Result<()> {
             AuditAction::Overview { name, format } => dispatch_audit_overview(&name, &format),
 
             AuditAction::Quality { name, command } => dispatch_audit_quality(&name, &command),
+
+            AuditAction::Security { name, command } => dispatch_audit_security(&name, &command),
         },
     }
 }
@@ -83,6 +86,7 @@ enum ParseResult {
         Vec<ImportInfo>,
         Vec<CommentInfo>,
         Vec<ComplexityInfo>,
+        Vec<SecurityIssue>,
     ),
     Error(ParseError),
 }
@@ -292,7 +296,13 @@ fn run_parse(
                 Vec::new()
             };
 
-            Some(ParseResult::Success(metadata, syms, imps, cmts, cplx))
+            let sec = if compute_complexity {
+                security::extract_security(&tree, source.as_bytes(), &metadata.path, lang)
+            } else {
+                Vec::new()
+            };
+
+            Some(ParseResult::Success(metadata, syms, imps, cmts, cplx, sec))
         })
         .collect();
 
@@ -302,16 +312,18 @@ fn run_parse(
     let mut all_imports: Vec<ImportInfo> = Vec::new();
     let mut all_comments: Vec<CommentInfo> = Vec::new();
     let mut all_complexities: Vec<ComplexityInfo> = Vec::new();
+    let mut all_security: Vec<SecurityIssue> = Vec::new();
     let mut all_errors: Vec<ParseError> = Vec::new();
 
     for result in results {
         match result {
-            ParseResult::Success(metadata, syms, imps, cmts, cplx) => {
+            ParseResult::Success(metadata, syms, imps, cmts, cplx, sec) => {
                 all_files.push(metadata);
                 all_symbols.extend(syms);
                 all_imports.extend(imps);
                 all_comments.extend(cmts);
                 all_complexities.extend(cplx);
+                all_security.extend(sec);
             }
             ParseResult::Error(err) => {
                 all_errors.push(err);
@@ -335,12 +347,13 @@ fn run_parse(
 
     if compute_complexity {
         output::write_complexity_parquet(&all_complexities, output_dir)?;
+        output::write_security_parquet(&all_security, output_dir)?;
     }
 
     let elapsed = start.elapsed();
     if compute_complexity {
         eprintln!(
-            "Done: {} files ({} supported, {} unsupported), {} symbols, {} imports, {} comments, {} complexity entries, {} errors in {:.2}s",
+            "Done: {} files ({} supported, {} unsupported), {} symbols, {} imports, {} comments, {} complexity entries, {} security issues, {} errors in {:.2}s",
             all_files.len(),
             supported_count,
             all_files.len() - supported_count,
@@ -348,6 +361,7 @@ fn run_parse(
             all_imports.len(),
             all_comments.len(),
             all_complexities.len(),
+            all_security.len(),
             all_errors.len(),
             elapsed.as_secs_f64()
         );
@@ -793,6 +807,35 @@ fn dispatch_audit_overview(
     let data_dir = PathBuf::from(&entry.data_path);
     let engine = query::db::QueryEngine::new(&data_dir)?;
     let output = query::quality::run_audit_overview(&engine, format)?;
+    print!("{output}");
+    Ok(())
+}
+
+fn dispatch_audit_security(name: &str, command: &SecurityCommand) -> Result<()> {
+    let meta = audit::load_audit_metadata()?;
+    let entry = audit::find_audit(&meta, name)
+        .with_context(|| format!("audit '{}' not found", name))?;
+
+    let data_dir = PathBuf::from(&entry.data_path);
+    let engine = query::db::QueryEngine::new(&data_dir)?;
+
+    let output = match command {
+        SecurityCommand::UnsafeCalls {
+            file,
+            limit,
+            format,
+        } => query::security::run_unsafe_calls(&engine, file.as_deref(), *limit, format)?,
+        SecurityCommand::StringRisks {
+            file,
+            limit,
+            format,
+        } => query::security::run_string_risks(&engine, file.as_deref(), *limit, format)?,
+        SecurityCommand::HardcodedSecrets {
+            file,
+            limit,
+            format,
+        } => query::security::run_hardcoded_secrets(&engine, file.as_deref(), *limit, format)?,
+    };
     print!("{output}");
     Ok(())
 }

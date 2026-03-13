@@ -9,4 +9,5 @@ pub mod output;
 pub mod parser;
 pub mod project;
 pub mod query;
+pub mod security;
 pub mod s3;

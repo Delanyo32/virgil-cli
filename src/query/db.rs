@@ -147,6 +147,19 @@ impl QueryEngine {
                 .context("failed to create complexity view")?;
         }
 
+        // Conditionally register security view (backward compatible)
+        let security_path = data_dir.join("security.parquet");
+        if security_path.exists() {
+            conn.execute(
+                &format!(
+                    "CREATE VIEW security AS SELECT * FROM read_parquet('{}')",
+                    security_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+            )
+            .context("failed to create security view")?;
+        }
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
@@ -243,6 +256,10 @@ impl QueryEngine {
 
     pub fn has_complexity(&self) -> bool {
         self.has_view("complexity")
+    }
+
+    pub fn has_security(&self) -> bool {
+        self.has_view("security")
     }
 
     fn has_view(&self, view_name: &str) -> bool {

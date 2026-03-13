@@ -31,6 +31,9 @@ cargo run -- audit overview <NAME> [--format]                          # Combine
 cargo run -- audit quality <NAME> dead-code [--file] [--kind] [--limit] [--format]
 cargo run -- audit quality <NAME> coupling [--file] [--sort instability|fan-in|fan-out|file] [--limit] [--cycles] [--format]
 cargo run -- audit quality <NAME> duplication [--file] [--min-group] [--limit] [--format]
+cargo run -- audit security <NAME> unsafe-calls [--file] [--limit] [--format]
+cargo run -- audit security <NAME> string-risks [--file] [--limit] [--format]
+cargo run -- audit security <NAME> hardcoded-secrets [--file] [--limit] [--format]
 ```
 
 Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
@@ -56,6 +59,7 @@ src/
 ├── project.rs         # Project metadata types, JSON persistence (~/.virgil/), path helpers
 ├── audit.rs           # Audit metadata types, JSON persistence (~/.virgil/audits/), path helpers
 ├── complexity.rs      # Complexity engine: cyclomatic + cognitive + line count, per-language node-kind configs
+├── security.rs        # Security engine: unsafe calls, string risks, hardcoded secrets detection via AST traversal
 ├── s3.rs              # S3 configuration (S3Config), client (S3Client), file listing/download/upload
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
@@ -84,6 +88,7 @@ src/
     ├── comments.rs    # Comment listing with filters + text search
     ├── complexity.rs  # Complexity query functions (run_complexity, run_complexity_overview)
     ├── quality.rs     # Quality analysis (dead code, coupling/cohesion, duplication)
+    ├── security.rs    # Security query functions (unsafe calls, string risks, hardcoded secrets)
     └── symbol.rs      # Symbol detail view (definition, callers, deps, docs)
 ```
 
@@ -174,7 +179,7 @@ line, block, doc
 - `complexity` view registered conditionally in `QueryEngine::new()` (same pattern as imports/comments).
 - `ComplexitySortField` enum: Cyclomatic, Cognitive, Name, File, Lines. Default sort = Cyclomatic DESC.
 - `audit complexity`: supports `--file`, `--kind`, `--sort`, `--limit`, `--threshold` filters. Threshold filters on `cyclomatic_complexity >= N`.
-- `audit overview`: combined complexity + quality overview. Complexity sections: summary stats (avg/max cyclomatic, cognitive, line count), distribution buckets (1-5 simple, 6-10 moderate, 11-20 complex, 21+ very complex), top 10 most complex symbols, per-file complexity aggregation. Quality sections: dead code summary, coupling summary, duplication summary. Dispatched to `query::quality::run_audit_overview`.
+- `audit overview`: combined complexity + quality + security overview. Complexity sections: summary stats (avg/max cyclomatic, cognitive, line count), distribution buckets (1-5 simple, 6-10 moderate, 11-20 complex, 21+ very complex), top 10 most complex symbols, per-file complexity aggregation. Quality sections: dead code summary, coupling summary, duplication summary. Security section: issue counts by type and severity. Dispatched to `query::quality::run_audit_overview`.
 - `structural_hash`: u64 hash of a function's AST node-kind sequence (identifiers/literals stripped). Stored in `complexity.parquet`. Old audits without this column get it synthesized as `0` in the view registration.
 - `audit quality`: nested subcommand (`AuditAction::Quality { name, command: QualityCommand }`). `QualityCommand` has `DeadCode`, `Coupling`, `Duplication` variants.
 - `audit quality dead-code`: LEFT JOIN exported symbols with internal imports by name. Matches by exact symbol name only — may produce false positives for dynamic references or renamed re-exports.
@@ -182,3 +187,14 @@ line, block, doc
 - `audit quality duplication`: Groups functions by (structural_hash, symbol_kind, line_count, cyclomatic, cognitive) where hash != 0 and count >= min_group. Old audits with synthesized hash=0 are filtered out.
 - `CouplingSortField` enum: Instability, FanIn, FanOut, File.
 - `dispatch_audit_quality()`: follows the same pattern as `dispatch_audit_complexity()` — load metadata, create engine, match on `QualityCommand`, print output.
+- Security engine (`security.rs`): AST traversal (like `complexity.rs`) with per-language `SecurityConfig` lookup tables. Detects unsafe calls, string risks (inline SQL/HTML), and hardcoded secrets. Runs under `compute_complexity` flag — only during `audit create`.
+- `SecurityConfig`: per-language struct mapping call node kinds, unsafe function names, string node kinds, variable declaration kinds. Covers all 12 languages.
+- `SecurityIssue`: single model with `issue_type` discriminator (`"unsafe_call"`, `"string_risk"`, `"hardcoded_secret"`). Severity: unsafe_call = high, hardcoded_secret = high, string_risk = medium.
+- `security.parquet`: stored alongside `complexity.parquet` in audit data dir. Schema: file_path, issue_type, severity, line, column, end_line, end_column, description, snippet, symbol_name.
+- `security` view registered conditionally in `QueryEngine::new()` (same pattern as complexity). `has_security()` method for backward compat.
+- `audit security`: nested subcommand (`AuditAction::Security { name, command: SecurityCommand }`). `SecurityCommand` has `UnsafeCalls`, `StringRisks`, `HardcodedSecrets` variants. Each supports `--file` and `--limit` filters.
+- `audit overview`: includes security summary section (total, unsafe calls, string risks, hardcoded secrets, high/medium severity counts). Gated behind `has_security()` for backward compat.
+- `dispatch_audit_security()`: follows the same pattern as `dispatch_audit_quality()` — load metadata, create engine, match on `SecurityCommand`, print output.
+- Unsafe function detection: matches function-position child text against per-language unsafe function list. Supports dotted names (e.g. `os.system`, `exec.Command`).
+- String risk detection: case-insensitive pattern matching for SQL keywords (`SELECT...FROM`, `INSERT INTO`, etc.) and HTML tags (`<script`, `<iframe`, etc.) in string literal nodes.
+- Hardcoded secret detection: variable name checked case-insensitively against secret patterns (`api_key`, `password`, `token`, etc.); value must be a string literal node kind.

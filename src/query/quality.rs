@@ -683,7 +683,7 @@ fn duplication_summary(engine: &QueryEngine) -> Result<DuplicationSummary> {
 // -- Format-specific renderers --
 
 fn run_audit_overview_json(engine: &QueryEngine) -> Result<String> {
-    let combined = serde_json::json!({
+    let mut combined = serde_json::json!({
         "complexity": {
             "stats": complexity_stats(engine)?,
             "distribution": complexity_buckets(engine)?,
@@ -696,6 +696,19 @@ fn run_audit_overview_json(engine: &QueryEngine) -> Result<String> {
             "duplication": duplication_summary(engine)?,
         },
     });
+
+    if engine.has_security() {
+        let sec = super::security::security_summary(engine)?;
+        combined["security"] = serde_json::json!({
+            "unsafe_calls": sec.unsafe_calls,
+            "string_risks": sec.string_risks,
+            "hardcoded_secrets": sec.hardcoded_secrets,
+            "total": sec.total,
+            "high_severity": sec.high_severity,
+            "medium_severity": sec.medium_severity,
+        });
+    }
+
     Ok(serde_json::to_string_pretty(&combined)?)
 }
 
@@ -730,6 +743,17 @@ fn run_audit_overview_csv(engine: &QueryEngine) -> Result<String> {
     let dp = duplication_summary(engine)?;
     out.push_str(&format!("duplicate_groups,{}\n", dp.duplicate_groups));
     out.push_str(&format!("duplicated_functions,{}\n", dp.duplicated_functions));
+
+    if engine.has_security() {
+        let sec = super::security::security_summary(engine)?;
+        out.push_str(&format!("security_unsafe_calls,{}\n", sec.unsafe_calls));
+        out.push_str(&format!("security_string_risks,{}\n", sec.string_risks));
+        out.push_str(&format!("security_hardcoded_secrets,{}\n", sec.hardcoded_secrets));
+        out.push_str(&format!("security_total,{}\n", sec.total));
+        out.push_str(&format!("security_high_severity,{}\n", sec.high_severity));
+        out.push_str(&format!("security_medium_severity,{}\n", sec.medium_severity));
+    }
+
     Ok(out)
 }
 
@@ -833,6 +857,21 @@ fn run_audit_overview_table(engine: &QueryEngine) -> Result<String> {
         dp.duplicate_groups, dp.duplicated_functions
     );
     out.push_str(&format_section("Duplication", &dp_text));
+
+    if engine.has_security() {
+        let sec = super::security::security_summary(engine)?;
+        let sec_text = format!(
+            "  Total issues:                 {}\n\
+             \x20 Unsafe calls:                 {}\n\
+             \x20 String risks:                 {}\n\
+             \x20 Hardcoded secrets:             {}\n\
+             \x20 High severity:                 {}\n\
+             \x20 Medium severity:               {}\n",
+            sec.total, sec.unsafe_calls, sec.string_risks,
+            sec.hardcoded_secrets, sec.high_severity, sec.medium_severity
+        );
+        out.push_str(&format_section("Security", &sec_text));
+    }
 
     Ok(out)
 }

@@ -107,6 +107,20 @@ pub struct ComplexityInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct SecurityIssue {
+    pub file_path: String,
+    pub issue_type: String,
+    pub severity: String,
+    pub line: u32,
+    pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub description: String,
+    pub snippet: String,
+    pub symbol_name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ParseError {
     pub file_path: String,
     pub file_name: String,
