@@ -94,6 +94,18 @@ pub struct CommentInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct ComplexityInfo {
+    pub file_path: String,
+    pub symbol_name: String,
+    pub symbol_kind: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub line_count: u32,
+    pub cyclomatic_complexity: u32,
+    pub cognitive_complexity: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct ParseError {
     pub file_path: String,
     pub file_name: String,

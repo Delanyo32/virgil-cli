@@ -1,5 +1,6 @@
 pub mod callers;
 pub mod comments;
+pub mod complexity;
 pub mod db;
 pub mod dependents;
 pub mod deps;

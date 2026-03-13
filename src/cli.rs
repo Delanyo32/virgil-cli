@@ -17,288 +17,16 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Parse a codebase and output parquet files
-    Parse {
-        /// Root directory to parse
-        dir: PathBuf,
-
-        /// Output directory for parquet files
-        #[arg(short, long, default_value = ".")]
-        output: PathBuf,
-
-        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php)
-        #[arg(short, long)]
-        language: Option<String>,
-    },
-
-    /// Show codebase overview (semantic structure, module tree, API surface)
-    Overview {
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Maximum directory depth for module tree
-        #[arg(long, default_value = "3")]
-        depth: usize,
-    },
-
-    /// Search for symbols by name
-    Search {
-        /// Search query (fuzzy match)
-        query: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Filter by symbol kind
-        #[arg(long)]
-        kind: Option<String>,
-
-        /// Only show exported symbols
-        #[arg(long)]
-        exported: bool,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "20")]
-        limit: usize,
-
-        /// Number of results to skip
-        #[arg(long, default_value = "0")]
-        offset: usize,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// Show all symbols in a file
-    Outline {
-        /// File path to get outline for
-        file_path: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// List parsed files
-    Files {
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Filter by language
-        #[arg(long)]
-        language: Option<String>,
-
-        /// Filter by directory prefix
-        #[arg(long)]
-        directory: Option<String>,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "100")]
-        limit: usize,
-
-        /// Number of results to skip
-        #[arg(long, default_value = "0")]
-        offset: usize,
-
-        /// Sort by field
-        #[arg(long, default_value = "path")]
-        sort: FileSortField,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// Read source file content
-    Read {
-        /// File path to read (relative, as stored in parquet)
-        file_path: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Root directory of the source project
-        #[arg(long, default_value = ".")]
-        root: PathBuf,
-
-        /// Start line (1-indexed)
-        #[arg(long)]
-        start_line: Option<usize>,
-
-        /// End line (1-indexed, inclusive)
-        #[arg(long)]
-        end_line: Option<usize>,
-    },
-
-    /// Execute raw SQL against parquet files
-    Query {
-        /// SQL query to execute
-        sql: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// Show what a file imports (dependencies)
-    Deps {
-        /// File path to show dependencies for
-        file_path: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// Show what files import a given file (reverse dependencies)
-    Dependents {
-        /// File path to find dependents for
-        file_path: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// Find which files import a specific symbol
-    Callers {
-        /// Symbol name to search for (fuzzy match)
-        symbol_name: String,
-
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "50")]
-        limit: usize,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
-    /// List all imports with filters
-    Imports {
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Filter by module specifier (fuzzy match)
-        #[arg(long)]
-        module: Option<String>,
-
-        /// Filter by import kind (static, dynamic, require, re_export, include, using)
-        #[arg(long)]
-        kind: Option<String>,
-
-        /// Filter by source file prefix
-        #[arg(long)]
-        file: Option<String>,
-
-        /// Only show type-only imports
-        #[arg(long)]
-        type_only: bool,
-
-        /// Only show external (library) imports
-        #[arg(long)]
-        external: bool,
-
-        /// Only show internal (user code) imports
-        #[arg(long)]
-        internal: bool,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "50")]
-        limit: usize,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-    /// List parse errors
-    Errors {
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Filter by error type (parser_creation, file_read, parse_failure)
-        #[arg(long)]
-        error_type: Option<String>,
-
-        /// Filter by language
-        #[arg(long)]
-        language: Option<String>,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "50")]
-        limit: usize,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-    },
-
     /// Manage persistent projects (create, list, delete, query)
     Project {
         #[command(subcommand)]
         action: ProjectAction,
     },
 
-    /// List comments with filters
-    Comments {
-        /// Directory containing parquet files
-        #[arg(long, default_value = ".")]
-        data_dir: PathBuf,
-
-        /// Filter by file path prefix
-        #[arg(long)]
-        file: Option<String>,
-
-        /// Filter by comment kind (line, block, doc)
-        #[arg(long)]
-        kind: Option<String>,
-
-        /// Only show comments associated with a symbol
-        #[arg(long)]
-        documented: bool,
-
-        /// Filter by associated symbol name (fuzzy match)
-        #[arg(long)]
-        symbol: Option<String>,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "50")]
-        limit: usize,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
+    /// Run code audits (complexity analysis)
+    Audit {
+        #[command(subcommand)]
+        action: AuditAction,
     },
 }
 
@@ -528,4 +256,79 @@ pub enum CommentsAction {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AuditAction {
+    /// Parse a codebase and create a named audit
+    Create {
+        /// Directory to parse
+        dir: PathBuf,
+
+        /// Custom audit name (defaults to directory basename)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        language: Option<String>,
+    },
+
+    /// List all registered audits
+    List,
+
+    /// Delete an audit and its data
+    Delete {
+        /// Audit name
+        name: String,
+    },
+
+    /// View complexity metrics for symbols
+    Complexity {
+        /// Audit name
+        name: String,
+
+        /// Filter by file path prefix
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter by symbol kind (function, method, arrow_function)
+        #[arg(long)]
+        kind: Option<String>,
+
+        /// Sort by field
+        #[arg(long, default_value = "cyclomatic")]
+        sort: ComplexitySortField,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Only show symbols with cyclomatic complexity >= threshold
+        #[arg(long)]
+        threshold: Option<u32>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+
+    /// Show audit overview with complexity summary
+    Overview {
+        /// Audit name
+        name: String,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum ComplexitySortField {
+    Cyclomatic,
+    Cognitive,
+    Name,
+    File,
+    Lines,
 }

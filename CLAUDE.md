@@ -6,9 +6,6 @@ Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP
 
 ```bash
 cargo build
-cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php]
-cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
-cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
 
 # Project management (persistent, query by name)
 cargo run -- project create <DIR> [--name <name>] [--language <filter>]
@@ -25,9 +22,12 @@ cargo run -- project query <NAME> symbol get <NAME> [--format]
 cargo run -- project query <NAME> comments list [--file] [--kind] [--documented] [--symbol] [--limit] [--format]
 cargo run -- project query <NAME> comments search <QUERY> [--file] [--kind] [--limit] [--format]
 
-# S3 mode (reads credentials from env vars)
-cargo run -- --env parse <S3_PREFIX> [--output <s3_prefix>]
-cargo run -- --env search <QUERY> [--data-dir <s3_prefix>]
+# Audit management (complexity analysis)
+cargo run -- audit create <DIR> [--name <name>] [--language <filter>]
+cargo run -- audit list
+cargo run -- audit delete <NAME>
+cargo run -- audit complexity <NAME> [--file] [--kind] [--sort cyclomatic|cognitive|name|file|lines] [--limit] [--threshold] [--format]
+cargo run -- audit overview <NAME> [--format]
 ```
 
 Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
@@ -36,32 +36,23 @@ Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting p
 
 | Command | Description |
 |---------|-------------|
-| `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
-| `search` | Search for symbols by name (fuzzy match) |
-| `outline` | Show all symbols in a file |
-| `files` | List parsed files |
-| `read` | Read source file content with optional line ranges |
-| `query` | Execute raw SQL against parquet files |
-| `deps` | Show what a file imports (dependencies) |
-| `dependents` | Show what files import a given file (reverse dependencies) |
-| `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
-| `comments` | List comments with filters (`--file`, `--kind`, `--documented`, `--symbol`) |
 | `project` | Manage persistent projects (`create`, `list`, `delete`, `query`) |
+| `audit` | Run code audits with complexity analysis (`create`, `list`, `delete`, `complexity`, `overview`) |
 
 ## Project Structure
 
 ```
 src/
-├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism, project handlers
-├── cli.rs             # Clap subcommand definitions (13 subcommands + OutputFormat/FileSortField/ProjectAction/ProjectQueryCommand enums)
+├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism, project + audit handlers
+├── cli.rs             # Clap subcommand definitions (project + audit commands, OutputFormat/FileSortField/ComplexitySortField enums)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
 ├── language.rs        # Language enum, extension mapping, parser selection
-├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
+├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo, ComplexityInfo
 ├── parser.rs          # Tree-sitter parsing, file metadata collection (parse_file + parse_content for S3)
-├── output.rs          # Arrow schemas + parquet writing (local + S3 variants)
+├── output.rs          # Arrow schemas + parquet writing (local + S3 variants, including complexity)
 ├── project.rs         # Project metadata types, JSON persistence (~/.virgil/), path helpers
+├── audit.rs           # Audit metadata types, JSON persistence (~/.virgil/audits/), path helpers
+├── complexity.rs      # Complexity engine: cyclomatic + cognitive + line count, per-language node-kind configs
 ├── s3.rs              # S3 configuration (S3Config), client (S3Client), file listing/download/upload
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
@@ -88,6 +79,7 @@ src/
     ├── callers.rs     # Find which files import a specific symbol
     ├── imports.rs     # Import listing with filters
     ├── comments.rs    # Comment listing with filters + text search
+    ├── complexity.rs  # Complexity query functions (run_complexity, run_complexity_overview)
     └── symbol.rs      # Symbol detail view (definition, callers, deps, docs)
 ```
 
@@ -98,14 +90,13 @@ src/
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
 - **tree-sitter 0.25**: `QueryMatches` uses `streaming_iterator::StreamingIterator`, not `std::iter::Iterator`. Iterate with `while let Some(m) = matches.next()`.
-- **Output**: Four parquet files — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments).
+- **Output**: Four parquet files for projects — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments). Audits additionally produce `complexity.parquet` (per-symbol complexity metrics).
 - **Querying**: DuckDB in-memory connection. `QueryEngine::new()` registers parquet files as views (`files`, `symbols`, conditionally `imports`, conditionally `comments`) so all SQL uses plain table names. The `imports` and `comments` views are backward-compatible — only registered if their parquet files exist.
 - **Output formats**: `OutputFormat` enum (table/json/csv) shared across all query subcommands. Formatting logic in `query/format.rs`.
-- **S3 storage**: `--env` global flag enables S3 mode. `rust-s3` crate with `sync-native-tls` feature (no async runtime). `S3Config::from_env()` reads credentials. `S3Client` wraps `s3::Bucket` with `list`/`get_object`/`put_object`/`head_object` sync methods. DuckDB's `httpfs` extension reads S3 parquet natively via `CREATE SECRET` + `s3://` URLs.
-- **S3 parse pipeline**: `run_parse_s3()` lists files from S3 prefix, downloads each in parallel (rayon), parses via `parse_content()`, writes parquet to S3 via in-memory `Cursor<Vec<u8>>`. Each rayon task creates its own `S3Client` (mirrors `Parser` per-task pattern).
-- **S3 query pipeline**: `QueryEngine::new_s3()` installs httpfs, creates S3 secret, registers views pointing to `s3://bucket/prefix/*.parquet`. Optional views (imports, comments, errors) swallow creation errors if parquet doesn't exist.
-- **View existence check**: `has_imports()`/`has_comments()`/`has_errors()` query `information_schema.tables` instead of filesystem — works for both local and S3 modes.
-- **Project management**: `project` subcommand with `create`/`list`/`delete`/`query` actions. Metadata stored as JSON at `~/.virgil/projects.json`. Parquet data stored under `~/.virgil/projects/<name>/`. `project query` uses native clap nesting (`ProjectQueryCommand` → `FileAction`/`SymbolAction`/`CommentsAction`) with `dispatch_project_query()` — auto-resolves `data_dir` and `repo_path` from project metadata.
+- **View existence check**: `has_imports()`/`has_comments()`/`has_errors()`/`has_complexity()` query `information_schema.tables` instead of filesystem.
+- **Project management**: `project` top-level command with `create`/`list`/`delete`/`query` actions. Metadata stored as JSON at `~/.virgil/projects.json`. Parquet data stored under `~/.virgil/projects/<name>/`. `project query` uses native clap nesting (`ProjectQueryCommand` → `FileAction`/`SymbolAction`/`CommentsAction`) with `dispatch_project_query()` — auto-resolves `data_dir` and `repo_path` from project metadata.
+- **Audit management**: `audit` top-level command with `create`/`list`/`delete`/`complexity`/`overview` actions. Metadata stored as JSON at `~/.virgil/audits.json`. Parquet data stored under `~/.virgil/audits/<name>/`. Mirrors project pattern but adds complexity computation via `run_parse(..., compute_complexity: true)`.
+- **Complexity engine**: Language-agnostic tree-sitter node traversal (not S-expression queries) with per-language node-kind lookup tables in `ComplexityConfig`. Computes cyclomatic complexity (base 1, +1 per decision point), cognitive complexity (Sonar-style nesting-weighted), and function/method line count. Only applied to Function, Method, and ArrowFunction symbol kinds.
 
 ## Supported Languages
 
@@ -160,15 +151,23 @@ line, block, doc
 - PHP export detection: top-level functions/classes/interfaces/traits/enums/namespaces = always exported. Methods/properties/constants: `visibility_modifier` checked — `public` = exported, `private`/`protected` = not. Default = exported (PHP's default is public).
 - PHP imports: `use` statements (kind = "use", always external). `require`/`include` (kind = "require"/"include", starts with `.` = internal, else external). Grouped use (`use App\Models\{User, Post}`) expanded to individual imports.
 - PHP property names: `$` prefix stripped from variable names for clean symbol output.
-- S3 `--env` flag: global clap flag. Reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_ENDPOINT` (required), `S3_REGION` (optional, default `us-east-1`). Path args reinterpreted as S3 key prefixes.
-- S3 output refactor: `output.rs` uses shared `build_*_batch()` functions returning `(Arc<Schema>, RecordBatch)`. Local writers use `write_batch_to_file()`, S3 writers use `write_batch_to_bytes()` + `client.put_file()`.
-- S3 unsupported files: uses `S3File.size` from listing, sets `line_count = 0` (avoids downloading non-parsed files).
-- S3 `parse_content()`: parses source already in memory (from S3 download). Extracts name/extension from the key string. `parse_file()` remains unchanged for local mode.
-- S3 DuckDB: `httpfs` extension bundled with DuckDB 1.4. `CREATE SECRET` with `URL_STYLE 'path'` for S3-compatible endpoints (MinIO, Cloudflare R2, etc.). Endpoint scheme (`https://`/`http://`) is stripped before passing to DuckDB — httpfs prepends the scheme itself.
 - Project storage: `~/.virgil/projects/<name>/` for parquet data, `~/.virgil/projects.json` for metadata. `dirs` crate for cross-platform home directory.
 - Project names: validated (no path separators, no leading dot, no empty). Derived from directory basename if `--name` not provided.
 - `project create`: canonicalizes directory path immediately, stores absolute `repo_path` in metadata. Reuses `run_parse()` directly. Cleans up data dir on parse failure.
-- `project query`: uses native clap subcommand hierarchy (`ProjectQueryCommand` with `FileAction`, `SymbolAction`, `CommentsAction` nested enums). `dispatch_project_query()` loads project metadata and calls `run_*` functions directly — no synthetic arg building or re-parsing. Supports: `overview`, `search`, `file {get,list,read}`, `symbol get`, `comments {list,search}`. Dropped from project query: `deps`, `dependents`, `callers`, `imports`, `query` (raw SQL), `errors` — these remain as top-level commands usable with `--data-dir`.
+- `project query`: uses native clap subcommand hierarchy (`ProjectQueryCommand` with `FileAction`, `SymbolAction`, `CommentsAction` nested enums). `dispatch_project_query()` loads project metadata and calls `run_*` functions directly — no synthetic arg building or re-parsing. Supports: `overview`, `search`, `file {get,list,read}`, `symbol get`, `comments {list,search}`.
 - `symbol get`: queries symbol definition, import count, callers (top 20), file dependencies, and doc comments. Table output uses sections (like overview). JSON returns full `SymbolDetail` struct. CSV returns definitions only.
 - `comments search`: text search via `ILIKE '%query%'` with optional file/kind filters. Reuses `CommentEntry` struct.
-- `dispatch_command()`: handles top-level commands. `dispatch_project_query()` handles project-scoped commands separately.
+- `dispatch_project_query()`: handles project-scoped query commands.
+- Audit storage: `~/.virgil/audits/<name>/` for parquet data, `~/.virgil/audits.json` for metadata. Mirrors project pattern exactly.
+- `audit create`: calls `run_parse(..., compute_complexity: true)`. Produces all standard parquet files plus `complexity.parquet`.
+- `run_parse()` takes `compute_complexity: bool` parameter. When `false` (project create), no complexity computed — zero overhead. When `true` (audit create), `complexity::extract_complexity()` runs in the same rayon parallel closure after symbol extraction.
+- Complexity engine uses recursive AST node traversal with `node.kind()` checked against `ComplexityConfig` lookup tables — not tree-sitter S-expression queries. This is because complexity counting needs nesting depth tracking and recursive child walks.
+- `ComplexityConfig`: per-language struct mapping branching node kinds, nesting node kinds, logical operator patterns, ternary node kind. Covers all 12 languages.
+- Cyclomatic complexity: base 1, +1 for each: if, else-if, for, while, do-while, switch-case/match-arm, catch, `&&`/`||`/`??`, ternary.
+- Cognitive complexity (Sonar-style): nesting constructs (if, for, while, switch, catch, ternary) increment by 1 + current_nesting_depth, then recurse with nesting+1. Non-nesting constructs (else, elif) increment by 1, same nesting. Logical operators: flat +1 each.
+- `line_count`: stored as `end_line - start_line + 1` (saturating). Stored in parquet as a first-class field, not computed on the fly.
+- Only Function, Method, and ArrowFunction get complexity scores (`is_complexity_relevant()`). Classes, structs, enums, etc. are skipped.
+- `complexity` view registered conditionally in `QueryEngine::new()` (same pattern as imports/comments).
+- `ComplexitySortField` enum: Cyclomatic, Cognitive, Name, File, Lines. Default sort = Cyclomatic DESC.
+- `audit complexity`: supports `--file`, `--kind`, `--sort`, `--limit`, `--threshold` filters. Threshold filters on `cyclomatic_complexity >= N`.
+- `audit overview`: summary stats (avg/max cyclomatic, cognitive, line count), distribution buckets (1-5 simple, 6-10 moderate, 11-20 complex, 21+ very complex), top 10 most complex symbols, per-file complexity aggregation.

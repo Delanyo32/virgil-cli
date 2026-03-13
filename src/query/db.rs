@@ -113,6 +113,19 @@ impl QueryEngine {
             .context("failed to create errors view")?;
         }
 
+        // Conditionally register complexity view
+        let complexity_path = data_dir.join("complexity.parquet");
+        if complexity_path.exists() {
+            conn.execute(
+                &format!(
+                    "CREATE VIEW complexity AS SELECT * FROM read_parquet('{}')",
+                    complexity_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+            )
+            .context("failed to create complexity view")?;
+        }
+
         Ok(Self {
             conn,
             data_dir: data_dir.to_path_buf(),
@@ -205,6 +218,10 @@ impl QueryEngine {
 
     pub fn has_errors(&self) -> bool {
         self.has_view("errors")
+    }
+
+    pub fn has_complexity(&self) -> bool {
+        self.has_view("complexity")
     }
 
     fn has_view(&self, view_name: &str) -> bool {

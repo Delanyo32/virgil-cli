@@ -9,7 +9,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 
-use crate::models::{CommentInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
+use crate::models::{CommentInfo, ComplexityInfo, FileMetadata, ImportInfo, ParseError, SymbolInfo};
 use crate::s3::S3Client;
 
 fn files_schema() -> Schema {
@@ -72,6 +72,19 @@ fn errors_schema() -> Schema {
         Field::new("error_type", DataType::Utf8, false),
         Field::new("error_message", DataType::Utf8, false),
         Field::new("size_bytes", DataType::UInt64, false),
+    ])
+}
+
+fn complexity_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("file_path", DataType::Utf8, false),
+        Field::new("symbol_name", DataType::Utf8, false),
+        Field::new("symbol_kind", DataType::Utf8, false),
+        Field::new("start_line", DataType::UInt32, false),
+        Field::new("end_line", DataType::UInt32, false),
+        Field::new("line_count", DataType::UInt32, false),
+        Field::new("cyclomatic_complexity", DataType::UInt32, false),
+        Field::new("cognitive_complexity", DataType::UInt32, false),
     ])
 }
 
@@ -233,6 +246,36 @@ fn build_errors_batch(errors: &[ParseError]) -> Result<(Arc<Schema>, RecordBatch
     Ok((schema, batch))
 }
 
+fn build_complexity_batch(items: &[ComplexityInfo]) -> Result<(Arc<Schema>, RecordBatch)> {
+    let schema = Arc::new(complexity_schema());
+
+    let file_paths: Vec<&str> = items.iter().map(|c| c.file_path.as_str()).collect();
+    let symbol_names: Vec<&str> = items.iter().map(|c| c.symbol_name.as_str()).collect();
+    let symbol_kinds: Vec<&str> = items.iter().map(|c| c.symbol_kind.as_str()).collect();
+    let start_lines: Vec<u32> = items.iter().map(|c| c.start_line).collect();
+    let end_lines: Vec<u32> = items.iter().map(|c| c.end_line).collect();
+    let line_counts: Vec<u32> = items.iter().map(|c| c.line_count).collect();
+    let cyclomatic: Vec<u32> = items.iter().map(|c| c.cyclomatic_complexity).collect();
+    let cognitive: Vec<u32> = items.iter().map(|c| c.cognitive_complexity).collect();
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(file_paths)),
+            Arc::new(StringArray::from(symbol_names)),
+            Arc::new(StringArray::from(symbol_kinds)),
+            Arc::new(UInt32Array::from(start_lines)),
+            Arc::new(UInt32Array::from(end_lines)),
+            Arc::new(UInt32Array::from(line_counts)),
+            Arc::new(UInt32Array::from(cyclomatic)),
+            Arc::new(UInt32Array::from(cognitive)),
+        ],
+    )
+    .context("failed to create complexity RecordBatch")?;
+
+    Ok((schema, batch))
+}
+
 // --- Helper: write batch to in-memory parquet bytes ---
 
 fn write_batch_to_bytes(schema: Arc<Schema>, batch: &RecordBatch) -> Result<Vec<u8>> {
@@ -283,6 +326,11 @@ pub fn write_comments_parquet(comments: &[CommentInfo], output_dir: &Path) -> Re
 pub fn write_errors_parquet(errors: &[ParseError], output_dir: &Path) -> Result<()> {
     let (schema, batch) = build_errors_batch(errors)?;
     write_batch_to_file(schema, &batch, &output_dir.join("errors.parquet"))
+}
+
+pub fn write_complexity_parquet(items: &[ComplexityInfo], output_dir: &Path) -> Result<()> {
+    let (schema, batch) = build_complexity_batch(items)?;
+    write_batch_to_file(schema, &batch, &output_dir.join("complexity.parquet"))
 }
 
 // --- S3 writers ---

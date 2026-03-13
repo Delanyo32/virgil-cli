@@ -30,13 +30,13 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 
 - **Core workflow**: Parse → Overview → Drill-down exploration pattern
 - **6 strategic playbooks**: Architecture understanding, symbol tracing, onboarding, bug investigation, dependency mapping, API surface mapping
-- **Full command reference**: Flag-by-flag docs for all 13 commands
+- **Full command reference**: Flag-by-flag docs for all project commands
 - **30+ SQL recipes**: Reusable DuckDB queries for file, symbol, dependency, and comment analysis
 
 ## Usage
 
 ```bash
-virgil <COMMAND> [OPTIONS]
+virgil-cli <COMMAND> [OPTIONS]
 ```
 
 ### Global Options
@@ -49,196 +49,21 @@ virgil <COMMAND> [OPTIONS]
 
 | Command | Description |
 |---------|-------------|
-| `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
-| `search` | Search for symbols by name (fuzzy match) |
-| `outline` | Show all symbols in a file |
-| `files` | List parsed files |
-| `read` | Read source file content |
-| `query` | Execute raw SQL against parquet files |
-| `deps` | Show what a file imports (dependencies) |
-| `dependents` | Show what files import a given file (reverse dependencies) |
-| `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters |
-| `comments` | List comments with filters |
 | `project` | Manage persistent projects (create, list, delete, query) |
-
-### `parse`
-
-```bash
-virgil parse <DIR> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<DIR>` | Root directory to parse | required |
-| `-o`, `--output` | Output directory for parquet files | `.` |
-| `-l`, `--language` | Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rs,py,pyi,go,java,php) | all supported |
-
-### `overview`
-
-```bash
-virgil overview [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `search`
-
-```bash
-virgil search <QUERY> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<QUERY>` | Search query (fuzzy match) | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--kind` | Filter by symbol kind | all |
-| `--exported` | Only show exported symbols | false |
-| `--limit` | Maximum results to return | `20` |
-| `--offset` | Number of results to skip | `0` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `outline`
-
-```bash
-virgil outline <FILE_PATH> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to get outline for | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `files`
-
-```bash
-virgil files [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--language` | Filter by language | all |
-| `--directory` | Filter by directory prefix | none |
-| `--limit` | Maximum results to return | `100` |
-| `--offset` | Number of results to skip | `0` |
-| `--sort` | Sort by field (path, lines, size, imports, dependents) | `path` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `read`
-
-```bash
-virgil read <FILE_PATH> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to read (relative, as stored in parquet) | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--root` | Root directory of the source project | `.` |
-| `--start-line` | Start line (1-indexed) | beginning |
-| `--end-line` | End line (1-indexed, inclusive) | end of file |
-
-### `query`
-
-```bash
-virgil query <SQL> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<SQL>` | SQL query to execute | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `deps`
-
-```bash
-virgil deps <FILE_PATH> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to show dependencies for | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `dependents`
-
-```bash
-virgil dependents <FILE_PATH> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to find dependents for | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `callers`
-
-```bash
-virgil callers <SYMBOL_NAME> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<SYMBOL_NAME>` | Symbol name to search for (fuzzy match) | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--limit` | Maximum results to return | `50` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `imports`
-
-```bash
-virgil imports [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--module` | Filter by module specifier (fuzzy match) | none |
-| `--kind` | Filter by import kind (static, dynamic, require, re_export, include, using, use, import, from) | all |
-| `--file` | Filter by source file prefix | none |
-| `--type-only` | Only show type-only imports | false |
-| `--external` | Only show external (library) imports | false |
-| `--internal` | Only show internal (user code) imports | false |
-| `--limit` | Maximum results to return | `50` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `comments`
-
-```bash
-virgil comments [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--file` | Filter by file path prefix | none |
-| `--kind` | Filter by comment kind (line, block, doc) | all |
-| `--documented` | Only show comments associated with a symbol | false |
-| `--symbol` | Filter by associated symbol name (fuzzy match) | none |
-| `--limit` | Maximum results to return | `50` |
-| `--format` | Output format (table, json, csv) | `table` |
+| `audit` | Run code audits with complexity analysis (create, list, delete, complexity, overview) |
 
 ### `project`
 
 Manage persistent projects stored in `~/.virgil/`. Parse once, query by name — no need to track `--data-dir` paths manually.
 
 ```bash
-virgil project <SUBCOMMAND> [OPTIONS]
+virgil-cli project <SUBCOMMAND> [OPTIONS]
 ```
 
 #### `project create`
 
 ```bash
-virgil project create <DIR> [OPTIONS]
+virgil-cli project create <DIR> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -250,7 +75,7 @@ virgil project create <DIR> [OPTIONS]
 #### `project list`
 
 ```bash
-virgil project list
+virgil-cli project list
 ```
 
 Lists all registered projects with name, repo path, and creation timestamp.
@@ -258,7 +83,7 @@ Lists all registered projects with name, repo path, and creation timestamp.
 #### `project delete`
 
 ```bash
-virgil project delete <NAME>
+virgil-cli project delete <NAME>
 ```
 
 | Option | Description | Default |
@@ -268,7 +93,7 @@ virgil project delete <NAME>
 #### `project query`
 
 ```bash
-virgil project query <NAME> <SUBCOMMAND> [ARGS...]
+virgil-cli project query <NAME> <SUBCOMMAND> [ARGS...]
 ```
 
 | Option | Description | Default |
@@ -282,119 +107,124 @@ Auto-injects `--data-dir` pointing to the project's stored parquet data. For `re
 ### Examples
 
 ```bash
-# Parse an entire project
-virgil parse ./my-app
-
-# Output to a specific directory
-virgil parse ./my-app --output ./data
+# Register a project (parse once, query by name)
+virgil-cli project create ./my-app
+virgil-cli project create ./my-app --name my-app-v2
 
 # Only parse TypeScript files
-virgil parse ./my-app --language ts,tsx
-
-# Parse a C/C++ project
-virgil parse ./my-lib --language c,h,cpp,hpp
-
-# Parse a C# project
-virgil parse ./my-project --language cs
-
-# Parse a Java project
-virgil parse ./my-project --language java
-
-# Parse a PHP project
-virgil parse ./my-project --language php
-
-# Show codebase overview
-virgil overview --data-dir ./data
-
-# Search for symbols matching "handleClick"
-virgil search handleClick --data-dir ./data
-
-# Search for exported functions only
-virgil search handler --kind function --exported --data-dir ./data
-
-# Show all symbols in a specific file
-virgil outline src/components/App.tsx --data-dir ./data
-
-# List all TypeScript files
-virgil files --language typescript --data-dir ./data
-
-# List files in a specific directory
-virgil files --directory src/components --data-dir ./data
-
-# Read a source file
-virgil read src/index.ts --data-dir ./data --root ./my-app
-
-# Read specific lines from a file
-virgil read src/index.ts --start-line 10 --end-line 50 --data-dir ./data --root ./my-app
-
-# Show what a file imports
-virgil deps src/app.ts --data-dir ./data
-
-# Show what files import a given module
-virgil dependents src/utils/api.ts --data-dir ./data
-
-# Find which files import a specific symbol
-virgil callers useState --data-dir ./data
-
-# List all imports from a specific module
-virgil imports --module react --data-dir ./data
-
-# List re-exports only
-virgil imports --kind re_export --data-dir ./data
-
-# List only external (library) imports
-virgil imports --external --data-dir ./data
-
-# List only internal (user code) imports
-virgil imports --internal --data-dir ./data
-
-# List C/C++ #include directives
-virgil imports --kind include --data-dir ./data
-
-# List C# using directives
-virgil imports --kind using --data-dir ./data
-
-# List Java imports
-virgil imports --kind import --file .java --data-dir ./data
-
-# List PHP use statements
-virgil imports --kind use --file .php --data-dir ./data
-
-# Sort files by number of dependents
-virgil files --sort dependents --data-dir ./data
-
-# List all doc comments
-virgil comments --kind doc --data-dir ./data
-
-# List comments associated with symbols (documentation)
-virgil comments --documented --data-dir ./data
-
-# Find comments mentioning a specific symbol
-virgil comments --symbol handleClick --data-dir ./data
-
-# List comments in a specific file
-virgil comments --file src/utils --data-dir ./data
-
-# Run a raw SQL query (tables: files, symbols, imports, comments)
-virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
-
-# Get output as JSON
-virgil search handleClick --data-dir ./data --format json
-
-# Register a project (parse once)
-virgil project create ./my-app
-virgil project create ./my-app --name my-app-v2
+virgil-cli project create ./my-app --language ts,tsx
 
 # List registered projects
-virgil project list
+virgil-cli project list
 
-# Query a project by name (no --data-dir needed)
-virgil project query my-app overview
-virgil project query my-app search "handleClick" --kind function
-virgil project query my-app read src/index.ts --start-line 1 --end-line 20
+# Query a project by name
+virgil-cli project query my-app overview
+virgil-cli project query my-app search "handleClick" --kind function
+virgil-cli project query my-app file list --language typescript
+virgil-cli project query my-app file read src/index.ts --start-line 1 --end-line 20
+virgil-cli project query my-app file get src/components/App.tsx
+virgil-cli project query my-app symbol get handleClick
+virgil-cli project query my-app comments list --kind doc
+virgil-cli project query my-app comments search "TODO"
 
 # Delete a project
-virgil project delete my-app
+virgil-cli project delete my-app
+```
+
+### `audit`
+
+Run code audits with complexity analysis. Parses a codebase, computes cyclomatic complexity, cognitive complexity, and function/method line counts per symbol, and stores the results in `~/.virgil/audits/`.
+
+```bash
+virgil-cli audit <SUBCOMMAND> [OPTIONS]
+```
+
+#### `audit create`
+
+```bash
+virgil-cli audit create <DIR> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<DIR>` | Directory to parse | required |
+| `-n`, `--name` | Custom audit name | directory basename |
+| `-l`, `--language` | Comma-separated language filter | all supported |
+
+#### `audit list`
+
+```bash
+virgil-cli audit list
+```
+
+Lists all registered audits with name, repo path, and creation timestamp.
+
+#### `audit delete`
+
+```bash
+virgil-cli audit delete <NAME>
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name to delete | required |
+
+#### `audit complexity`
+
+```bash
+virgil-cli audit complexity <NAME> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--file` | Filter by file path prefix | none |
+| `--kind` | Filter by symbol kind (function, method, arrow_function) | none |
+| `--sort` | Sort by field (cyclomatic, cognitive, name, file, lines) | cyclomatic |
+| `--limit` | Maximum results to return | 20 |
+| `--threshold` | Only show symbols with cyclomatic complexity >= threshold | none |
+| `--format` | Output format (table, json, csv) | table |
+
+#### `audit overview`
+
+```bash
+virgil-cli audit overview <NAME> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Audit name | required |
+| `--format` | Output format (table, json, csv) | table |
+
+Shows summary stats (avg/max cyclomatic, cognitive, and line count), cyclomatic distribution buckets, top 10 most complex symbols, and per-file complexity rankings.
+
+#### Audit Examples
+
+```bash
+# Create an audit
+virgil-cli audit create ./my-app
+virgil-cli audit create ./my-app --name my-app-audit --language rs
+
+# View complexity overview
+virgil-cli audit overview my-app
+
+# List most complex functions
+virgil-cli audit complexity my-app --sort cyclomatic --limit 10
+
+# Find complex functions in a specific file
+virgil-cli audit complexity my-app --file src/main.rs
+
+# Find functions exceeding a complexity threshold
+virgil-cli audit complexity my-app --threshold 10
+
+# Sort by longest functions
+virgil-cli audit complexity my-app --sort lines
+
+# Export as JSON
+virgil-cli audit complexity my-app --format json
+
+# Delete an audit
+virgil-cli audit delete my-app
 ```
 
 ## Output Formats
@@ -409,7 +239,7 @@ Most subcommands support three output formats via `--format`:
 
 ## Output
 
-Four Parquet files are generated:
+Parquet files are generated per command. `project create` produces four files (files, symbols, imports, comments). `audit create` produces those same four plus `complexity.parquet`.
 
 ### files.parquet
 
@@ -462,6 +292,21 @@ Four Parquet files are generated:
 | associated_symbol | Utf8 (nullable) | Name of the symbol this comment documents |
 | associated_symbol_kind | Utf8 (nullable) | Kind of the associated symbol |
 
+### complexity.parquet
+
+Generated by `audit create` only. Contains per-symbol complexity metrics for functions, methods, and arrow functions.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| file_path | Utf8 | Relative file path |
+| symbol_name | Utf8 | Function/method name |
+| symbol_kind | Utf8 | Symbol kind (function, method, arrow_function) |
+| start_line | UInt32 | 0-based start line |
+| end_line | UInt32 | 0-based end line |
+| line_count | UInt32 | Number of lines in the function/method body |
+| cyclomatic_complexity | UInt32 | Cyclomatic complexity (base 1, +1 per decision point) |
+| cognitive_complexity | UInt32 | Cognitive complexity (Sonar-style, nesting-weighted) |
+
 ### Symbol Kinds
 
 `function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`, `struct`, `union`, `namespace`, `macro`, `property`, `typedef`, `trait`, `constant`, `module`
@@ -504,38 +349,8 @@ Four Parquet files are generated:
 - **Comment tracking** — extracts comments with classification (line/block/doc) and automatic symbol association
 - **Multiple output formats** — table, JSON, and CSV output for all query commands
 - **Project management** — register codebases as named projects, query by name without tracking paths
-- **S3 storage** — parse codebases from S3, write parquet output to S3, and query parquet files stored in S3
-
-## S3 Storage
-
-All commands support reading from and writing to S3-compatible storage (AWS S3, MinIO, Cloudflare R2, etc.) via the `--env` global flag. When `--env` is set, path arguments (`dir`, `--output`, `--data-dir`, `--root`) are reinterpreted as S3 key prefixes.
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `S3_ACCESS_KEY_ID` | Yes | S3 access key ID |
-| `S3_SECRET_ACCESS_KEY` | Yes | S3 secret access key |
-| `S3_BUCKET_NAME` | Yes | S3 bucket name |
-| `S3_ENDPOINT` | Yes | S3 endpoint URL (e.g., `https://s3.amazonaws.com`, `http://localhost:9000` for MinIO, or `https://<account_id>.r2.cloudflarestorage.com` for Cloudflare R2) |
-| `S3_REGION` | No | S3 region (default: `us-east-1`) |
-
-### S3 Examples
-
-```bash
-# Parse files from S3 and write parquet to S3
-virgil parse my-prefix/src --output parsed --env
-
-# Query parquet files stored in S3
-virgil search "main" --data-dir parsed --env
-virgil overview --data-dir parsed --env
-
-# Read a source file from S3
-virgil read src/main.ts --root my-prefix/src --env
-
-# Run raw SQL against S3-hosted parquet
-virgil query "SELECT * FROM symbols LIMIT 10" --data-dir parsed --env
-```
+- **Complexity analysis** — cyclomatic complexity, cognitive complexity (Sonar-style), and function line counts per symbol across all 12 languages
+- **Audit management** — register audits with complexity metrics, query with filters, thresholds, and sorting
 
 ## Inspecting Output
 

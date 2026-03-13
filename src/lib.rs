@@ -1,4 +1,6 @@
+pub mod audit;
 pub mod cli;
+pub mod complexity;
 pub mod discovery;
 pub mod language;
 pub mod languages;
