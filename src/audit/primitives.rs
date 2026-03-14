@@ -186,7 +186,7 @@ pub fn compile_struct_fields_query(language: Language) -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
-fn extract_snippet(source: &[u8], node: tree_sitter::Node, max_lines: usize) -> String {
+pub fn extract_snippet(source: &[u8], node: tree_sitter::Node, max_lines: usize) -> String {
     let text = node.utf8_text(source).unwrap_or("");
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() <= max_lines {
@@ -338,6 +338,77 @@ pub fn find_large_structs(
     }
 
     results
+}
+
+pub fn compile_field_declaration_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query_str = r#"
+(field_declaration
+  name: (field_identifier) @field_name
+  type: (_) @field_type) @field
+"#;
+    let query = Query::new(&ts_lang, query_str)
+        .with_context(|| format!("failed to compile field declaration query for {language}"))?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_parameter_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query_str = r#"
+(parameter
+  pattern: (_) @param_name
+  type: (_) @param_type) @param
+"#;
+    let query = Query::new(&ts_lang, query_str)
+        .with_context(|| format!("failed to compile parameter query for {language}"))?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_generic_type_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query_str = r#"
+(generic_type
+  type: (_) @outer_type
+  type_arguments: (type_arguments
+    (generic_type
+      type: (_) @inner_type))) @generic
+"#;
+    let query = Query::new(&ts_lang, query_str)
+        .with_context(|| format!("failed to compile generic type query for {language}"))?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_scoped_call_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query_str = r#"
+(call_expression
+  function: (scoped_identifier) @scoped_fn) @call
+"#;
+    let query = Query::new(&ts_lang, query_str)
+        .with_context(|| format!("failed to compile scoped call query for {language}"))?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_function_item_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query_str = r#"
+(function_item
+  name: (identifier) @fn_name
+  body: (block) @fn_body) @fn_def
+"#;
+    let query = Query::new(&ts_lang, query_str)
+        .with_context(|| format!("failed to compile function item query for {language}"))?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_numeric_literal_query(language: Language) -> Result<Arc<Query>> {
+    let ts_lang = language.tree_sitter_language();
+    let query_str = r#"
+[(integer_literal) @number (float_literal) @number]
+"#;
+    let query = Query::new(&ts_lang, query_str)
+        .with_context(|| format!("failed to compile numeric literal query for {language}"))?;
+    Ok(Arc::new(query))
 }
 
 #[cfg(test)]

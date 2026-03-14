@@ -19,7 +19,26 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
             let clone = pipelines::clone_detection::CloneDetectionPipeline::new()?;
             let god_object =
                 pipelines::god_object_detection::GodObjectDetectionPipeline::new()?;
-            Ok(vec![Box::new(panic), Box::new(clone), Box::new(god_object)])
+            let stringly = pipelines::stringly_typed::StringlyTypedPipeline::new()?;
+            let must_use = pipelines::must_use_ignored::MustUseIgnoredPipeline::new()?;
+            let mutex = pipelines::mutex_overuse::MutexOverusePipeline::new()?;
+            let pub_field = pipelines::pub_field_leakage::PubFieldLeakagePipeline::new()?;
+            let missing_trait =
+                pipelines::missing_trait_abstraction::MissingTraitAbstractionPipeline::new()?;
+            let async_blocking = pipelines::async_blocking::AsyncBlockingPipeline::new()?;
+            let magic = pipelines::magic_numbers::MagicNumbersPipeline::new()?;
+            Ok(vec![
+                Box::new(panic),
+                Box::new(clone),
+                Box::new(god_object),
+                Box::new(stringly),
+                Box::new(must_use),
+                Box::new(mutex),
+                Box::new(pub_field),
+                Box::new(missing_trait),
+                Box::new(async_blocking),
+                Box::new(magic),
+            ])
         }
         _ => Ok(vec![]),
     }
