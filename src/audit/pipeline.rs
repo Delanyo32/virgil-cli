@@ -17,7 +17,9 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
         Language::Rust => {
             let panic = pipelines::panic_detection::PanicDetectionPipeline::new()?;
             let clone = pipelines::clone_detection::CloneDetectionPipeline::new()?;
-            Ok(vec![Box::new(panic), Box::new(clone)])
+            let god_object =
+                pipelines::god_object_detection::GodObjectDetectionPipeline::new()?;
+            Ok(vec![Box::new(panic), Box::new(clone), Box::new(god_object)])
         }
         _ => Ok(vec![]),
     }
