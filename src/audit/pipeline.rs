@@ -16,7 +16,8 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
     match language {
         Language::Rust => {
             let panic = pipelines::panic_detection::PanicDetectionPipeline::new()?;
-            Ok(vec![Box::new(panic)])
+            let clone = pipelines::clone_detection::CloneDetectionPipeline::new()?;
+            Ok(vec![Box::new(panic), Box::new(clone)])
         }
         _ => Ok(vec![]),
     }
