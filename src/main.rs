@@ -5,7 +5,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
-use virgil_cli::cli::{Cli, Command, OutputFormat, ProjectCommand};
+use virgil_cli::audit;
+use virgil_cli::cli::{AuditCommand, Cli, Command, OutputFormat, ProjectCommand};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
@@ -248,6 +249,18 @@ fn main() -> Result<()> {
             Ok(())
         }
     },
+
+        Command::Audit { command } => match command {
+            AuditCommand::TechDebt {
+                dir,
+                language: lang_filter,
+                pipeline: pipeline_filter,
+                format,
+                limit,
+            } => {
+                run_tech_debt(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, limit)
+            }
+        },
     }
 }
 
@@ -926,4 +939,37 @@ fn run_raw_query(
             Ok(out)
         }
     }
+}
+
+fn run_tech_debt(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    pipeline_filter: Option<&str>,
+    format: &OutputFormat,
+    limit: usize,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        vec![Language::Rust]
+    };
+
+    let start = Instant::now();
+
+    let mut engine = audit::engine::AuditEngine::new().languages(languages);
+
+    if let Some(filter) = pipeline_filter {
+        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
+        engine = engine.pipelines(names);
+    }
+
+    let (findings, summary) = engine.run(dir)?;
+
+    let output = audit::format_findings(&findings, &summary, format, limit)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
 }

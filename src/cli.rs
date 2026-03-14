@@ -22,6 +22,12 @@ pub enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+
+    /// Static analysis and tech debt detection
+    Audit {
+        #[command(subcommand)]
+        command: AuditCommand,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -319,4 +325,29 @@ pub enum FileSortField {
     Size,
     Imports,
     Dependents,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AuditCommand {
+    /// Detect tech debt patterns in source code
+    TechDebt {
+        /// Root directory to analyze
+        dir: PathBuf,
+
+        /// Comma-separated language filter (currently: rs)
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Comma-separated pipeline filter (e.g., panic_detection)
+        #[arg(long)]
+        pipeline: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
+        /// Maximum findings to display
+        #[arg(long, default_value = "100")]
+        limit: usize,
+    },
 }
