@@ -23,7 +23,7 @@ pub fn run_callers(
     format: &OutputFormat,
 ) -> Result<String> {
     if !engine.has_imports() {
-        bail!("imports.parquet not found. Re-run `virgil parse` to generate import data.");
+        bail!("imports.parquet not found. Re-run `virgil projects parse` to generate import data.");
     }
 
     let results = query_callers(engine, symbol_name, limit)?;

@@ -24,7 +24,7 @@ pub fn run_errors(
     format: &OutputFormat,
 ) -> Result<String> {
     if !engine.has_errors() {
-        bail!("errors.parquet not found. Re-run `virgil parse` to generate error data.");
+        bail!("errors.parquet not found. Re-run `virgil projects parse` to generate error data.");
     }
 
     let results = query_errors(engine, error_type, language, limit)?;

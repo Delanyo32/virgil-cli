@@ -36,7 +36,7 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 ## Usage
 
 ```bash
-virgil <COMMAND> [OPTIONS]
+virgil projects <COMMAND> [OPTIONS]
 ```
 
 ### Global Options
@@ -47,25 +47,27 @@ virgil <COMMAND> [OPTIONS]
 
 ### Subcommands
 
+All commands are nested under `virgil projects`:
+
 | Command | Description |
 |---------|-------------|
-| `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
-| `search` | Search for symbols by name (fuzzy match) |
-| `outline` | Show all symbols in a file |
-| `files` | List parsed files |
-| `read` | Read source file content |
-| `query` | Execute raw SQL against parquet files |
-| `deps` | Show what a file imports (dependencies) |
-| `dependents` | Show what files import a given file (reverse dependencies) |
-| `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters |
-| `comments` | List comments with filters |
+| `projects parse` | Parse a codebase and output parquet files |
+| `projects overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
+| `projects search` | Search for symbols by name (fuzzy match) |
+| `projects outline` | Show all symbols in a file |
+| `projects files` | List parsed files |
+| `projects read` | Read source file content |
+| `projects query` | Execute raw SQL against parquet files |
+| `projects deps` | Show what a file imports (dependencies) |
+| `projects dependents` | Show what files import a given file (reverse dependencies) |
+| `projects callers` | Find which files import a specific symbol |
+| `projects imports` | List all imports with filters |
+| `projects comments` | List comments with filters |
 
 ### `parse`
 
 ```bash
-virgil parse <DIR> [OPTIONS]
+virgil projects parse <DIR> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -77,7 +79,7 @@ virgil parse <DIR> [OPTIONS]
 ### `overview`
 
 ```bash
-virgil overview [OPTIONS]
+virgil projects overview [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -88,7 +90,7 @@ virgil overview [OPTIONS]
 ### `search`
 
 ```bash
-virgil search <QUERY> [OPTIONS]
+virgil projects search <QUERY> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -104,7 +106,7 @@ virgil search <QUERY> [OPTIONS]
 ### `outline`
 
 ```bash
-virgil outline <FILE_PATH> [OPTIONS]
+virgil projects outline <FILE_PATH> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -116,7 +118,7 @@ virgil outline <FILE_PATH> [OPTIONS]
 ### `files`
 
 ```bash
-virgil files [OPTIONS]
+virgil projects files [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -132,7 +134,7 @@ virgil files [OPTIONS]
 ### `read`
 
 ```bash
-virgil read <FILE_PATH> [OPTIONS]
+virgil projects read <FILE_PATH> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -146,7 +148,7 @@ virgil read <FILE_PATH> [OPTIONS]
 ### `query`
 
 ```bash
-virgil query <SQL> [OPTIONS]
+virgil projects query <SQL> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -158,7 +160,7 @@ virgil query <SQL> [OPTIONS]
 ### `deps`
 
 ```bash
-virgil deps <FILE_PATH> [OPTIONS]
+virgil projects deps <FILE_PATH> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -170,7 +172,7 @@ virgil deps <FILE_PATH> [OPTIONS]
 ### `dependents`
 
 ```bash
-virgil dependents <FILE_PATH> [OPTIONS]
+virgil projects dependents <FILE_PATH> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -182,7 +184,7 @@ virgil dependents <FILE_PATH> [OPTIONS]
 ### `callers`
 
 ```bash
-virgil callers <SYMBOL_NAME> [OPTIONS]
+virgil projects callers <SYMBOL_NAME> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -195,7 +197,7 @@ virgil callers <SYMBOL_NAME> [OPTIONS]
 ### `imports`
 
 ```bash
-virgil imports [OPTIONS]
+virgil projects imports [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -213,7 +215,7 @@ virgil imports [OPTIONS]
 ### `comments`
 
 ```bash
-virgil comments [OPTIONS]
+virgil projects comments [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -230,103 +232,103 @@ virgil comments [OPTIONS]
 
 ```bash
 # Parse an entire project
-virgil parse ./my-app
+virgil projects parse ./my-app
 
 # Output to a specific directory
-virgil parse ./my-app --output ./data
+virgil projects parse ./my-app --output ./data
 
 # Only parse TypeScript files
-virgil parse ./my-app --language ts,tsx
+virgil projects parse ./my-app --language ts,tsx
 
 # Parse a C/C++ project
-virgil parse ./my-lib --language c,h,cpp,hpp
+virgil projects parse ./my-lib --language c,h,cpp,hpp
 
 # Parse a C# project
-virgil parse ./my-project --language cs
+virgil projects parse ./my-project --language cs
 
 # Parse a Java project
-virgil parse ./my-project --language java
+virgil projects parse ./my-project --language java
 
 # Parse a PHP project
-virgil parse ./my-project --language php
+virgil projects parse ./my-project --language php
 
 # Show codebase overview
-virgil overview --data-dir ./data
+virgil projects overview --data-dir ./data
 
 # Search for symbols matching "handleClick"
-virgil search handleClick --data-dir ./data
+virgil projects search handleClick --data-dir ./data
 
 # Search for exported functions only
-virgil search handler --kind function --exported --data-dir ./data
+virgil projects search handler --kind function --exported --data-dir ./data
 
 # Show all symbols in a specific file
-virgil outline src/components/App.tsx --data-dir ./data
+virgil projects outline src/components/App.tsx --data-dir ./data
 
 # List all TypeScript files
-virgil files --language typescript --data-dir ./data
+virgil projects files --language typescript --data-dir ./data
 
 # List files in a specific directory
-virgil files --directory src/components --data-dir ./data
+virgil projects files --directory src/components --data-dir ./data
 
 # Read a source file
-virgil read src/index.ts --data-dir ./data --root ./my-app
+virgil projects read src/index.ts --data-dir ./data --root ./my-app
 
 # Read specific lines from a file
-virgil read src/index.ts --start-line 10 --end-line 50 --data-dir ./data --root ./my-app
+virgil projects read src/index.ts --start-line 10 --end-line 50 --data-dir ./data --root ./my-app
 
 # Show what a file imports
-virgil deps src/app.ts --data-dir ./data
+virgil projects deps src/app.ts --data-dir ./data
 
 # Show what files import a given module
-virgil dependents src/utils/api.ts --data-dir ./data
+virgil projects dependents src/utils/api.ts --data-dir ./data
 
 # Find which files import a specific symbol
-virgil callers useState --data-dir ./data
+virgil projects callers useState --data-dir ./data
 
 # List all imports from a specific module
-virgil imports --module react --data-dir ./data
+virgil projects imports --module react --data-dir ./data
 
 # List re-exports only
-virgil imports --kind re_export --data-dir ./data
+virgil projects imports --kind re_export --data-dir ./data
 
 # List only external (library) imports
-virgil imports --external --data-dir ./data
+virgil projects imports --external --data-dir ./data
 
 # List only internal (user code) imports
-virgil imports --internal --data-dir ./data
+virgil projects imports --internal --data-dir ./data
 
 # List C/C++ #include directives
-virgil imports --kind include --data-dir ./data
+virgil projects imports --kind include --data-dir ./data
 
 # List C# using directives
-virgil imports --kind using --data-dir ./data
+virgil projects imports --kind using --data-dir ./data
 
 # List Java imports
-virgil imports --kind import --file .java --data-dir ./data
+virgil projects imports --kind import --file .java --data-dir ./data
 
 # List PHP use statements
-virgil imports --kind use --file .php --data-dir ./data
+virgil projects imports --kind use --file .php --data-dir ./data
 
 # Sort files by number of dependents
-virgil files --sort dependents --data-dir ./data
+virgil projects files --sort dependents --data-dir ./data
 
 # List all doc comments
-virgil comments --kind doc --data-dir ./data
+virgil projects comments --kind doc --data-dir ./data
 
 # List comments associated with symbols (documentation)
-virgil comments --documented --data-dir ./data
+virgil projects comments --documented --data-dir ./data
 
 # Find comments mentioning a specific symbol
-virgil comments --symbol handleClick --data-dir ./data
+virgil projects comments --symbol handleClick --data-dir ./data
 
 # List comments in a specific file
-virgil comments --file src/utils --data-dir ./data
+virgil projects comments --file src/utils --data-dir ./data
 
 # Run a raw SQL query (tables: files, symbols, imports, comments)
-virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
+virgil projects query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
 
 # Get output as JSON
-virgil search handleClick --data-dir ./data --format json
+virgil projects search handleClick --data-dir ./data --format json
 ```
 
 ## Output Formats
@@ -455,17 +457,17 @@ All commands support reading from and writing to S3-compatible storage (AWS S3, 
 
 ```bash
 # Parse files from S3 and write parquet to S3
-virgil parse my-prefix/src --output parsed --env
+virgil projects parse my-prefix/src --output parsed --env
 
 # Query parquet files stored in S3
-virgil search "main" --data-dir parsed --env
-virgil overview --data-dir parsed --env
+virgil projects search "main" --data-dir parsed --env
+virgil projects overview --data-dir parsed --env
 
 # Read a source file from S3
-virgil read src/main.ts --root my-prefix/src --env
+virgil projects read src/main.ts --root my-prefix/src --env
 
 # Run raw SQL against S3-hosted parquet
-virgil query "SELECT * FROM symbols LIMIT 10" --data-dir parsed --env
+virgil projects query "SELECT * FROM symbols LIMIT 10" --data-dir parsed --env
 ```
 
 ## Inspecting Output

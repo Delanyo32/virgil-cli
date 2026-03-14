@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
-use virgil_cli::cli::{Cli, Command, OutputFormat};
+use virgil_cli::cli::{Cli, Command, OutputFormat, ProjectCommand};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
@@ -25,7 +25,8 @@ fn main() -> Result<()> {
     };
 
     match cli.command {
-        Command::Parse {
+        Command::Projects { command } => match command {
+        ProjectCommand::Parse {
             dir,
             output: output_dir,
             language: lang_filter,
@@ -42,7 +43,7 @@ fn main() -> Result<()> {
             }
         }
 
-        Command::Overview {
+        ProjectCommand::Overview {
             data_dir,
             format,
             depth,
@@ -53,7 +54,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Search {
+        ProjectCommand::Search {
             query: q,
             data_dir,
             kind,
@@ -76,7 +77,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Outline {
+        ProjectCommand::Outline {
             file_path,
             data_dir,
             format,
@@ -87,7 +88,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Files {
+        ProjectCommand::Files {
             data_dir,
             language: lang,
             directory,
@@ -110,7 +111,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Read {
+        ProjectCommand::Read {
             file_path,
             data_dir: _,
             root,
@@ -133,7 +134,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Query {
+        ProjectCommand::Query {
             sql,
             data_dir,
             format,
@@ -144,7 +145,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Deps {
+        ProjectCommand::Deps {
             file_path,
             data_dir,
             format,
@@ -155,7 +156,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Dependents {
+        ProjectCommand::Dependents {
             file_path,
             data_dir,
             format,
@@ -166,7 +167,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Callers {
+        ProjectCommand::Callers {
             symbol_name,
             data_dir,
             limit,
@@ -178,7 +179,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Imports {
+        ProjectCommand::Imports {
             data_dir,
             module,
             kind,
@@ -205,7 +206,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Comments {
+        ProjectCommand::Comments {
             data_dir,
             file,
             kind,
@@ -228,7 +229,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Errors {
+        ProjectCommand::Errors {
             data_dir,
             error_type,
             language: lang,
@@ -246,6 +247,7 @@ fn main() -> Result<()> {
             print!("{output}");
             Ok(())
         }
+    },
     }
 }
 

@@ -6,33 +6,35 @@ Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP
 
 ```bash
 cargo build
-cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php]
-cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
-cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
+cargo run -- projects parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php]
+cargo run -- projects search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
+cargo run -- projects query <SQL> [--data-dir <dir>] [--format table|json|csv]
 
 # S3 mode (reads credentials from env vars)
-cargo run -- --env parse <S3_PREFIX> [--output <s3_prefix>]
-cargo run -- --env search <QUERY> [--data-dir <s3_prefix>]
+cargo run -- --env projects parse <S3_PREFIX> [--output <s3_prefix>]
+cargo run -- --env projects search <QUERY> [--data-dir <s3_prefix>]
 ```
 
 Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
 
 ## Subcommands
 
+All commands are nested under `virgil projects`:
+
 | Command | Description |
 |---------|-------------|
-| `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
-| `search` | Search for symbols by name (fuzzy match) |
-| `outline` | Show all symbols in a file |
-| `files` | List parsed files |
-| `read` | Read source file content with optional line ranges |
-| `query` | Execute raw SQL against parquet files |
-| `deps` | Show what a file imports (dependencies) |
-| `dependents` | Show what files import a given file (reverse dependencies) |
-| `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
-| `comments` | List comments with filters (`--file`, `--kind`, `--documented`, `--symbol`) |
+| `projects parse` | Parse a codebase and output parquet files |
+| `projects overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
+| `projects search` | Search for symbols by name (fuzzy match) |
+| `projects outline` | Show all symbols in a file |
+| `projects files` | List parsed files |
+| `projects read` | Read source file content with optional line ranges |
+| `projects query` | Execute raw SQL against parquet files |
+| `projects deps` | Show what a file imports (dependencies) |
+| `projects dependents` | Show what files import a given file (reverse dependencies) |
+| `projects callers` | Find which files import a specific symbol |
+| `projects imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
+| `projects comments` | List comments with filters (`--file`, `--kind`, `--documented`, `--symbol`) |
 
 ## Project Structure
 

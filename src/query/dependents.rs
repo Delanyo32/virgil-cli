@@ -20,7 +20,7 @@ pub fn run_dependents(
     format: &OutputFormat,
 ) -> Result<String> {
     if !engine.has_imports() {
-        bail!("imports.parquet not found. Re-run `virgil parse` to generate import data.");
+        bail!("imports.parquet not found. Re-run `virgil projects parse` to generate import data.");
     }
 
     let results = query_dependents(engine, file_path)?;

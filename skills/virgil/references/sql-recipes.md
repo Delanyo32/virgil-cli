@@ -1,6 +1,6 @@
 # Virgil SQL Recipes
 
-Reusable DuckDB queries for `virgil query "<SQL>" --data-dir <DATA> --format json`.
+Reusable DuckDB queries for `virgil projects query "<SQL>" --data-dir <DATA> --format json`.
 
 Available tables: `files`, `symbols`, `imports`, `comments`, `errors`.
 

@@ -17,6 +17,15 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Manage and query parsed project data
+    Projects {
+        #[command(subcommand)]
+        command: ProjectCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProjectCommand {
     /// Parse a codebase and output parquet files
     Parse {
         /// Root directory to parse

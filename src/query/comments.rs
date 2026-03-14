@@ -26,7 +26,7 @@ pub fn run_comments(
     format: &OutputFormat,
 ) -> Result<String> {
     if !engine.has_comments() {
-        bail!("comments.parquet not found. Re-run `virgil parse` to generate comment data.");
+        bail!("comments.parquet not found. Re-run `virgil projects parse` to generate comment data.");
     }
 
     let results = query_comments(engine, file, kind, documented, symbol, limit)?;
