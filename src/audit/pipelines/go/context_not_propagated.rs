@@ -82,7 +82,7 @@ impl Pipeline for ContextNotPropagatedPipeline {
                     column: start.column as u32 + 1,
                     severity: "warning".to_string(),
                     pipeline: self.name().to_string(),
-                    pattern: "context_not_propagated".to_string(),
+                    pattern: format!("context_{}_in_func", method_name.to_lowercase()),
                     message: format!(
                         "context.{method_name}() in non-main function — propagate context from caller instead"
                     ),
@@ -115,7 +115,7 @@ mod tests {
         let src = "package main\nfunc doWork() {\n\tctx := context.Background()\n\t_ = ctx\n}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "context_not_propagated");
+        assert_eq!(findings[0].pattern, "context_background_in_func");
     }
 
     #[test]

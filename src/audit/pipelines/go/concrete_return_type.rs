@@ -71,7 +71,7 @@ impl Pipeline for ConcreteReturnTypePipeline {
                     column: start.column as u32 + 1,
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
-                    pattern: "concrete_return_type".to_string(),
+                    pattern: "exported_concrete_pointer_return".to_string(),
                     message: format!(
                         "`{fn_name}` returns `*{return_type}` — consider returning an interface for flexibility"
                     ),
@@ -104,7 +104,7 @@ mod tests {
         let src = "package main\ntype RedisCache struct{}\nfunc NewCache() *RedisCache { return nil }\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "concrete_return_type");
+        assert_eq!(findings[0].pattern, "exported_concrete_pointer_return");
         assert!(findings[0].message.contains("NewCache"));
     }
 

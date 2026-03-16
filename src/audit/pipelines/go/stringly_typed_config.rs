@@ -47,6 +47,7 @@ impl StringlyTypedConfigPipeline {
         type_capture: &str,
         decl_capture: &str,
         file_path: &str,
+        pattern: &str,
     ) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
@@ -68,7 +69,7 @@ impl StringlyTypedConfigPipeline {
                         column: start.column as u32 + 1,
                         severity: "info".to_string(),
                         pipeline: self.name().to_string(),
-                        pattern: "stringly_typed_config".to_string(),
+                        pattern: pattern.to_string(),
                         message: "`map[string]string` — consider a typed struct for configuration".to_string(),
                         snippet: extract_snippet(source, decl_node, 1),
                     });
@@ -91,8 +92,8 @@ impl Pipeline for StringlyTypedConfigPipeline {
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
-        findings.extend(self.check_with_query(tree, source, &self.param_query, "param_type", "param", file_path));
-        findings.extend(self.check_with_query(tree, source, &self.field_query, "field_type", "field", file_path));
+        findings.extend(self.check_with_query(tree, source, &self.param_query, "param_type", "param", file_path, "string_map_param"));
+        findings.extend(self.check_with_query(tree, source, &self.field_query, "field_type", "field", file_path, "string_map_field"));
         findings
     }
 }
@@ -117,7 +118,7 @@ mod tests {
         let src = "package main\nfunc NewService(cfg map[string]string) {}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "stringly_typed_config");
+        assert_eq!(findings[0].pattern, "string_map_param");
     }
 
     #[test]

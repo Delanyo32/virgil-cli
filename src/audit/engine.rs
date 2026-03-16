@@ -127,9 +127,15 @@ impl AuditEngine {
 
         let mut by_pipeline: HashMap<String, usize> = HashMap::new();
         let mut by_pattern: HashMap<String, usize> = HashMap::new();
+        let mut pipeline_pattern_map: HashMap<String, HashMap<String, usize>> = HashMap::new();
         for f in &findings {
             *by_pipeline.entry(f.pipeline.clone()).or_insert(0) += 1;
             *by_pattern.entry(f.pattern.clone()).or_insert(0) += 1;
+            *pipeline_pattern_map
+                .entry(f.pipeline.clone())
+                .or_default()
+                .entry(f.pattern.clone())
+                .or_insert(0) += 1;
         }
 
         let mut by_pipeline: Vec<(String, usize)> = by_pipeline.into_iter().collect();
@@ -138,12 +144,26 @@ impl AuditEngine {
         let mut by_pattern: Vec<(String, usize)> = by_pattern.into_iter().collect();
         by_pattern.sort_by(|a, b| b.1.cmp(&a.1));
 
+        let by_pipeline_pattern: Vec<(String, Vec<(String, usize)>)> = by_pipeline
+            .iter()
+            .map(|(pipeline_name, _)| {
+                let mut patterns: Vec<(String, usize)> = pipeline_pattern_map
+                    .remove(pipeline_name)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+                patterns.sort_by(|a, b| b.1.cmp(&a.1));
+                (pipeline_name.clone(), patterns)
+            })
+            .collect();
+
         let summary = AuditSummary {
             total_findings: findings.len(),
             files_scanned: files.len(),
             files_with_findings,
             by_pipeline,
             by_pattern,
+            by_pipeline_pattern,
         };
 
         Ok((findings, summary))

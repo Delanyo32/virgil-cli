@@ -334,7 +334,7 @@ pub enum AuditCommand {
         /// Root directory to analyze
         dir: PathBuf,
 
-        /// Comma-separated language filter (currently: rs, go)
+        /// Comma-separated language filter (currently: rs, go, py)
         #[arg(short, long)]
         language: Option<String>,
 
@@ -346,8 +346,12 @@ pub enum AuditCommand {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
 
-        /// Maximum findings to display
-        #[arg(long, default_value = "100")]
-        limit: usize,
+        /// Findings per page
+        #[arg(long, default_value = "20", alias = "limit")]
+        per_page: usize,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
     },
 }

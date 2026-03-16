@@ -130,7 +130,7 @@ impl Pipeline for GoroutineLeakPipeline {
                     column: start.column as u32 + 1,
                     severity: "warning".to_string(),
                     pipeline: self.name().to_string(),
-                    pattern: "goroutine_leak".to_string(),
+                    pattern: "goroutine_missing_done_channel".to_string(),
                     message: "goroutine with for-loop but no select+ctx.Done() — may leak".to_string(),
                     snippet: extract_snippet(source, stmt_node, 3),
                 });
@@ -169,7 +169,7 @@ func main() {
 "#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "goroutine_leak");
+        assert_eq!(findings[0].pattern, "goroutine_missing_done_channel");
     }
 
     #[test]

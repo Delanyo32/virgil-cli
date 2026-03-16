@@ -64,10 +64,30 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(magic),
             ])
         }
+        Language::Python => {
+            let bare_except = pipelines::python::bare_except::BareExceptPipeline::new()?;
+            let mutable_default = pipelines::python::mutable_default_args::MutableDefaultArgsPipeline::new()?;
+            let magic = pipelines::python::magic_numbers::PythonMagicNumbersPipeline::new()?;
+            let god_fn = pipelines::python::god_functions::GodFunctionsPipeline::new()?;
+            let type_hints = pipelines::python::missing_type_hints::MissingTypeHintsPipeline::new()?;
+            let stringly = pipelines::python::stringly_typed::StringlyTypedPipeline::new()?;
+            let deep_nesting = pipelines::python::deep_nesting::DeepNestingPipeline::new()?;
+            let duplicate = pipelines::python::duplicate_logic::DuplicateLogicPipeline::new()?;
+            Ok(vec![
+                Box::new(bare_except),
+                Box::new(mutable_default),
+                Box::new(magic),
+                Box::new(god_fn),
+                Box::new(type_hints),
+                Box::new(stringly),
+                Box::new(deep_nesting),
+                Box::new(duplicate),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go]
+    vec![Language::Rust, Language::Go, Language::Python]
 }

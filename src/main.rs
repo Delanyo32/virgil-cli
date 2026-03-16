@@ -256,9 +256,10 @@ fn main() -> Result<()> {
                 language: lang_filter,
                 pipeline: pipeline_filter,
                 format,
-                limit,
+                per_page,
+                page,
             } => {
-                run_tech_debt(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, limit)
+                run_tech_debt(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
             }
         },
     }
@@ -946,7 +947,8 @@ fn run_tech_debt(
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
-    limit: usize,
+    page: usize,
+    per_page: usize,
 ) -> Result<()> {
     let languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
@@ -965,7 +967,7 @@ fn run_tech_debt(
 
     let (findings, summary) = engine.run(dir)?;
 
-    let output = audit::format_findings(&findings, &summary, format, limit)?;
+    let output = audit::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
 
     let elapsed = start.elapsed();

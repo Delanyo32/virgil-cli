@@ -105,7 +105,7 @@ impl Pipeline for PubFieldLeakagePipeline {
                         column: start.column as u32 + 1,
                         severity: "info".to_string(),
                         pipeline: self.name().to_string(),
-                        pattern: "pub_field_leakage".to_string(),
+                        pattern: "all_fields_public".to_string(),
                         message: format!(
                             "pub struct `{name}` has all {total} fields public — can't add validation later; consider encapsulating with private fields and accessor methods"
                         ),
@@ -143,7 +143,7 @@ pub struct Account {
 "#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "pub_field_leakage");
+        assert_eq!(findings[0].pattern, "all_fields_public");
         assert!(findings[0].message.contains("all 2 fields public"));
     }
 

@@ -46,6 +46,7 @@ impl NakedInterfacePipeline {
         type_capture: &str,
         decl_capture: &str,
         file_path: &str,
+        pattern: &str,
     ) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
@@ -67,7 +68,7 @@ impl NakedInterfacePipeline {
                         column: start.column as u32 + 1,
                         severity: "info".to_string(),
                         pipeline: self.name().to_string(),
-                        pattern: "naked_interface".to_string(),
+                        pattern: pattern.to_string(),
                         message: "empty interface (`interface{}` / `any`) loses type safety — consider a concrete interface".to_string(),
                         snippet: extract_snippet(source, decl_node, 1),
                     });
@@ -90,8 +91,8 @@ impl Pipeline for NakedInterfacePipeline {
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
-        findings.extend(self.check_with_query(tree, source, &self.param_query, "param_type", "param", file_path));
-        findings.extend(self.check_with_query(tree, source, &self.field_query, "field_type", "field", file_path));
+        findings.extend(self.check_with_query(tree, source, &self.param_query, "param_type", "param", file_path, "empty_interface_param"));
+        findings.extend(self.check_with_query(tree, source, &self.field_query, "field_type", "field", file_path, "empty_interface_field"));
         findings
     }
 }
@@ -116,7 +117,7 @@ mod tests {
         let src = "package main\nfunc Process(items interface{}) {}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "naked_interface");
+        assert_eq!(findings[0].pattern, "empty_interface_param");
     }
 
     #[test]
@@ -124,7 +125,7 @@ mod tests {
         let src = "package main\nfunc Process(items any) {}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "naked_interface");
+        assert_eq!(findings[0].pattern, "empty_interface_param");
     }
 
     #[test]
