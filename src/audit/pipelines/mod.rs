@@ -1,12 +1,4 @@
-pub mod async_blocking;
-pub mod clone_detection;
+pub mod rust;
 pub mod go;
-pub mod god_object_detection;
-pub mod magic_numbers;
-pub mod missing_trait_abstraction;
-pub mod must_use_ignored;
-pub mod mutex_overuse;
-pub mod panic_detection;
-pub mod pub_field_leakage;
 pub mod python;
-pub mod stringly_typed;
+
