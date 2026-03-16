@@ -5,8 +5,7 @@ use tree_sitter::{Query, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 const LARGE_IMPL_THRESHOLD: usize = 10;
 const LARGE_STRUCT_THRESHOLD: usize = 15;
@@ -19,8 +18,8 @@ pub struct GodObjectDetectionPipeline {
 impl GodObjectDetectionPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            impl_query: primitives::compile_impl_block_query(Language::Rust)?,
-            struct_query: primitives::compile_struct_fields_query(Language::Rust)?,
+            impl_query: primitives::compile_impl_block_query()?,
+            struct_query: primitives::compile_struct_fields_query()?,
         })
     }
 }
@@ -82,6 +81,7 @@ impl Pipeline for GodObjectDetectionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

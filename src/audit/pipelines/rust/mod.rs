@@ -7,4 +7,5 @@ pub mod must_use_ignored;
 pub mod mutex_overuse;
 pub mod panic_detection;
 pub mod pub_field_leakage;
+pub mod rust_primitives;
 pub mod stringly_typed;

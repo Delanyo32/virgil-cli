@@ -6,8 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "0.0", "1.0"];
 
@@ -25,7 +24,7 @@ pub struct MagicNumbersPipeline {
 impl MagicNumbersPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            numeric_query: primitives::compile_numeric_literal_query(Language::Rust)?,
+            numeric_query: primitives::compile_numeric_literal_query()?,
         })
     }
 
@@ -112,6 +111,7 @@ impl Pipeline for MagicNumbersPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

@@ -5,8 +5,7 @@ use tree_sitter::{Query, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 pub struct CloneDetectionPipeline {
     method_query: Arc<Query>,
@@ -15,7 +14,7 @@ pub struct CloneDetectionPipeline {
 impl CloneDetectionPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            method_query: primitives::compile_method_call_query(Language::Rust)?,
+            method_query: primitives::compile_method_call_query()?,
         })
     }
 
@@ -68,6 +67,7 @@ impl Pipeline for CloneDetectionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

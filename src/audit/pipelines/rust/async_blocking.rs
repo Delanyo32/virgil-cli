@@ -7,8 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 const BLOCKING_SCOPED_PREFIXES: &[&str] = &[
     "std::fs::",
@@ -28,9 +27,9 @@ pub struct AsyncBlockingPipeline {
 impl AsyncBlockingPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            fn_query: primitives::compile_function_item_query(Language::Rust)?,
-            scoped_call_query: primitives::compile_scoped_call_query(Language::Rust)?,
-            method_call_query: primitives::compile_method_call_query(Language::Rust)?,
+            fn_query: primitives::compile_function_item_query()?,
+            scoped_call_query: primitives::compile_scoped_call_query()?,
+            method_call_query: primitives::compile_method_call_query()?,
         })
     }
 
@@ -198,6 +197,7 @@ impl Pipeline for AsyncBlockingPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

@@ -6,8 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 pub struct PubFieldLeakagePipeline {
     struct_query: Arc<Query>,
@@ -16,7 +15,7 @@ pub struct PubFieldLeakagePipeline {
 impl PubFieldLeakagePipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            struct_query: primitives::compile_struct_fields_query(Language::Rust)?,
+            struct_query: primitives::compile_struct_fields_query()?,
         })
     }
 
@@ -122,6 +121,7 @@ impl Pipeline for PubFieldLeakagePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

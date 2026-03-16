@@ -6,8 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 pub struct MutexOverusePipeline {
     generic_query: Arc<Query>,
@@ -16,7 +15,7 @@ pub struct MutexOverusePipeline {
 impl MutexOverusePipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            generic_query: primitives::compile_generic_type_query(Language::Rust)?,
+            generic_query: primitives::compile_generic_type_query()?,
         })
     }
 }
@@ -102,6 +101,7 @@ impl Pipeline for MutexOverusePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

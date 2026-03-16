@@ -6,8 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 const CONCRETE_INFRA_TYPES: &[&str] = &[
     "File",
@@ -28,7 +27,7 @@ pub struct MissingTraitAbstractionPipeline {
 impl MissingTraitAbstractionPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            param_query: primitives::compile_parameter_query(Language::Rust)?,
+            param_query: primitives::compile_parameter_query()?,
         })
     }
 
@@ -103,6 +102,7 @@ impl Pipeline for MissingTraitAbstractionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();

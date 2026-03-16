@@ -6,8 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::primitives;
-use crate::language::Language;
+use super::rust_primitives as primitives;
 
 const SUSPICIOUS_NAMES: &[&str] = &[
     "kind", "type", "status", "mode", "state", "action", "level", "category", "role", "variant",
@@ -24,8 +23,8 @@ pub struct StringlyTypedPipeline {
 impl StringlyTypedPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            field_query: primitives::compile_field_declaration_query(Language::Rust)?,
-            param_query: primitives::compile_parameter_query(Language::Rust)?,
+            field_query: primitives::compile_field_declaration_query()?,
+            param_query: primitives::compile_parameter_query()?,
         })
     }
 
@@ -163,6 +162,7 @@ impl Pipeline for StringlyTypedPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
