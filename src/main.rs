@@ -951,7 +951,7 @@ fn run_tech_debt(
     let languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
     } else {
-        vec![Language::Rust]
+        audit::pipeline::supported_audit_languages()
     };
 
     let start = Instant::now();

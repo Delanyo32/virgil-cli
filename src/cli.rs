@@ -334,7 +334,7 @@ pub enum AuditCommand {
         /// Root directory to analyze
         dir: PathBuf,
 
-        /// Comma-separated language filter (currently: rs)
+        /// Comma-separated language filter (currently: rs, go)
         #[arg(short, long)]
         language: Option<String>,
 

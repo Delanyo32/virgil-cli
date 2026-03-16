@@ -1,5 +1,6 @@
 pub mod async_blocking;
 pub mod clone_detection;
+pub mod go;
 pub mod god_object_detection;
 pub mod magic_numbers;
 pub mod missing_trait_abstraction;

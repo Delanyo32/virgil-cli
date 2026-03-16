@@ -40,6 +40,34 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(magic),
             ])
         }
+        Language::Go => {
+            let error_swallow = pipelines::go::error_swallowing::ErrorSwallowingPipeline::new()?;
+            let god_struct = pipelines::go::god_struct::GodStructPipeline::new()?;
+            let naked_iface = pipelines::go::naked_interface::NakedInterfacePipeline::new()?;
+            let context = pipelines::go::context_not_propagated::ContextNotPropagatedPipeline::new()?;
+            let init = pipelines::go::init_abuse::InitAbusePipeline::new()?;
+            let mutex = pipelines::go::mutex_misuse::MutexMisusePipeline::new()?;
+            let goroutine = pipelines::go::goroutine_leak::GoroutineLeakPipeline::new()?;
+            let stringly = pipelines::go::stringly_typed_config::StringlyTypedConfigPipeline::new()?;
+            let concrete = pipelines::go::concrete_return_type::ConcreteReturnTypePipeline::new()?;
+            let magic = pipelines::go::magic_numbers::GoMagicNumbersPipeline::new()?;
+            Ok(vec![
+                Box::new(error_swallow),
+                Box::new(god_struct),
+                Box::new(naked_iface),
+                Box::new(context),
+                Box::new(init),
+                Box::new(mutex),
+                Box::new(goroutine),
+                Box::new(stringly),
+                Box::new(concrete),
+                Box::new(magic),
+            ])
+        }
         _ => Ok(vec![]),
     }
+}
+
+pub fn supported_audit_languages() -> Vec<Language> {
+    vec![Language::Rust, Language::Go]
 }
