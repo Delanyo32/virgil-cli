@@ -142,10 +142,50 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(missing_final),
             ])
         }
+        Language::JavaScript => {
+            let var_usage =
+                pipelines::javascript::var_usage::VarUsagePipeline::new()?;
+            let callback_hell =
+                pipelines::javascript::callback_hell::CallbackHellPipeline::new()?;
+            let implicit_globals =
+                pipelines::javascript::implicit_globals::ImplicitGlobalsPipeline::new()?;
+            let loose_equality =
+                pipelines::javascript::loose_equality::LooseEqualityPipeline::new()?;
+            let unhandled_promise =
+                pipelines::javascript::unhandled_promise::UnhandledPromisePipeline::new()?;
+            let argument_mutation =
+                pipelines::javascript::argument_mutation::ArgumentMutationPipeline::new()?;
+            let console_log =
+                pipelines::javascript::console_log_in_prod::ConsoleLogPipeline::new()?;
+            let event_listener =
+                pipelines::javascript::event_listener_leak::EventListenerLeakPipeline::new()?;
+            let loose_truthiness =
+                pipelines::javascript::loose_truthiness::LooseTruthinessPipeline::new()?;
+            let no_optional_chaining =
+                pipelines::javascript::no_optional_chaining::NoOptionalChainingPipeline::new()?;
+            let magic_numbers =
+                pipelines::javascript::magic_numbers::JsMagicNumbersPipeline::new()?;
+            let shallow_spread =
+                pipelines::javascript::shallow_spread_copy::ShallowSpreadCopyPipeline::new()?;
+            Ok(vec![
+                Box::new(var_usage),
+                Box::new(callback_hell),
+                Box::new(implicit_globals),
+                Box::new(loose_equality),
+                Box::new(unhandled_promise),
+                Box::new(argument_mutation),
+                Box::new(console_log),
+                Box::new(event_listener),
+                Box::new(loose_truthiness),
+                Box::new(no_optional_chaining),
+                Box::new(magic_numbers),
+                Box::new(shallow_spread),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript]
 }

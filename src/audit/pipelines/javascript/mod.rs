@@ -1,0 +1,13 @@
+pub mod javascript_primitives;
+pub mod argument_mutation;
+pub mod callback_hell;
+pub mod console_log_in_prod;
+pub mod event_listener_leak;
+pub mod implicit_globals;
+pub mod loose_equality;
+pub mod loose_truthiness;
+pub mod magic_numbers;
+pub mod no_optional_chaining;
+pub mod shallow_spread_copy;
+pub mod unhandled_promise;
+pub mod var_usage;
