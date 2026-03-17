@@ -84,10 +84,34 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(duplicate),
             ])
         }
+        Language::Php => {
+            let deprecated_mysql = pipelines::php::deprecated_mysql_api::DeprecatedMysqlApiPipeline::new()?;
+            let sql_injection = pipelines::php::sql_injection::SqlInjectionPipeline::new()?;
+            let error_suppression = pipelines::php::error_suppression::ErrorSuppressionPipeline::new()?;
+            let missing_types = pipelines::php::missing_type_declarations::MissingTypeDeclarationsPipeline::new()?;
+            let god_class = pipelines::php::god_class::GodClassPipeline::new()?;
+            let extract_usage = pipelines::php::extract_usage::ExtractUsagePipeline::new()?;
+            let silent_exception = pipelines::php::silent_exception::SilentExceptionPipeline::new()?;
+            let unsafe_include = pipelines::php::unsafe_include::UnsafeIncludePipeline::new()?;
+            let unescaped_output = pipelines::php::unescaped_output::UnescapedOutputPipeline::new()?;
+            let logic_in_views = pipelines::php::logic_in_views::LogicInViewsPipeline::new()?;
+            Ok(vec![
+                Box::new(deprecated_mysql),
+                Box::new(sql_injection),
+                Box::new(error_suppression),
+                Box::new(missing_types),
+                Box::new(god_class),
+                Box::new(extract_usage),
+                Box::new(silent_exception),
+                Box::new(unsafe_include),
+                Box::new(unescaped_output),
+                Box::new(logic_in_views),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php]
 }
