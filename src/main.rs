@@ -6,7 +6,7 @@ use clap::Parser;
 use rayon::prelude::*;
 
 use virgil_cli::audit;
-use virgil_cli::cli::{AuditCommand, Cli, Command, OutputFormat, ProjectCommand};
+use virgil_cli::cli::{AuditCommand, CodeQualityCommand, Cli, Command, OutputFormat, ProjectCommand};
 use virgil_cli::discovery;
 use virgil_cli::language::{self, Language};
 use virgil_cli::languages;
@@ -251,16 +251,24 @@ fn main() -> Result<()> {
     },
 
         Command::Audit { command } => match command {
-            AuditCommand::TechDebt {
-                dir,
-                language: lang_filter,
-                pipeline: pipeline_filter,
-                format,
-                per_page,
-                page,
-            } => {
-                run_tech_debt(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
-            }
+            AuditCommand::CodeQuality { dir, language, format, command } => match command {
+                Some(CodeQualityCommand::TechDebt {
+                    dir,
+                    language: lang_filter,
+                    pipeline: pipeline_filter,
+                    format,
+                    per_page,
+                    page,
+                }) => {
+                    run_tech_debt(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
+                }
+                None => {
+                    let dir = dir.ok_or_else(|| anyhow::anyhow!(
+                        "Directory argument required. Usage: virgil audit code-quality <DIR>"
+                    ))?;
+                    run_code_quality_summary(&dir, language.as_deref(), &format)
+                }
+            },
         },
     }
 }
@@ -968,6 +976,31 @@ fn run_tech_debt(
     let (findings, summary) = engine.run(dir)?;
 
     let output = audit::format_findings(&findings, &summary, format, page, per_page)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
+fn run_code_quality_summary(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    format: &OutputFormat,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        audit::pipeline::supported_audit_languages()
+    };
+
+    let start = Instant::now();
+    let engine = audit::engine::AuditEngine::new().languages(languages);
+    let (_findings, summary) = engine.run(dir)?;
+
+    let summaries = vec![("Tech Debt", &summary)];
+    let output = audit::format_code_quality_summary(&summaries, format)?;
     print!("{output}");
 
     let elapsed = start.elapsed();

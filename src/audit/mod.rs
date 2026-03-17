@@ -5,6 +5,7 @@ pub mod pipelines;
 pub mod primitives;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::cli::OutputFormat;
 use crate::query::format::format_output;
@@ -93,6 +94,124 @@ pub fn format_findings(
                 "snippet",
             ];
             format_output(display_findings, headers, format)
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SummaryJson {
+    files_scanned: usize,
+    files_with_findings: usize,
+    total_findings: usize,
+    categories: Vec<CategoryJson>,
+}
+
+#[derive(Serialize)]
+struct CategoryJson {
+    name: String,
+    findings: usize,
+    pipelines: Vec<PipelineJson>,
+}
+
+#[derive(Serialize)]
+struct PipelineJson {
+    name: String,
+    count: usize,
+    patterns: Vec<PatternJson>,
+}
+
+#[derive(Serialize)]
+struct PatternJson {
+    name: String,
+    count: usize,
+}
+
+pub fn format_code_quality_summary(
+    summaries: &[(&str, &AuditSummary)],
+    format: &OutputFormat,
+) -> Result<String> {
+    let total_findings: usize = summaries.iter().map(|(_, s)| s.total_findings).sum();
+    let files_scanned: usize = summaries.iter().map(|(_, s)| s.files_scanned).max().unwrap_or(0);
+    let files_with_findings: usize = summaries.iter().map(|(_, s)| s.files_with_findings).sum();
+
+    match format {
+        OutputFormat::Table => {
+            let mut out = String::new();
+            out.push_str("Code Quality Report\n");
+            out.push_str("===================\n");
+            out.push_str(&format!("Files scanned:        {files_scanned}\n"));
+            out.push_str(&format!("Files with findings:  {files_with_findings}\n"));
+            out.push_str(&format!("Total findings:       {total_findings}\n\n"));
+
+            for (name, summary) in summaries {
+                out.push_str(&format!("--- {name} ---\n"));
+                for (pipeline_name, count) in &summary.by_pipeline {
+                    let patterns: Vec<String> = summary
+                        .by_pipeline_pattern
+                        .iter()
+                        .find(|(n, _)| n == pipeline_name)
+                        .map(|(_, pats)| {
+                            pats.iter()
+                                .map(|(p, c)| format!("{p}: {c}"))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "  {pipeline_name}: {count} ({})\n",
+                        patterns.join(", ")
+                    ));
+                }
+                out.push('\n');
+            }
+
+            Ok(out)
+        }
+        OutputFormat::Json => {
+            let summary = SummaryJson {
+                files_scanned,
+                files_with_findings,
+                total_findings,
+                categories: summaries
+                    .iter()
+                    .map(|(name, s)| CategoryJson {
+                        name: name.to_string(),
+                        findings: s.total_findings,
+                        pipelines: s
+                            .by_pipeline_pattern
+                            .iter()
+                            .map(|(pipeline, patterns)| PipelineJson {
+                                name: pipeline.clone(),
+                                count: s
+                                    .by_pipeline
+                                    .iter()
+                                    .find(|(n, _)| n == pipeline)
+                                    .map(|(_, c)| *c)
+                                    .unwrap_or(0),
+                                patterns: patterns
+                                    .iter()
+                                    .map(|(p, c)| PatternJson {
+                                        name: p.clone(),
+                                        count: *c,
+                                    })
+                                    .collect(),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            };
+            Ok(serde_json::to_string_pretty(&summary)?)
+        }
+        OutputFormat::Csv => {
+            let mut out = String::new();
+            out.push_str("category,pipeline,pattern,count\n");
+            for (name, summary) in summaries {
+                for (pipeline, patterns) in &summary.by_pipeline_pattern {
+                    for (pattern, count) in patterns {
+                        out.push_str(&format!("{name},{pipeline},{pattern},{count}\n"));
+                    }
+                }
+            }
+            Ok(out)
         }
     }
 }

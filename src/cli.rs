@@ -329,6 +329,27 @@ pub enum FileSortField {
 
 #[derive(Subcommand, Debug)]
 pub enum AuditCommand {
+    /// Code quality analysis (tech debt, complexity, security)
+    #[command(args_conflicts_with_subcommands = true, subcommand_precedence_over_arg = true)]
+    CodeQuality {
+        /// Root directory to analyze (runs all code quality checks)
+        dir: Option<PathBuf>,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
+        #[command(subcommand)]
+        command: Option<CodeQualityCommand>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CodeQualityCommand {
     /// Detect tech debt patterns in source code
     TechDebt {
         /// Root directory to analyze
