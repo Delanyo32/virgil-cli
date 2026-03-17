@@ -150,6 +150,48 @@ pub fn compile_declaration_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_if_statement_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(if_statement
+  condition: (condition_clause) @condition
+  consequence: (compound_statement) @if_body) @if_stmt
+"#;
+    let query = Query::new(&cpp_lang(), query_str)
+        .with_context(|| "failed to compile if_statement query for C++")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_binary_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(binary_expression
+  left: (_) @left
+  right: (_) @right) @bin_expr
+"#;
+    let query = Query::new(&cpp_lang(), query_str)
+        .with_context(|| "failed to compile binary_expression query for C++")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_call_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(call_expression
+  function: (_) @fn_name
+  arguments: (argument_list) @args) @call
+"#;
+    let query = Query::new(&cpp_lang(), query_str)
+        .with_context(|| "failed to compile call_expression query for C++")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_return_statement_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(return_statement) @return_stmt
+"#;
+    let query = Query::new(&cpp_lang(), query_str)
+        .with_context(|| "failed to compile return_statement query for C++")?;
+    Ok(Arc::new(query))
+}
+
 // ── Helper functions ──
 
 pub fn has_type_qualifier(node: tree_sitter::Node, source: &[u8], qualifier: &str) -> bool {

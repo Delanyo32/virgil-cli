@@ -22,6 +22,16 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod cpp_buffer_overflow;
+pub mod cpp_exception_safety;
+pub mod cpp_injection;
+pub mod cpp_integer_overflow;
+pub mod cpp_memory_mismanagement;
+pub mod cpp_path_traversal;
+pub mod cpp_race_conditions;
+pub mod cpp_type_confusion;
+pub mod cpp_weak_randomness;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -56,5 +66,19 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(dead_code::DeadCodePipeline::new()?),
         Box::new(duplicate_code::DuplicateCodePipeline::new()?),
         Box::new(coupling::CouplingPipeline::new()?),
+    ])
+}
+
+pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(cpp_injection::CppInjectionPipeline::new()?),
+        Box::new(cpp_weak_randomness::CppWeakRandomnessPipeline::new()?),
+        Box::new(cpp_type_confusion::CppTypeConfusionPipeline::new()?),
+        Box::new(cpp_buffer_overflow::CppBufferOverflowPipeline::new()?),
+        Box::new(cpp_integer_overflow::CppIntegerOverflowPipeline::new()?),
+        Box::new(cpp_exception_safety::CppExceptionSafetyPipeline::new()?),
+        Box::new(cpp_memory_mismanagement::CppMemoryMismanagementPipeline::new()?),
+        Box::new(cpp_race_conditions::CppRaceConditionsPipeline::new()?),
+        Box::new(cpp_path_traversal::CppPathTraversalPipeline::new()?),
     ])
 }
