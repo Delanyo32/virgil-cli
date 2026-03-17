@@ -182,10 +182,47 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(shallow_spread),
             ])
         }
+        Language::TypeScript | Language::Tsx => {
+            let any_escape =
+                pipelines::typescript::any_escape_hatch::AnyEscapeHatchPipeline::new(language)?;
+            let type_assertions =
+                pipelines::typescript::type_assertions::TypeAssertionsPipeline::new(language)?;
+            let optional =
+                pipelines::typescript::optional_everything::OptionalEverythingPipeline::new(language)?;
+            let duplication =
+                pipelines::typescript::type_duplication::TypeDuplicationPipeline::new(language)?;
+            let record_any =
+                pipelines::typescript::record_string_any::RecordStringAnyPipeline::new(language)?;
+            let enum_usage =
+                pipelines::typescript::enum_usage::EnumUsagePipeline::new(language)?;
+            let implicit_any =
+                pipelines::typescript::implicit_any::ImplicitAnyPipeline::new(language)?;
+            let unchecked_index =
+                pipelines::typescript::unchecked_index_access::UncheckedIndexAccessPipeline::new(language)?;
+            let mutable =
+                pipelines::typescript::mutable_types::MutableTypesPipeline::new(language)?;
+            let unconstrained =
+                pipelines::typescript::unconstrained_generics::UnconstrainedGenericsPipeline::new(language)?;
+            let leaking =
+                pipelines::typescript::leaking_impl_types::LeakingImplTypesPipeline::new(language)?;
+            Ok(vec![
+                Box::new(any_escape),
+                Box::new(type_assertions),
+                Box::new(optional),
+                Box::new(duplication),
+                Box::new(record_any),
+                Box::new(enum_usage),
+                Box::new(implicit_any),
+                Box::new(unchecked_index),
+                Box::new(mutable),
+                Box::new(unconstrained),
+                Box::new(leaking),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx]
 }

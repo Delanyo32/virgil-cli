@@ -1,0 +1,12 @@
+pub mod typescript_primitives;
+pub mod any_escape_hatch;
+pub mod type_assertions;
+pub mod optional_everything;
+pub mod type_duplication;
+pub mod record_string_any;
+pub mod enum_usage;
+pub mod implicit_any;
+pub mod unchecked_index_access;
+pub mod mutable_types;
+pub mod unconstrained_generics;
+pub mod leaking_impl_types;
