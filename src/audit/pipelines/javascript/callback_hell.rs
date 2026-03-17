@@ -4,7 +4,7 @@ use tree_sitter::Tree;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::javascript_primitives::extract_snippet;
+use super::primitives::extract_snippet;
 
 const NESTING_THRESHOLD: usize = 3;
 

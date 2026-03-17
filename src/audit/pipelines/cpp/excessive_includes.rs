@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::cpp_primitives::{compile_preproc_include_query, find_capture_index};
+use super::primitives::{compile_preproc_include_query, find_capture_index};
 
 const INCLUDE_THRESHOLD_SOURCE: usize = 20;
 const INCLUDE_THRESHOLD_HEADER: usize = 15;

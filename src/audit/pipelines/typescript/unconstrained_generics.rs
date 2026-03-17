@@ -8,7 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::typescript_primitives::{
+use super::primitives::{
     compile_type_parameter_query, extract_snippet, find_capture_index, node_text,
 };
 

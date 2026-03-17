@@ -8,7 +8,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::python_primitives::{compile_function_def_query, find_capture_index, node_text};
+use super::primitives::{compile_function_def_query, find_capture_index, node_text};
 
 pub struct DuplicateLogicPipeline {
     fn_query: Arc<Query>,

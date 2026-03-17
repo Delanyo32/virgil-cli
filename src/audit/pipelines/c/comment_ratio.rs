@@ -3,7 +3,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::complexity_helpers::{compute_comment_ratio, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{compute_comment_ratio, ControlFlowConfig};
 
 fn c_config() -> ControlFlowConfig {
     ControlFlowConfig {

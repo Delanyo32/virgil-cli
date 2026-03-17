@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::cpp_primitives::{compile_union_specifier_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_union_specifier_query, extract_snippet, find_capture_index};
 
 pub struct RawUnionPipeline {
     union_query: Arc<Query>,

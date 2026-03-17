@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::c_primitives::{compile_preproc_function_def_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_preproc_function_def_query, extract_snippet, find_capture_index};
 
 pub struct DefineInsteadOfInlinePipeline {
     macro_query: Arc<Query>,

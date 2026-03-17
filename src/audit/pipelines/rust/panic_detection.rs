@@ -5,7 +5,7 @@ use tree_sitter::{Query, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::rust_primitives as primitives;
+use super::primitives;
 
 pub struct PanicDetectionPipeline {
     method_query: Arc<Query>,

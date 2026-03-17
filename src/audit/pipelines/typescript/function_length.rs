@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::complexity_helpers::count_function_lines;
+use crate::audit::pipelines::helpers::count_function_lines;
 use crate::audit::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::language::Language;
 

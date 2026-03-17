@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::javascript_primitives::{compile_binary_expression_query, extract_snippet, node_text};
+use super::primitives::{compile_binary_expression_query, extract_snippet, node_text};
 
 pub struct LooseEqualityPipeline {
     binary_query: Arc<Query>,

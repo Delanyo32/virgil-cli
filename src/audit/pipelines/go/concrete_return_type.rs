@@ -8,7 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::go_primitives::{extract_snippet, find_capture_index, node_text};
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 pub struct ConcreteReturnTypePipeline {
     fn_query: Arc<Query>,

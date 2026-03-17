@@ -6,8 +6,8 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::complexity_helpers::{compute_cognitive, ControlFlowConfig};
-use crate::audit::pipelines::javascript::javascript_primitives::{
+use crate::audit::pipelines::helpers::{compute_cognitive, ControlFlowConfig};
+use super::primitives::{
     compile_function_with_body_query, extract_snippet, find_capture_index,
 };
 

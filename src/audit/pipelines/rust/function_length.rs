@@ -6,8 +6,8 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::complexity_helpers::count_function_lines;
-use crate::audit::pipelines::rust::rust_primitives;
+use crate::audit::pipelines::helpers::count_function_lines;
+use super::primitives;
 use crate::audit::primitives::{extract_snippet, find_capture_index};
 
 const LINE_THRESHOLD: usize = 50;
@@ -20,7 +20,7 @@ pub struct FunctionLengthPipeline {
 impl FunctionLengthPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            query: rust_primitives::compile_function_item_query()?,
+            query: primitives::compile_function_item_query()?,
         })
     }
 }

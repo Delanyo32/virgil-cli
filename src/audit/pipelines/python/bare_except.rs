@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::python_primitives::{compile_except_clause_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_except_clause_query, extract_snippet, find_capture_index};
 
 pub struct BareExceptPipeline {
     except_query: Arc<Query>,

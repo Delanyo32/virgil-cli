@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::rust_primitives as primitives;
+use super::primitives;
 
 const SUSPICIOUS_NAMES: &[&str] = &[
     "kind", "type", "status", "mode", "state", "action", "level", "category", "role", "variant",

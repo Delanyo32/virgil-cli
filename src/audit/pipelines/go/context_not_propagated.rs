@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::go_primitives::{compile_selector_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{compile_selector_call_query, extract_snippet, find_capture_index, node_text};
 
 pub struct ContextNotPropagatedPipeline {
     call_query: Arc<Query>,

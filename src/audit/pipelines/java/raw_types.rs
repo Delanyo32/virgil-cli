@@ -8,7 +8,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::java_primitives::{
+use super::primitives::{
     compile_raw_type_field_query, compile_raw_type_local_query, compile_raw_type_param_query,
     extract_snippet, find_capture_index, node_text,
 };

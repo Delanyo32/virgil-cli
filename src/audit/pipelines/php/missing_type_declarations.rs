@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::php_primitives::{
+use super::primitives::{
     compile_function_def_query, compile_method_decl_query, find_capture_index, node_text,
 };
 

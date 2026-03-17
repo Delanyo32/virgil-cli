@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::csharp_primitives::{compile_invocation_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{compile_invocation_query, extract_snippet, find_capture_index, node_text};
 
 pub struct ThreadSleepPipeline {
     invocation_query: Arc<Query>,

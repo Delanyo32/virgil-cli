@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::rust_primitives as primitives;
+use super::primitives;
 
 const BLOCKING_SCOPED_PREFIXES: &[&str] = &[
     "std::fs::",

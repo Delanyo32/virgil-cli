@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::php_primitives::{compile_error_suppression_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_error_suppression_query, extract_snippet, find_capture_index};
 
 pub struct ErrorSuppressionPipeline {
     suppress_query: Arc<Query>,

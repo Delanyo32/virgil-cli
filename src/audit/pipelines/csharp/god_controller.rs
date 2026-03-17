@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::csharp_primitives::{compile_class_decl_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{compile_class_decl_query, extract_snippet, find_capture_index, node_text};
 
 const MAX_ACTIONS: usize = 8;
 
@@ -87,7 +87,7 @@ impl Pipeline for GodControllerPipeline {
 }
 
 fn is_public_method(node: tree_sitter::Node, source: &[u8]) -> bool {
-    use super::csharp_primitives::has_modifier;
+    use super::primitives::has_modifier;
     has_modifier(node, source, "public")
 }
 

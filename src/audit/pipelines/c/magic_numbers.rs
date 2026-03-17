@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::c_primitives::{compile_numeric_literal_query, find_capture_index, has_type_qualifier};
+use super::primitives::{compile_numeric_literal_query, find_capture_index, has_type_qualifier};
 
 const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "0.0", "1.0", "-1"];
 

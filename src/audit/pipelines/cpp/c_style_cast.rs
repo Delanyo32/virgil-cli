@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::cpp_primitives::{compile_cast_expression_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{compile_cast_expression_query, extract_snippet, find_capture_index, node_text};
 
 pub struct CStyleCastPipeline {
     cast_query: Arc<Query>,

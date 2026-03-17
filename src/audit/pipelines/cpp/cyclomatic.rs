@@ -6,8 +6,8 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::complexity_helpers::{compute_cyclomatic, ControlFlowConfig};
-use crate::audit::primitives::{extract_snippet, find_capture_index};
+use crate::audit::pipelines::helpers::{compute_cyclomatic, ControlFlowConfig};
+use super::primitives::{extract_snippet, find_capture_index};
 use crate::language::Language;
 
 const CC_THRESHOLD: usize = 10;

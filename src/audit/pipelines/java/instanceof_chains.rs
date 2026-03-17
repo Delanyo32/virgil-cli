@@ -8,7 +8,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::java_primitives::{compile_if_statement_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_if_statement_query, extract_snippet, find_capture_index};
 
 const CHAIN_THRESHOLD: usize = 3;
 

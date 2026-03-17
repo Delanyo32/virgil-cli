@@ -1,3 +1,5 @@
+pub mod primitives;
+
 pub mod async_blocking;
 pub mod clone_detection;
 pub mod god_object_detection;
@@ -7,5 +9,36 @@ pub mod must_use_ignored;
 pub mod mutex_overuse;
 pub mod panic_detection;
 pub mod pub_field_leakage;
-pub mod rust_primitives;
 pub mod stringly_typed;
+
+pub mod cognitive;
+pub mod comment_ratio;
+pub mod cyclomatic;
+pub mod function_length;
+
+use anyhow::Result;
+use crate::audit::pipeline::Pipeline;
+
+pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(panic_detection::PanicDetectionPipeline::new()?),
+        Box::new(clone_detection::CloneDetectionPipeline::new()?),
+        Box::new(god_object_detection::GodObjectDetectionPipeline::new()?),
+        Box::new(stringly_typed::StringlyTypedPipeline::new()?),
+        Box::new(must_use_ignored::MustUseIgnoredPipeline::new()?),
+        Box::new(mutex_overuse::MutexOverusePipeline::new()?),
+        Box::new(pub_field_leakage::PubFieldLeakagePipeline::new()?),
+        Box::new(missing_trait_abstraction::MissingTraitAbstractionPipeline::new()?),
+        Box::new(async_blocking::AsyncBlockingPipeline::new()?),
+        Box::new(magic_numbers::MagicNumbersPipeline::new()?),
+    ])
+}
+
+pub fn complexity_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?),
+        Box::new(function_length::FunctionLengthPipeline::new()?),
+        Box::new(cognitive::CognitiveComplexityPipeline::new()?),
+        Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?),
+    ])
+}

@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::cpp_primitives::{compile_qualified_identifier_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{compile_qualified_identifier_query, extract_snippet, find_capture_index, node_text};
 
 pub struct EndlFlushPipeline {
     qualified_id_query: Arc<Query>,

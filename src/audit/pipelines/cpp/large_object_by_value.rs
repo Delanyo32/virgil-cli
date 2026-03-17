@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::cpp_primitives::{
+use super::primitives::{
     compile_parameter_declaration_query, extract_snippet, find_capture_index,
     is_pointer_declarator, is_reference_declarator, node_text,
 };

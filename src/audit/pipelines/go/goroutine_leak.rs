@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::go_primitives::{compile_go_statement_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{compile_go_statement_query, extract_snippet, find_capture_index, node_text};
 
 pub struct GoroutineLeakPipeline {
     go_query: Arc<Query>,

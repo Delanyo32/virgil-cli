@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::javascript_primitives::{
+use super::primitives::{
     compile_assignment_expression_query, extract_snippet, find_capture_index, node_text,
 };
 

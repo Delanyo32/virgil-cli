@@ -6,8 +6,8 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::complexity_helpers::count_function_lines;
-use crate::audit::pipelines::java::java_primitives::{
+use crate::audit::pipelines::helpers::count_function_lines;
+use super::primitives::{
     compile_method_with_body_query, extract_snippet, find_capture_index,
 };
 

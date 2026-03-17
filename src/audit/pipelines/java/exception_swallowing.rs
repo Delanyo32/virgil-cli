@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::java_primitives::{compile_catch_clause_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_catch_clause_query, extract_snippet, find_capture_index};
 
 pub struct ExceptionSwallowingPipeline {
     catch_query: Arc<Query>,

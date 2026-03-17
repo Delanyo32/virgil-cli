@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::javascript_primitives::{compile_variable_declaration_query, extract_snippet};
+use super::primitives::{compile_variable_declaration_query, extract_snippet};
 
 pub struct VarUsagePipeline {
     var_query: Arc<Query>,

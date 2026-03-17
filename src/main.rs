@@ -985,7 +985,7 @@ fn run_tech_debt(
 
     let (findings, summary) = engine.run(dir)?;
 
-    let output = audit::format_findings(&findings, &summary, format, page, per_page)?;
+    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
 
     let elapsed = start.elapsed();
@@ -1021,7 +1021,7 @@ fn run_complexity(
 
     let (findings, summary) = engine.run(dir)?;
 
-    let output = audit::format_findings(&findings, &summary, format, page, per_page)?;
+    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
 
     let elapsed = start.elapsed();
@@ -1056,7 +1056,7 @@ fn run_code_quality_summary(
     let (_cx_findings, cx_summary) = cx_engine.run(dir)?;
 
     let summaries = vec![("Tech Debt", &td_summary), ("Complexity", &cx_summary)];
-    let output = audit::format_code_quality_summary(&summaries, format)?;
+    let output = audit::format::format_code_quality_summary(&summaries, format)?;
     print!("{output}");
 
     let elapsed = start.elapsed();

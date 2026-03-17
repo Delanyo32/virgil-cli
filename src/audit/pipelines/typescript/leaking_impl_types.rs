@@ -8,7 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::typescript_primitives::{compile_function_query, extract_snippet, node_text};
+use super::primitives::{compile_function_query, extract_snippet, node_text};
 
 const ORM_PATTERNS: &[&str] = &[
     "PrismaClient",
