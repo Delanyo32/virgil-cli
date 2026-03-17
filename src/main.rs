@@ -262,6 +262,16 @@ fn main() -> Result<()> {
                 }) => {
                     run_tech_debt(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
                 }
+                Some(CodeQualityCommand::Complexity {
+                    dir,
+                    language: lang_filter,
+                    pipeline: pipeline_filter,
+                    format,
+                    per_page,
+                    page,
+                }) => {
+                    run_complexity(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
+                }
                 None => {
                     let dir = dir.ok_or_else(|| anyhow::anyhow!(
                         "Directory argument required. Usage: virgil audit code-quality <DIR>"
@@ -984,6 +994,42 @@ fn run_tech_debt(
     Ok(())
 }
 
+fn run_complexity(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    pipeline_filter: Option<&str>,
+    format: &OutputFormat,
+    page: usize,
+    per_page: usize,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        audit::pipeline::supported_complexity_languages()
+    };
+
+    let start = Instant::now();
+
+    let mut engine = audit::engine::AuditEngine::new()
+        .languages(languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Complexity);
+
+    if let Some(filter) = pipeline_filter {
+        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
+        engine = engine.pipelines(names);
+    }
+
+    let (findings, summary) = engine.run(dir)?;
+
+    let output = audit::format_findings(&findings, &summary, format, page, per_page)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
 fn run_code_quality_summary(
     dir: &std::path::Path,
     lang_filter: Option<&str>,
@@ -996,10 +1042,20 @@ fn run_code_quality_summary(
     };
 
     let start = Instant::now();
-    let engine = audit::engine::AuditEngine::new().languages(languages);
-    let (_findings, summary) = engine.run(dir)?;
 
-    let summaries = vec![("Tech Debt", &summary)];
+    let td_engine = audit::engine::AuditEngine::new()
+        .languages(languages.clone());
+    let (_td_findings, td_summary) = td_engine.run(dir)?;
+
+    let cx_languages: Vec<Language> = languages.into_iter()
+        .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
+        .collect();
+    let cx_engine = audit::engine::AuditEngine::new()
+        .languages(cx_languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Complexity);
+    let (_cx_findings, cx_summary) = cx_engine.run(dir)?;
+
+    let summaries = vec![("Tech Debt", &td_summary), ("Complexity", &cx_summary)];
     let output = audit::format_code_quality_summary(&summaries, format)?;
     print!("{output}");
 

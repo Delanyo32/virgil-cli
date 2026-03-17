@@ -149,6 +149,22 @@ pub fn compile_assignment_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_method_with_body_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+[
+  (method_declaration
+    name: (identifier) @method_name
+    body: (block) @method_body) @method
+  (constructor_declaration
+    name: (identifier) @method_name
+    body: (constructor_body) @method_body) @method
+]
+"#;
+    let query = Query::new(&java_lang(), query_str)
+        .with_context(|| "failed to compile method_with_body query for Java")?;
+    Ok(Arc::new(query))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +298,13 @@ mod tests {
         assert!(has_modifier(field, &source, "private"));
         assert!(has_modifier(field, &source, "final"));
         assert!(!has_modifier(field, &source, "public"));
+    }
+
+    #[test]
+    fn method_with_body_compiles_and_matches() {
+        let src = "class Foo { void bar() { int x = 1; } Foo() { } }";
+        let (tree, source) = parse_java(src);
+        let query = compile_method_with_body_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 2);
     }
 }

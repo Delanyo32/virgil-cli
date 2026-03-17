@@ -144,6 +144,22 @@ pub fn compile_string_literal_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_method_with_body_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+[
+  (method_declaration
+    name: (identifier) @method_name
+    body: (block) @method_body) @method
+  (constructor_declaration
+    name: (identifier) @method_name
+    body: (block) @method_body) @method
+]
+"#;
+    let query = Query::new(&csharp_lang(), query_str)
+        .with_context(|| "failed to compile method_with_body query for C#")?;
+    Ok(Arc::new(query))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +261,14 @@ mod tests {
         let (tree, source) = parse_csharp(src);
         let query = compile_string_literal_query().unwrap();
         assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn method_with_body_compiles_and_matches() {
+        let src = "class Foo { void Bar() { int x = 1; } Foo() { } }";
+        let (tree, source) = parse_csharp(src);
+        let query = compile_method_with_body_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 2);
     }
 
     #[test]

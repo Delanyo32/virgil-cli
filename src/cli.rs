@@ -375,4 +375,30 @@ pub enum CodeQualityCommand {
         #[arg(long, default_value = "1")]
         page: usize,
     },
+
+    /// Measure code complexity metrics (cyclomatic, cognitive, function length, comment ratio)
+    Complexity {
+        /// Root directory to analyze
+        dir: PathBuf,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Comma-separated pipeline filter (cyclomatic_complexity,function_length,cognitive_complexity,comment_to_code_ratio)
+        #[arg(long)]
+        pipeline: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
+        /// Findings per page
+        #[arg(long, default_value = "20", alias = "limit")]
+        per_page: usize,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
+    },
 }

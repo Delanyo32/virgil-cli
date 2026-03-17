@@ -113,6 +113,29 @@ pub fn compile_member_expression_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_function_with_body_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+[
+  (function_declaration
+    name: (identifier) @func_name
+    body: (statement_block) @func_body) @func
+
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @func_name
+      value: (arrow_function
+        body: (statement_block) @func_body))) @func
+
+  (method_definition
+    name: (property_identifier) @func_name
+    body: (statement_block) @func_body) @func
+]
+"#;
+    let query = Query::new(&js_lang(), query_str)
+        .with_context(|| "failed to compile function_with_body query for JavaScript")?;
+    Ok(Arc::new(query))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +237,29 @@ mod tests {
         let (tree, source) = parse_js(src);
         let query = compile_member_expression_query().unwrap();
         assert!(count_matches(&query, &tree, &source) >= 1);
+    }
+
+    #[test]
+    fn function_with_body_compiles_and_matches_declaration() {
+        let src = "function foo() { return 1; }";
+        let (tree, source) = parse_js(src);
+        let query = compile_function_with_body_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn function_with_body_compiles_and_matches_arrow() {
+        let src = "const foo = () => { return 1; };";
+        let (tree, source) = parse_js(src);
+        let query = compile_function_with_body_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn function_with_body_compiles_and_matches_method() {
+        let src = "const obj = { foo() { return 1; } };";
+        let (tree, source) = parse_js(src);
+        let query = compile_function_with_body_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
     }
 }

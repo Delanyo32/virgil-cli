@@ -12,9 +12,16 @@ use crate::parser;
 use super::models::{AuditFinding, AuditSummary};
 use super::pipeline::{self, Pipeline};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PipelineSelector {
+    TechDebt,
+    Complexity,
+}
+
 pub struct AuditEngine {
     languages: Vec<Language>,
     pipeline_filter: Vec<String>,
+    pipeline_selector: PipelineSelector,
 }
 
 impl AuditEngine {
@@ -22,6 +29,7 @@ impl AuditEngine {
         Self {
             languages: vec![Language::Rust],
             pipeline_filter: Vec::new(),
+            pipeline_selector: PipelineSelector::TechDebt,
         }
     }
 
@@ -35,6 +43,11 @@ impl AuditEngine {
         self
     }
 
+    pub fn pipeline_selector(mut self, s: PipelineSelector) -> Self {
+        self.pipeline_selector = s;
+        self
+    }
+
     pub fn run(&self, root: &Path) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         let root = root
             .canonicalize()
@@ -45,7 +58,10 @@ impl AuditEngine {
         // Build pipelines per language, apply filter
         let mut pipeline_map: HashMap<Language, Vec<Arc<dyn Pipeline>>> = HashMap::new();
         for lang in &self.languages {
-            let mut lang_pipelines = pipeline::pipelines_for_language(*lang)?;
+            let mut lang_pipelines = match self.pipeline_selector {
+                PipelineSelector::TechDebt => pipeline::pipelines_for_language(*lang)?,
+                PipelineSelector::Complexity => pipeline::complexity_pipelines_for_language(*lang)?,
+            };
 
             if !self.pipeline_filter.is_empty() {
                 lang_pipelines.retain(|p| self.pipeline_filter.contains(&p.name().to_string()));

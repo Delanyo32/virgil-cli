@@ -346,3 +346,27 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
 pub fn supported_audit_languages() -> Vec<Language> {
     vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx, Language::C, Language::Cpp, Language::CSharp]
 }
+
+pub fn complexity_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    match language {
+        Language::Java => Ok(pipelines::complexity::java::complexity_pipelines()?),
+        Language::JavaScript => Ok(pipelines::complexity::javascript::complexity_pipelines()?),
+        Language::TypeScript | Language::Tsx => Ok(pipelines::complexity::typescript::complexity_pipelines(language)?),
+        Language::Python => Ok(pipelines::complexity::python::complexity_pipelines()?),
+        Language::Php => Ok(pipelines::complexity::php::complexity_pipelines()?),
+        Language::C => Ok(pipelines::complexity::c::complexity_pipelines()?),
+        Language::Cpp => Ok(pipelines::complexity::cpp::complexity_pipelines()?),
+        Language::CSharp => Ok(pipelines::complexity::csharp::complexity_pipelines()?),
+        Language::Rust => Ok(pipelines::complexity::rust::complexity_pipelines()?),
+        Language::Go => Ok(pipelines::complexity::go::complexity_pipelines()?),
+        _ => Ok(vec![]),
+    }
+}
+
+pub fn supported_complexity_languages() -> Vec<Language> {
+    vec![
+        Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx,
+        Language::Python, Language::Php, Language::C, Language::Cpp, Language::CSharp,
+        Language::Rust, Language::Go,
+    ]
+}
