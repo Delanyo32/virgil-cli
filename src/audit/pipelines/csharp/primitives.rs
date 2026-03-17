@@ -144,6 +144,48 @@ pub fn compile_string_literal_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_object_creation_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(object_creation_expression
+  type: (_) @type_name
+  arguments: (argument_list) @args) @creation
+"#;
+    let query = Query::new(&csharp_lang(), query_str)
+        .with_context(|| "failed to compile object_creation_expression query for C#")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_binary_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(binary_expression
+  left: (_) @left
+  right: (_) @right) @bin_expr
+"#;
+    let query = Query::new(&csharp_lang(), query_str)
+        .with_context(|| "failed to compile binary_expression query for C#")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_assignment_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(assignment_expression
+  left: (_) @lhs
+  right: (_) @rhs) @assign
+"#;
+    let query = Query::new(&csharp_lang(), query_str)
+        .with_context(|| "failed to compile assignment_expression query for C#")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_interpolated_string_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(interpolated_string_expression) @interp_str
+"#;
+    let query = Query::new(&csharp_lang(), query_str)
+        .with_context(|| "failed to compile interpolated_string_expression query for C#")?;
+    Ok(Arc::new(query))
+}
+
 pub fn compile_method_with_body_query() -> Result<Arc<Query>> {
     let query_str = r#"
 [
@@ -260,6 +302,38 @@ mod tests {
         let src = "class Foo { string s = \"hello\"; }";
         let (tree, source) = parse_csharp(src);
         let query = compile_string_literal_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn object_creation_compiles_and_matches() {
+        let src = "class Foo { void M() { new SqlCommand(\"SELECT 1\", conn); } }";
+        let (tree, source) = parse_csharp(src);
+        let query = compile_object_creation_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn binary_expression_compiles_and_matches() {
+        let src = "class Foo { void M() { var x = 1 + 2; } }";
+        let (tree, source) = parse_csharp(src);
+        let query = compile_binary_expression_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn assignment_expression_compiles_and_matches() {
+        let src = "class Foo { void M() { int x; x = 1; } }";
+        let (tree, source) = parse_csharp(src);
+        let query = compile_assignment_expression_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn interpolated_string_compiles_and_matches() {
+        let src = "class Foo { void M() { var s = $\"hello {name}\"; } }";
+        let (tree, source) = parse_csharp(src);
+        let query = compile_interpolated_string_query().unwrap();
         assert_eq!(count_matches(&query, &tree, &source), 1);
     }
 

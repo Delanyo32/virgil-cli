@@ -149,6 +149,51 @@ pub fn compile_assignment_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_object_creation_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(object_creation_expression
+  type: (_) @type_name
+  arguments: (argument_list) @args) @creation
+"#;
+    let query = Query::new(&java_lang(), query_str)
+        .with_context(|| "failed to compile object_creation_expression query for Java")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_binary_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(binary_expression
+  left: (_) @left
+  right: (_) @right) @bin_expr
+"#;
+    let query = Query::new(&java_lang(), query_str)
+        .with_context(|| "failed to compile binary_expression query for Java")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_method_invocation_with_object_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(method_invocation
+  object: (_) @object
+  name: (identifier) @method_name
+  arguments: (argument_list) @args) @invocation
+"#;
+    let query = Query::new(&java_lang(), query_str)
+        .with_context(|| "failed to compile method_invocation_with_object query for Java")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_field_access_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(field_access
+  object: (_) @object
+  field: (identifier) @field_name) @access
+"#;
+    let query = Query::new(&java_lang(), query_str)
+        .with_context(|| "failed to compile field_access query for Java")?;
+    Ok(Arc::new(query))
+}
+
 pub fn compile_method_with_body_query() -> Result<Arc<Query>> {
     let query_str = r#"
 [
@@ -298,6 +343,38 @@ mod tests {
         assert!(has_modifier(field, &source, "private"));
         assert!(has_modifier(field, &source, "final"));
         assert!(!has_modifier(field, &source, "public"));
+    }
+
+    #[test]
+    fn object_creation_compiles_and_matches() {
+        let src = "class Foo { void m() { new String(\"hello\"); } }";
+        let (tree, source) = parse_java(src);
+        let query = compile_object_creation_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn binary_expression_compiles_and_matches() {
+        let src = "class Foo { void m() { int x = 1 + 2; } }";
+        let (tree, source) = parse_java(src);
+        let query = compile_binary_expression_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn method_invocation_with_object_compiles_and_matches() {
+        let src = "class Foo { void m() { stmt.executeQuery(sql); } }";
+        let (tree, source) = parse_java(src);
+        let query = compile_method_invocation_with_object_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn field_access_compiles_and_matches() {
+        let src = "class Foo { void m() { int x = Math.PI; } }";
+        let (tree, source) = parse_java(src);
+        let query = compile_field_access_query().unwrap();
+        assert!(count_matches(&query, &tree, &source) >= 1);
     }
 
     #[test]

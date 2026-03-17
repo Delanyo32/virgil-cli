@@ -21,6 +21,16 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod sql_injection;
+pub mod command_injection;
+pub mod weak_cryptography;
+pub mod insecure_deserialization;
+pub mod java_path_traversal;
+pub mod xxe;
+pub mod java_ssrf;
+pub mod reflection_injection;
+pub mod java_race_conditions;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -54,5 +64,19 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(dead_code::DeadCodePipeline::new()?),
         Box::new(duplicate_code::DuplicateCodePipeline::new()?),
         Box::new(coupling::CouplingPipeline::new()?),
+    ])
+}
+
+pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(sql_injection::SqlInjectionPipeline::new()?),
+        Box::new(command_injection::CommandInjectionPipeline::new()?),
+        Box::new(weak_cryptography::WeakCryptographyPipeline::new()?),
+        Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?),
+        Box::new(java_path_traversal::JavaPathTraversalPipeline::new()?),
+        Box::new(xxe::XxePipeline::new()?),
+        Box::new(java_ssrf::JavaSsrfPipeline::new()?),
+        Box::new(reflection_injection::ReflectionInjectionPipeline::new()?),
+        Box::new(java_race_conditions::JavaRaceConditionsPipeline::new()?),
     ])
 }
