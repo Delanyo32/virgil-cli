@@ -16,6 +16,7 @@ use super::pipeline::{self, Pipeline};
 pub enum PipelineSelector {
     TechDebt,
     Complexity,
+    CodeStyle,
 }
 
 pub struct AuditEngine {
@@ -61,6 +62,7 @@ impl AuditEngine {
             let mut lang_pipelines = match self.pipeline_selector {
                 PipelineSelector::TechDebt => pipeline::pipelines_for_language(*lang)?,
                 PipelineSelector::Complexity => pipeline::complexity_pipelines_for_language(*lang)?,
+                PipelineSelector::CodeStyle => pipeline::code_style_pipelines_for_language(*lang)?,
             };
 
             if !self.pipeline_filter.is_empty() {

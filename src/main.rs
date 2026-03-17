@@ -272,6 +272,16 @@ fn main() -> Result<()> {
                 }) => {
                     run_complexity(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
                 }
+                Some(CodeQualityCommand::CodeStyle {
+                    dir,
+                    language: lang_filter,
+                    pipeline: pipeline_filter,
+                    format,
+                    per_page,
+                    page,
+                }) => {
+                    run_code_style(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
+                }
                 None => {
                     let dir = dir.ok_or_else(|| anyhow::anyhow!(
                         "Directory argument required. Usage: virgil audit code-quality <DIR>"
@@ -1030,6 +1040,42 @@ fn run_complexity(
     Ok(())
 }
 
+fn run_code_style(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    pipeline_filter: Option<&str>,
+    format: &OutputFormat,
+    page: usize,
+    per_page: usize,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        audit::pipeline::supported_code_style_languages()
+    };
+
+    let start = Instant::now();
+
+    let mut engine = audit::engine::AuditEngine::new()
+        .languages(languages)
+        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle);
+
+    if let Some(filter) = pipeline_filter {
+        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
+        engine = engine.pipelines(names);
+    }
+
+    let (findings, summary) = engine.run(dir)?;
+
+    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
 fn run_code_quality_summary(
     dir: &std::path::Path,
     lang_filter: Option<&str>,
@@ -1047,7 +1093,7 @@ fn run_code_quality_summary(
         .languages(languages.clone());
     let (_td_findings, td_summary) = td_engine.run(dir)?;
 
-    let cx_languages: Vec<Language> = languages.into_iter()
+    let cx_languages: Vec<Language> = languages.clone().into_iter()
         .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
         .collect();
     let cx_engine = audit::engine::AuditEngine::new()
@@ -1055,7 +1101,15 @@ fn run_code_quality_summary(
         .pipeline_selector(audit::engine::PipelineSelector::Complexity);
     let (_cx_findings, cx_summary) = cx_engine.run(dir)?;
 
-    let summaries = vec![("Tech Debt", &td_summary), ("Complexity", &cx_summary)];
+    let cs_languages: Vec<Language> = languages.into_iter()
+        .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
+        .collect();
+    let cs_engine = audit::engine::AuditEngine::new()
+        .languages(cs_languages)
+        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle);
+    let (_cs_findings, cs_summary) = cs_engine.run(dir)?;
+
+    let summaries = vec![("Tech Debt", &td_summary), ("Complexity", &cx_summary), ("Code Style", &cs_summary)];
     let output = audit::format::format_code_quality_summary(&summaries, format)?;
     print!("{output}");
 

@@ -17,6 +17,10 @@ pub mod comment_ratio;
 pub mod cyclomatic;
 pub mod function_length;
 
+pub mod coupling;
+pub mod dead_code;
+pub mod duplicate_code;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -42,5 +46,13 @@ pub fn complexity_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(function_length::FunctionLengthPipeline::new()?),
         Box::new(cognitive::CognitiveComplexityPipeline::new()?),
         Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?),
+    ])
+}
+
+pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(dead_code::DeadCodePipeline::new()?),
+        Box::new(duplicate_code::DuplicateCodePipeline::new()?),
+        Box::new(coupling::CouplingPipeline::new()?),
     ])
 }

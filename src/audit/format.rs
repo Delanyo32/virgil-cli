@@ -125,7 +125,7 @@ pub fn format_code_quality_summary(
     format: &OutputFormat,
 ) -> Result<String> {
     let total_findings: usize = summaries.iter().map(|(_, s)| s.total_findings).sum();
-    let files_scanned: usize = summaries.iter().map(|(_, s)| s.files_scanned).max().unwrap_or(0);
+    let files_scanned: usize = summaries.iter().map(|(_, s)| s.files_scanned).sum();
     let files_with_findings: usize = summaries.iter().map(|(_, s)| s.files_with_findings).sum();
 
     match format {

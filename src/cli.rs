@@ -401,4 +401,30 @@ pub enum CodeQualityCommand {
         #[arg(long, default_value = "1")]
         page: usize,
     },
+
+    /// Detect code style issues (dead code, duplication, coupling)
+    CodeStyle {
+        /// Root directory to analyze
+        dir: PathBuf,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Comma-separated pipeline filter (dead_code,duplicate_code,coupling)
+        #[arg(long)]
+        pipeline: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
+        /// Findings per page
+        #[arg(long, default_value = "20", alias = "limit")]
+        per_page: usize,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
+    },
 }

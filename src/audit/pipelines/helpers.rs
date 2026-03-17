@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use tree_sitter::Node;
 
 /// Language-specific configuration for control flow analysis.
@@ -197,6 +199,373 @@ fn walk_all<F: FnMut(Node)>(node: Node, cursor: &mut tree_sitter::TreeCursor, f:
     }
     // Keep cursor alive for borrow checker
     let _ = cursor;
+}
+
+// ── Code-style helpers ─────────────────────────────────────────────
+
+/// Count top-level nodes matching any of the given kinds.
+pub fn count_nodes_of_kind(root: Node, kinds: &[&str]) -> usize {
+    let mut count = 0;
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Count named children of a parameters/parameter_list node.
+pub fn count_parameters(params_node: Node) -> usize {
+    let mut count = 0;
+    let mut cursor = params_node.walk();
+    for child in params_node.named_children(&mut cursor) {
+        // Skip `self` parameter in Rust, receiver in Go, etc.
+        let kind = child.kind();
+        if kind == "self_parameter" || kind == "variadic_parameter" {
+            continue;
+        }
+        count += 1;
+    }
+    count
+}
+
+/// Walk direct children of a block; after a node whose kind is in `return_kinds`,
+/// collect positions of subsequent siblings. Returns vec of (line, column) 1-indexed.
+pub fn find_unreachable_after(body: Node, return_kinds: &[&str]) -> Vec<(u32, u32)> {
+    let mut results = Vec::new();
+
+    // Some grammars (e.g., Go) wrap statements in a `statement_list` child.
+    // If the body has such a wrapper, use its children instead.
+    let effective_body = {
+        let mut cursor = body.walk();
+        let mut found = None;
+        for child in body.named_children(&mut cursor) {
+            if child.kind() == "statement_list" || child.kind() == "statement_block" {
+                found = Some(child);
+                break;
+            }
+        }
+        found.unwrap_or(body)
+    };
+
+    let mut cursor = effective_body.walk();
+    let children: Vec<_> = effective_body.children(&mut cursor).collect();
+
+    let mut i = 0;
+    while i < children.len() {
+        let child = children[i];
+        if is_return_like(child, return_kinds) {
+            // Everything after this in the same block is unreachable
+            for unreachable in &children[i + 1..] {
+                // Skip closing braces and whitespace-only nodes
+                let kind = unreachable.kind();
+                if kind == "}" || kind == "{" || kind == "comment" || kind == "line_comment" || kind == "block_comment" {
+                    continue;
+                }
+                let pos = unreachable.start_position();
+                results.push((pos.row as u32 + 1, pos.column as u32 + 1));
+            }
+            break;
+        }
+        i += 1;
+    }
+
+    results
+}
+
+/// Check if a node is a return-like statement, either directly or wrapped
+/// in an expression_statement (e.g., Rust `return;` becomes `expression_statement > return_expression`).
+fn is_return_like(node: Node, return_kinds: &[&str]) -> bool {
+    let kind = node.kind();
+    if return_kinds.contains(&kind) {
+        return true;
+    }
+    // Check for expression_statement or similar wrappers containing a return-like node
+    if kind == "expression_statement" || kind == "labeled_statement" {
+        if let Some(first_named) = node.named_child(0) {
+            if return_kinds.contains(&first_named.kind()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Compute a structural hash of a code block with identifiers normalized.
+/// Identifiers are replaced by positional placeholders so structurally identical
+/// blocks with different names produce the same hash.
+pub fn hash_block_normalized(node: Node, source: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut counter = 0u32;
+    hash_node_recursive(node, source, &mut hasher, &mut counter);
+    hasher.finish()
+}
+
+fn hash_node_recursive(
+    node: Node,
+    source: &[u8],
+    hasher: &mut std::collections::hash_map::DefaultHasher,
+    counter: &mut u32,
+) {
+    let kind = node.kind();
+    kind.hash(hasher);
+
+    // For identifiers, hash a positional placeholder instead of actual name
+    if kind == "identifier"
+        || kind == "field_identifier"
+        || kind == "type_identifier"
+        || kind == "property_identifier"
+        || kind == "shorthand_property_identifier"
+        || kind == "name"
+    {
+        counter.hash(hasher);
+        *counter += 1;
+    } else if node.child_count() == 0 {
+        // Leaf node (literals, operators, keywords) — hash the text
+        let text = node.utf8_text(source).unwrap_or("");
+        text.hash(hasher);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        hash_node_recursive(child, source, hasher, counter);
+    }
+}
+
+/// Collect all identifier text within a subtree.
+pub fn collect_identifiers(root: Node, source: &[u8]) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    collect_identifiers_recursive(root, source, &mut ids);
+    ids
+}
+
+fn collect_identifiers_recursive(node: Node, source: &[u8], ids: &mut HashSet<String>) {
+    let kind = node.kind();
+    if kind == "identifier"
+        || kind == "field_identifier"
+        || kind == "type_identifier"
+        || kind == "property_identifier"
+        || kind == "shorthand_property_identifier"
+        || kind == "name"
+        || kind == "self"
+        || kind == "this"
+        || kind == "variable_name"
+    {
+        if let Ok(text) = node.utf8_text(source) {
+            ids.insert(text.to_string());
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_identifiers_recursive(child, source, ids);
+    }
+}
+
+/// Find duplicate function bodies within a file.
+/// Returns groups of (function_name, line, column) for functions with identical normalized bodies.
+/// Only considers functions with bodies >= `min_lines` lines.
+pub fn find_duplicate_bodies(
+    root: Node,
+    source: &[u8],
+    func_kinds: &[&str],
+    body_field: &str,
+    name_field: &str,
+    min_lines: usize,
+) -> Vec<Vec<(String, u32, u32)>> {
+    let mut hash_map: HashMap<u64, Vec<(String, u32, u32)>> = HashMap::new();
+
+    let mut cursor = root.walk();
+    collect_functions_recursive(
+        root,
+        &mut cursor,
+        source,
+        func_kinds,
+        body_field,
+        name_field,
+        min_lines,
+        &mut hash_map,
+    );
+
+    hash_map
+        .into_values()
+        .filter(|group| group.len() >= 2)
+        .collect()
+}
+
+fn collect_functions_recursive(
+    node: Node,
+    _cursor: &mut tree_sitter::TreeCursor,
+    source: &[u8],
+    func_kinds: &[&str],
+    body_field: &str,
+    name_field: &str,
+    min_lines: usize,
+    hash_map: &mut HashMap<u64, Vec<(String, u32, u32)>>,
+) {
+    if func_kinds.contains(&node.kind()) {
+        if let Some(body) = node.child_by_field_name(body_field) {
+            let body_lines = body.end_position().row.saturating_sub(body.start_position().row) + 1;
+            if body_lines >= min_lines {
+                let hash = hash_block_normalized(body, source);
+                let name = node
+                    .child_by_field_name(name_field)
+                    .map(|n| n.utf8_text(source).unwrap_or("<unknown>").to_string())
+                    .unwrap_or_else(|| "<anonymous>".to_string());
+                let pos = node.start_position();
+                hash_map
+                    .entry(hash)
+                    .or_default()
+                    .push((name, pos.row as u32 + 1, pos.column as u32 + 1));
+            }
+        }
+    }
+
+    let mut child_cursor = node.walk();
+    let children: Vec<_> = node.children(&mut child_cursor).collect();
+    for child in children {
+        let mut inner_cursor = child.walk();
+        collect_functions_recursive(
+            child,
+            &mut inner_cursor,
+            source,
+            func_kinds,
+            body_field,
+            name_field,
+            min_lines,
+            hash_map,
+        );
+    }
+}
+
+/// Find duplicate switch/match arms within switch/match statements.
+/// Returns vec of (match_stmt_line, duplicate_arm_lines).
+pub fn find_duplicate_arms(
+    root: Node,
+    source: &[u8],
+    switch_kind: &str,
+    arm_kind: &str,
+    body_field: Option<&str>,
+) -> Vec<(u32, Vec<u32>)> {
+    let mut results = Vec::new();
+    find_switches_recursive(root, source, switch_kind, arm_kind, body_field, &mut results);
+    results
+}
+
+fn find_switches_recursive(
+    node: Node,
+    source: &[u8],
+    switch_kind: &str,
+    arm_kind: &str,
+    body_field: Option<&str>,
+    results: &mut Vec<(u32, Vec<u32>)>,
+) {
+    if node.kind() == switch_kind {
+        let mut arm_hashes: Vec<(u64, u32)> = Vec::new();
+        // Collect arms from all descendants (arms may be nested in a body/block child)
+        collect_arms_recursive(node, arm_kind, body_field, source, &mut arm_hashes);
+
+        // Find duplicates
+        let mut seen: HashMap<u64, u32> = HashMap::new();
+        let mut dup_lines = Vec::new();
+        for (hash, line) in &arm_hashes {
+            if let Some(_first_line) = seen.get(hash) {
+                dup_lines.push(*line);
+            } else {
+                seen.insert(*hash, *line);
+            }
+        }
+
+        if !dup_lines.is_empty() {
+            results.push((node.start_position().row as u32 + 1, dup_lines));
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        find_switches_recursive(child, source, switch_kind, arm_kind, body_field, results);
+    }
+}
+
+fn collect_arms_recursive(
+    node: Node,
+    arm_kind: &str,
+    body_field: Option<&str>,
+    source: &[u8],
+    arm_hashes: &mut Vec<(u64, u32)>,
+) {
+    if node.kind() == arm_kind {
+        if let Some(field) = body_field {
+            if let Some(body) = node.child_by_field_name(field) {
+                let hash = hash_block_normalized(body, source);
+                arm_hashes.push((hash, node.start_position().row as u32 + 1));
+            }
+        } else {
+            // No explicit body field — hash all children except the first named child
+            // (which is typically the case value/pattern).
+            let hash = hash_arm_body_children(node, source);
+            arm_hashes.push((hash, node.start_position().row as u32 + 1));
+        }
+        return; // Don't recurse into arms
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_arms_recursive(child, arm_kind, body_field, source, arm_hashes);
+    }
+}
+
+/// Hash the "body" portion of a switch/match arm by skipping the first named child
+/// (the case value or pattern) and hashing everything else.
+fn hash_arm_body_children(arm: Node, source: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut counter = 0u32;
+    let mut cursor = arm.walk();
+    let mut skipped_first = false;
+    for child in arm.named_children(&mut cursor) {
+        if !skipped_first {
+            skipped_first = true;
+            continue;
+        }
+        hash_node_recursive(child, source, &mut hasher, &mut counter);
+    }
+    hasher.finish()
+}
+
+/// Check if a method body references a specific identifier (e.g., "self", "this").
+pub fn body_references_identifier(body: Node, source: &[u8], target: &str) -> bool {
+    let ids = collect_identifiers(body, source);
+    ids.contains(target)
+}
+
+/// Check if a method body contains member access via a specific pattern (e.g., "self." in Python, "this." in Java).
+pub fn body_has_member_access(body: Node, source: &[u8], access_kind: &str, object_text: &str) -> bool {
+    let mut found = false;
+    check_member_access_recursive(body, source, access_kind, object_text, &mut found);
+    found
+}
+
+fn check_member_access_recursive(
+    node: Node,
+    source: &[u8],
+    access_kind: &str,
+    object_text: &str,
+    found: &mut bool,
+) {
+    if *found {
+        return;
+    }
+    if node.kind() == access_kind {
+        if let Some(obj) = node.child_by_field_name("object") {
+            if obj.utf8_text(source).unwrap_or("") == object_text {
+                *found = true;
+                return;
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        check_member_access_recursive(child, source, access_kind, object_text, found);
+    }
 }
 
 #[cfg(test)]

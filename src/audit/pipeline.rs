@@ -59,3 +59,27 @@ pub fn supported_complexity_languages() -> Vec<Language> {
         Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
     ]
 }
+
+pub fn code_style_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    match language {
+        Language::Rust => pipelines::rust::code_style_pipelines(),
+        Language::Go => pipelines::go::code_style_pipelines(),
+        Language::Python => pipelines::python::code_style_pipelines(),
+        Language::Php => pipelines::php::code_style_pipelines(),
+        Language::Java => pipelines::java::code_style_pipelines(),
+        Language::JavaScript => pipelines::javascript::code_style_pipelines(),
+        Language::TypeScript | Language::Tsx => pipelines::typescript::code_style_pipelines(language),
+        Language::C => pipelines::c::code_style_pipelines(),
+        Language::Cpp => pipelines::cpp::code_style_pipelines(),
+        Language::CSharp => pipelines::csharp::code_style_pipelines(),
+        _ => Ok(vec![]),
+    }
+}
+
+pub fn supported_code_style_languages() -> Vec<Language> {
+    vec![
+        Language::Rust, Language::Go, Language::Python, Language::Php,
+        Language::Java, Language::JavaScript, Language::TypeScript,
+        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+    ]
+}
