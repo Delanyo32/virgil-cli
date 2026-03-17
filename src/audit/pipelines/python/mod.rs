@@ -18,6 +18,15 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod code_injection;
+pub mod command_injection;
+pub mod insecure_deserialization;
+pub mod path_traversal;
+pub mod resource_exhaustion;
+pub mod sql_injection;
+pub mod ssrf;
+pub mod xxe_format_string;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -48,5 +57,18 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(dead_code::DeadCodePipeline::new()?),
         Box::new(duplicate_code::DuplicateCodePipeline::new()?),
         Box::new(coupling::CouplingPipeline::new()?),
+    ])
+}
+
+pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(command_injection::CommandInjectionPipeline::new()?),
+        Box::new(code_injection::CodeInjectionPipeline::new()?),
+        Box::new(sql_injection::SqlInjectionPipeline::new()?),
+        Box::new(path_traversal::PathTraversalPipeline::new()?),
+        Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?),
+        Box::new(ssrf::SsrfPipeline::new()?),
+        Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?),
+        Box::new(xxe_format_string::XxeFormatStringPipeline::new()?),
     ])
 }

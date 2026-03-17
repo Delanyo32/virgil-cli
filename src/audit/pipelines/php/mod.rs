@@ -20,20 +20,23 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod command_injection;
+pub mod insecure_deserialization;
+pub mod session_auth;
+pub mod ssrf;
+pub mod type_juggling;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
 pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
         Box::new(deprecated_mysql_api::DeprecatedMysqlApiPipeline::new()?),
-        Box::new(sql_injection::SqlInjectionPipeline::new()?),
         Box::new(error_suppression::ErrorSuppressionPipeline::new()?),
         Box::new(missing_type_declarations::MissingTypeDeclarationsPipeline::new()?),
         Box::new(god_class::GodClassPipeline::new()?),
         Box::new(extract_usage::ExtractUsagePipeline::new()?),
         Box::new(silent_exception::SilentExceptionPipeline::new()?),
-        Box::new(unsafe_include::UnsafeIncludePipeline::new()?),
-        Box::new(unescaped_output::UnescapedOutputPipeline::new()?),
         Box::new(logic_in_views::LogicInViewsPipeline::new()?),
     ])
 }
@@ -52,5 +55,18 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(dead_code::DeadCodePipeline::new()?),
         Box::new(duplicate_code::DuplicateCodePipeline::new()?),
         Box::new(coupling::CouplingPipeline::new()?),
+    ])
+}
+
+pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(sql_injection::SqlInjectionPipeline::new()?),
+        Box::new(unsafe_include::UnsafeIncludePipeline::new()?),
+        Box::new(unescaped_output::UnescapedOutputPipeline::new()?),
+        Box::new(command_injection::CommandInjectionPipeline::new()?),
+        Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?),
+        Box::new(type_juggling::TypeJugglingPipeline::new()?),
+        Box::new(ssrf::SsrfPipeline::new()?),
+        Box::new(session_auth::SessionAuthPipeline::new()?),
     ])
 }

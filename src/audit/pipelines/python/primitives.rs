@@ -62,6 +62,17 @@ pub fn compile_comparison_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_call_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(call
+  function: (_) @fn_expr
+  arguments: (argument_list) @args) @call
+"#;
+    let query = Query::new(&python_lang(), query_str)
+        .with_context(|| "failed to compile call query for Python")?;
+    Ok(Arc::new(query))
+}
+
 pub fn compile_class_def_query() -> Result<Arc<Query>> {
     let query_str = r#"
 (class_definition
@@ -134,6 +145,22 @@ mod tests {
         let (tree, source) = parse_python(src);
         let query = compile_comparison_query().unwrap();
         assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn call_compiles_and_matches() {
+        let src = "eval('x')";
+        let (tree, source) = parse_python(src);
+        let query = compile_call_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn call_does_not_match_assignment() {
+        let src = "x = 1";
+        let (tree, source) = parse_python(src);
+        let query = compile_call_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 0);
     }
 
     #[test]

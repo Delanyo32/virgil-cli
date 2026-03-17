@@ -111,6 +111,17 @@ pub fn compile_echo_statement_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_binary_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(binary_expression
+  left: (_) @left
+  right: (_) @right) @bin_expr
+"#;
+    let query = Query::new(&php_lang(), query_str)
+        .with_context(|| "failed to compile binary_expression query for PHP")?;
+    Ok(Arc::new(query))
+}
+
 pub fn compile_text_node_query() -> Result<Arc<Query>> {
     let query_str = r#"
 (text) @html_text
@@ -212,6 +223,14 @@ mod tests {
         let src = "<?php\necho 'hello';";
         let (tree, source) = parse_php(src);
         let query = compile_echo_statement_query().unwrap();
+        assert_eq!(count_matches(&query, &tree, &source), 1);
+    }
+
+    #[test]
+    fn binary_expression_compiles_and_matches() {
+        let src = "<?php\n$a == $b;";
+        let (tree, source) = parse_php(src);
+        let query = compile_binary_expression_query().unwrap();
         assert_eq!(count_matches(&query, &tree, &source), 1);
     }
 
