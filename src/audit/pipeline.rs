@@ -219,10 +219,50 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(leaking),
             ])
         }
+        Language::C => {
+            let buffer_overflows =
+                pipelines::c::buffer_overflows::BufferOverflowsPipeline::new()?;
+            let unchecked_malloc =
+                pipelines::c::unchecked_malloc::UncheckedMallocPipeline::new()?;
+            let memory_leaks =
+                pipelines::c::memory_leaks::MemoryLeaksPipeline::new()?;
+            let signed_unsigned =
+                pipelines::c::signed_unsigned_mismatch::SignedUnsignedMismatchPipeline::new()?;
+            let magic_numbers =
+                pipelines::c::magic_numbers::CMagicNumbersPipeline::new()?;
+            let global_mutable =
+                pipelines::c::global_mutable_state::GlobalMutableStatePipeline::new()?;
+            let typedef_pointer =
+                pipelines::c::typedef_pointer_hiding::TypedefPointerHidingPipeline::new()?;
+            let define_inline =
+                pipelines::c::define_instead_of_inline::DefineInsteadOfInlinePipeline::new()?;
+            let ignored_return =
+                pipelines::c::ignored_return_values::IgnoredReturnValuesPipeline::new()?;
+            let void_pointer =
+                pipelines::c::void_pointer_abuse::VoidPointerAbusePipeline::new()?;
+            let missing_const =
+                pipelines::c::missing_const::MissingConstPipeline::new()?;
+            let raw_struct =
+                pipelines::c::raw_struct_serialization::RawStructSerializationPipeline::new()?;
+            Ok(vec![
+                Box::new(buffer_overflows),
+                Box::new(unchecked_malloc),
+                Box::new(memory_leaks),
+                Box::new(signed_unsigned),
+                Box::new(magic_numbers),
+                Box::new(global_mutable),
+                Box::new(typedef_pointer),
+                Box::new(define_inline),
+                Box::new(ignored_return),
+                Box::new(void_pointer),
+                Box::new(missing_const),
+                Box::new(raw_struct),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx, Language::C]
 }
