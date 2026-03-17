@@ -299,10 +299,50 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(magic_numbers),
             ])
         }
+        Language::CSharp => {
+            let sync_over_async =
+                pipelines::csharp::sync_over_async::SyncOverAsyncPipeline::new()?;
+            let null_ref =
+                pipelines::csharp::null_reference_risk::NullReferenceRiskPipeline::new()?;
+            let exception =
+                pipelines::csharp::exception_control_flow::ExceptionControlFlowPipeline::new()?;
+            let static_state =
+                pipelines::csharp::static_global_state::StaticGlobalStatePipeline::new()?;
+            let disposable =
+                pipelines::csharp::disposable_not_disposed::DisposableNotDisposedPipeline::new()?;
+            let god_class =
+                pipelines::csharp::god_class::GodClassPipeline::new()?;
+            let stringly =
+                pipelines::csharp::stringly_typed::StringlyTypedPipeline::new()?;
+            let god_controller =
+                pipelines::csharp::god_controller::GodControllerPipeline::new()?;
+            let thread_sleep =
+                pipelines::csharp::thread_sleep::ThreadSleepPipeline::new()?;
+            let cancellation =
+                pipelines::csharp::missing_cancellation_token::MissingCancellationTokenPipeline::new()?;
+            let hardcoded =
+                pipelines::csharp::hardcoded_config::HardcodedConfigPipeline::new()?;
+            let anemic =
+                pipelines::csharp::anemic_domain_model::AnemicDomainModelPipeline::new()?;
+            Ok(vec![
+                Box::new(sync_over_async),
+                Box::new(null_ref),
+                Box::new(exception),
+                Box::new(static_state),
+                Box::new(disposable),
+                Box::new(god_class),
+                Box::new(stringly),
+                Box::new(god_controller),
+                Box::new(thread_sleep),
+                Box::new(cancellation),
+                Box::new(hardcoded),
+                Box::new(anemic),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx, Language::C, Language::Cpp]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx, Language::C, Language::Cpp, Language::CSharp]
 }
