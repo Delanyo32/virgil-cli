@@ -108,10 +108,44 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(logic_in_views),
             ])
         }
+        Language::Java => {
+            let god_class = pipelines::java::god_class::GodClassPipeline::new()?;
+            let null_returns = pipelines::java::null_returns::NullReturnsPipeline::new()?;
+            let exception_swallowing =
+                pipelines::java::exception_swallowing::ExceptionSwallowingPipeline::new()?;
+            let mutable_public_fields =
+                pipelines::java::mutable_public_fields::MutablePublicFieldsPipeline::new()?;
+            let string_concat =
+                pipelines::java::string_concat_in_loops::StringConcatInLoopsPipeline::new()?;
+            let instanceof_chains =
+                pipelines::java::instanceof_chains::InstanceofChainsPipeline::new()?;
+            let resource_leaks =
+                pipelines::java::resource_leaks::ResourceLeaksPipeline::new()?;
+            let static_utility =
+                pipelines::java::static_utility_sprawl::StaticUtilitySprawlPipeline::new()?;
+            let magic_strings =
+                pipelines::java::magic_strings::MagicStringsPipeline::new()?;
+            let raw_types = pipelines::java::raw_types::RawTypesPipeline::new()?;
+            let missing_final =
+                pipelines::java::missing_final::MissingFinalPipeline::new()?;
+            Ok(vec![
+                Box::new(god_class),
+                Box::new(null_returns),
+                Box::new(exception_swallowing),
+                Box::new(mutable_public_fields),
+                Box::new(string_concat),
+                Box::new(instanceof_chains),
+                Box::new(resource_leaks),
+                Box::new(static_utility),
+                Box::new(magic_strings),
+                Box::new(raw_types),
+                Box::new(missing_final),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java]
 }
