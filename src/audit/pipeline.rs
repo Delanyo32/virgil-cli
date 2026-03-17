@@ -90,10 +90,15 @@ pub fn security_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn
         Language::Go => pipelines::go::security_pipelines(),
         Language::Python => pipelines::python::security_pipelines(),
         Language::Php => pipelines::php::security_pipelines(),
+        Language::JavaScript => pipelines::javascript::security_pipelines(Language::JavaScript),
+        Language::TypeScript | Language::Tsx => pipelines::typescript::security_pipelines(language),
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_security_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php]
+    vec![
+        Language::Rust, Language::Go, Language::Python, Language::Php,
+        Language::JavaScript, Language::TypeScript, Language::Tsx,
+    ]
 }

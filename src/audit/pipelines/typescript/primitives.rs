@@ -95,6 +95,25 @@ pub fn compile_type_parameter_query(language: Language) -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_non_null_assertion_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"(non_null_expression) @non_null"#;
+    let query = Query::new(&ts_lang(language), query_str)
+        .with_context(|| "failed to compile non_null_expression query for TypeScript")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_type_predicate_function_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(function_declaration
+  name: (identifier) @name
+  return_type: (type_predicate_annotation) @predicate
+  body: (statement_block) @body) @func
+"#;
+    let query = Query::new(&ts_lang(language), query_str)
+        .with_context(|| "failed to compile type_predicate_function query for TypeScript")?;
+    Ok(Arc::new(query))
+}
+
 pub fn is_test_file(path: &str) -> bool {
     let lower = path.to_lowercase();
     lower.contains(".test.") || lower.contains(".spec.") || lower.contains("__tests__")

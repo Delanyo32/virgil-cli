@@ -22,8 +22,19 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod code_injection;
+pub mod command_injection;
+pub mod insecure_deserialization;
+pub mod path_traversal;
+pub mod prototype_pollution;
+pub mod redos_resource_exhaustion;
+pub mod ssrf;
+pub mod timing_weak_crypto;
+pub mod xss_dom_injection;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
+use crate::language::Language;
 
 pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
@@ -56,5 +67,19 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(dead_code::DeadCodePipeline::new()?),
         Box::new(duplicate_code::DuplicateCodePipeline::new()?),
         Box::new(coupling::CouplingPipeline::new()?),
+    ])
+}
+
+pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(xss_dom_injection::XssDomInjectionPipeline::new(language)?),
+        Box::new(code_injection::CodeInjectionPipeline::new(language)?),
+        Box::new(command_injection::CommandInjectionPipeline::new(language)?),
+        Box::new(path_traversal::PathTraversalPipeline::new(language)?),
+        Box::new(prototype_pollution::PrototypePollutionPipeline::new(language)?),
+        Box::new(redos_resource_exhaustion::RedosResourceExhaustionPipeline::new(language)?),
+        Box::new(ssrf::SsrfPipeline::new(language)?),
+        Box::new(insecure_deserialization::InsecureDeserializationPipeline::new(language)?),
+        Box::new(timing_weak_crypto::TimingWeakCryptoPipeline::new(language)?),
     ])
 }

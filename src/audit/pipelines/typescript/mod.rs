@@ -21,8 +21,12 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod type_system_bypass;
+pub mod unsafe_type_assertions_security;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines;
 use crate::language::Language;
 
 pub fn tech_debt_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
@@ -56,4 +60,13 @@ pub fn code_style_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>
         Box::new(duplicate_code::DuplicateCodePipeline::new(language)?),
         Box::new(coupling::CouplingPipeline::new(language)?),
     ])
+}
+
+pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    // Start with all 9 shared JS/TS security pipelines
+    let mut pipes = pipelines::javascript::security_pipelines(language)?;
+    // Add 2 TypeScript-specific security pipelines
+    pipes.push(Box::new(type_system_bypass::TypeSystemBypassPipeline::new(language)?));
+    pipes.push(Box::new(unsafe_type_assertions_security::UnsafeTypeAssertionsSecurityPipeline::new(language)?));
+    Ok(pipes)
 }

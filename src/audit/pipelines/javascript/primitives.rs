@@ -113,6 +113,174 @@ pub fn compile_member_expression_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+// --- Parameterized security query compilers (work with both JS and TS grammars) ---
+
+pub fn compile_direct_call_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(call_expression
+  function: (identifier) @fn_name
+  arguments: (arguments) @args) @call
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile direct_call query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_method_call_security_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(call_expression
+  function: (member_expression
+    object: (_) @obj
+    property: (property_identifier) @method)
+  arguments: (arguments) @args) @call
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile method_call_security query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_new_expression_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(new_expression
+  constructor: (identifier) @constructor
+  arguments: (arguments) @args) @new_expr
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile new_expression query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_property_assignment_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(assignment_expression
+  left: (member_expression
+    object: (_) @obj
+    property: (property_identifier) @prop)
+  right: (_) @value) @assign
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile property_assignment query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_subscript_assignment_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(assignment_expression
+  left: (subscript_expression
+    object: (_) @target
+    index: (_) @key)
+  right: (_) @value) @assign
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile subscript_assignment query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_regex_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"(regex) @regex"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile regex query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_binary_expression_security_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(binary_expression
+  left: (_) @left
+  right: (_) @right) @binary
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile binary_expression_security query")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_for_in_query(language: Language) -> Result<Arc<Query>> {
+    let query_str = r#"
+(for_in_statement
+  left: (_) @var
+  right: (_) @iterable
+  body: (_) @body) @for_in
+"#;
+    let query = Query::new(&language.tree_sitter_language(), query_str)
+        .with_context(|| "failed to compile for_in query")?;
+    Ok(Arc::new(query))
+}
+
+/// Check if a node is a safe literal (string without interpolation, or number)
+pub fn is_safe_literal(node: tree_sitter::Node, _source: &[u8]) -> bool {
+    match node.kind() {
+        "string" => true,
+        "template_string" => {
+            // Safe only if no template substitutions
+            for i in 0..node.named_child_count() {
+                if let Some(child) = node.named_child(i) {
+                    if child.kind() == "template_substitution" {
+                        return false;
+                    }
+                }
+            }
+            true
+        }
+        "number" | "true" | "false" | "null" | "undefined" => true,
+        _ => false,
+    }
+}
+
+/// Detect nested quantifiers in regex text: (x+)+, (a*)*, ([a-z]+)* etc.
+pub fn has_nested_quantifier(regex_text: &str) -> bool {
+    let mut depth = 0;
+    let mut prev_quantifier_at_depth = vec![false; 64];
+    let chars: Vec<char> = regex_text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => {
+                i += 2; // skip escaped char
+                continue;
+            }
+            '(' => {
+                depth += 1;
+                if depth < prev_quantifier_at_depth.len() {
+                    prev_quantifier_at_depth[depth] = false;
+                }
+            }
+            ')' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+                // Check if a quantifier follows this group
+                if i + 1 < chars.len() && matches!(chars[i + 1], '+' | '*' | '?') {
+                    // If the group contained a quantifier, we have nested quantifiers
+                    if depth + 1 < prev_quantifier_at_depth.len() && prev_quantifier_at_depth[depth + 1] {
+                        return true;
+                    }
+                    if depth < prev_quantifier_at_depth.len() {
+                        prev_quantifier_at_depth[depth] = true;
+                    }
+                }
+            }
+            '+' | '*' => {
+                if depth < prev_quantifier_at_depth.len() {
+                    prev_quantifier_at_depth[depth] = true;
+                }
+            }
+            '[' => {
+                // Skip character class
+                i += 1;
+                while i < chars.len() && chars[i] != ']' {
+                    if chars[i] == '\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 pub fn compile_function_with_body_query() -> Result<Arc<Query>> {
     let query_str = r#"
 [
