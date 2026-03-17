@@ -83,3 +83,15 @@ pub fn supported_code_style_languages() -> Vec<Language> {
         Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
     ]
 }
+
+pub fn security_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    match language {
+        Language::Rust => pipelines::rust::security_pipelines(),
+        Language::Go => pipelines::go::security_pipelines(),
+        _ => Ok(vec![]),
+    }
+}
+
+pub fn supported_security_languages() -> Vec<Language> {
+    vec![Language::Rust, Language::Go]
+}

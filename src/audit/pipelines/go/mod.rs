@@ -20,6 +20,15 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod command_injection;
+pub mod sql_injection;
+pub mod go_path_traversal;
+pub mod go_race_conditions;
+pub mod go_resource_exhaustion;
+pub mod go_integer_overflow;
+pub mod go_type_confusion;
+pub mod ssrf_open_redirect;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -52,5 +61,18 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(dead_code::DeadCodePipeline::new()?),
         Box::new(duplicate_code::DuplicateCodePipeline::new()?),
         Box::new(coupling::CouplingPipeline::new()?),
+    ])
+}
+
+pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(command_injection::CommandInjectionPipeline::new()?),
+        Box::new(sql_injection::SqlInjectionPipeline::new()?),
+        Box::new(go_path_traversal::GoPathTraversalPipeline::new()?),
+        Box::new(go_race_conditions::GoRaceConditionsPipeline::new()?),
+        Box::new(go_resource_exhaustion::GoResourceExhaustionPipeline::new()?),
+        Box::new(go_integer_overflow::GoIntegerOverflowPipeline::new()?),
+        Box::new(go_type_confusion::GoTypeConfusionPipeline::new()?),
+        Box::new(ssrf_open_redirect::SsrfOpenRedirectPipeline::new()?),
     ])
 }

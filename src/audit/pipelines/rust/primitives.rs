@@ -137,6 +137,83 @@ pub fn compile_numeric_literal_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_unsafe_block_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(unsafe_block
+  (block) @unsafe_body) @unsafe_block
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile unsafe block query for Rust")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_static_item_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(static_item
+  (mutable_specifier)? @mut_spec
+  name: (identifier) @static_name
+  type: (_) @static_type) @static_item
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile static item query for Rust")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_binary_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(binary_expression
+  left: (_) @left
+  right: (_) @right) @bin_expr
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile binary expression query for Rust")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_index_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(index_expression
+  (_) @indexed
+  (_) @index) @index_expr
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile index expression query for Rust")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_type_cast_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(type_cast_expression
+  value: (_) @cast_value
+  type: (_) @cast_type) @cast_expr
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile type cast expression query for Rust")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_union_item_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(union_item
+  name: (type_identifier) @union_name
+  body: (field_declaration_list) @union_fields) @union_def
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile union item query for Rust")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_if_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(if_expression
+  condition: (_) @if_condition
+  consequence: (block) @if_body) @if_expr
+"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile if expression query for Rust")?;
+    Ok(Arc::new(query))
+}
+
 pub fn find_method_calls(
     tree: &Tree,
     source: &[u8],

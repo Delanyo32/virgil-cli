@@ -346,6 +346,32 @@ pub enum AuditCommand {
         #[command(subcommand)]
         command: Option<CodeQualityCommand>,
     },
+
+    /// Security vulnerability detection (unsafe memory, injection, race conditions)
+    Security {
+        /// Root directory to analyze
+        dir: PathBuf,
+
+        /// Comma-separated language filter (currently: rs, go)
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Comma-separated pipeline filter
+        #[arg(long)]
+        pipeline: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
+        /// Findings per page
+        #[arg(long, default_value = "20", alias = "limit")]
+        per_page: usize,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]

@@ -289,6 +289,16 @@ fn main() -> Result<()> {
                     run_code_quality_summary(&dir, language.as_deref(), &format)
                 }
             },
+            AuditCommand::Security {
+                dir,
+                language: lang_filter,
+                pipeline: pipeline_filter,
+                format,
+                per_page,
+                page,
+            } => {
+                run_security(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
+            }
         },
     }
 }
@@ -1059,6 +1069,42 @@ fn run_code_style(
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle);
+
+    if let Some(filter) = pipeline_filter {
+        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
+        engine = engine.pipelines(names);
+    }
+
+    let (findings, summary) = engine.run(dir)?;
+
+    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
+fn run_security(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    pipeline_filter: Option<&str>,
+    format: &OutputFormat,
+    page: usize,
+    per_page: usize,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        audit::pipeline::supported_security_languages()
+    };
+
+    let start = Instant::now();
+
+    let mut engine = audit::engine::AuditEngine::new()
+        .languages(languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Security);
 
     if let Some(filter) = pipeline_filter {
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();

@@ -134,6 +134,60 @@ pub fn compile_numeric_literal_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_call_expression_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(call_expression
+  function: (_) @fn_expr
+  arguments: (argument_list) @args) @call
+"#;
+    let query = Query::new(&go_lang(), query_str)
+        .with_context(|| "failed to compile call expression query for Go")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_type_conversion_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(call_expression
+  function: (identifier) @type_name
+  arguments: (argument_list) @args) @conversion
+"#;
+    let query = Query::new(&go_lang(), query_str)
+        .with_context(|| "failed to compile type conversion query for Go")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_type_assertion_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(type_assertion_expression
+  (_) @operand
+  (type_identifier) @asserted_type) @type_assertion
+"#;
+    let query = Query::new(&go_lang(), query_str)
+        .with_context(|| "failed to compile type assertion query for Go")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_for_statement_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(for_statement
+  body: (block) @for_body) @for_stmt
+"#;
+    let query = Query::new(&go_lang(), query_str)
+        .with_context(|| "failed to compile for statement query for Go")?;
+    Ok(Arc::new(query))
+}
+
+pub fn compile_if_statement_query() -> Result<Arc<Query>> {
+    let query_str = r#"
+(if_statement
+  condition: (_) @if_condition
+  consequence: (block) @if_body) @if_stmt
+"#;
+    let query = Query::new(&go_lang(), query_str)
+        .with_context(|| "failed to compile if statement query for Go")?;
+    Ok(Arc::new(query))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
