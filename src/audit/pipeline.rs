@@ -259,10 +259,50 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
                 Box::new(raw_struct),
             ])
         }
+        Language::Cpp => {
+            let raw_memory =
+                pipelines::cpp::raw_memory_management::RawMemoryManagementPipeline::new()?;
+            let rule_of_five =
+                pipelines::cpp::rule_of_five::RuleOfFivePipeline::new()?;
+            let c_style_cast =
+                pipelines::cpp::c_style_cast::CStyleCastPipeline::new()?;
+            let large_object =
+                pipelines::cpp::large_object_by_value::LargeObjectByValuePipeline::new()?;
+            let endl_flush =
+                pipelines::cpp::endl_flush::EndlFlushPipeline::new()?;
+            let missing_override =
+                pipelines::cpp::missing_override::MissingOverridePipeline::new()?;
+            let raw_union =
+                pipelines::cpp::raw_union::RawUnionPipeline::new()?;
+            let excessive_includes =
+                pipelines::cpp::excessive_includes::ExcessiveIncludesPipeline::new()?;
+            let exception_boundary =
+                pipelines::cpp::exception_across_boundary::ExceptionAcrossBoundaryPipeline::new()?;
+            let uninitialized =
+                pipelines::cpp::uninitialized_member::UninitializedMemberPipeline::new()?;
+            let shared_ptr_cycle =
+                pipelines::cpp::shared_ptr_cycle_risk::SharedPtrCycleRiskPipeline::new()?;
+            let magic_numbers =
+                pipelines::cpp::magic_numbers::CppMagicNumbersPipeline::new()?;
+            Ok(vec![
+                Box::new(raw_memory),
+                Box::new(rule_of_five),
+                Box::new(c_style_cast),
+                Box::new(large_object),
+                Box::new(endl_flush),
+                Box::new(missing_override),
+                Box::new(raw_union),
+                Box::new(excessive_includes),
+                Box::new(exception_boundary),
+                Box::new(uninitialized),
+                Box::new(shared_ptr_cycle),
+                Box::new(magic_numbers),
+            ])
+        }
         _ => Ok(vec![]),
     }
 }
 
 pub fn supported_audit_languages() -> Vec<Language> {
-    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx, Language::C]
+    vec![Language::Rust, Language::Go, Language::Python, Language::Php, Language::Java, Language::JavaScript, Language::TypeScript, Language::Tsx, Language::C, Language::Cpp]
 }
