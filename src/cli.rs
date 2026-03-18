@@ -24,9 +24,21 @@ pub enum Command {
     },
 
     /// Static analysis and tech debt detection
+    #[command(args_conflicts_with_subcommands = true, subcommand_precedence_over_arg = true)]
     Audit {
+        /// Root directory to analyze (runs all audits)
+        dir: Option<PathBuf>,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
         #[command(subcommand)]
-        command: AuditCommand,
+        command: Option<AuditCommand>,
     },
 }
 

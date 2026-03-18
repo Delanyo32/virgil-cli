@@ -250,8 +250,8 @@ fn main() -> Result<()> {
         }
     },
 
-        Command::Audit { command } => match command {
-            AuditCommand::CodeQuality { dir, language, format, command } => match command {
+        Command::Audit { dir, language, format, command } => match command {
+            Some(AuditCommand::CodeQuality { dir, language, format, command }) => match command {
                 Some(CodeQualityCommand::TechDebt {
                     dir,
                     language: lang_filter,
@@ -289,15 +289,21 @@ fn main() -> Result<()> {
                     run_code_quality_summary(&dir, language.as_deref(), &format)
                 }
             },
-            AuditCommand::Security {
+            Some(AuditCommand::Security {
                 dir,
                 language: lang_filter,
                 pipeline: pipeline_filter,
                 format,
                 per_page,
                 page,
-            } => {
+            }) => {
                 run_security(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
+            }
+            None => {
+                let dir = dir.ok_or_else(|| anyhow::anyhow!(
+                    "Directory argument required. Usage: virgil audit <DIR>"
+                ))?;
+                run_full_audit(&dir, language.as_deref(), &format)
             }
         },
     }
@@ -1156,7 +1162,84 @@ fn run_code_quality_summary(
     let (_cs_findings, cs_summary) = cs_engine.run(dir)?;
 
     let summaries = vec![("Tech Debt", &td_summary), ("Complexity", &cx_summary), ("Code Style", &cs_summary)];
-    let output = audit::format::format_code_quality_summary(&summaries, format)?;
+    let output = audit::format::format_code_quality_summary(&summaries, format, None)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
+fn run_full_audit(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    format: &OutputFormat,
+) -> Result<()> {
+    let start = Instant::now();
+
+    // Tech Debt
+    let td_languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+            .into_iter()
+            .filter(|l| audit::pipeline::supported_audit_languages().contains(l))
+            .collect()
+    } else {
+        audit::pipeline::supported_audit_languages()
+    };
+    let (_, td_summary) = audit::engine::AuditEngine::new()
+        .languages(td_languages)
+        .run(dir)?;
+
+    // Complexity
+    let cx_languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+            .into_iter()
+            .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
+            .collect()
+    } else {
+        audit::pipeline::supported_complexity_languages()
+    };
+    let (_, cx_summary) = audit::engine::AuditEngine::new()
+        .languages(cx_languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Complexity)
+        .run(dir)?;
+
+    // Code Style
+    let cs_languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+            .into_iter()
+            .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
+            .collect()
+    } else {
+        audit::pipeline::supported_code_style_languages()
+    };
+    let (_, cs_summary) = audit::engine::AuditEngine::new()
+        .languages(cs_languages)
+        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
+        .run(dir)?;
+
+    // Security
+    let sec_languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+            .into_iter()
+            .filter(|l| audit::pipeline::supported_security_languages().contains(l))
+            .collect()
+    } else {
+        audit::pipeline::supported_security_languages()
+    };
+    let (_, sec_summary) = audit::engine::AuditEngine::new()
+        .languages(sec_languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Security)
+        .run(dir)?;
+
+    let summaries = vec![
+        ("Tech Debt", &td_summary),
+        ("Complexity", &cx_summary),
+        ("Code Style", &cs_summary),
+        ("Security", &sec_summary),
+    ];
+    let output = audit::format::format_code_quality_summary(&summaries, format, Some("Audit Report"))?;
     print!("{output}");
 
     let elapsed = start.elapsed();

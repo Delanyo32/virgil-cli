@@ -123,7 +123,9 @@ struct PatternJson {
 pub fn format_code_quality_summary(
     summaries: &[(&str, &AuditSummary)],
     format: &OutputFormat,
+    title: Option<&str>,
 ) -> Result<String> {
+    let title = title.unwrap_or("Code Quality Report");
     let total_findings: usize = summaries.iter().map(|(_, s)| s.total_findings).sum();
     let files_scanned: usize = summaries.iter().map(|(_, s)| s.files_scanned).sum();
     let files_with_findings: usize = summaries.iter().map(|(_, s)| s.files_with_findings).sum();
@@ -131,8 +133,9 @@ pub fn format_code_quality_summary(
     match format {
         OutputFormat::Table => {
             let mut out = String::new();
-            out.push_str("Code Quality Report\n");
-            out.push_str("===================\n");
+            out.push_str(&format!("{title}\n"));
+            out.push_str(&"=".repeat(title.len()));
+            out.push('\n');
             out.push_str(&format!("Files scanned:        {files_scanned}\n"));
             out.push_str(&format!("Files with findings:  {files_with_findings}\n"));
             out.push_str(&format!("Total findings:       {total_findings}\n\n"));
