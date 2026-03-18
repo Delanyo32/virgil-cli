@@ -24,6 +24,10 @@ pub mod duplicate_code;
 pub mod type_system_bypass;
 pub mod unsafe_type_assertions_security;
 
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+pub mod memory_leak_indicators;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines;
@@ -69,4 +73,12 @@ pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> 
     pipes.push(Box::new(type_system_bypass::TypeSystemBypassPipeline::new(language)?));
     pipes.push(Box::new(unsafe_type_assertions_security::UnsafeTypeAssertionsSecurityPipeline::new(language)?));
     Ok(pipes)
+}
+
+pub fn scalability_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new(language)?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new(language)?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new(language)?),
+    ])
 }

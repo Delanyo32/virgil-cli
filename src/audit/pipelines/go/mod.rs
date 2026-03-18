@@ -29,6 +29,10 @@ pub mod go_integer_overflow;
 pub mod go_type_confusion;
 pub mod ssrf_open_redirect;
 
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+pub mod memory_leak_indicators;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -74,5 +78,13 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(go_integer_overflow::GoIntegerOverflowPipeline::new()?),
         Box::new(go_type_confusion::GoTypeConfusionPipeline::new()?),
         Box::new(ssrf_open_redirect::SsrfOpenRedirectPipeline::new()?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }

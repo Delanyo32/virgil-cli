@@ -32,6 +32,10 @@ pub mod ssrf;
 pub mod timing_weak_crypto;
 pub mod xss_dom_injection;
 
+pub mod memory_leak_indicators;
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
@@ -81,5 +85,13 @@ pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> 
         Box::new(ssrf::SsrfPipeline::new(language)?),
         Box::new(insecure_deserialization::InsecureDeserializationPipeline::new(language)?),
         Box::new(timing_weak_crypto::TimingWeakCryptoPipeline::new(language)?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }

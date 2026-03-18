@@ -18,6 +18,7 @@ pub enum PipelineSelector {
     Complexity,
     CodeStyle,
     Security,
+    Scalability,
 }
 
 pub struct AuditEngine {
@@ -65,6 +66,7 @@ impl AuditEngine {
                 PipelineSelector::Complexity => pipeline::complexity_pipelines_for_language(*lang)?,
                 PipelineSelector::CodeStyle => pipeline::code_style_pipelines_for_language(*lang)?,
                 PipelineSelector::Security => pipeline::security_pipelines_for_language(*lang)?,
+                PipelineSelector::Scalability => pipeline::scalability_pipelines_for_language(*lang)?,
             };
 
             if !self.pipeline_filter.is_empty() {

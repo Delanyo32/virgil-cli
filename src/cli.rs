@@ -384,6 +384,32 @@ pub enum AuditCommand {
         #[arg(long, default_value = "1")]
         page: usize,
     },
+
+    /// Scalability analysis (N+1 queries, sync blocking in async, memory leaks)
+    Scalability {
+        /// Root directory to analyze
+        dir: PathBuf,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        language: Option<String>,
+
+        /// Comma-separated pipeline filter (n_plus_one_queries,sync_blocking_in_async,memory_leak_indicators)
+        #[arg(long)]
+        pipeline: Option<String>,
+
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+
+        /// Findings per page
+        #[arg(long, default_value = "20", alias = "limit")]
+        per_page: usize,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]

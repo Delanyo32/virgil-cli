@@ -108,3 +108,27 @@ pub fn supported_security_languages() -> Vec<Language> {
         Language::JavaScript, Language::TypeScript, Language::Tsx,
     ]
 }
+
+pub fn scalability_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    match language {
+        Language::Rust => pipelines::rust::scalability_pipelines(),
+        Language::Go => pipelines::go::scalability_pipelines(),
+        Language::Python => pipelines::python::scalability_pipelines(),
+        Language::Php => pipelines::php::scalability_pipelines(),
+        Language::Java => pipelines::java::scalability_pipelines(),
+        Language::JavaScript => pipelines::javascript::scalability_pipelines(),
+        Language::TypeScript | Language::Tsx => pipelines::typescript::scalability_pipelines(language),
+        Language::C => pipelines::c::scalability_pipelines(),
+        Language::Cpp => pipelines::cpp::scalability_pipelines(),
+        Language::CSharp => pipelines::csharp::scalability_pipelines(),
+        _ => Ok(vec![]),
+    }
+}
+
+pub fn supported_scalability_languages() -> Vec<Language> {
+    vec![
+        Language::Rust, Language::Go, Language::Python, Language::Php,
+        Language::Java, Language::JavaScript, Language::TypeScript,
+        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+    ]
+}

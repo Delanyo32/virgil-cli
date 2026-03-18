@@ -27,6 +27,10 @@ pub mod sql_injection;
 pub mod ssrf;
 pub mod xxe_format_string;
 
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+pub mod memory_leak_indicators;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -70,5 +74,13 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(ssrf::SsrfPipeline::new()?),
         Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?),
         Box::new(xxe_format_string::XxeFormatStringPipeline::new()?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }

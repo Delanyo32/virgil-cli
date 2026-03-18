@@ -299,6 +299,16 @@ fn main() -> Result<()> {
             }) => {
                 run_security(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
             }
+            Some(AuditCommand::Scalability {
+                dir,
+                language: lang_filter,
+                pipeline: pipeline_filter,
+                format,
+                per_page,
+                page,
+            }) => {
+                run_scalability(&dir, lang_filter.as_deref(), pipeline_filter.as_deref(), &format, page, per_page)
+            }
             None => {
                 let dir = dir.ok_or_else(|| anyhow::anyhow!(
                     "Directory argument required. Usage: virgil audit <DIR>"
@@ -1128,6 +1138,42 @@ fn run_security(
     Ok(())
 }
 
+fn run_scalability(
+    dir: &std::path::Path,
+    lang_filter: Option<&str>,
+    pipeline_filter: Option<&str>,
+    format: &OutputFormat,
+    page: usize,
+    per_page: usize,
+) -> Result<()> {
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        audit::pipeline::supported_scalability_languages()
+    };
+
+    let start = Instant::now();
+
+    let mut engine = audit::engine::AuditEngine::new()
+        .languages(languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Scalability);
+
+    if let Some(filter) = pipeline_filter {
+        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
+        engine = engine.pipelines(names);
+    }
+
+    let (findings, summary) = engine.run(dir)?;
+
+    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
+    print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
 fn run_code_quality_summary(
     dir: &std::path::Path,
     lang_filter: Option<&str>,
@@ -1233,11 +1279,26 @@ fn run_full_audit(
         .pipeline_selector(audit::engine::PipelineSelector::Security)
         .run(dir)?;
 
+    // Scalability
+    let scl_languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+            .into_iter()
+            .filter(|l| audit::pipeline::supported_scalability_languages().contains(l))
+            .collect()
+    } else {
+        audit::pipeline::supported_scalability_languages()
+    };
+    let (_, scl_summary) = audit::engine::AuditEngine::new()
+        .languages(scl_languages)
+        .pipeline_selector(audit::engine::PipelineSelector::Scalability)
+        .run(dir)?;
+
     let summaries = vec![
         ("Tech Debt", &td_summary),
         ("Complexity", &cx_summary),
         ("Code Style", &cs_summary),
         ("Security", &sec_summary),
+        ("Scalability", &scl_summary),
     ];
     let output = audit::format::format_code_quality_summary(&summaries, format, Some("Audit Report"))?;
     print!("{output}");

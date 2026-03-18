@@ -31,6 +31,10 @@ pub mod java_ssrf;
 pub mod reflection_injection;
 pub mod java_race_conditions;
 
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+pub mod memory_leak_indicators;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -78,5 +82,13 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(java_ssrf::JavaSsrfPipeline::new()?),
         Box::new(reflection_injection::ReflectionInjectionPipeline::new()?),
         Box::new(java_race_conditions::JavaRaceConditionsPipeline::new()?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }

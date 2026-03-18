@@ -26,6 +26,10 @@ pub mod session_auth;
 pub mod ssrf;
 pub mod type_juggling;
 
+pub mod memory_leak_indicators;
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -68,5 +72,13 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(type_juggling::TypeJugglingPipeline::new()?),
         Box::new(ssrf::SsrfPipeline::new()?),
         Box::new(session_auth::SessionAuthPipeline::new()?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }

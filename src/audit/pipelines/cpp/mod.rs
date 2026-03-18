@@ -32,6 +32,10 @@ pub mod cpp_race_conditions;
 pub mod cpp_type_confusion;
 pub mod cpp_weak_randomness;
 
+pub mod memory_leak_indicators;
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -80,5 +84,13 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(cpp_memory_mismanagement::CppMemoryMismanagementPipeline::new()?),
         Box::new(cpp_race_conditions::CppRaceConditionsPipeline::new()?),
         Box::new(cpp_path_traversal::CppPathTraversalPipeline::new()?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }

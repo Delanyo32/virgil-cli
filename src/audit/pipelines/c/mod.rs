@@ -32,6 +32,10 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
+pub mod memory_leak_indicators;
+pub mod n_plus_one_queries;
+pub mod sync_blocking_in_async;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -80,5 +84,13 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(c_memory_mismanagement::CMemoryMismanagementPipeline::new()?),
         Box::new(c_path_traversal::CPathTraversalPipeline::new()?),
         Box::new(c_uninitialized_memory::CUninitializedMemoryPipeline::new()?),
+    ])
+}
+
+pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }
