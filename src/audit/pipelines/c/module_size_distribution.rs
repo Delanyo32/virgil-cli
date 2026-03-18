@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file};
+use crate::audit::pipelines::helpers::is_entry_file;
 use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, has_storage_class};
 
@@ -27,6 +27,42 @@ const C_DEFINITION_KINDS: &[&str] = &[
 
 fn c_lang() -> tree_sitter::Language {
     Language::C.tree_sitter_language()
+}
+
+/// Count top-level definitions, excluding forward declarations.
+/// A forward declaration is a `declaration` node with no `compound_statement` child
+/// (no function body) and no `init_declarator` child (no initializer).
+fn count_top_level_definitions_excluding_forward_decls(
+    root: tree_sitter::Node,
+    symbol_kinds: &[&str],
+) -> usize {
+    let mut count = 0;
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if !symbol_kinds.contains(&child.kind()) {
+            continue;
+        }
+        // For `declaration` nodes, check if it's a forward declaration
+        if child.kind() == "declaration" && is_forward_declaration(child) {
+            continue;
+        }
+        count += 1;
+    }
+    count
+}
+
+/// Check if a `declaration` node is a forward declaration (no body/initializer).
+/// A forward declaration has no `compound_statement` child (no function body)
+/// and no `init_declarator` child (no variable initializer).
+fn is_forward_declaration(decl: tree_sitter::Node) -> bool {
+    let mut cursor = decl.walk();
+    for child in decl.children(&mut cursor) {
+        let kind = child.kind();
+        if kind == "compound_statement" || kind == "init_declarator" {
+            return false;
+        }
+    }
+    true
 }
 
 pub struct ModuleSizeDistributionPipeline {
@@ -69,7 +105,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        let total_definitions = count_top_level_definitions(root, C_DEFINITION_KINDS);
+        let total_definitions = count_top_level_definitions_excluding_forward_decls(root, C_DEFINITION_KINDS);
         let total_lines = source.split(|&b| b == b'\n').count();
 
         // Pattern 1: Oversized module

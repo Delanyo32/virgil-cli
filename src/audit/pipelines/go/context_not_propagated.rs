@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{is_test_context_go, is_go_constructor};
 
 use super::primitives::{compile_selector_call_query, extract_snippet, find_capture_index, node_text};
 
@@ -73,6 +74,16 @@ impl Pipeline for ContextNotPropagatedPipeline {
                 match fn_name.as_deref() {
                     Some("main") | Some("init") => continue,
                     _ => {}
+                }
+
+                // Skip in test functions or _test.go files
+                if is_test_context_go(call_node, source, file_path) {
+                    continue;
+                }
+
+                // Skip in New*/Init* functions (service bootstrapping)
+                if is_go_constructor(call_node, source) {
+                    continue;
                 }
 
                 let start = call_node.start_position();

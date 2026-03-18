@@ -27,6 +27,22 @@ const TS_DEFINITION_KINDS: &[&str] = &[
     "export_statement",
 ];
 
+/// Check if an export_statement node is a re-export (has a `source` field, i.e. `from '...'`).
+fn is_reexport_statement(node: tree_sitter::Node) -> bool {
+    // tree-sitter gives export_statement a `source` field for re-exports
+    if node.child_by_field_name("source").is_some() {
+        return true;
+    }
+    // Fallback: check if any child is a string containing the from clause
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string" {
+            return true;
+        }
+    }
+    false
+}
+
 pub struct ModuleSizeDistributionPipeline {
     _language: Language,
     exported_query: Arc<Query>,
@@ -109,12 +125,31 @@ impl Pipeline for ModuleSizeDistributionPipeline {
             for cap in m.captures {
                 if cap.index as usize == export_idx {
                     // Direct export declaration — count as 1 exported symbol
+                    // Skip re-exports: export statements containing "from" (source field)
+                    if is_reexport_statement(cap.node) {
+                        continue;
+                    }
                     if cap.node.parent().map_or(true, |p| p.kind() == "program") {
                         exported_count += 1;
                     }
                 } else if cap.index as usize == specifier_idx {
                     // Each export specifier in `export { A, B } from '...'`
-                    exported_count += 1;
+                    // Skip if parent export_statement is a re-export
+                    let is_reexport = {
+                        let mut node = cap.node.parent();
+                        let mut found = false;
+                        while let Some(p) = node {
+                            if p.kind() == "export_statement" {
+                                found = is_reexport_statement(p);
+                                break;
+                            }
+                            node = p.parent();
+                        }
+                        found
+                    };
+                    if !is_reexport {
+                        exported_count += 1;
+                    }
                 } else if cap.index as usize == reexport_idx {
                     // Don't double-count — specifiers handle the individual symbols
                     let _ = cap;

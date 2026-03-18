@@ -129,6 +129,14 @@ fn collect_unused_private_methods(
                 );
 
                 if usage_count == 0 {
+                    // Additionally check if the method name appears in any string
+                    // literal in the class body (covers `call_user_func('methodName')`
+                    // and similar dynamic dispatch patterns).
+                    let referenced_in_string = string_contains_name(body, source, name);
+                    if referenced_in_string {
+                        continue;
+                    }
+
                     let start = child.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
@@ -164,6 +172,38 @@ fn has_visibility(method: tree_sitter::Node, source: &[u8], target: &str) -> boo
         }
     }
     false
+}
+
+/// Check if any `string` or `encapsed_string` node within `root` contains `target_name`.
+/// This covers dynamic dispatch patterns like `call_user_func('methodName')`.
+fn string_contains_name(root: tree_sitter::Node, source: &[u8], target_name: &str) -> bool {
+    let mut found = false;
+    string_contains_name_recursive(root, source, target_name, &mut found);
+    found
+}
+
+fn string_contains_name_recursive(
+    node: tree_sitter::Node,
+    source: &[u8],
+    target_name: &str,
+    found: &mut bool,
+) {
+    if *found {
+        return;
+    }
+    let kind = node.kind();
+    if kind == "string" || kind == "encapsed_string" {
+        if let Ok(text) = node.utf8_text(source) {
+            if text.contains(target_name) {
+                *found = true;
+                return;
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        string_contains_name_recursive(child, source, target_name, found);
+    }
 }
 
 /// Count usages of a name (via `name` kind nodes) across the tree, excluding the node with `exclude_id`.

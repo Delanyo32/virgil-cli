@@ -87,9 +87,16 @@ impl Pipeline for ResourceLeaksPipeline {
                 .map(|c| c.node);
 
             // Must have object_creation_expression (new ...)
-            let Some(_creation) = creation_node else {
+            let Some(creation) = creation_node else {
                 continue;
             };
+
+            // Skip if the creation is wrapped inside another new expression (wrapping pattern)
+            // e.g., BufferedReader br = new BufferedReader(new FileReader("f"))
+            // The inner `new FileReader("f")` is passed as an arg to the outer `new BufferedReader(...)`.
+            if is_wrapped_creation(creation) {
+                continue;
+            }
 
             if let (Some(type_node), Some(name_node), Some(decl_node)) =
                 (type_node, name_node, decl_node)
@@ -132,6 +139,28 @@ impl Pipeline for ResourceLeaksPipeline {
 
         findings
     }
+}
+
+/// Check if an object_creation_expression node is wrapped inside another new expression.
+/// This handles patterns like: `new BufferedReader(new FileReader("file"))`.
+/// The inner `new FileReader(...)` is an argument to the outer constructor, so it is being
+/// wrapped and will be closed when the outer resource is closed.
+fn is_wrapped_creation(creation_node: tree_sitter::Node) -> bool {
+    if let Some(parent) = creation_node.parent() {
+        // Direct parent is another object_creation_expression
+        if parent.kind() == "object_creation_expression" {
+            return true;
+        }
+        // Parent is argument_list whose parent is object_creation_expression
+        if parent.kind() == "argument_list" {
+            if let Some(grandparent) = parent.parent() {
+                if grandparent.kind() == "object_creation_expression" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn is_in_try_with_resources(node: tree_sitter::Node) -> bool {

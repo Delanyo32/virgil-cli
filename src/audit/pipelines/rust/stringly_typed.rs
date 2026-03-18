@@ -6,10 +6,11 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::struct_has_derive;
 use super::primitives;
 
 const SUSPICIOUS_NAMES: &[&str] = &[
-    "kind", "type", "status", "mode", "state", "action", "level", "category", "role", "variant",
+    "kind", "type", "status", "mode", "state", "level", "role", "variant",
     "phase", "stage",
 ];
 
@@ -64,6 +65,11 @@ impl StringlyTypedPipeline {
                 let type_text = type_cap.node.utf8_text(source).unwrap_or("");
 
                 if SUSPICIOUS_NAMES.contains(&name) && STRING_TYPES.contains(&type_text) {
+                    // Skip fields in serde deserialization structs where String is
+                    // required for API compatibility
+                    if struct_has_derive(field_cap.node, source, "Deserialize") {
+                        continue;
+                    }
                     let start = field_cap.node.start_position();
                     let snippet = field_cap.node.utf8_text(source).unwrap_or("").to_string();
                     findings.push(AuditFinding {

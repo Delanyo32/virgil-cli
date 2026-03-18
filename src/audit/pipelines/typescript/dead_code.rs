@@ -37,7 +37,7 @@ impl Pipeline for DeadCodePipeline {
         let root = tree.root_node();
 
         // ── unused_imports ──────────────────────────────────────────
-        // Collect all identifiers from non-import nodes
+        // Collect all identifiers from non-import nodes, including type-position identifiers
         let mut used_ids: HashSet<String> = HashSet::new();
         let mut cursor = root.walk();
         for child in root.children(&mut cursor) {
@@ -46,6 +46,9 @@ impl Pipeline for DeadCodePipeline {
                 used_ids.extend(ids);
             }
         }
+        // Also collect type identifiers from type annotations, type aliases, and interfaces
+        // so that type-only imports used in type positions aren't flagged as unused
+        collect_type_identifiers(root, source, &mut used_ids);
 
         // Walk import statements and extract imported names
         let mut import_cursor = root.walk();
@@ -113,6 +116,31 @@ fn find_unreachable_blocks(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         find_unreachable_blocks(child, return_kinds, file_path, source, findings);
+    }
+}
+
+/// Recursively collect identifiers from type_annotation, type_alias_declaration,
+/// and interface_declaration nodes throughout the tree. This ensures type-only imports
+/// used in type positions are recognized as used.
+fn collect_type_identifiers(
+    node: tree_sitter::Node,
+    source: &[u8],
+    ids: &mut HashSet<String>,
+) {
+    const TYPE_NODE_KINDS: &[&str] = &[
+        "type_annotation",
+        "type_alias_declaration",
+        "interface_declaration",
+    ];
+
+    if TYPE_NODE_KINDS.contains(&node.kind()) {
+        let type_ids = collect_identifiers(node, source);
+        ids.extend(type_ids);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_type_identifiers(child, source, ids);
     }
 }
 

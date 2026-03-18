@@ -10,6 +10,7 @@ use crate::audit::pipeline::Pipeline;
 use super::primitives::{
     compile_class_decl_query, extract_snippet, find_capture_index, node_text,
 };
+use crate::audit::pipelines::helpers::has_annotation;
 
 const METHOD_THRESHOLD: usize = 10;
 
@@ -64,9 +65,27 @@ impl Pipeline for GodClassPipeline {
                 (name_node, body_node, decl_node)
             {
                 let class_name = node_text(name_node, source);
+
+                // Skip classes with Lombok annotations that generate methods
+                if has_annotation(decl_node, source, "Data")
+                    || has_annotation(decl_node, source, "Getter")
+                    || has_annotation(decl_node, source, "Setter")
+                    || has_annotation(decl_node, source, "Builder")
+                {
+                    continue;
+                }
+
+                // Skip classes whose name ends with "Builder"
+                if class_name.ends_with("Builder") {
+                    continue;
+                }
+
+                // Count only non-accessor methods:
+                // Skip methods matching get*/set*/is* with <= 2 statements (1 line body)
                 let method_count = (0..body_node.named_child_count())
                     .filter_map(|i| body_node.named_child(i))
                     .filter(|child| child.kind() == "method_declaration")
+                    .filter(|child| !is_accessor_method(*child, source))
                     .count();
 
                 if method_count > METHOD_THRESHOLD {
@@ -89,6 +108,31 @@ impl Pipeline for GodClassPipeline {
 
         findings
     }
+}
+
+/// Check if a method is a simple accessor (getter/setter with 1-line body).
+/// Matches methods named get*, set*, is* that have <= 2 statements in the body.
+fn is_accessor_method(method_node: tree_sitter::Node, source: &[u8]) -> bool {
+    let name = method_node
+        .child_by_field_name("name")
+        .map(|n| node_text(n, source))
+        .unwrap_or("");
+
+    let is_accessor_name = name.starts_with("get")
+        || name.starts_with("set")
+        || name.starts_with("is");
+
+    if !is_accessor_name {
+        return false;
+    }
+
+    // Check if body has <= 2 statements (simple accessor)
+    if let Some(body) = method_node.child_by_field_name("body") {
+        let stmt_count = body.named_child_count();
+        return stmt_count <= 2;
+    }
+
+    false
 }
 
 #[cfg(test)]

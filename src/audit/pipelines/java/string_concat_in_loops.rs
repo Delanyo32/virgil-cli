@@ -11,6 +11,17 @@ use super::primitives::{
     compile_assignment_query, extract_snippet, find_capture_index, node_text,
 };
 
+/// LHS identifier name patterns that suggest string concatenation
+const STRING_LIKE_PATTERNS: &[&str] = &[
+    "str", "name", "msg", "text", "result", "output", "sb", "buf",
+    "html", "xml", "json", "query", "sql", "line", "path",
+];
+
+/// LHS identifier names that are clearly numeric (skip these)
+const NUMERIC_NAMES: &[&str] = &[
+    "i", "j", "k", "count", "sum", "total", "index", "offset", "size", "len", "num",
+];
+
 pub struct StringConcatInLoopsPipeline {
     assignment_query: Arc<Query>,
 }
@@ -38,6 +49,7 @@ impl Pipeline for StringConcatInLoopsPipeline {
         let mut matches = cursor.matches(&self.assignment_query, tree.root_node(), source);
 
         let assign_idx = find_capture_index(&self.assignment_query, "assign");
+        let lhs_idx = find_capture_index(&self.assignment_query, "lhs");
         let rhs_idx = find_capture_index(&self.assignment_query, "rhs");
 
         while let Some(m) = matches.next() {
@@ -45,6 +57,11 @@ impl Pipeline for StringConcatInLoopsPipeline {
                 .captures
                 .iter()
                 .find(|c| c.index as usize == assign_idx)
+                .map(|c| c.node);
+            let lhs_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == lhs_idx)
                 .map(|c| c.node);
             let rhs_node = m
                 .captures
@@ -64,25 +81,46 @@ impl Pipeline for StringConcatInLoopsPipeline {
                     continue;
                 }
 
-                // Heuristic: check if RHS involves strings
-                let is_string_op = contains_string_literal(rhs_node, source)
-                    || rhs_node.kind() == "binary_expression";
+                // Check LHS identifier name to distinguish string vs numeric accumulation
+                if let Some(lhs) = lhs_node {
+                    let lhs_name = node_text(lhs, source).to_lowercase();
 
-                if is_string_op {
-                    let start = assign_node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "info".to_string(),
-                        pipeline: self.name().to_string(),
-                        pattern: "string_concat_in_loop".to_string(),
-                        message:
-                            "string concatenation with += inside a loop — use StringBuilder instead"
-                                .to_string(),
-                        snippet: extract_snippet(source, assign_node, 3),
-                    });
+                    // Skip if LHS name is clearly numeric
+                    if NUMERIC_NAMES.contains(&lhs_name.as_str()) {
+                        continue;
+                    }
+
+                    // Only flag if LHS name contains a string-like pattern,
+                    // OR if we have clear string evidence from RHS
+                    let lhs_looks_stringy = STRING_LIKE_PATTERNS.iter().any(|p| lhs_name.contains(p));
+                    let rhs_is_string = contains_string_literal(rhs_node, source)
+                        || rhs_node.kind() == "binary_expression";
+
+                    if !lhs_looks_stringy && !rhs_is_string {
+                        continue;
+                    }
+                } else {
+                    // No LHS captured — fall back to RHS-only heuristic
+                    let rhs_is_string = contains_string_literal(rhs_node, source)
+                        || rhs_node.kind() == "binary_expression";
+                    if !rhs_is_string {
+                        continue;
+                    }
                 }
+
+                let start = assign_node.start_position();
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line: start.row as u32 + 1,
+                    column: start.column as u32 + 1,
+                    severity: "info".to_string(),
+                    pipeline: self.name().to_string(),
+                    pattern: "string_concat_in_loop".to_string(),
+                    message:
+                        "string concatenation with += inside a loop — use StringBuilder instead"
+                            .to_string(),
+                    snippet: extract_snippet(source, assign_node, 3),
+                });
             }
         }
 

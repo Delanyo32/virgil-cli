@@ -110,8 +110,12 @@ fn check_params_recursive(
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "method_declaration" {
-        if let Some(params) = node.child_by_field_name("parameters") {
+    let kind = node.kind();
+    if kind == "method_declaration" || kind == "constructor_declaration" {
+        // Skip constructors — they often need many parameters for initialization
+        if kind == "constructor_declaration" {
+            // fall through to recurse
+        } else if let Some(params) = node.child_by_field_name("parameters") {
             let param_count = count_parameters(params);
             if param_count > PARAM_THRESHOLD {
                 let name = node
@@ -119,19 +123,30 @@ fn check_params_recursive(
                     .map(|n| node_text(n, source))
                     .unwrap_or("<anonymous>");
 
-                let start = node.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "parameter_overload".to_string(),
-                    message: format!(
-                        "method `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using a parameter object"
-                    ),
-                    snippet: extract_snippet(source, node, 1),
-                });
+                // Also skip if the method name matches the enclosing class name (constructor pattern)
+                let is_constructor = node.parent().and_then(|p| {
+                    // class_body -> class_declaration
+                    p.parent().and_then(|class_node| {
+                        class_node.child_by_field_name("name")
+                            .map(|cn| node_text(cn, source) == name)
+                    })
+                }).unwrap_or(false);
+
+                if !is_constructor {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "parameter_overload".to_string(),
+                        message: format!(
+                            "method `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using a parameter object"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
+                }
             }
         }
     }

@@ -6,10 +6,14 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{ancestor_has_kind, is_test_file, is_test_context_python};
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index, node_text};
 
-const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "-1", "0.0", "1.0"];
+const EXCLUDED_VALUES: &[&str] = &[
+    "0", "1", "2", "-1", "0.0", "1.0",
+    "10", "100", "1000", "256", "512", "1024", "2048", "4096", "8192",
+];
 
 pub struct PythonMagicNumbersPipeline {
     numeric_query: Arc<Query>,
@@ -70,6 +74,11 @@ impl Pipeline for PythonMagicNumbersPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files entirely
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
@@ -87,6 +96,16 @@ impl Pipeline for PythonMagicNumbersPipeline {
                 }
 
                 if Self::is_exempt_context(num_cap.node, source) {
+                    continue;
+                }
+
+                // Skip numbers inside assert statements
+                if ancestor_has_kind(num_cap.node, &["assert_statement"]) {
+                    continue;
+                }
+
+                // Skip numbers inside test contexts
+                if is_test_context_python(num_cap.node, source, file_path) {
                     continue;
                 }
 
@@ -127,15 +146,15 @@ mod tests {
 
     #[test]
     fn detects_magic_number() {
-        let src = "x = 1024\n";
+        let src = "x = 9999\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("1024"));
+        assert!(findings[0].message.contains("9999"));
     }
 
     #[test]
     fn skips_constant_assignment() {
-        let src = "MAX_SIZE = 1024\n";
+        let src = "MAX_SIZE = 9999\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }

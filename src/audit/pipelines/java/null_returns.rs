@@ -10,6 +10,7 @@ use crate::audit::pipeline::Pipeline;
 use super::primitives::{
     compile_return_null_query, extract_snippet, find_capture_index, node_text,
 };
+use crate::audit::pipelines::helpers::{has_annotation, is_test_file};
 
 pub struct NullReturnsPipeline {
     return_null_query: Arc<Query>,
@@ -33,6 +34,11 @@ impl Pipeline for NullReturnsPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files entirely
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.return_null_query, tree.root_node(), source);
@@ -53,12 +59,14 @@ impl Pipeline for NullReturnsPipeline {
             // Walk parent chain to find enclosing method_declaration
             let mut parent = return_node.parent();
             let mut method_name = None;
+            let mut method_node = None;
             while let Some(p) = parent {
                 match p.kind() {
                     "method_declaration" => {
                         method_name = p
                             .child_by_field_name("name")
                             .map(|n| node_text(n, source).to_string());
+                        method_node = Some(p);
                         break;
                     }
                     "constructor_declaration" => {
@@ -74,6 +82,13 @@ impl Pipeline for NullReturnsPipeline {
             let Some(method_name) = method_name else {
                 continue;
             };
+
+            // Skip if the enclosing method has @Test or @Deprecated annotation
+            if let Some(m_node) = method_node {
+                if has_annotation(m_node, source, "Test") || has_annotation(m_node, source, "Deprecated") {
+                    continue;
+                }
+            }
 
             let start = return_node.start_position();
             findings.push(AuditFinding {
@@ -106,7 +121,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = NullReturnsPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "Test.java")
+        pipeline.check(&tree, source.as_bytes(), "Foo.java")
     }
 
     #[test]

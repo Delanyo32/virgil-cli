@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::count_top_level_definitions;
+use crate::audit::pipelines::helpers::{count_top_level_definitions, is_test_file};
 use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, has_modifier};
 
@@ -67,14 +67,32 @@ impl Pipeline for ModuleSizeDistributionPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files entirely
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let root = tree.root_node();
 
+        // Count top-level definitions, excluding enum_constant nodes
         let total_definitions = count_top_level_definitions(root, JAVA_TOP_LEVEL_KINDS);
         let total_lines = source.split(|&b| b == b'\n').count();
 
+        // Find the primary (first) top-level definition kind
+        let primary_kind = {
+            let mut cursor = root.walk();
+            root.children(&mut cursor)
+                .find(|c| JAVA_TOP_LEVEL_KINDS.contains(&c.kind()))
+                .map(|c| c.kind().to_string())
+        };
+
         // Pattern 1: Oversized module
-        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD || total_lines >= OVERSIZED_LINE_THRESHOLD {
+        // Skip if the primary definition is an enum_declaration or annotation_type_declaration
+        let skip_oversized = primary_kind.as_deref() == Some("enum_declaration")
+            || primary_kind.as_deref() == Some("annotation_type_declaration");
+
+        if !skip_oversized && (total_definitions >= OVERSIZED_SYMBOL_THRESHOLD || total_lines >= OVERSIZED_LINE_THRESHOLD) {
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: 1,
@@ -185,11 +203,15 @@ mod tests {
     use super::*;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_with_path(source, "Foo.java")
+    }
+
+    fn parse_and_check_with_path(source: &str, file_path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&java_lang()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "Test.java")
+        pipeline.check(&tree, source.as_bytes(), file_path)
     }
 
     #[test]

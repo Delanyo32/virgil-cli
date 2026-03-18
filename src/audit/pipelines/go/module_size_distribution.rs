@@ -6,14 +6,14 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file};
+use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file, is_test_file};
 use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
 const MONOLITHIC_EXPORT_THRESHOLD: usize = 20;
-const ANEMIC_ENTRY_FILES: &[&str] = &["main.go", "_test.go"];
+const ANEMIC_ENTRY_FILES: &[&str] = &["main.go", "_test.go", "doc.go"];
 
 const GO_DEFINITION_KINDS: &[&str] = &[
     "function_declaration",
@@ -62,6 +62,18 @@ impl Pipeline for ModuleSizeDistributionPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
+        // Skip generated files (first line starts with "// Code generated")
+        if let Some(first_line) = std::str::from_utf8(source).ok().and_then(|s| s.lines().next()) {
+            if first_line.starts_with("// Code generated") {
+                return Vec::new();
+            }
+        }
+
         let mut findings = Vec::new();
         let root = tree.root_node();
 

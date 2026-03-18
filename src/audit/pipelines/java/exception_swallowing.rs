@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_catch_clause_query, extract_snippet, find_capture_index};
+use super::primitives::{compile_catch_clause_query, extract_snippet, find_capture_index, node_text};
 
 pub struct ExceptionSwallowingPipeline {
     catch_query: Arc<Query>,
@@ -51,6 +51,11 @@ impl Pipeline for ExceptionSwallowingPipeline {
                 .map(|c| c.node);
 
             if let (Some(body_node), Some(catch_node)) = (body_node, catch_node) {
+                // Skip if catch block contains a logging call
+                if catch_body_has_logging(body_node, source) {
+                    continue;
+                }
+
                 let named_count = body_node.named_child_count();
 
                 let (pattern, message) = if named_count == 0 {
@@ -92,6 +97,44 @@ impl Pipeline for ExceptionSwallowingPipeline {
         }
 
         findings
+    }
+}
+
+/// Check if a catch block body contains a logging method invocation.
+/// Matches method names: log, warn, error, info, debug
+/// Also matches if the receiver text contains "log" or "logger" (case-insensitive).
+fn catch_body_has_logging(body_node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut found = false;
+    check_logging_recursive(body_node, source, &mut found);
+    found
+}
+
+fn check_logging_recursive(node: tree_sitter::Node, source: &[u8], found: &mut bool) {
+    if *found {
+        return;
+    }
+    if node.kind() == "method_invocation" {
+        // Check method name
+        if let Some(name_node) = node.child_by_field_name("name") {
+            let method_name = node_text(name_node, source);
+            let log_methods = ["log", "warn", "error", "info", "debug"];
+            if log_methods.contains(&method_name) {
+                *found = true;
+                return;
+            }
+        }
+        // Check receiver text for log/logger
+        if let Some(obj_node) = node.child_by_field_name("object") {
+            let receiver = node_text(obj_node, source).to_lowercase();
+            if receiver.contains("log") || receiver.contains("logger") {
+                *found = true;
+                return;
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        check_logging_recursive(child, source, found);
     }
 }
 

@@ -56,6 +56,16 @@ impl DeadCodePipeline {
                 continue;
             }
 
+            // Skip functions listed in __all__
+            if is_in_all_list(root, source, name) {
+                continue;
+            }
+
+            // Skip decorated functions (may be registered callbacks)
+            if has_decorator(child) {
+                continue;
+            }
+
             // Check if name is referenced elsewhere (excluding its own definition)
             let mut usage_count = 0;
             count_identifier_usages(root, source, name, name_node.id(), &mut usage_count);
@@ -274,6 +284,57 @@ impl DeadCodePipeline {
 
         findings
     }
+}
+
+/// Check if a function name appears in an `__all__` list at the module level.
+fn is_in_all_list(root: tree_sitter::Node, source: &[u8], name: &str) -> bool {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() == "expression_statement" {
+            // Look for assignment: __all__ = [...]
+            let mut inner_cursor = child.walk();
+            for inner in child.children(&mut inner_cursor) {
+                if inner.kind() == "assignment" {
+                    if let Some(lhs) = inner.child_by_field_name("left") {
+                        if lhs.kind() == "identifier" {
+                            let lhs_text = node_text(lhs, source);
+                            if lhs_text == "__all__" {
+                                // Check if the function name appears in the right side text
+                                if let Some(rhs) = inner.child_by_field_name("right") {
+                                    let rhs_text = rhs.utf8_text(source).unwrap_or("");
+                                    // Check for the name as a string literal in the list
+                                    if rhs_text.contains(&format!("\"{}\"", name))
+                                        || rhs_text.contains(&format!("'{}'", name))
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a node has a decorator (either it's a decorated_definition, or
+/// it's a function_definition whose parent is a decorated_definition).
+fn has_decorator(node: tree_sitter::Node) -> bool {
+    // If this is already a decorated_definition, it has decorators
+    if node.kind() == "decorated_definition" {
+        return true;
+    }
+    // If it's a function_definition whose parent is decorated_definition
+    if node.kind() == "function_definition" {
+        if let Some(parent) = node.parent() {
+            if parent.kind() == "decorated_definition" {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Find the inner function_definition inside a decorated_definition.

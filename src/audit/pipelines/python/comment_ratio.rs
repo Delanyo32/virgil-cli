@@ -3,7 +3,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_comment_ratio, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{compute_comment_ratio, is_test_file, ControlFlowConfig};
 
 fn py_config() -> ControlFlowConfig {
     ControlFlowConfig {
@@ -48,6 +48,10 @@ impl Pipeline for CommentToCodeRatioPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let config = py_config();
         let (comment_lines, code_lines) = compute_comment_ratio(tree.root_node(), source, &config);

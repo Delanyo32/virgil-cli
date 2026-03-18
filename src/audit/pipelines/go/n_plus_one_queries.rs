@@ -6,15 +6,27 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 
 use super::primitives::{
     compile_for_statement_query, compile_method_call_query, compile_selector_call_query,
     extract_snippet, find_capture_index, node_text,
 };
 
-const DB_METHOD_NAMES: &[&str] = &[
-    "QueryRow", "Query", "Exec", "Get", "Select", "Find", "First", "Where",
-    "Create", "Update", "Delete", "Save", "Preload", "Joins",
+/// Definite DB methods -- always flagged regardless of receiver
+const DEFINITE_DB_METHODS: &[&str] = &["QueryRow", "Query", "Exec", "Preload", "Joins"];
+
+/// Ambiguous methods -- only flagged when receiver looks like a DB object
+const AMBIGUOUS_DB_METHODS: &[&str] = &[
+    "Get", "Find", "First", "Where", "Select", "Create", "Update", "Delete", "Save",
+];
+
+const DB_RECEIVER_PATTERNS: &[&str] = &[
+    "db", "conn", "tx", "repo", "session", "orm", "gorm", "ent",
+];
+
+const NON_DB_RECEIVER_PATTERNS: &[&str] = &[
+    "map", "cache", "list", "slice", "arr", "iter",
 ];
 
 const HTTP_METHOD_NAMES: &[&str] = &[
@@ -110,7 +122,14 @@ impl NPlusOneQueriesPipeline {
                 }
                 let method_name = node_text(method, source);
 
-                if DB_METHOD_NAMES.contains(&method_name) {
+                if DEFINITE_DB_METHODS.contains(&method_name) {
+                    results.push((call, "db_query_in_loop"));
+                } else if AMBIGUOUS_DB_METHODS.contains(&method_name) {
+                    // For ambiguous methods, check the receiver
+                    let receiver = extract_receiver_text(call, source);
+                    if !receiver.is_empty() && receiver_matches_any(receiver, NON_DB_RECEIVER_PATTERNS) {
+                        continue;
+                    }
                     results.push((call, "db_query_in_loop"));
                 }
             }

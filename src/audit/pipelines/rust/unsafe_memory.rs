@@ -96,15 +96,44 @@ impl Pipeline for UnsafeMemoryPipeline {
                         inner_cursor.matches(&self.method_query, tree.root_node(), source);
                     let name_idx = find_capture_index(&self.method_query, "method_name");
 
+                    // Non-pointer receiver patterns: calls like Duration.add(), Instant.sub()
+                    const NON_POINTER_PATTERNS: &[&str] = &[
+                        "Duration", "duration", "chrono", "time", "Instant", "instant",
+                        "DateTime", "NaiveDate", "NaiveTime", "NaiveDateTime",
+                    ];
+
                     while let Some(im) = inner_matches.next() {
                         let name_node = im
                             .captures
                             .iter()
                             .find(|c| c.index as usize == name_idx)
                             .map(|c| c.node);
+                        let call_node = im
+                            .captures
+                            .iter()
+                            .find(|c| c.index as usize == find_capture_index(&self.method_query, "call"))
+                            .map(|c| c.node);
                         if let Some(name_node) = name_node {
                             let method_name = node_text(name_node, source);
                             if matches!(method_name, "offset" | "add" | "sub") {
+                                // For .add() and .sub(), verify receiver looks like a pointer
+                                if matches!(method_name, "add" | "sub") {
+                                    if let Some(call) = call_node {
+                                        // The call_expression has a function field which is a
+                                        // field_expression; the object of that field_expression
+                                        // is the receiver.
+                                        if let Some(func) = call.child_by_field_name("function") {
+                                            if let Some(obj) = func.child_by_field_name("value") {
+                                                let receiver_text = node_text(obj, source);
+                                                // Skip if receiver matches non-pointer patterns
+                                                if NON_POINTER_PATTERNS.iter().any(|p| receiver_text.contains(p)) {
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 let start = name_node.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),

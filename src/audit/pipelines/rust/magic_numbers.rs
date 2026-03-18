@@ -6,15 +6,26 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{is_test_file, is_test_context_rust};
 use super::primitives;
 
-const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "0.0", "1.0"];
+const EXCLUDED_VALUES: &[&str] = &[
+    "0", "1", "2", "0.0", "1.0",
+    // Common powers of 2 and sizes
+    "10", "100", "1000", "256", "512", "1024", "2048", "4096", "8192", "16384", "32768", "65536",
+    // Common hex masks
+    "0xFF", "0xff", "0x80", "0xFFFF", "0xffff", "0xFF00", "0xff00",
+    "0x00", "0x01", "0x02",
+];
 
 const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
     "const_item",
     "static_item",
     "enum_variant",
     "attribute_item",
+    "match_arm",
+    "range_expression",
+    "macro_invocation",
 ];
 
 pub struct MagicNumbersPipeline {
@@ -63,6 +74,11 @@ impl Pipeline for MagicNumbersPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files entirely
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
@@ -85,6 +101,11 @@ impl Pipeline for MagicNumbersPipeline {
                 }
 
                 if Self::is_exempt_context(num_cap.node) {
+                    continue;
+                }
+
+                // Skip numbers inside test contexts
+                if is_test_context_rust(num_cap.node, source) {
                     continue;
                 }
 
@@ -127,13 +148,13 @@ mod tests {
     fn detects_magic_number() {
         let src = r#"
 fn example() {
-    let x = 1024;
+    let x = 9999;
 }
 "#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "magic_number");
-        assert!(findings[0].message.contains("1024"));
+        assert!(findings[0].message.contains("9999"));
     }
 
     #[test]

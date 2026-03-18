@@ -28,6 +28,23 @@ fn js_lang() -> tree_sitter::Language {
     Language::JavaScript.tree_sitter_language()
 }
 
+/// Check if an export_statement node is a re-export (has a `source` field, i.e. `from '...'`).
+fn is_reexport_statement(node: tree_sitter::Node) -> bool {
+    // tree-sitter-javascript gives export_statement a `source` field for re-exports
+    if node.child_by_field_name("source").is_some() {
+        return true;
+    }
+    // Fallback: check if any child is a string containing the from clause
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string" {
+            // A string child directly under export_statement indicates `from "..."` clause
+            return true;
+        }
+    }
+    false
+}
+
 pub struct ModuleSizeDistributionPipeline {
     exported_query: Arc<Query>,
 }
@@ -107,12 +124,31 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                 for cap in m.captures {
                     if cap.index as usize == export_idx {
                         // export_statement with a declaration child -> 1 exported symbol
+                        // Skip re-exports: export statements containing "from" (source field)
+                        if is_reexport_statement(cap.node) {
+                            continue;
+                        }
                         if cap.node.parent().map_or(false, |p| p.kind() == "program") {
                             exported_count += 1;
                         }
                     } else if cap.index as usize == specifier_idx {
                         // Each export_specifier in an export_clause
-                        exported_count += 1;
+                        // Skip if parent export_statement is a re-export
+                        let is_reexport = {
+                            let mut node = cap.node.parent();
+                            let mut found = false;
+                            while let Some(p) = node {
+                                if p.kind() == "export_statement" {
+                                    found = is_reexport_statement(p);
+                                    break;
+                                }
+                                node = p.parent();
+                            }
+                            found
+                        };
+                        if !is_reexport {
+                            exported_count += 1;
+                        }
                     } else if cap.index as usize == export_clause_idx {
                         // Already counted via specifiers; don't double-count
                     } else if cap.index as usize == decl_idx {

@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{struct_has_derive, has_attribute_text};
 use super::primitives;
 
 pub struct PubFieldLeakagePipeline {
@@ -88,6 +89,23 @@ impl Pipeline for PubFieldLeakagePipeline {
                     continue;
                 }
 
+                // Skip small structs (2 or fewer fields — no meaningful invariant)
+                if total <= 2 {
+                    continue;
+                }
+
+                // Skip serde DTOs
+                if struct_has_derive(struct_cap.node, source, "Deserialize")
+                    || struct_has_derive(struct_cap.node, source, "Serialize")
+                {
+                    continue;
+                }
+
+                // Skip FFI structs
+                if has_attribute_text(struct_cap.node, source, "repr(C)") {
+                    continue;
+                }
+
                 let pub_count = field_decls
                     .iter()
                     .filter(|f| Self::has_visibility_modifier(**f))
@@ -134,7 +152,8 @@ mod tests {
     }
 
     #[test]
-    fn detects_fully_public_struct() {
+    fn skips_small_struct_two_fields() {
+        // Structs with <= 2 fields are now exempt
         let src = r#"
 pub struct Account {
     pub balance: i64,
@@ -142,9 +161,7 @@ pub struct Account {
 }
 "#;
         let findings = parse_and_check(src);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "all_fields_public");
-        assert!(findings[0].message.contains("all 2 fields public"));
+        assert!(findings.is_empty());
     }
 
     #[test]
@@ -153,6 +170,7 @@ pub struct Account {
 pub struct Account {
     balance: i64,
     pub name: String,
+    pub extra: bool,
 }
 "#;
         let findings = parse_and_check(src);
@@ -165,6 +183,7 @@ pub struct Account {
 pub struct Account {
     balance: i64,
     status: String,
+    extra: bool,
 }
 "#;
         let findings = parse_and_check(src);
@@ -177,6 +196,7 @@ pub struct Account {
 struct Internal {
     pub a: i32,
     pub b: String,
+    pub c: bool,
 }
 "#;
         let findings = parse_and_check(src);
@@ -204,6 +224,7 @@ pub struct Config {
 pub struct Leaky {
     pub a: i32,
     pub b: String,
+    pub c: bool,
 }
 "#;
         let findings = parse_and_check(src);

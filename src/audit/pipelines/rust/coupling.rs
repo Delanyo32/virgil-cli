@@ -75,6 +75,10 @@ fn check_parameter_overload(
                     .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(source).ok())
                     .unwrap_or("<anonymous>");
+                // Skip constructors (Rust convention: `new`)
+                if fn_name == "new" {
+                    return;
+                }
                 let start = node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),

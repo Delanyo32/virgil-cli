@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
@@ -39,6 +40,30 @@ const HTTP_METHODS: &[&str] = &[
 ];
 
 const DB_OBJECT_CREATION_TYPES: &[&str] = &["SqlCommand", "SqlConnection"];
+
+/// LINQ methods that are ambiguous — they can operate on in-memory collections
+/// or on DB-backed IQueryable. We skip if the receiver looks like an in-memory collection.
+const LINQ_AMBIGUOUS_METHODS: &[&str] = &[
+    "Where",
+    "Select",
+    "FirstOrDefault",
+    "FirstOrDefaultAsync",
+    "Single",
+    "SingleOrDefault",
+    "SingleAsync",
+    "Find",
+    "FindAsync",
+];
+
+/// Receiver patterns that indicate in-memory collections (skip flagging).
+const IN_MEMORY_RECEIVER_PATTERNS: &[&str] = &[
+    "list", "array", "collection", "enumerable", "items", "results",
+];
+
+/// Receiver patterns that indicate DB context (require for ambiguous methods).
+const DB_CONTEXT_RECEIVER_PATTERNS: &[&str] = &[
+    "context", "dbcontext", "dbset", "repository", "entities",
+];
 
 fn csharp_lang() -> tree_sitter::Language {
     Language::CSharp.tree_sitter_language()
@@ -125,6 +150,21 @@ impl NPlusOneQueriesPipeline {
                     // Check EF/ADO.NET patterns
                     for &method in EF_METHODS {
                         if fn_text.ends_with(method) {
+                            // For LINQ-ambiguous methods, check the receiver to
+                            // avoid false positives on in-memory collections.
+                            if LINQ_AMBIGUOUS_METHODS.contains(&method) {
+                                let receiver = extract_receiver_text(inv_node, source);
+                                if !receiver.is_empty() {
+                                    // Skip if receiver looks like an in-memory collection
+                                    if receiver_matches_any(receiver, IN_MEMORY_RECEIVER_PATTERNS) {
+                                        break;
+                                    }
+                                    // For ambiguous methods, only flag if receiver looks like a DB context
+                                    if !receiver_matches_any(receiver, DB_CONTEXT_RECEIVER_PATTERNS) {
+                                        break;
+                                    }
+                                }
+                            }
                             results.push((inv_node, "db_query_in_loop"));
                             break;
                         }

@@ -6,12 +6,21 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::is_test_file;
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index};
 
-const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "0.0", "1.0"];
+const EXCLUDED_VALUES: &[&str] = &[
+    "0", "1", "2", "0.0", "1.0",
+    "10", "100", "1000",
+    "256", "512", "1024", "2048", "4096", "8192", "16384", "32768", "65536",
+    "0xFF", "0xff", "0x80", "0xFFFF", "0xffff",
+];
 
-const EXEMPT_ANCESTOR_KINDS: &[&str] = &["const_declaration", "const_spec"];
+const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
+    "const_declaration", "const_spec",
+    "case_clause", "expression_case", "call_expression",
+];
 
 pub struct GoMagicNumbersPipeline {
     numeric_query: Arc<Query>,
@@ -58,6 +67,10 @@ impl Pipeline for GoMagicNumbersPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
@@ -115,7 +128,7 @@ mod tests {
 
     #[test]
     fn detects_magic_number() {
-        let src = "package main\nfunc main() {\n\tx := make(chan struct{}, 32)\n\t_ = x\n}\n";
+        let src = "package main\nfunc main() {\n\tx := 32 + y\n\t_ = x\n}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "magic_number");

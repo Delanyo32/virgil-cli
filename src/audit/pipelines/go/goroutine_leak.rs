@@ -56,9 +56,9 @@ impl GoroutineLeakPipeline {
 
     fn walk_for_select(node: tree_sitter::Node, source: &[u8]) -> bool {
         if node.kind() == "select_statement" {
-            // Check if any communication_case references .Done()
+            // Check if any communication_case contains a channel receive (<-)
             let text = node_text(node, source);
-            if text.contains("Done()") {
+            if text.contains("<-") {
                 return true;
             }
         }

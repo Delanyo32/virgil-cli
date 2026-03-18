@@ -5,6 +5,7 @@ use tree_sitter::{Query, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{is_test_file, is_test_context_rust, is_main_function_rust, receiver_has_lock};
 use super::primitives;
 
 pub struct PanicDetectionPipeline {
@@ -43,22 +44,49 @@ impl Pipeline for PanicDetectionPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files entirely
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
 
         let method_matches =
             primitives::find_method_calls(tree, source, &self.method_query, &["unwrap", "expect"]);
 
         for m in method_matches {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line: m.line,
-                column: m.column,
-                severity: "warning".to_string(),
-                pipeline: self.name().to_string(),
-                pattern: m.name.clone(),
-                message: Self::message_for_pattern(&m.name).to_string(),
-                snippet: m.text,
-            });
+            // Find the node at this position for context checks
+            let node = tree.root_node().descendant_for_point_range(
+                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+            );
+
+            if let Some(n) = node {
+                // Skip .unwrap()/.expect() inside test contexts
+                if is_test_context_rust(n, source) {
+                    continue;
+                }
+                // Skip .unwrap() when receiver chain includes .lock() (Mutex::lock().unwrap() is standard)
+                if (m.name == "unwrap" || m.name == "expect") && m.text.contains(".lock()") {
+                    continue;
+                }
+                // Downgrade severity in main() to info
+                let severity = if is_main_function_rust(n, source) {
+                    "info"
+                } else {
+                    "warning"
+                };
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line: m.line,
+                    column: m.column,
+                    severity: severity.to_string(),
+                    pipeline: self.name().to_string(),
+                    pattern: m.name.clone(),
+                    message: Self::message_for_pattern(&m.name).to_string(),
+                    snippet: m.text,
+                });
+            }
         }
 
         let macro_matches = primitives::find_macro_invocations(
@@ -69,6 +97,18 @@ impl Pipeline for PanicDetectionPipeline {
         );
 
         for m in macro_matches {
+            let node = tree.root_node().descendant_for_point_range(
+                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+            );
+
+            if let Some(n) = node {
+                // Skip macros inside test contexts
+                if is_test_context_rust(n, source) {
+                    continue;
+                }
+            }
+
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: m.line,
@@ -143,7 +183,7 @@ fn example() -> Result<i32, String> {
 
     #[test]
     fn findings_have_correct_metadata() {
-        let src = r#"fn main() { Some(1).unwrap(); }"#;
+        let src = r#"fn process() { Some(1).unwrap(); }"#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         let f = &findings[0];
@@ -155,8 +195,16 @@ fn example() -> Result<i32, String> {
     }
 
     #[test]
-    fn snippet_captures_full_expression() {
+    fn unwrap_in_main_is_info() {
         let src = r#"fn main() { Some(1).unwrap(); }"#;
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "info");
+    }
+
+    #[test]
+    fn snippet_captures_full_expression() {
+        let src = r#"fn process() { Some(1).unwrap(); }"#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].snippet.contains("Some(1).unwrap()"));

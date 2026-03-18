@@ -5,6 +5,7 @@ use tree_sitter::{Query, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::is_trait_impl;
 use super::primitives;
 
 const LARGE_IMPL_THRESHOLD: usize = 10;
@@ -40,6 +41,30 @@ impl Pipeline for GodObjectDetectionPipeline {
             primitives::find_large_impl_blocks(tree, source, &self.impl_query, LARGE_IMPL_THRESHOLD);
 
         for m in impl_matches {
+            // Skip trait impls — they cannot be split; flagging is not actionable
+            let impl_node = tree.root_node().descendant_for_point_range(
+                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+            );
+            if let Some(n) = impl_node {
+                // Walk up to find the impl_item
+                let mut current = Some(n);
+                while let Some(c) = current {
+                    if c.kind() == "impl_item" {
+                        if is_trait_impl(c, source) {
+                            break;
+                        }
+                        // Not a trait impl, fall through to flag it
+                        break;
+                    }
+                    current = c.parent();
+                }
+                if let Some(c) = current {
+                    if c.kind() == "impl_item" && is_trait_impl(c, source) {
+                        continue;
+                    }
+                }
+            }
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: m.line,
@@ -154,14 +179,14 @@ mod tests {
     }
 
     #[test]
-    fn trait_impl_detected() {
+    fn trait_impl_skipped() {
         let src = format!(
             "struct Foo;\ntrait BigTrait {{}}\nimpl BigTrait for Foo {{\n{}\n}}",
             gen_methods(10)
         );
         let findings = parse_and_check(&src);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "large_impl_block");
+        // Trait impls cannot be split, so they should not be flagged
+        assert!(findings.is_empty());
     }
 
     #[test]

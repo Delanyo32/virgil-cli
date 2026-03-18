@@ -15,6 +15,8 @@ use super::primitives::{
 
 const FIELD_THRESHOLD: usize = 15;
 const METHOD_THRESHOLD: usize = 10;
+const DTO_TAGS: &[&str] = &["json:", "yaml:", "toml:", "db:", "gorm:"];
+const CONFIG_SUFFIXES: &[&str] = &["Config", "Options", "Settings", "Params"];
 
 pub struct GodStructPipeline {
     struct_query: Arc<Query>,
@@ -64,6 +66,24 @@ impl Pipeline for GodStructPipeline {
 
                     if field_count >= FIELD_THRESHOLD {
                         let struct_name = node_text(name_node, source);
+
+                        // Skip structs with Config/Options/Settings/Params suffix
+                        if CONFIG_SUFFIXES.iter().any(|s| struct_name.ends_with(s)) {
+                            continue;
+                        }
+
+                        // Skip DTO/model structs (field tags contain json:, yaml:, etc.)
+                        let has_dto_tag = (0..fields_node.named_child_count())
+                            .filter_map(|i| fields_node.named_child(i))
+                            .filter(|child| child.kind() == "field_declaration")
+                            .any(|field| {
+                                let field_text = node_text(field, source);
+                                DTO_TAGS.iter().any(|tag| field_text.contains(tag))
+                            });
+                        if has_dto_tag {
+                            continue;
+                        }
+
                         let start = decl_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),

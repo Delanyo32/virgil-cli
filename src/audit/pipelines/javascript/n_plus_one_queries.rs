@@ -9,6 +9,7 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 
 /// DB/ORM method names that suggest a database query.
 const DB_METHOD_NAMES: &[&str] = &[
@@ -19,6 +20,22 @@ const DB_METHOD_NAMES: &[&str] = &[
     "findById",
     "query",
     "execute",
+    "get",
+];
+
+/// Generic method names that are also common on non-DB types (arrays, maps, etc.).
+/// These require receiver checking to avoid false positives.
+const GENERIC_METHOD_NAMES: &[&str] = &["find", "get"];
+
+/// Receiver patterns that indicate non-DB usage (case-insensitive).
+const NON_DB_RECEIVERS: &[&str] = &[
+    "arr", "array", "list", "map", "set", "cache", "store", "items", "collection", "data",
+];
+
+/// Receiver patterns that confirm DB usage (case-insensitive).
+#[allow(dead_code)]
+const DB_RECEIVERS: &[&str] = &[
+    "db", "conn", "model", "repository", "prisma", "sequelize", "mongoose", "knex",
 ];
 
 /// Object.method patterns that suggest a database or HTTP call.
@@ -218,6 +235,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
                     let method_name = node_text(method, source);
 
                     // Check specific obj.method pairs
+                    let mut matched_pair = false;
                     for &(expected_obj, expected_method) in DB_OBJ_METHOD_PAIRS {
                         if obj_name == expected_obj && method_name == expected_method {
                             let has_await = Self::has_await_ancestor(call);
@@ -230,12 +248,24 @@ impl Pipeline for NPlusOneQueriesPipeline {
                                     "`{obj_name}.{method_name}()` called inside a loop{await_hint} — potential N+1 query"
                                 ),
                             ));
-                            continue;
+                            matched_pair = true;
+                            break;
                         }
+                    }
+                    if matched_pair {
+                        continue;
                     }
 
                     // Check generic DB method names on any receiver
                     if DB_METHOD_NAMES.contains(&method_name) {
+                        // For generic method names like .find(), .get(), check the receiver
+                        // to avoid false positives on array/collection operations
+                        if GENERIC_METHOD_NAMES.contains(&method_name) {
+                            let receiver = extract_receiver_text(call, source);
+                            if !receiver.is_empty() && receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                                continue;
+                            }
+                        }
                         let has_await = Self::has_await_ancestor(call);
                         let await_hint = if has_await { " (awaited)" } else { "" };
                         findings.push(self.make_finding(

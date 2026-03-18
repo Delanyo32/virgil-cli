@@ -6,22 +6,28 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 
-const DB_METHODS: &[&str] = &[
+// High-confidence DB methods (always flag)
+const DEFINITE_DB_METHODS: &[&str] = &[
     "fetch_one",
     "fetch_all",
     "fetch_optional",
-    "load",
-    "first",
-    "find",
-    "execute",
-    "query",
     "query_as",
 ];
 
-const HTTP_METHODS: &[&str] = &["send", "get", "post", "put", "delete"];
+// Ambiguous methods — require receiver heuristic
+const MAYBE_DB_METHODS: &[&str] = &["execute", "load", "first", "find", "query"];
+const MAYBE_HTTP_METHODS: &[&str] = &["send", "get", "post", "put", "delete"];
+
+// Receiver patterns that indicate DB context
+const DB_RECEIVERS: &[&str] = &["conn", "pool", "db", "client", "sqlx", "diesel", "sea_orm", "query", "stmt"];
+// Receiver patterns that indicate HTTP context
+const HTTP_RECEIVERS: &[&str] = &["client", "reqwest", "http", "hyper"];
+// Receiver patterns that are NOT DB/HTTP (skip these)
+const NON_DB_RECEIVERS: &[&str] = &["tx", "sender", "mpsc", "map", "iter", "vec", "url", "params", "cache", "arr", "list", "set", "hash", "btree"];
 
 fn rust_lang() -> tree_sitter::Language {
     Language::Rust.tree_sitter_language()
@@ -112,11 +118,30 @@ impl Pipeline for NPlusOneQueriesPipeline {
 
                     if let (Some(name_n), Some(call_n)) = (name_node, call_node) {
                         let method_name = node_text(name_n, source);
+                        let receiver = extract_receiver_text(call_n, source);
 
-                        let (is_match, pattern) = if DB_METHODS.contains(&method_name) {
+                        let (is_match, pattern) = if DEFINITE_DB_METHODS.contains(&method_name) {
                             (true, "db_query_in_loop")
-                        } else if HTTP_METHODS.contains(&method_name) {
-                            (true, "http_call_in_loop")
+                        } else if MAYBE_DB_METHODS.contains(&method_name) {
+                            // For ambiguous DB methods, check receiver context
+                            if receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                                (false, "")
+                            } else if receiver_matches_any(receiver, DB_RECEIVERS) {
+                                (true, "db_query_in_loop")
+                            } else {
+                                // Unknown receiver — still flag but could be false positive
+                                (true, "db_query_in_loop")
+                            }
+                        } else if MAYBE_HTTP_METHODS.contains(&method_name) {
+                            // For ambiguous HTTP methods, check receiver context
+                            if receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                                (false, "")
+                            } else if receiver_matches_any(receiver, HTTP_RECEIVERS) {
+                                (true, "http_call_in_loop")
+                            } else {
+                                // Unknown receiver — still flag
+                                (true, "http_call_in_loop")
+                            }
                         } else {
                             (false, "")
                         };

@@ -102,6 +102,8 @@ fn collect_static_functions<'a>(
 
 /// Count usages of `target_name` identifier across the tree, excluding nodes
 /// that are descendants of the node with `exclude_subtree_id`.
+/// Also detects function pointer passing patterns where the function name
+/// appears as an argument to a call_expression (e.g., `qsort(arr, n, sizeof, compare_fn)`).
 fn count_identifier_usages(
     node: tree_sitter::Node,
     source: &[u8],
@@ -120,9 +122,56 @@ fn count_identifier_usages(
             *count += 1;
         }
     }
+    // Check for function pointer passing in call_expression argument lists.
+    // The function name may appear inside argument_list as a pointer_expression (&fn_name)
+    // or cast_expression that wraps the identifier. Walk argument_list children
+    // to find the target name even when wrapped in such expressions.
+    if node.kind() == "call_expression" {
+        if let Some(args) = node.child_by_field_name("arguments") {
+            count_identifier_in_args(args, source, target_name, count);
+        }
+        // Still recurse into children normally below
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         count_identifier_usages(child, source, target_name, exclude_subtree_id, count);
+    }
+}
+
+/// Search inside an argument_list for the target name, including when wrapped
+/// in pointer_expression (&fn), cast_expression, or parenthesized_expression.
+fn count_identifier_in_args(
+    args_node: tree_sitter::Node,
+    source: &[u8],
+    target_name: &str,
+    count: &mut usize,
+) {
+    let mut cursor = args_node.walk();
+    for child in args_node.children(&mut cursor) {
+        // Direct identifier argument (e.g., `compare_fn`)
+        if child.kind() == "identifier" && node_text(child, source) == target_name {
+            // This is already counted by the main walk, so don't double-count
+            return;
+        }
+        // Wrapped in pointer_expression (e.g., `&compare_fn`)
+        if child.kind() == "pointer_expression" {
+            let mut inner_cursor = child.walk();
+            for inner in child.children(&mut inner_cursor) {
+                if inner.kind() == "identifier" && node_text(inner, source) == target_name {
+                    *count += 1;
+                    return;
+                }
+            }
+        }
+        // Wrapped in cast_expression (e.g., `(comparator_t)compare_fn`)
+        if child.kind() == "cast_expression" {
+            if let Some(value) = child.child_by_field_name("value") {
+                if value.kind() == "identifier" && node_text(value, source) == target_name {
+                    *count += 1;
+                    return;
+                }
+            }
+        }
     }
 }
 

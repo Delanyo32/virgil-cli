@@ -6,11 +6,14 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::ancestor_has_kind;
 
 use super::primitives::{
     compile_assignment_query, compile_short_var_decl_query, extract_snippet, find_capture_index,
     node_text,
 };
+
+const SAFE_CLEANUP_METHODS: &[&str] = &["Close", "Flush", "Remove"];
 
 pub struct ErrorSwallowingPipeline {
     short_var_query: Arc<Query>,
@@ -81,6 +84,35 @@ impl ErrorSwallowingPipeline {
                 });
 
                 if !has_call {
+                    continue;
+                }
+
+                // Skip if the call is inside a defer statement
+                if ancestor_has_kind(decl, &["defer_statement"]) {
+                    continue;
+                }
+
+                // Skip if the RHS call is to a known safe-to-ignore cleanup function
+                let is_safe_cleanup = (0..rhs.named_child_count()).any(|i| {
+                    rhs.named_child(i)
+                        .map(|child| {
+                            if child.kind() == "call_expression" {
+                                // Check for selector_expression (e.g., file.Close())
+                                if let Some(func) = child.child_by_field_name("function") {
+                                    if func.kind() == "selector_expression" {
+                                        if let Some(field) = func.child_by_field_name("field") {
+                                            let method = node_text(field, source);
+                                            return SAFE_CLEANUP_METHODS.contains(&method);
+                                        }
+                                    }
+                                }
+                            }
+                            false
+                        })
+                        .unwrap_or(false)
+                });
+
+                if is_safe_cleanup {
                     continue;
                 }
 

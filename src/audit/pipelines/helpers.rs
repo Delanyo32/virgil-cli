@@ -599,6 +599,424 @@ fn check_member_access_recursive(
     }
 }
 
+// ── False-positive suppression helpers ────────────────────────────────
+
+/// Check if a file path indicates test code (language-agnostic).
+pub fn is_test_file(file_path: &str) -> bool {
+    let path = file_path.replace('\\', "/");
+    // Directory patterns
+    if path.contains("/tests/")
+        || path.contains("/test/")
+        || path.contains("/__tests__/")
+        || path.contains("/testing/")
+        || path.contains("/testdata/")
+    {
+        return true;
+    }
+    // File name patterns
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("");
+    // Rust: _test.rs, Go: _test.go
+    if file_name.ends_with("_test.rs") || file_name.ends_with("_test.go") {
+        return true;
+    }
+    // Python: test_*.py, *_test.py, conftest.py
+    if (file_name.starts_with("test_") && file_name.ends_with(".py"))
+        || (file_name.ends_with("_test.py"))
+        || file_name == "conftest.py"
+    {
+        return true;
+    }
+    // Java: *Test.java, *Tests.java, *Spec.java
+    if file_name.ends_with("Test.java")
+        || file_name.ends_with("Tests.java")
+        || file_name.ends_with("Spec.java")
+    {
+        return true;
+    }
+    // JS/TS: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx
+    let lower = file_name.to_lowercase();
+    if lower.contains(".test.") || lower.contains(".spec.") {
+        return true;
+    }
+    false
+}
+
+/// Walk the parent chain of `node`; return true if any ancestor's kind is in `kinds`.
+pub fn ancestor_has_kind(node: Node, kinds: &[&str]) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if kinds.contains(&parent.kind()) {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+/// Check if a node's text contains a given substring.
+pub fn node_text_contains(node: Node, source: &[u8], text: &str) -> bool {
+    node.utf8_text(source).unwrap_or("").contains(text)
+}
+
+// ── Rust-specific helpers ─────────────────────────────────────────────
+
+/// Check if a node is inside a Rust test context (#[test] fn, #[cfg(test)] mod, mod tests).
+pub fn is_test_context_rust(node: Node, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        let kind = n.kind();
+        if kind == "function_item" {
+            // Check if this function has a #[test] attribute
+            if let Some(prev) = n.prev_named_sibling() {
+                if prev.kind() == "attribute_item" {
+                    let attr_text = prev.utf8_text(source).unwrap_or("");
+                    if attr_text.contains("test") {
+                        return true;
+                    }
+                }
+            }
+        }
+        if kind == "mod_item" {
+            // Check for mod tests or #[cfg(test)]
+            if let Some(name) = n.child_by_field_name("name") {
+                if name.utf8_text(source).unwrap_or("") == "tests" {
+                    return true;
+                }
+            }
+            if let Some(prev) = n.prev_named_sibling() {
+                if prev.kind() == "attribute_item" {
+                    let attr_text = prev.utf8_text(source).unwrap_or("");
+                    if attr_text.contains("cfg(test)") {
+                        return true;
+                    }
+                }
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Check if a node or its ancestors have an attribute_item containing `attr` text.
+pub fn has_attribute_text(node: Node, source: &[u8], attr: &str) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        // Check previous siblings for attribute_item
+        let mut prev = n.prev_named_sibling();
+        while let Some(p) = prev {
+            if p.kind() == "attribute_item" {
+                if p.utf8_text(source).unwrap_or("").contains(attr) {
+                    return true;
+                }
+            } else {
+                break;
+            }
+            prev = p.prev_named_sibling();
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Check if a struct has a #[derive(Name)] attribute.
+pub fn struct_has_derive(node: Node, source: &[u8], name: &str) -> bool {
+    // Walk from the struct_item, check previous siblings for #[derive(...Name...)]
+    let struct_node = if node.kind() == "struct_item" {
+        node
+    } else {
+        // Walk up to find struct_item
+        let mut current = node.parent();
+        loop {
+            match current {
+                Some(n) if n.kind() == "struct_item" => break n,
+                Some(n) => current = n.parent(),
+                None => return false,
+            }
+        }
+    };
+    let mut prev = struct_node.prev_named_sibling();
+    while let Some(p) = prev {
+        if p.kind() == "attribute_item" {
+            let text = p.utf8_text(source).unwrap_or("");
+            if text.contains("derive") && text.contains(name) {
+                return true;
+            }
+        } else {
+            break;
+        }
+        prev = p.prev_named_sibling();
+    }
+    false
+}
+
+/// Check if node is inside a spawn_blocking or block_in_place closure.
+pub fn is_inside_spawn_blocking(node: Node, source: &[u8]) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.kind() == "call_expression" {
+            let call_text = p.utf8_text(source).unwrap_or("");
+            if call_text.contains("spawn_blocking") || call_text.contains("block_in_place") {
+                return true;
+            }
+        }
+        current = p.parent();
+    }
+    false
+}
+
+/// Check if an impl_item is a trait impl (impl Trait for Type).
+pub fn is_trait_impl(impl_node: Node, source: &[u8]) -> bool {
+    let text = impl_node.utf8_text(source).unwrap_or("");
+    // A trait impl contains "for" between the trait name and type name
+    // e.g., "impl Display for Foo { ... }"
+    // Simple heuristic: check first line for pattern "impl ... for ..."
+    if let Some(first_line) = text.lines().next() {
+        let trimmed = first_line.trim();
+        if trimmed.starts_with("impl") {
+            // Check if there's a "for" keyword before the opening brace
+            let before_brace = if let Some(idx) = trimmed.find('{') {
+                &trimmed[..idx]
+            } else {
+                trimmed
+            };
+            // Split by whitespace and check for "for" token
+            let tokens: Vec<&str> = before_brace.split_whitespace().collect();
+            return tokens.contains(&"for");
+        }
+    }
+    false
+}
+
+/// Check if a Rust function is named main.
+pub fn is_main_function_rust(node: Node, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "function_item" {
+            if let Some(name) = n.child_by_field_name("name") {
+                return name.utf8_text(source).unwrap_or("") == "main";
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Check if a Rust method call has a chained .lock() in its receiver.
+pub fn receiver_has_lock(call_node: Node, source: &[u8]) -> bool {
+    // call_expression > field_expression > value (the receiver chain)
+    if let Some(field_expr) = call_node.child_by_field_name("function") {
+        if let Some(value) = field_expr.child_by_field_name("value") {
+            let receiver_text = value.utf8_text(source).unwrap_or("");
+            return receiver_text.contains(".lock()");
+        }
+    }
+    false
+}
+
+// ── Go-specific helpers ───────────────────────────────────────────────
+
+/// Check if a Go node is inside a test function (func Test*, func Benchmark*) or _test.go file.
+pub fn is_test_context_go(node: Node, source: &[u8], file_path: &str) -> bool {
+    if file_path.ends_with("_test.go") {
+        return true;
+    }
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "function_declaration" {
+            if let Some(name) = n.child_by_field_name("name") {
+                let name_text = name.utf8_text(source).unwrap_or("");
+                if name_text.starts_with("Test") || name_text.starts_with("Benchmark") {
+                    return true;
+                }
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Check if a Go node is inside func init() or func main().
+pub fn is_init_or_main_go(node: Node, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "function_declaration" {
+            if let Some(name) = n.child_by_field_name("name") {
+                let name_text = name.utf8_text(source).unwrap_or("");
+                if name_text == "init" || name_text == "main" {
+                    return true;
+                }
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Check if a Go function name starts with "New" (constructor convention).
+pub fn is_go_constructor(node: Node, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "function_declaration" {
+            if let Some(name) = n.child_by_field_name("name") {
+                let name_text = name.utf8_text(source).unwrap_or("");
+                if name_text.starts_with("New") || name_text.starts_with("Init") {
+                    return true;
+                }
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
+// ── Java-specific helpers ─────────────────────────────────────────────
+
+/// Check if a Java node has a specific annotation (e.g., @Test, @Override).
+pub fn has_annotation(node: Node, source: &[u8], name: &str) -> bool {
+    // Java annotations are children of `modifiers` node, which is a sibling of the method
+    // or they can be marker_annotation or annotation nodes
+    let target = if node.kind() == "method_declaration"
+        || node.kind() == "class_declaration"
+        || node.kind() == "field_declaration"
+    {
+        node
+    } else {
+        // Walk up to find the enclosing declaration
+        let mut current = node.parent();
+        loop {
+            match current {
+                Some(n) if n.kind() == "method_declaration" || n.kind() == "class_declaration" => {
+                    break n
+                }
+                Some(n) => current = n.parent(),
+                None => return false,
+            }
+        }
+    };
+    // Check for modifiers child containing the annotation
+    let mut cursor = target.walk();
+    for child in target.children(&mut cursor) {
+        if child.kind() == "modifiers" {
+            let mut inner_cursor = child.walk();
+            for modifier_child in child.children(&mut inner_cursor) {
+                if modifier_child.kind() == "marker_annotation" || modifier_child.kind() == "annotation" {
+                    let text = modifier_child.utf8_text(source).unwrap_or("");
+                    if text.contains(name) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a Java node is inside a try-with-resources resource spec.
+pub fn is_in_try_with_resources(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.kind() == "try_with_resources_statement" || p.kind() == "resource_specification" {
+            return true;
+        }
+        current = p.parent();
+    }
+    false
+}
+
+// ── JS/TS-specific helpers ────────────────────────────────────────────
+
+/// Check if a JS/TS node is inside a test context (describe, it, test, beforeEach blocks).
+pub fn is_test_context_js(node: Node, source: &[u8]) -> bool {
+    let test_callee_names = ["describe", "it", "test", "beforeEach", "afterEach", "beforeAll", "afterAll"];
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.kind() == "call_expression" {
+            // Check if the callee is one of the test framework functions
+            if let Some(func) = p.child_by_field_name("function") {
+                let func_text = func.utf8_text(source).unwrap_or("");
+                if test_callee_names.iter().any(|n| func_text == *n) {
+                    return true;
+                }
+            }
+        }
+        current = p.parent();
+    }
+    false
+}
+
+// ── Python-specific helpers ───────────────────────────────────────────
+
+/// Check if a Python node is inside a test context (def test_*, class Test*, conftest.py).
+pub fn is_test_context_python(node: Node, source: &[u8], file_path: &str) -> bool {
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("");
+    if file_name == "conftest.py" {
+        return true;
+    }
+    let mut current = Some(node);
+    while let Some(n) = current {
+        match n.kind() {
+            "function_definition" => {
+                if let Some(name) = n.child_by_field_name("name") {
+                    let name_text = name.utf8_text(source).unwrap_or("");
+                    if name_text.starts_with("test_") {
+                        return true;
+                    }
+                }
+            }
+            "class_definition" => {
+                if let Some(name) = n.child_by_field_name("name") {
+                    let name_text = name.utf8_text(source).unwrap_or("");
+                    if name_text.starts_with("Test") {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Extract the receiver text from a method call's field_expression.
+/// For `receiver.method()`, returns the text of `receiver`.
+/// Handles multiple AST patterns:
+/// - Rust/Go: `call_expression > function: field_expression > value`
+/// - JS/TS: `call_expression > function: member_expression > object`
+/// - Java/C#: `method_invocation > object`
+/// - Python: `call > function: attribute > object`
+/// - PHP: `member_call_expression > object`
+pub fn extract_receiver_text<'a>(call_node: Node<'a>, source: &'a [u8]) -> &'a str {
+    // Direct object field (Java method_invocation, PHP member_call_expression)
+    if let Some(obj) = call_node.child_by_field_name("object") {
+        return obj.utf8_text(source).unwrap_or("");
+    }
+    // Rust/Go/JS/TS: call_expression > function: (field_expression|member_expression)
+    if let Some(func) = call_node.child_by_field_name("function") {
+        if func.kind() == "field_expression" || func.kind() == "member_expression" || func.kind() == "attribute" {
+            if let Some(obj) = func.child_by_field_name("object") {
+                return obj.utf8_text(source).unwrap_or("");
+            }
+            if let Some(val) = func.child_by_field_name("value") {
+                return val.utf8_text(source).unwrap_or("");
+            }
+        }
+    }
+    ""
+}
+
+/// Check if receiver text matches any of the given patterns (case-insensitive contains).
+pub fn receiver_matches_any(receiver: &str, patterns: &[&str]) -> bool {
+    let lower = receiver.to_lowercase();
+    patterns.iter().any(|p| lower.contains(&p.to_lowercase()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,5 +1115,43 @@ mod tests {
         );
         assert_eq!(comment_lines, 1);
         assert_eq!(code_lines, 2);
+    }
+
+    // ── Tests for false-positive suppression helpers ──────────────
+
+    #[test]
+    fn test_is_test_file() {
+        assert!(is_test_file("src/foo_test.rs"));
+        assert!(is_test_file("pkg/handler_test.go"));
+        assert!(is_test_file("tests/test_main.py"));
+        assert!(is_test_file("src/main.test.ts"));
+        assert!(is_test_file("src/__tests__/foo.js"));
+        assert!(is_test_file("UserTest.java"));
+        assert!(!is_test_file("src/main.rs"));
+        assert!(!is_test_file("src/handler.go"));
+    }
+
+    #[test]
+    fn test_ancestor_has_kind() {
+        let src = "function foo() { if (x) { let y = 1; } }";
+        let tree = parse_js(src);
+        let root = tree.root_node();
+        // Navigate to the number literal inside the if
+        let func = root.named_child(0).unwrap();
+        let body = func.child_by_field_name("body").unwrap();
+        // Find the if_statement
+        let mut cursor = body.walk();
+        let if_stmt = body.named_children(&mut cursor)
+            .find(|c| c.kind() == "if_statement")
+            .unwrap();
+        assert!(ancestor_has_kind(if_stmt, &["statement_block"]));
+        assert!(!ancestor_has_kind(if_stmt, &["for_statement"]));
+    }
+
+    #[test]
+    fn test_receiver_matches_any() {
+        assert!(receiver_matches_any("dbConn", &["db", "conn"]));
+        assert!(receiver_matches_any("myPool", &["pool"]));
+        assert!(!receiver_matches_any("myList", &["db", "conn"]));
     }
 }

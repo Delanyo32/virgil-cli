@@ -114,19 +114,22 @@ fn check_params_recursive(
                     .map(|n| node_text(n, source))
                     .unwrap_or("<anonymous>");
 
-                let start = node.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "parameter_overload".to_string(),
-                    message: format!(
-                        "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using an options struct"
-                    ),
-                    snippet: extract_snippet(source, node, 1),
-                });
+                // Skip constructor functions (Go convention: New*)
+                if !name.starts_with("New") {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "parameter_overload".to_string(),
+                        message: format!(
+                            "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using an options struct"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
+                }
             }
         }
     }

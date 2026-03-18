@@ -173,25 +173,28 @@ fn collect_parameter_overloads(
 ) {
     if node.kind() == "function_definition" {
         if let Some(name_node) = node.child_by_field_name("name") {
-            if let Some(params_node) = node.child_by_field_name("parameters") {
-                let param_count = count_python_parameters(params_node, source);
-                if param_count > PARAMETER_OVERLOAD_THRESHOLD {
-                    let fn_name = node_text(name_node, source);
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "parameter_overload".to_string(),
-                        message: format!(
-                            "function `{fn_name}` has {param_count} parameters \
-                             (threshold: {PARAMETER_OVERLOAD_THRESHOLD}) — consider using \
-                             a configuration object or dataclass"
-                        ),
-                        snippet: extract_snippet(source, node, 1),
-                    });
+            let fn_name = node_text(name_node, source);
+            // Skip __init__ constructors — they often need many parameters
+            if fn_name != "__init__" {
+                if let Some(params_node) = node.child_by_field_name("parameters") {
+                    let param_count = count_python_parameters(params_node, source);
+                    if param_count > PARAMETER_OVERLOAD_THRESHOLD {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "parameter_overload".to_string(),
+                            message: format!(
+                                "function `{fn_name}` has {param_count} parameters \
+                                 (threshold: {PARAMETER_OVERLOAD_THRESHOLD}) — consider using \
+                                 a configuration object or dataclass"
+                            ),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                    }
                 }
             }
         }

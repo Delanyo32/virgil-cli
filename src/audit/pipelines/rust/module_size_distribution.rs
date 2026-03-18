@@ -6,14 +6,17 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file};
+use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file, is_test_file};
 use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index};
 
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
 const MONOLITHIC_EXPORT_THRESHOLD: usize = 20;
-const ANEMIC_ENTRY_FILES: &[&str] = &["main.rs", "lib.rs", "mod.rs", "build.rs"];
+const ANEMIC_ENTRY_FILES: &[&str] = &[
+    "main.rs", "lib.rs", "mod.rs", "build.rs",
+    "types.rs", "errors.rs", "constants.rs", "prelude.rs", "config.rs",
+];
 
 const RUST_DEFINITION_KINDS: &[&str] = &[
     "function_item",
@@ -23,8 +26,6 @@ const RUST_DEFINITION_KINDS: &[&str] = &[
     "type_item",
     "const_item",
     "static_item",
-    "impl_item",
-    "mod_item",
     "macro_definition",
 ];
 
@@ -69,6 +70,11 @@ impl Pipeline for ModuleSizeDistributionPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files from oversized/anemic checks
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let root = tree.root_node();
 

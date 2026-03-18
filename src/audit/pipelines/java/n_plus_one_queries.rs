@@ -9,15 +9,33 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 
-const DB_METHODS: &[&str] = &[
-    "find",
-    "findById",
-    "createQuery",
+/// Definite DB methods — always flagged regardless of receiver
+const DEFINITE_DB_METHODS: &[&str] = &[
     "executeQuery",
     "executeUpdate",
+    "createQuery",
     "prepareStatement",
     "getResultSet",
+];
+
+/// Ambiguous methods — only flagged when receiver matches a DB-related pattern
+const AMBIGUOUS_DB_METHODS: &[&str] = &[
+    "find",
+    "findById",
+    "get",
+    "load",
+];
+
+/// Receiver patterns that indicate a DB context for ambiguous methods
+const DB_RECEIVER_PATTERNS: &[&str] = &[
+    "entitymanager", "session", "repository", "repo", "dao", "jdbc", "connection",
+];
+
+/// Receiver patterns that indicate a non-DB context (skip)
+const NON_DB_RECEIVER_PATTERNS: &[&str] = &[
+    "list", "map", "array", "cache", "set", "collection",
 ];
 
 const DB_CHAINED_CALLS: &[(&str, &str)] = &[
@@ -130,12 +148,28 @@ impl NPlusOneQueriesPipeline {
                     }
                 }
 
-                // Check simple DB method names
-                if DB_METHODS.contains(&method_name) {
-                    // Avoid duplicates from chained calls already matched
+                // Check definite DB method names — always flagged
+                if DEFINITE_DB_METHODS.contains(&method_name) {
                     let already_found = results.iter().any(|(n, _)| n.id() == inv_node.id());
                     if !already_found {
                         results.push((inv_node, "db_query_in_loop"));
+                    }
+                }
+
+                // Check ambiguous DB method names — only flag with DB-like receiver
+                if AMBIGUOUS_DB_METHODS.contains(&method_name) {
+                    let already_found = results.iter().any(|(n, _)| n.id() == inv_node.id());
+                    if !already_found {
+                        let receiver = extract_receiver_text(inv_node, source);
+                        if !receiver.is_empty() {
+                            // Skip if receiver looks like a collection/non-DB type
+                            if receiver_matches_any(receiver, NON_DB_RECEIVER_PATTERNS) {
+                                // Not a DB call — skip
+                            } else if receiver_matches_any(receiver, DB_RECEIVER_PATTERNS) {
+                                results.push((inv_node, "db_query_in_loop"));
+                            }
+                            // If receiver doesn't match either list, skip (conservative)
+                        }
                     }
                 }
 

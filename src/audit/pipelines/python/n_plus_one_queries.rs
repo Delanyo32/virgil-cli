@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
 
@@ -37,6 +38,16 @@ const BARE_CALL_PATTERNS: &[&str] = &[
 /// Attribute call patterns where any object can be the receiver (e.g. `urllib.request.urlopen`).
 const DEEP_ATTR_TAILS: &[&str] = &[
     "urlopen",
+];
+
+/// Non-DB receiver patterns — skip these for ambiguous methods like .filter(), .get(), etc.
+const NON_DB_RECEIVERS: &[&str] = &[
+    "list", "dict", "set", "cache", "arr", "tuple", "str", "iter",
+];
+
+/// DB receiver patterns — require these for ambiguous methods
+const DB_RECEIVERS: &[&str] = &[
+    "session", "query", "db", "model", "objects", "cursor", "conn",
 ];
 
 const LOOP_KINDS: &[&str] = &["for_statement", "while_statement"];
@@ -91,11 +102,21 @@ impl NPlusOneQueriesPipeline {
                     }
                 }
 
-                // Check ORM method names on any receiver
+                // Check ORM method names with receiver validation
                 if ORM_METHOD_NAMES.contains(&attr) {
-                    return Some(self.make_finding(call_node, source, file_path, &format!(
-                        "`.{attr}()` called inside a loop — potential N+1 query"
-                    )));
+                    let receiver = extract_receiver_text(call_node, source);
+                    // Skip if receiver matches non-DB patterns
+                    if !receiver.is_empty() && receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                        return None;
+                    }
+                    // Only flag if receiver matches DB patterns or is unknown
+                    if receiver.is_empty() || receiver_matches_any(receiver, DB_RECEIVERS) {
+                        return Some(self.make_finding(call_node, source, file_path, &format!(
+                            "`.{attr}()` called inside a loop — potential N+1 query"
+                        )));
+                    }
+                    // No pattern match, skip (conservative)
+                    return None;
                 }
 
                 // Check deep attribute tails (e.g. urllib.request.urlopen)

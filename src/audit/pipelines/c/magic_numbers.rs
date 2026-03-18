@@ -9,9 +9,21 @@ use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index, has_type_qualifier};
 
-const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "0.0", "1.0", "-1"];
+const EXCLUDED_VALUES: &[&str] = &[
+    "0", "1", "2", "0.0", "1.0", "-1",
+    "10", "100", "1000",
+    "256", "512", "1024", "2048", "4096", "8192",
+    "0xFF", "0xff", "0x80", "0xFFFF", "0xffff",
+];
 
-const EXEMPT_ANCESTOR_KINDS: &[&str] = &["preproc_def", "preproc_function_def", "enumerator"];
+const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
+    "preproc_def",
+    "preproc_function_def",
+    "enumerator",
+    "bitfield_clause",
+    "field_declaration",
+    "array_declarator",
+];
 
 pub struct CMagicNumbersPipeline {
     numeric_query: Arc<Query>,

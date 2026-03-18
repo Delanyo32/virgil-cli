@@ -73,6 +73,35 @@ impl Pipeline for MissingTraitAbstractionPipeline {
             let param_node = m.captures.iter().find(|c| c.index as usize == param_idx);
 
             if let (Some(type_cap), Some(param_cap)) = (type_node, param_node) {
+                // Skip exempted functions: main, new, open*
+                let skip = {
+                    let mut node = param_cap.node;
+                    let mut should_skip = false;
+                    loop {
+                        if let Some(parent) = node.parent() {
+                            if parent.kind() == "function_item" {
+                                if let Some(name_node) = parent.child_by_field_name("name") {
+                                    let fn_name = name_node.utf8_text(source).unwrap_or("");
+                                    if fn_name == "main"
+                                        || fn_name == "new"
+                                        || fn_name.starts_with("open")
+                                    {
+                                        should_skip = true;
+                                    }
+                                }
+                                break;
+                            }
+                            node = parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    should_skip
+                };
+                if skip {
+                    continue;
+                }
+
                 let type_text = type_cap.node.utf8_text(source).unwrap_or("");
                 let leaf = self.extract_leaf_type(type_text);
 

@@ -170,6 +170,19 @@ impl Pipeline for AsyncBlockingPipeline {
                     if BLOCKING_METHODS.contains(&method)
                         && Self::is_in_async_body(&async_ranges, call_cap.node.start_byte())
                     {
+                        // Fix: .join(",") on strings/iterators takes arguments;
+                        // thread JoinHandle::join() takes NO arguments. Skip if has args.
+                        if method == "join" {
+                            if let Some(args) = call_cap.node.child_by_field_name("arguments") {
+                                if args.named_child_count() > 0 {
+                                    continue;
+                                }
+                            }
+                        }
+                        // Skip calls inside spawn_blocking/block_in_place closures
+                        if crate::audit::pipelines::helpers::is_inside_spawn_blocking(call_cap.node, source) {
+                            continue;
+                        }
                         let start = call_cap.node.start_position();
                         let snippet =
                             call_cap.node.utf8_text(source).unwrap_or("").to_string();
@@ -266,5 +279,16 @@ async fn run() {
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "blocking_in_async");
+    }
+
+    #[test]
+    fn skips_string_join_with_args_in_async() {
+        let src = r#"
+async fn run() {
+    let result = parts.join(",");
+}
+"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 }

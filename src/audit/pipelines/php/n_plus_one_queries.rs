@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
@@ -35,6 +36,12 @@ const HTTP_FUNCTIONS: &[&str] = &["file_get_contents", "curl_exec"];
 
 /// Method names on objects that indicate an HTTP request.
 const HTTP_METHODS: &[&str] = &["get", "request"];
+
+/// Receiver patterns that indicate HTTP usage (flag `.get()` only if receiver matches).
+const HTTP_RECEIVER_PATTERNS: &[&str] = &["http", "client", "guzzle", "curl"];
+
+/// Receiver patterns that indicate cache usage (skip flagging).
+const CACHE_RECEIVER_PATTERNS: &[&str] = &["cache", "redis", "memcache", "session", "store"];
 
 fn php_lang() -> tree_sitter::Language {
     Language::Php.tree_sitter_language()
@@ -171,7 +178,19 @@ impl NPlusOneQueriesPipeline {
             if let (Some(name_n), Some(call_n)) = (name_node, call_node) {
                 let method_name = node_text(name_n, source);
 
-                let (is_match, pattern) = if DB_METHODS.contains(&method_name) {
+                // For `.get()` method, apply receiver-based filtering
+                let (is_match, pattern) = if method_name == "get" {
+                    // Check receiver to disambiguate HTTP vs cache/collection usage
+                    let receiver = extract_receiver_text(call_n, source);
+                    if !receiver.is_empty() && receiver_matches_any(receiver, CACHE_RECEIVER_PATTERNS) {
+                        (false, "")
+                    } else if !receiver.is_empty() && receiver_matches_any(receiver, HTTP_RECEIVER_PATTERNS) {
+                        (true, "http_call_in_loop")
+                    } else {
+                        // Ambiguous .get() — default to DB pattern for ORM-like objects
+                        (true, "db_query_in_loop")
+                    }
+                } else if DB_METHODS.contains(&method_name) {
                     (true, "db_query_in_loop")
                 } else if HTTP_METHODS.contains(&method_name) {
                     (true, "http_call_in_loop")

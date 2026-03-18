@@ -63,6 +63,11 @@ impl Pipeline for ConcreteReturnTypePipeline {
                     continue;
                 }
 
+                // Skip New* functions (Go constructor convention)
+                if fn_name.starts_with("New") {
+                    continue;
+                }
+
                 let return_type = node_text(return_node, source);
                 let start = decl_node.start_position();
                 findings.push(AuditFinding {
@@ -101,11 +106,18 @@ mod tests {
 
     #[test]
     fn detects_exported_concrete_return() {
-        let src = "package main\ntype RedisCache struct{}\nfunc NewCache() *RedisCache { return nil }\n";
+        let src = "package main\ntype RedisCache struct{}\nfunc GetCache() *RedisCache { return nil }\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "exported_concrete_pointer_return");
-        assert!(findings[0].message.contains("NewCache"));
+        assert!(findings[0].message.contains("GetCache"));
+    }
+
+    #[test]
+    fn skips_new_constructor() {
+        let src = "package main\ntype RedisCache struct{}\nfunc NewCache() *RedisCache { return nil }\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 
     #[test]

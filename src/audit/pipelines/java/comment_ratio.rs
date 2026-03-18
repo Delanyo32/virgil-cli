@@ -3,7 +3,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_comment_ratio, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{compute_comment_ratio, is_test_file, ControlFlowConfig};
 
 const UNDER_DOCUMENTED_THRESHOLD: f64 = 0.05;
 const OVER_DOCUMENTED_THRESHOLD: f64 = 0.60;
@@ -38,6 +38,10 @@ impl Pipeline for CommentToCodeRatioPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let cfg = config();
         let (comment_lines, code_lines) = compute_comment_ratio(tree.root_node(), source, &cfg);
@@ -95,7 +99,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = CommentToCodeRatioPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "Test.java")
+        pipeline.check(&tree, source.as_bytes(), "Main.java")
     }
 
     #[test]

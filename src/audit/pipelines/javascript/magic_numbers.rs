@@ -8,10 +8,15 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index};
+use crate::audit::pipelines::helpers::{is_test_file, is_test_context_js};
 
-const EXCLUDED_VALUES: &[&str] = &["0", "1", "2", "0.0", "1.0"];
+const EXCLUDED_VALUES: &[&str] = &[
+    "0", "1", "2", "0.0", "1.0",
+    "10", "100", "1000",
+    "256", "512", "1024", "2048", "4096", "8192",
+];
 
-const EXEMPT_ANCESTOR_KINDS: &[&str] = &["lexical_declaration"];
+const EXEMPT_ANCESTOR_KINDS: &[&str] = &["lexical_declaration", "switch_case"];
 
 pub struct JsMagicNumbersPipeline {
     numeric_query: Arc<Query>,
@@ -72,6 +77,11 @@ impl Pipeline for JsMagicNumbersPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        // Skip test files entirely
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
@@ -89,6 +99,11 @@ impl Pipeline for JsMagicNumbersPipeline {
                 }
 
                 if Self::is_exempt_context(num_cap.node, source) {
+                    continue;
+                }
+
+                // Skip numbers inside test contexts (describe/it/test blocks)
+                if is_test_context_js(num_cap.node, source) {
                     continue;
                 }
 
@@ -129,10 +144,10 @@ mod tests {
 
     #[test]
     fn detects_magic_number() {
-        let findings = parse_and_check("let x = 1024;");
+        let findings = parse_and_check("let x = 42;");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "magic_number");
-        assert!(findings[0].message.contains("1024"));
+        assert!(findings[0].message.contains("42"));
     }
 
     #[test]

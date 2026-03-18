@@ -72,23 +72,29 @@ impl Pipeline for MutexOverusePipeline {
                     } else {
                         "arc_mutex"
                     };
+                    let full_text = generic_cap.node.utf8_text(source).unwrap_or("");
+
+                    // Determine severity based on whether an atomic alternative exists
+                    let (severity, message) = if full_text.contains("Mutex<bool>") {
+                        ("warning", format!("`Arc<Mutex<bool>>` — use `AtomicBool` instead for better performance"))
+                    } else if full_text.contains("Mutex<usize>") || full_text.contains("Mutex<u64>") || full_text.contains("Mutex<u32>") || full_text.contains("Mutex<i64>") || full_text.contains("Mutex<i32>") {
+                        ("warning", format!("`{full_text}` — use the corresponding `Atomic*` type instead"))
+                    } else if full_text.contains("Mutex<HashMap") || full_text.contains("Mutex<BTreeMap") {
+                        ("warning", format!("`{full_text}` — consider `DashMap` for concurrent map access"))
+                    } else {
+                        ("info", format!("`Arc<{inner_text}<T>>` detected — consider if a concurrent data structure or message passing would be simpler"))
+                    };
+
                     let start = generic_cap.node.start_position();
-                    let snippet = generic_cap
-                        .node
-                        .utf8_text(source)
-                        .unwrap_or("")
-                        .to_string();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
-                        severity: "info".to_string(),
+                        severity: severity.to_string(),
                         pipeline: self.name().to_string(),
                         pattern: pattern.to_string(),
-                        message: format!(
-                            "`Arc<{inner_text}<T>>` detected — consider if a concurrent data structure or message passing would be simpler"
-                        ),
-                        snippet,
+                        message,
+                        snippet: full_text.to_string(),
                     });
                 }
             }

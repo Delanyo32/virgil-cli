@@ -20,12 +20,54 @@ impl MutexMisusePipeline {
         })
     }
 
-    fn is_defer_unlock_sibling(expr_stmt: tree_sitter::Node, source: &[u8]) -> bool {
-        if let Some(next) = expr_stmt.next_named_sibling() {
-            if next.kind() == "defer_statement" {
-                // Check if the defer contains .Unlock()
-                let text = node_text(next, source);
-                return text.contains("Unlock()");
+    /// Find the enclosing function body for a given node.
+    fn enclosing_function_body(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            let kind = parent.kind();
+            if kind == "function_declaration" || kind == "method_declaration" || kind == "func_literal" {
+                return parent.child_by_field_name("body");
+            }
+            current = parent.parent();
+        }
+        None
+    }
+
+    /// Extract the receiver (operand) text from a Lock/RLock call node.
+    fn lock_receiver_text<'a>(call_node: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+        let func_node = call_node.child_by_field_name("function")?;
+        if func_node.kind() == "selector_expression" {
+            let operand = func_node.child_by_field_name("operand")?;
+            return operand.utf8_text(source).ok();
+        }
+        None
+    }
+
+    /// Check if Unlock() (or RUnlock()) is called on the same receiver anywhere in the given body node.
+    fn has_unlock_in_scope(body: tree_sitter::Node, source: &[u8], receiver: &str, expected_unlock: &str) -> bool {
+        Self::walk_for_unlock(body, source, receiver, expected_unlock)
+    }
+
+    fn walk_for_unlock(node: tree_sitter::Node, source: &[u8], receiver: &str, expected_unlock: &str) -> bool {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                if func.kind() == "selector_expression" {
+                    let operand = func.child_by_field_name("operand")
+                        .and_then(|o| o.utf8_text(source).ok())
+                        .unwrap_or("");
+                    let method = func.child_by_field_name("field")
+                        .and_then(|f| f.utf8_text(source).ok())
+                        .unwrap_or("");
+                    if operand == receiver && method == expected_unlock {
+                        return true;
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::walk_for_unlock(child, source, receiver, expected_unlock) {
+                return true;
             }
         }
         false
@@ -59,24 +101,24 @@ impl Pipeline for MutexMisusePipeline {
                     continue;
                 }
 
-                // Find the parent expression_statement
-                let expr_stmt = if let Some(parent) = call_node.parent() {
-                    if parent.kind() == "expression_statement" {
-                        parent
-                    } else {
-                        continue;
-                    }
+                let expected_unlock = if method_name == "RLock" {
+                    "RUnlock"
                 } else {
-                    continue;
+                    "Unlock"
                 };
 
-                if !Self::is_defer_unlock_sibling(expr_stmt, source) {
+                // Extract receiver of the Lock call
+                let receiver = Self::lock_receiver_text(call_node, source).unwrap_or("");
+
+                // Check if Unlock exists anywhere in the enclosing function body
+                let has_unlock = if let Some(body) = Self::enclosing_function_body(call_node) {
+                    Self::has_unlock_in_scope(body, source, receiver, expected_unlock)
+                } else {
+                    false
+                };
+
+                if !has_unlock {
                     let start = call_node.start_position();
-                    let expected_unlock = if method_name == "RLock" {
-                        "RUnlock"
-                    } else {
-                        "Unlock"
-                    };
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
@@ -85,7 +127,7 @@ impl Pipeline for MutexMisusePipeline {
                         pipeline: self.name().to_string(),
                         pattern: "lock_without_defer_unlock".to_string(),
                         message: format!(
-                            ".{method_name}() without immediate `defer .{expected_unlock}()` — risk of deadlock"
+                            ".{method_name}() without .{expected_unlock}() in function scope — risk of deadlock"
                         ),
                         snippet: extract_snippet(source, call_node, 1),
                     });
@@ -113,11 +155,19 @@ mod tests {
     }
 
     #[test]
-    fn detects_lock_without_defer() {
-        let src = "package main\nfunc doWork() {\n\tmu.Lock()\n\tmu.Unlock()\n}\n";
+    fn detects_lock_without_any_unlock() {
+        let src = "package main\nfunc doWork() {\n\tmu.Lock()\n\tfmt.Println(\"done\")\n}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "lock_without_defer_unlock");
+    }
+
+    #[test]
+    fn clean_lock_with_unlock_later() {
+        // Unlock() exists in function scope (not deferred but present)
+        let src = "package main\nfunc doWork() {\n\tmu.Lock()\n\tmu.Unlock()\n}\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 
     #[test]
