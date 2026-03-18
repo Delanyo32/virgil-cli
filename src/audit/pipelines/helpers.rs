@@ -537,6 +537,37 @@ pub fn body_references_identifier(body: Node, source: &[u8], target: &str) -> bo
     ids.contains(target)
 }
 
+// ── Architecture helpers ─────────────────────────────────────────────
+
+/// Count top-level definitions matching any of the given node kinds.
+/// This walks direct children of `root` (typically `source_file` or `program`).
+pub fn count_top_level_definitions(root: Node, symbol_kinds: &[&str]) -> usize {
+    let mut count = 0;
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if symbol_kinds.contains(&child.kind()) {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Count the depth (number of segments) in an import path.
+/// `separator` is the path separator (e.g., "::" for Rust, "/" for JS, "." for Python).
+pub fn count_path_depth(path: &str, separator: &str) -> usize {
+    path.split(separator).filter(|s| !s.is_empty()).count()
+}
+
+/// Check if a file should be excluded from anemic module detection.
+/// `file_path` is the relative path; `exclusions` are filename patterns (e.g., "main.rs", "index.ts").
+pub fn is_entry_file(file_path: &str, exclusions: &[&str]) -> bool {
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("");
+    exclusions.iter().any(|excl| file_name == *excl)
+}
+
 /// Check if a method body contains member access via a specific pattern (e.g., "self." in Python, "this." in Java).
 pub fn body_has_member_access(body: Node, source: &[u8], access_kind: &str, object_text: &str) -> bool {
     let mut found = false;

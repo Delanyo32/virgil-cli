@@ -36,6 +36,11 @@ pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
 
+pub mod module_size_distribution;
+pub mod circular_dependencies;
+pub mod dependency_graph_depth;
+pub mod api_surface_area;
+
 use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 
@@ -92,5 +97,14 @@ pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
         Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
         Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
         Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
+    ])
+}
+
+pub fn architecture_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![
+        Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new()?),
+        Box::new(circular_dependencies::CircularDependenciesPipeline::new()?),
+        Box::new(dependency_graph_depth::DependencyGraphDepthPipeline::new()?),
+        Box::new(api_surface_area::ApiSurfaceAreaPipeline::new()?),
     ])
 }

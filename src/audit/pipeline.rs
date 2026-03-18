@@ -132,3 +132,27 @@ pub fn supported_scalability_languages() -> Vec<Language> {
         Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
     ]
 }
+
+pub fn architecture_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    match language {
+        Language::Rust => pipelines::rust::architecture_pipelines(),
+        Language::Go => pipelines::go::architecture_pipelines(),
+        Language::Python => pipelines::python::architecture_pipelines(),
+        Language::Php => pipelines::php::architecture_pipelines(),
+        Language::Java => pipelines::java::architecture_pipelines(),
+        Language::JavaScript => pipelines::javascript::architecture_pipelines(),
+        Language::TypeScript | Language::Tsx => pipelines::typescript::architecture_pipelines(language),
+        Language::C => pipelines::c::architecture_pipelines(),
+        Language::Cpp => pipelines::cpp::architecture_pipelines(),
+        Language::CSharp => pipelines::csharp::architecture_pipelines(),
+        _ => Ok(vec![]),
+    }
+}
+
+pub fn supported_architecture_languages() -> Vec<Language> {
+    vec![
+        Language::Rust, Language::Go, Language::Python, Language::Php,
+        Language::Java, Language::JavaScript, Language::TypeScript,
+        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+    ]
+}
