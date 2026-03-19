@@ -4,14 +4,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use rayon::prelude::*;
 
-use crate::discovery;
-use crate::language::{self, Language};
+use crate::language::Language;
 use crate::languages;
 use crate::models::SymbolInfo;
 use crate::parser;
 use crate::query_engine::QueryResult;
-use crate::registry::ProjectEntry;
 use crate::signature;
+use crate::workspace::Workspace;
 
 /// A directed edge in the call graph
 #[derive(Debug, Clone)]
@@ -135,36 +134,33 @@ fn call_expression_types(language: Language) -> Vec<&'static str> {
 /// Traverse the call graph starting from seed symbols.
 /// Returns results at each depth level up to `max_depth`.
 pub fn traverse_call_graph(
-    project: &ProjectEntry,
+    workspace: &Workspace,
     seeds: &[QueryResult],
     direction: &str,
     max_depth: usize,
 ) -> Result<Vec<QueryResult>> {
-    let languages = match &project.languages {
-        Some(f) => language::parse_language_filter(f),
-        None => Language::all().to_vec(),
-    };
-
-    let files = discovery::discover_files(&project.path, &languages)?;
-
-    // Pre-compile queries
-    let mut sym_queries = HashMap::new();
-    for lang in &languages {
-        sym_queries.insert(*lang, languages::compile_symbol_query(*lang)?);
+    // Pre-compile queries for loaded languages
+    let mut sym_queries_map = HashMap::new();
+    for rel_path in workspace.files() {
+        if let Some(lang) = workspace.file_language(rel_path) {
+            if !sym_queries_map.contains_key(&lang) {
+                sym_queries_map.insert(lang, languages::compile_symbol_query(lang)?);
+            }
+        }
     }
-    let sym_queries = Arc::new(sym_queries);
+    let sym_queries = Arc::new(sym_queries_map);
 
     // Parse all files in parallel, building symbol and source maps
-    let file_data: Vec<_> = files
+    let file_data: Vec<_> = workspace
+        .files()
         .par_iter()
-        .filter_map(|path| {
-            let ext = path.extension()?.to_str()?;
-            let lang = Language::from_extension(ext)?;
+        .filter_map(|rel_path| {
+            let lang = workspace.file_language(rel_path)?;
             let sym_query = sym_queries.get(&lang)?;
+            let source = workspace.read_file(rel_path)?;
             let mut ts_parser = parser::create_parser(lang).ok()?;
             let (metadata, tree) =
-                parser::parse_file(&mut ts_parser, path, &project.path, lang).ok()?;
-            let source = std::fs::read_to_string(path).ok()?;
+                parser::parse_content(&mut ts_parser, &source, rel_path, lang).ok()?;
             let symbols = languages::extract_symbols(
                 &tree,
                 source.as_bytes(),
@@ -183,7 +179,8 @@ pub fn traverse_call_graph(
     let mut symbols_by_name: HashMap<&str, Vec<(&str, &SymbolInfo)>> = HashMap::new();
 
     for (file, source, symbols, lang) in &file_data {
-        source_by_file.insert(file.as_str(), source.as_str());
+        let source_ref: &str = source;
+        source_by_file.insert(file.as_str(), source_ref);
         symbols_by_file.insert(file.as_str(), symbols.as_slice());
         lang_by_file.insert(file.as_str(), *lang);
         for sym in symbols {
@@ -272,17 +269,18 @@ pub fn traverse_call_graph(
             "up" => {
                 // Find callers: scan all files for call expressions that reference `name`
                 for (file_path, source, symbols, lang) in &file_data {
+                    let source_ref: &str = source;
                     for sym in symbols.iter() {
                         let key = (sym.name.clone(), sym.start_line);
                         if visited.contains(&key) {
                             continue;
                         }
 
-                        let callees = find_callees_in_source(source, sym, *lang);
+                        let callees = find_callees_in_source(source_ref, sym, *lang);
                         if callees.iter().any(|c| c == &name) {
                             if visited.insert(key) {
                                 let sig =
-                                    signature::extract_signature(source, sym.start_line, *lang);
+                                    signature::extract_signature(source_ref, sym.start_line, *lang);
 
                                 results.push(QueryResult {
                                     name: sym.name.clone(),
@@ -370,17 +368,18 @@ pub fn traverse_call_graph(
 
                 // Up
                 for (file_path, source, symbols, lang) in &file_data {
+                    let source_ref: &str = source;
                     for sym in symbols.iter() {
                         let key = (sym.name.clone(), sym.start_line);
                         if visited.contains(&key) {
                             continue;
                         }
 
-                        let callees = find_callees_in_source(source, sym, *lang);
+                        let callees = find_callees_in_source(source_ref, sym, *lang);
                         if callees.iter().any(|c| c == &name) {
                             if visited.insert(key) {
                                 let sig =
-                                    signature::extract_signature(source, sym.start_line, *lang);
+                                    signature::extract_signature(source_ref, sym.start_line, *lang);
 
                                 results.push(QueryResult {
                                     name: sym.name.clone(),

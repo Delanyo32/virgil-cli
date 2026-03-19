@@ -7,7 +7,6 @@ use rayon::prelude::*;
 use regex::Regex;
 
 use crate::call_graph;
-use crate::discovery;
 use crate::language::{self, Language};
 use crate::languages;
 use crate::models::{CommentInfo, SymbolInfo, SymbolKind};
@@ -15,6 +14,7 @@ use crate::parser;
 use crate::query_lang::{FindFilter, HasFilter, NameFilter, TsQuery};
 use crate::registry::ProjectEntry;
 use crate::signature;
+use crate::workspace::Workspace;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct QueryResult {
@@ -55,10 +55,15 @@ pub struct QueryOutput {
     pub read: Option<ReadResult>,
 }
 
-pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<QueryOutput> {
+pub fn execute(
+    project: &ProjectEntry,
+    query: &TsQuery,
+    max: usize,
+    workspace: &Workspace,
+) -> Result<QueryOutput> {
     // Handle read mode: return file content instead of symbol search
     if let Some(ref file_path) = query.read {
-        return execute_read(project, file_path, query.lines.as_ref());
+        return execute_read(workspace, file_path, query.lines.as_ref());
     }
 
     let languages = match &project.languages {
@@ -66,39 +71,27 @@ pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<Qu
         None => Language::all().to_vec(),
     };
 
-    // Discover files
-    let all_files = discovery::discover_files(&project.path, &languages)?;
+    // Get files from workspace (already relative paths)
+    let all_files: Vec<&str> = workspace.files().iter().map(|s| s.as_str()).collect();
 
     // Apply file glob filter
-    let files: Vec<_> = if let Some(ref file_filter) = query.files {
+    let files: Vec<&str> = if let Some(ref file_filter) = query.files {
         let globset = build_globset(&file_filter.patterns())?;
         all_files
             .into_iter()
-            .filter(|path| {
-                let rel = path
-                    .strip_prefix(&project.path)
-                    .unwrap_or(path)
-                    .to_string_lossy();
-                globset.is_match(rel.as_ref())
-            })
+            .filter(|path| globset.is_match(*path))
             .collect()
     } else {
         all_files
     };
 
     // Apply files_exclude
-    let files: Vec<_> = if let Some(ref excludes) = query.files_exclude {
+    let files: Vec<&str> = if let Some(ref excludes) = query.files_exclude {
         let patterns: Vec<&str> = excludes.iter().map(|s| s.as_str()).collect();
         let excludeset = build_globset(&patterns)?;
         files
             .into_iter()
-            .filter(|path| {
-                let rel = path
-                    .strip_prefix(&project.path)
-                    .unwrap_or(path)
-                    .to_string_lossy();
-                !excludeset.is_match(rel.as_ref())
-            })
+            .filter(|path| !excludeset.is_match(*path))
             .collect()
     } else {
         files
@@ -134,17 +127,16 @@ pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<Qu
 
     // Parallel parse + filter
     let per_file_results: Vec<Vec<QueryResult>> = files
-        .par_iter()
-        .filter_map(|path| {
-            let ext = path.extension()?.to_str()?;
-            let lang = Language::from_extension(ext)?;
+        .into_par_iter()
+        .filter_map(|rel_path| {
+            let lang = workspace.file_language(rel_path)?;
             let sym_query = sym_queries.get(&lang)?;
             let cmt_query = cmt_queries.get(&lang)?;
 
+            let source = workspace.read_file(rel_path)?;
             let mut ts_parser = parser::create_parser(lang).ok()?;
             let (metadata, tree) =
-                parser::parse_file(&mut ts_parser, path, &project.path, lang).ok()?;
-            let source = std::fs::read_to_string(path).ok()?;
+                parser::parse_content(&mut ts_parser, &source, rel_path, lang).ok()?;
 
             let all_symbols = languages::extract_symbols(
                 &tree,
@@ -289,7 +281,8 @@ pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<Qu
     // Call graph traversal if requested
     if let Some(ref direction) = query.calls {
         let depth = query.depth.unwrap_or(1).min(5);
-        let call_results = call_graph::traverse_call_graph(project, &results, direction, depth)?;
+        let call_results =
+            call_graph::traverse_call_graph(workspace, &results, direction, depth)?;
         results = call_results;
     }
 
@@ -305,13 +298,20 @@ pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<Qu
 }
 
 fn execute_read(
-    project: &ProjectEntry,
+    workspace: &Workspace,
     file_path: &str,
     lines: Option<&crate::query_lang::LineRange>,
 ) -> Result<QueryOutput> {
-    let full_path = project.path.join(file_path);
-    let source = std::fs::read_to_string(&full_path)
-        .with_context(|| format!("failed to read file: {}", full_path.display()))?;
+    let source = workspace
+        .read_file(file_path)
+        .or_else(|| {
+            // Fallback: read from disk for files not in workspace (e.g., non-language files)
+            let full_path = workspace.root().join(file_path);
+            std::fs::read_to_string(&full_path)
+                .ok()
+                .map(|s| Arc::from(s.as_str()))
+        })
+        .ok_or_else(|| anyhow::anyhow!("file not found: {file_path}"))?;
 
     let all_lines: Vec<&str> = source.lines().collect();
     let total_lines = all_lines.len() as u32;

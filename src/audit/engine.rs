@@ -1,13 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rayon::prelude::*;
 
-use crate::discovery;
 use crate::language::Language;
 use crate::parser;
+use crate::workspace::Workspace;
 
 use super::models::{AuditFinding, AuditSummary};
 use super::pipeline::{self, Pipeline};
@@ -60,13 +59,7 @@ impl AuditEngine {
         self
     }
 
-    pub fn run(&self, root: &Path) -> Result<(Vec<AuditFinding>, AuditSummary)> {
-        let root = root
-            .canonicalize()
-            .with_context(|| format!("invalid directory: {}", root.display()))?;
-
-        let files = discovery::discover_files(&root, &self.languages)?;
-
+    pub fn run(&self, workspace: &Workspace) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Build pipelines per language, apply filter
         let mut pipeline_map: HashMap<Language, Vec<Arc<dyn Pipeline>>> = HashMap::new();
         for lang in &self.languages {
@@ -96,24 +89,24 @@ impl AuditEngine {
 
         let pipeline_map = Arc::new(pipeline_map);
 
-        // Phase 4.3: Pre-group files by language to avoid redundant from_extension() calls
-        let mut files_by_lang: HashMap<Language, Vec<PathBuf>> = HashMap::new();
-        for path in &files {
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if let Some(lang) = Language::from_extension(ext) {
-                    if pipeline_map.contains_key(&lang) {
-                        files_by_lang.entry(lang).or_default().push(path.clone());
-                    }
+        // Group workspace files by language
+        let grouped_files: Vec<(Language, &str)> = workspace
+            .files()
+            .iter()
+            .filter_map(|rel_path| {
+                let lang = workspace.file_language(rel_path)?;
+                if pipeline_map.contains_key(&lang) {
+                    Some((lang, rel_path.as_str()))
+                } else {
+                    None
                 }
-            }
-        }
-        let grouped_files: Vec<(Language, PathBuf)> = files_by_lang
-            .into_iter()
-            .flat_map(|(lang, paths)| paths.into_iter().map(move |p| (lang, p)))
+            })
             .collect();
 
+        let files_scanned = grouped_files.len();
+
         if let Some(pb) = &self.progress {
-            pb.set_length(files.len() as u64);
+            pb.set_length(files_scanned as u64);
         }
 
         let progress = self.progress.clone();
@@ -129,53 +122,31 @@ impl AuditEngine {
         let all_findings: Vec<Vec<AuditFinding>> = pool.install(|| {
             grouped_files
                 .par_iter()
-                .filter_map(|(lang, path)| {
+                .filter_map(|&(lang, rel_path)| {
                     let result = (|| {
-                        let pipelines = pipeline_map.get(lang)?;
+                        let pipelines = pipeline_map.get(&lang)?;
 
-                        let mut ts_parser = match parser::create_parser(*lang) {
+                        let mut ts_parser = match parser::create_parser(lang) {
                             Ok(p) => p,
                             Err(e) => {
                                 eprintln!(
                                     "Warning: failed to create parser for {}: {e}",
-                                    path.display()
+                                    rel_path
                                 );
                                 return None;
                             }
                         };
 
-                        // Skip files larger than 1MB — vendored or generated code
-                        const MAX_FILE_SIZE: u64 = 1_000_000;
-                        if let Ok(meta) = std::fs::metadata(path) {
-                            if meta.len() > MAX_FILE_SIZE {
-                                return None;
-                            }
-                        }
+                        let source = workspace.read_file(rel_path)?;
 
-                        let source = match std::fs::read_to_string(path) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                eprintln!("Warning: failed to read {}: {e}", path.display());
-                                return None;
-                            }
-                        };
-
-                        let tree = match ts_parser.parse(&source, None) {
+                        let tree = match ts_parser.parse(&*source, None) {
                             Some(t) => t,
                             None => {
-                                eprintln!("Warning: failed to parse {}", path.display());
+                                eprintln!("Warning: failed to parse {}", rel_path);
                                 return None;
                             }
                         };
 
-                        let relative_path = path
-                            .strip_prefix(&root)
-                            .unwrap_or(path)
-                            .to_string_lossy()
-                            .replace('\\', "/");
-
-                        // Phase 4.1: Compute identifier counts once per file,
-                        // share across all pipelines via check_with_ids()
                         let id_counts =
                             count_all_identifier_occurrences(tree.root_node(), source.as_bytes());
 
@@ -184,7 +155,7 @@ impl AuditEngine {
                             file_findings.extend(pipeline.check_with_ids(
                                 &tree,
                                 source.as_bytes(),
-                                &relative_path,
+                                rel_path,
                                 &id_counts,
                             ));
                         }
@@ -204,7 +175,7 @@ impl AuditEngine {
         }
 
         let findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
-        let summary = compute_summary(&findings, files.len());
+        let summary = compute_summary(&findings, files_scanned);
 
         Ok((findings, summary))
     }
@@ -260,6 +231,7 @@ fn compute_summary(findings: &[AuditFinding], files_scanned: usize) -> AuditSumm
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workspace::Workspace;
 
     #[test]
     fn engine_basic() {
@@ -270,9 +242,10 @@ mod tests {
         )
         .unwrap();
 
+        let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .run(dir.path())
+            .run(&workspace)
             .unwrap();
 
         assert_eq!(findings.len(), 2);
@@ -290,10 +263,11 @@ mod tests {
         )
         .unwrap();
 
+        let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, _) = AuditEngine::new()
             .languages(vec![Language::Rust])
             .pipelines(vec!["nonexistent_pipeline".to_string()])
-            .run(dir.path())
+            .run(&workspace)
             .unwrap();
 
         assert!(findings.is_empty());
@@ -303,9 +277,10 @@ mod tests {
     fn engine_empty_dir() {
         let dir = tempfile::tempdir().expect("tempdir");
 
+        let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .run(dir.path())
+            .run(&workspace)
             .unwrap();
 
         assert!(findings.is_empty());
@@ -317,9 +292,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("test.ts"), "const x = something.unwrap();").unwrap();
 
+        let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .run(dir.path())
+            .run(&workspace)
             .unwrap();
 
         assert!(findings.is_empty());

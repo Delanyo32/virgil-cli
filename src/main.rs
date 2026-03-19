@@ -9,6 +9,7 @@ use virgil_cli::cli::{
 };
 use virgil_cli::language::{self, Language};
 use virgil_cli::registry;
+use virgil_cli::workspace::Workspace;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -85,8 +86,15 @@ fn main() -> Result<()> {
                 let query: virgil_cli::query_lang::TsQuery = serde_json::from_str(&query_json)
                     .map_err(|e| anyhow::anyhow!("invalid query JSON: {e}"))?;
 
+                let languages = match &project.languages {
+                    Some(f) => language::parse_language_filter(f),
+                    None => Language::all().to_vec(),
+                };
+                let workspace = Workspace::load(&project.path, &languages, None)?;
+
                 let start = Instant::now();
-                let output = virgil_cli::query_engine::execute(&project, &query, max)?;
+                let output =
+                    virgil_cli::query_engine::execute(&project, &query, max, &workspace)?;
                 let elapsed = start.elapsed();
 
                 let formatted = virgil_cli::format::format_results(
@@ -249,6 +257,8 @@ fn run_tech_debt(
         audit::pipeline::supported_audit_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mut engine = audit::engine::AuditEngine::new().languages(languages);
@@ -261,7 +271,7 @@ fn run_tech_debt(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(dir)?;
+    let (findings, summary) = engine.run(&workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -286,6 +296,8 @@ fn run_complexity(
         audit::pipeline::supported_complexity_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mut engine = audit::engine::AuditEngine::new()
@@ -300,7 +312,7 @@ fn run_complexity(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(dir)?;
+    let (findings, summary) = engine.run(&workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -325,6 +337,8 @@ fn run_code_style(
         audit::pipeline::supported_code_style_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mut engine = audit::engine::AuditEngine::new()
@@ -339,7 +353,7 @@ fn run_code_style(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(dir)?;
+    let (findings, summary) = engine.run(&workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -364,6 +378,8 @@ fn run_security(
         audit::pipeline::supported_security_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mut engine = audit::engine::AuditEngine::new()
@@ -378,7 +394,7 @@ fn run_security(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(dir)?;
+    let (findings, summary) = engine.run(&workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -403,6 +419,8 @@ fn run_scalability(
         audit::pipeline::supported_scalability_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mut engine = audit::engine::AuditEngine::new()
@@ -417,7 +435,7 @@ fn run_scalability(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(dir)?;
+    let (findings, summary) = engine.run(&workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -442,6 +460,8 @@ fn run_architecture(
         audit::pipeline::supported_architecture_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mut engine = audit::engine::AuditEngine::new()
@@ -456,7 +476,7 @@ fn run_architecture(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(dir)?;
+    let (findings, summary) = engine.run(&workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -478,6 +498,8 @@ fn run_code_quality_summary(
         audit::pipeline::supported_audit_languages()
     };
 
+    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mp = indicatif::MultiProgress::new();
@@ -492,7 +514,7 @@ fn run_code_quality_summary(
     let td_engine = audit::engine::AuditEngine::new()
         .languages(languages.clone())
         .progress_bar(file_pb);
-    let (_td_findings, td_summary) = td_engine.run(dir)?;
+    let (_td_findings, td_summary) = td_engine.run(&workspace)?;
     overall.inc(1);
 
     overall.set_message("Auditing: Complexity");
@@ -506,7 +528,7 @@ fn run_code_quality_summary(
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
         .progress_bar(file_pb);
-    let (_cx_findings, cx_summary) = cx_engine.run(dir)?;
+    let (_cx_findings, cx_summary) = cx_engine.run(&workspace)?;
     overall.inc(1);
 
     overall.set_message("Auditing: Code Style");
@@ -519,7 +541,7 @@ fn run_code_quality_summary(
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
         .progress_bar(file_pb);
-    let (_cs_findings, cs_summary) = cs_engine.run(dir)?;
+    let (_cs_findings, cs_summary) = cs_engine.run(&workspace)?;
     overall.inc(1);
 
     overall.finish_and_clear();
@@ -543,6 +565,15 @@ fn run_full_audit(
     lang_filter: Option<&str>,
     format: &OutputFormat,
 ) -> Result<()> {
+    // Load workspace once with all languages, share across all 6 categories
+    let all_languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else {
+        Language::all().to_vec()
+    };
+
+    let workspace = Workspace::load(dir, &all_languages, Some(1_000_000))?;
+
     let start = Instant::now();
 
     let mp = indicatif::MultiProgress::new();
@@ -555,108 +586,90 @@ fn run_full_audit(
     // Tech Debt
     overall.set_message("Auditing: Tech Debt");
     let file_pb = mp.add(create_audit_progress_bar());
-    let td_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-            .into_iter()
-            .filter(|l| audit::pipeline::supported_audit_languages().contains(l))
-            .collect()
-    } else {
-        audit::pipeline::supported_audit_languages()
-    };
+    let td_languages: Vec<Language> = all_languages
+        .iter()
+        .copied()
+        .filter(|l| audit::pipeline::supported_audit_languages().contains(l))
+        .collect();
     let (_, td_summary) = audit::engine::AuditEngine::new()
         .languages(td_languages)
         .progress_bar(file_pb)
-        .run(dir)?;
+        .run(&workspace)?;
     overall.inc(1);
 
     // Complexity
     overall.set_message("Auditing: Complexity");
     let file_pb = mp.add(create_audit_progress_bar());
-    let cx_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-            .into_iter()
-            .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
-            .collect()
-    } else {
-        audit::pipeline::supported_complexity_languages()
-    };
+    let cx_languages: Vec<Language> = all_languages
+        .iter()
+        .copied()
+        .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
+        .collect();
     let (_, cx_summary) = audit::engine::AuditEngine::new()
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
         .progress_bar(file_pb)
-        .run(dir)?;
+        .run(&workspace)?;
     overall.inc(1);
 
     // Code Style
     overall.set_message("Auditing: Code Style");
     let file_pb = mp.add(create_audit_progress_bar());
-    let cs_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-            .into_iter()
-            .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
-            .collect()
-    } else {
-        audit::pipeline::supported_code_style_languages()
-    };
+    let cs_languages: Vec<Language> = all_languages
+        .iter()
+        .copied()
+        .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
+        .collect();
     let (_, cs_summary) = audit::engine::AuditEngine::new()
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
         .progress_bar(file_pb)
-        .run(dir)?;
+        .run(&workspace)?;
     overall.inc(1);
 
     // Security
     overall.set_message("Auditing: Security");
     let file_pb = mp.add(create_audit_progress_bar());
-    let sec_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-            .into_iter()
-            .filter(|l| audit::pipeline::supported_security_languages().contains(l))
-            .collect()
-    } else {
-        audit::pipeline::supported_security_languages()
-    };
+    let sec_languages: Vec<Language> = all_languages
+        .iter()
+        .copied()
+        .filter(|l| audit::pipeline::supported_security_languages().contains(l))
+        .collect();
     let (_, sec_summary) = audit::engine::AuditEngine::new()
         .languages(sec_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Security)
         .progress_bar(file_pb)
-        .run(dir)?;
+        .run(&workspace)?;
     overall.inc(1);
 
     // Scalability
     overall.set_message("Auditing: Scalability");
     let file_pb = mp.add(create_audit_progress_bar());
-    let scl_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-            .into_iter()
-            .filter(|l| audit::pipeline::supported_scalability_languages().contains(l))
-            .collect()
-    } else {
-        audit::pipeline::supported_scalability_languages()
-    };
+    let scl_languages: Vec<Language> = all_languages
+        .iter()
+        .copied()
+        .filter(|l| audit::pipeline::supported_scalability_languages().contains(l))
+        .collect();
     let (_, scl_summary) = audit::engine::AuditEngine::new()
         .languages(scl_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Scalability)
         .progress_bar(file_pb)
-        .run(dir)?;
+        .run(&workspace)?;
     overall.inc(1);
 
     // Architecture
     overall.set_message("Auditing: Architecture");
     let file_pb = mp.add(create_audit_progress_bar());
-    let arch_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-            .into_iter()
-            .filter(|l| audit::pipeline::supported_architecture_languages().contains(l))
-            .collect()
-    } else {
-        audit::pipeline::supported_architecture_languages()
-    };
+    let arch_languages: Vec<Language> = all_languages
+        .iter()
+        .copied()
+        .filter(|l| audit::pipeline::supported_architecture_languages().contains(l))
+        .collect();
     let (_, arch_summary) = audit::engine::AuditEngine::new()
         .languages(arch_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture)
         .progress_bar(file_pb)
-        .run(dir)?;
+        .run(&workspace)?;
     overall.inc(1);
 
     overall.finish_and_clear();
