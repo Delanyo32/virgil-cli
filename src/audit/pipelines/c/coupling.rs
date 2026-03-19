@@ -68,43 +68,46 @@ impl Pipeline for CouplingPipeline {
 
 /// Walk all `function_definition` nodes and flag those with too many parameters.
 fn collect_parameter_overload_findings(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "function_definition" {
-        // function_definition -> declarator (function_declarator) -> parameters (parameter_list)
-        if let Some(declarator) = node.child_by_field_name("declarator") {
-            let func_name = find_identifier_in_declarator(declarator, source)
-                .unwrap_or_else(|| "<unknown>".to_string());
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_definition" {
+            // function_definition -> declarator (function_declarator) -> parameters (parameter_list)
+            if let Some(declarator) = node.child_by_field_name("declarator") {
+                let func_name = find_identifier_in_declarator(declarator, source)
+                    .unwrap_or_else(|| "<unknown>".to_string());
 
-            if let Some(params) = declarator.child_by_field_name("parameters") {
-                let param_count = count_parameters(params);
-                if param_count > PARAMETER_THRESHOLD {
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "parameter_overload".to_string(),
-                        message: format!(
-                            "function `{func_name}` has {param_count} parameters \
-                             (threshold: {PARAMETER_THRESHOLD}) -- consider using a struct"
-                        ),
-                        snippet: String::new(),
-                    });
+                if let Some(params) = declarator.child_by_field_name("parameters") {
+                    let param_count = count_parameters(params);
+                    if param_count > PARAMETER_THRESHOLD {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "parameter_overload".to_string(),
+                            message: format!(
+                                "function `{func_name}` has {param_count} parameters \
+                                 (threshold: {PARAMETER_THRESHOLD}) -- consider using a struct"
+                            ),
+                            snippet: String::new(),
+                        });
+                    }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_parameter_overload_findings(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

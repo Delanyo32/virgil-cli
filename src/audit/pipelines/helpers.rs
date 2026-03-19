@@ -63,61 +63,46 @@ pub fn compute_cyclomatic(body: Node, config: &ControlFlowConfig, source: &[u8])
 ///
 /// Increments for each control flow break. Nesting increments also add
 /// a penalty equal to the current nesting depth.
+/// Uses stack-based iteration to avoid stack overflow on deeply nested ASTs.
 pub fn compute_cognitive(body: Node, config: &ControlFlowConfig, source: &[u8]) -> usize {
     let mut score: usize = 0;
-    cognitive_walk(body, config, source, 0, &mut score);
-    score
-}
-
-fn cognitive_walk(
-    node: Node,
-    config: &ControlFlowConfig,
-    source: &[u8],
-    nesting: usize,
-    score: &mut usize,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        let kind = child.kind();
-
-        // Nesting increments: +1 base + nesting penalty, then recurse with nesting+1
-        if config.nesting_increments.contains(&kind) {
-            *score += 1 + nesting;
-            cognitive_walk(child, config, source, nesting + 1, score);
-            continue;
-        }
-
-        // Flat increments: +1 base only, no nesting change
-        if config.flat_increments.contains(&kind) {
-            *score += 1;
-            cognitive_walk(child, config, source, nesting, score);
-            continue;
-        }
-
-        // Ternary
-        if let Some(ternary) = config.ternary_kind {
-            if kind == ternary {
-                *score += 1 + nesting;
-                cognitive_walk(child, config, source, nesting + 1, score);
-                continue;
-            }
-        }
-
-        // Logical operator sequences: count switches between different operators
-        if kind == config.binary_expression_kind {
-            if let Some(op_node) = child.child_by_field_name("operator") {
+    let mut stack: Vec<(Node, usize)> = Vec::new();
+    // Seed stack with body's direct children at nesting depth 0 (reverse for L-to-R order)
+    let mut cursor = body.walk();
+    let children: Vec<_> = body.children(&mut cursor).collect();
+    for child in children.into_iter().rev() {
+        stack.push((child, 0));
+    }
+    while let Some((node, nesting)) = stack.pop() {
+        let kind = node.kind();
+        let (increment, next_nesting) = if config.nesting_increments.contains(&kind) {
+            (1 + nesting, nesting + 1)
+        } else if config.flat_increments.contains(&kind) {
+            (1, nesting)
+        } else if config.ternary_kind.map_or(false, |t| t == kind) {
+            (1 + nesting, nesting + 1)
+        } else if kind == config.binary_expression_kind {
+            if let Some(op_node) = node.child_by_field_name("operator") {
                 let op_text = op_node.utf8_text(source).unwrap_or("");
                 if config.logical_operators.contains(&op_text) {
-                    *score += 1;
-                    cognitive_walk(child, config, source, nesting, score);
-                    continue;
+                    (1, nesting)
+                } else {
+                    (0, nesting)
                 }
+            } else {
+                (0, nesting)
             }
+        } else {
+            (0, nesting)
+        };
+        score += increment;
+        let mut child_cursor = node.walk();
+        let node_children: Vec<_> = node.children(&mut child_cursor).collect();
+        for child in node_children.into_iter().rev() {
+            stack.push((child, next_nesting));
         }
-
-        // Otherwise just recurse at same nesting level
-        cognitive_walk(child, config, source, nesting, score);
     }
+    score
 }
 
 /// Count lines and statements in a function body.
@@ -137,12 +122,11 @@ pub fn count_function_lines(body: Node) -> (usize, usize) {
     (total_lines, statement_count)
 }
 
-fn count_statements(node: Node) -> usize {
+fn count_statements(root: Node) -> usize {
     let mut count = 0;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        let kind = child.kind();
-        // Count nodes that end in _statement, _declaration, or _expression_statement
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
         if kind.ends_with("_statement")
             || kind.ends_with("_declaration")
             || kind == "expression_statement"
@@ -153,8 +137,10 @@ fn count_statements(node: Node) -> usize {
         {
             count += 1;
         }
-        // Recurse into compound/block nodes
-        count += count_statements(child);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
     count
 }
@@ -303,63 +289,89 @@ pub fn hash_block_normalized(node: Node, source: &[u8]) -> u64 {
 }
 
 fn hash_node_recursive(
-    node: Node,
+    root: Node,
     source: &[u8],
     hasher: &mut std::collections::hash_map::DefaultHasher,
     counter: &mut u32,
 ) {
-    let kind = node.kind();
-    kind.hash(hasher);
+    // Stack-based DFS; children pushed in reverse for left-to-right hash ordering
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        kind.hash(hasher);
 
-    // For identifiers, hash a positional placeholder instead of actual name
-    if kind == "identifier"
-        || kind == "field_identifier"
-        || kind == "type_identifier"
-        || kind == "property_identifier"
-        || kind == "shorthand_property_identifier"
-        || kind == "name"
-    {
-        counter.hash(hasher);
-        *counter += 1;
-    } else if node.child_count() == 0 {
-        // Leaf node (literals, operators, keywords) — hash the text
-        let text = node.utf8_text(source).unwrap_or("");
-        text.hash(hasher);
-    }
+        if kind == "identifier"
+            || kind == "field_identifier"
+            || kind == "type_identifier"
+            || kind == "property_identifier"
+            || kind == "shorthand_property_identifier"
+            || kind == "name"
+        {
+            counter.hash(hasher);
+            *counter += 1;
+        } else if node.child_count() == 0 {
+            let text = node.utf8_text(source).unwrap_or("");
+            text.hash(hasher);
+        }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        hash_node_recursive(child, source, hasher, counter);
-    }
-}
-
-/// Collect all identifier text within a subtree.
-pub fn collect_identifiers(root: Node, source: &[u8]) -> HashSet<String> {
-    let mut ids = HashSet::new();
-    collect_identifiers_recursive(root, source, &mut ids);
-    ids
-}
-
-fn collect_identifiers_recursive(node: Node, source: &[u8], ids: &mut HashSet<String>) {
-    let kind = node.kind();
-    if kind == "identifier"
-        || kind == "field_identifier"
-        || kind == "type_identifier"
-        || kind == "property_identifier"
-        || kind == "shorthand_property_identifier"
-        || kind == "name"
-        || kind == "self"
-        || kind == "this"
-        || kind == "variable_name"
-    {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
         }
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_identifiers_recursive(child, source, ids);
+}
+
+/// Build a map of identifier/field_identifier name -> occurrence count across the entire tree.
+/// Single O(n) pass. Used by dead_code pipelines to avoid O(n*m) per-function walks.
+pub fn count_all_identifier_occurrences(root: Node, source: &[u8]) -> HashMap<String, usize> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut stack = vec![root];
+    while let Some(current) = stack.pop() {
+        let kind = current.kind();
+        if kind == "identifier" || kind == "field_identifier" {
+            if let Ok(text) = current.utf8_text(source) {
+                if !text.is_empty() {
+                    *counts.entry(text.to_string()).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            stack.push(child);
+        }
     }
+    counts
+}
+
+/// Collect all identifier text within a subtree using stack-based iteration.
+pub fn collect_identifiers(root: Node, source: &[u8]) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        if matches!(
+            kind,
+            "identifier"
+                | "field_identifier"
+                | "type_identifier"
+                | "property_identifier"
+                | "shorthand_property_identifier"
+                | "name"
+                | "self"
+                | "this"
+                | "variable_name"
+        ) {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    ids
 }
 
 /// Find duplicate function bodies within a file.
@@ -375,10 +387,8 @@ pub fn find_duplicate_bodies(
 ) -> Vec<Vec<(String, u32, u32)>> {
     let mut hash_map: HashMap<u64, Vec<(String, u32, u32)>> = HashMap::new();
 
-    let mut cursor = root.walk();
-    collect_functions_recursive(
+    collect_functions_iterative(
         root,
-        &mut cursor,
         source,
         func_kinds,
         body_field,
@@ -393,9 +403,8 @@ pub fn find_duplicate_bodies(
         .collect()
 }
 
-fn collect_functions_recursive(
-    node: Node,
-    _cursor: &mut tree_sitter::TreeCursor,
+fn collect_functions_iterative(
+    root: Node,
     source: &[u8],
     func_kinds: &[&str],
     body_field: &str,
@@ -403,38 +412,30 @@ fn collect_functions_recursive(
     min_lines: usize,
     hash_map: &mut HashMap<u64, Vec<(String, u32, u32)>>,
 ) {
-    if func_kinds.contains(&node.kind()) {
-        if let Some(body) = node.child_by_field_name(body_field) {
-            let body_lines = body.end_position().row.saturating_sub(body.start_position().row) + 1;
-            if body_lines >= min_lines {
-                let hash = hash_block_normalized(body, source);
-                let name = node
-                    .child_by_field_name(name_field)
-                    .map(|n| n.utf8_text(source).unwrap_or("<unknown>").to_string())
-                    .unwrap_or_else(|| "<anonymous>".to_string());
-                let pos = node.start_position();
-                hash_map
-                    .entry(hash)
-                    .or_default()
-                    .push((name, pos.row as u32 + 1, pos.column as u32 + 1));
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if func_kinds.contains(&node.kind()) {
+            if let Some(body) = node.child_by_field_name(body_field) {
+                let body_lines =
+                    body.end_position().row.saturating_sub(body.start_position().row) + 1;
+                if body_lines >= min_lines {
+                    let hash = hash_block_normalized(body, source);
+                    let name = node
+                        .child_by_field_name(name_field)
+                        .map(|n| n.utf8_text(source).unwrap_or("<unknown>").to_string())
+                        .unwrap_or_else(|| "<anonymous>".to_string());
+                    let pos = node.start_position();
+                    hash_map
+                        .entry(hash)
+                        .or_default()
+                        .push((name, pos.row as u32 + 1, pos.column as u32 + 1));
+                }
             }
         }
-    }
-
-    let mut child_cursor = node.walk();
-    let children: Vec<_> = node.children(&mut child_cursor).collect();
-    for child in children {
-        let mut inner_cursor = child.walk();
-        collect_functions_recursive(
-            child,
-            &mut inner_cursor,
-            source,
-            func_kinds,
-            body_field,
-            name_field,
-            min_lines,
-            hash_map,
-        );
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -448,69 +449,70 @@ pub fn find_duplicate_arms(
     body_field: Option<&str>,
 ) -> Vec<(u32, Vec<u32>)> {
     let mut results = Vec::new();
-    find_switches_recursive(root, source, switch_kind, arm_kind, body_field, &mut results);
+    find_switches_iterative(root, source, switch_kind, arm_kind, body_field, &mut results);
     results
 }
 
-fn find_switches_recursive(
-    node: Node,
+fn find_switches_iterative(
+    root: Node,
     source: &[u8],
     switch_kind: &str,
     arm_kind: &str,
     body_field: Option<&str>,
     results: &mut Vec<(u32, Vec<u32>)>,
 ) {
-    if node.kind() == switch_kind {
-        let mut arm_hashes: Vec<(u64, u32)> = Vec::new();
-        // Collect arms from all descendants (arms may be nested in a body/block child)
-        collect_arms_recursive(node, arm_kind, body_field, source, &mut arm_hashes);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == switch_kind {
+            let mut arm_hashes: Vec<(u64, u32)> = Vec::new();
+            collect_arms_iterative(node, arm_kind, body_field, source, &mut arm_hashes);
 
-        // Find duplicates
-        let mut seen: HashMap<u64, u32> = HashMap::new();
-        let mut dup_lines = Vec::new();
-        for (hash, line) in &arm_hashes {
-            if let Some(_first_line) = seen.get(hash) {
-                dup_lines.push(*line);
-            } else {
-                seen.insert(*hash, *line);
+            let mut seen: HashMap<u64, u32> = HashMap::new();
+            let mut dup_lines = Vec::new();
+            for (hash, line) in &arm_hashes {
+                if seen.contains_key(hash) {
+                    dup_lines.push(*line);
+                } else {
+                    seen.insert(*hash, *line);
+                }
+            }
+
+            if !dup_lines.is_empty() {
+                results.push((node.start_position().row as u32 + 1, dup_lines));
             }
         }
-
-        if !dup_lines.is_empty() {
-            results.push((node.start_position().row as u32 + 1, dup_lines));
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        find_switches_recursive(child, source, switch_kind, arm_kind, body_field, results);
     }
 }
 
-fn collect_arms_recursive(
-    node: Node,
+fn collect_arms_iterative(
+    root: Node,
     arm_kind: &str,
     body_field: Option<&str>,
     source: &[u8],
     arm_hashes: &mut Vec<(u64, u32)>,
 ) {
-    if node.kind() == arm_kind {
-        if let Some(field) = body_field {
-            if let Some(body) = node.child_by_field_name(field) {
-                let hash = hash_block_normalized(body, source);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == arm_kind {
+            if let Some(field) = body_field {
+                if let Some(body) = node.child_by_field_name(field) {
+                    let hash = hash_block_normalized(body, source);
+                    arm_hashes.push((hash, node.start_position().row as u32 + 1));
+                }
+            } else {
+                let hash = hash_arm_body_children(node, source);
                 arm_hashes.push((hash, node.start_position().row as u32 + 1));
             }
-        } else {
-            // No explicit body field — hash all children except the first named child
-            // (which is typically the case value/pattern).
-            let hash = hash_arm_body_children(node, source);
-            arm_hashes.push((hash, node.start_position().row as u32 + 1));
+            continue; // Don't descend into arms
         }
-        return; // Don't recurse into arms
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_arms_recursive(child, arm_kind, body_field, source, arm_hashes);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -569,34 +571,23 @@ pub fn is_entry_file(file_path: &str, exclusions: &[&str]) -> bool {
 }
 
 /// Check if a method body contains member access via a specific pattern (e.g., "self." in Python, "this." in Java).
+/// Uses stack-based iteration with early termination.
 pub fn body_has_member_access(body: Node, source: &[u8], access_kind: &str, object_text: &str) -> bool {
-    let mut found = false;
-    check_member_access_recursive(body, source, access_kind, object_text, &mut found);
-    found
-}
-
-fn check_member_access_recursive(
-    node: Node,
-    source: &[u8],
-    access_kind: &str,
-    object_text: &str,
-    found: &mut bool,
-) {
-    if *found {
-        return;
-    }
-    if node.kind() == access_kind {
-        if let Some(obj) = node.child_by_field_name("object") {
-            if obj.utf8_text(source).unwrap_or("") == object_text {
-                *found = true;
-                return;
+    let mut stack = vec![body];
+    while let Some(node) = stack.pop() {
+        if node.kind() == access_kind {
+            if let Some(obj) = node.child_by_field_name("object") {
+                if obj.utf8_text(source).unwrap_or("") == object_text {
+                    return true;
+                }
             }
         }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_member_access_recursive(child, source, access_kind, object_text, found);
-    }
+    false
 }
 
 // ── False-positive suppression helpers ────────────────────────────────

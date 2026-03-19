@@ -155,26 +155,27 @@ impl DeadCodePipeline {
     }
 
     fn search_usage(
-        node: tree_sitter::Node,
+        root: tree_sitter::Node,
         skip_node: tree_sitter::Node,
         source: &[u8],
         name: &str,
     ) -> bool {
-        if node.id() == skip_node.id() {
-            return false;
-        }
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.id() == skip_node.id() {
+                continue;
+            }
 
-        let kind = node.kind();
-        if (kind == "identifier" || kind == "property_identifier" || kind == "shorthand_property_identifier")
-            && node.utf8_text(source).unwrap_or("") == name
-        {
-            return true;
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if Self::search_usage(child, skip_node, source, name) {
+            let kind = node.kind();
+            if (kind == "identifier" || kind == "property_identifier" || kind == "shorthand_property_identifier")
+                && node.utf8_text(source).unwrap_or("") == name
+            {
                 return true;
+            }
+
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
             }
         }
         false
@@ -183,36 +184,39 @@ impl DeadCodePipeline {
     /// Walk all `statement_block` nodes. After any return/break/continue/throw,
     /// flag subsequent statements as unreachable.
     fn check_unreachable_code(
-        node: tree_sitter::Node,
+        root: tree_sitter::Node,
         source: &[u8],
         file_path: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        if node.kind() == "statement_block" {
-            let return_kinds = [
-                "return_statement",
-                "break_statement",
-                "continue_statement",
-                "throw_statement",
-            ];
-            let unreachable = find_unreachable_after(node, &return_kinds);
-            for (line, column) in unreachable {
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line,
-                    column,
-                    severity: "warning".to_string(),
-                    pipeline: "dead_code".to_string(),
-                    pattern: "unreachable_code".to_string(),
-                    message: "code after return/break/continue/throw is unreachable".to_string(),
-                    snippet: String::new(),
-                });
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "statement_block" {
+                let return_kinds = [
+                    "return_statement",
+                    "break_statement",
+                    "continue_statement",
+                    "throw_statement",
+                ];
+                let unreachable = find_unreachable_after(node, &return_kinds);
+                for (line, column) in unreachable {
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line,
+                        column,
+                        severity: "warning".to_string(),
+                        pipeline: "dead_code".to_string(),
+                        pattern: "unreachable_code".to_string(),
+                        message: "code after return/break/continue/throw is unreachable".to_string(),
+                        snippet: String::new(),
+                    });
+                }
             }
-        }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::check_unreachable_code(child, source, file_path, findings);
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
         }
     }
 }

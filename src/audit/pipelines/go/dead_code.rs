@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use tree_sitter::Tree;
@@ -25,6 +25,10 @@ impl DeadCodePipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
+        // Build a single identifier count map in one pass over the entire AST.
+        // This avoids the previous O(n*m) approach of walking the full tree per function.
+        let id_counts = count_all_identifiers(root, source);
+
         // Walk root children looking for function_declaration with lowercase names
         let mut cursor = root.walk();
         for child in root.children(&mut cursor) {
@@ -48,12 +52,10 @@ impl DeadCodePipeline {
                 continue;
             }
 
-            // Collect identifiers excluding this function's own declaration name
-            // We need to check if the name appears anywhere else in the file
-            let mut usage_count = 0;
-            count_identifier_usages(root, source, name, name_node.id(), &mut usage_count);
-
-            if usage_count == 0 {
+            // The declaration itself counts as 1 occurrence.
+            // If there's only 1 occurrence total, the function is unused.
+            let total_count = id_counts.get(name).copied().unwrap_or(0);
+            if total_count <= 1 {
                 let start = child.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
@@ -113,148 +115,153 @@ impl DeadCodePipeline {
     }
 }
 
-/// Count usages of `target_name` identifier across the tree, excluding the node with `exclude_id`.
-fn count_identifier_usages(
-    node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    exclude_id: usize,
-    count: &mut usize,
-) {
-    if node.kind() == "identifier" && node.id() != exclude_id {
-        if node_text(node, source) == target_name {
-            *count += 1;
+/// Build a map of identifier name -> occurrence count across the entire tree in a single pass.
+/// This is O(n) where n = number of nodes, regardless of how many functions we check.
+fn count_all_identifiers(node: tree_sitter::Node, source: &[u8]) -> HashMap<String, usize> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        if current.kind() == "identifier" {
+            let name = node_text(current, source);
+            if !name.is_empty() {
+                *counts.entry(name.to_string()).or_insert(0) += 1;
+            }
+        }
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            stack.push(child);
         }
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count_identifier_usages(child, source, target_name, exclude_id, count);
-    }
+    counts
 }
 
 fn collect_identifiers_into(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     ids: &mut HashSet<String>,
 ) {
-    let kind = node.kind();
-    if kind == "identifier"
-        || kind == "field_identifier"
-        || kind == "type_identifier"
-        || kind == "property_identifier"
-    {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        if kind == "identifier"
+            || kind == "field_identifier"
+            || kind == "type_identifier"
+            || kind == "property_identifier"
+        {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_identifiers_into(child, source, ids);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn collect_import_specs(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     non_import_ids: &HashSet<String>,
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "import_spec" {
-        // An import_spec can have an optional alias (name field) and a path
-        let alias = node.child_by_field_name("name").map(|n| node_text(n, source).to_string());
-        let path_node = node.child_by_field_name("path");
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "import_spec" {
+            let alias = node
+                .child_by_field_name("name")
+                .map(|n| node_text(n, source).to_string());
+            let path_node = node.child_by_field_name("path");
 
-        let imported_name = if let Some(ref alias_name) = alias {
-            // If alias is "_", skip (blank import for side effects)
-            if alias_name == "_" {
-                // Don't flag blank imports
-                walk_children_for_import_specs(node, source, non_import_ids, file_path, pipeline_name, findings);
-                return;
-            }
-            // If alias is ".", skip (dot import)
-            if alias_name == "." {
-                walk_children_for_import_specs(node, source, non_import_ids, file_path, pipeline_name, findings);
-                return;
-            }
-            alias_name.clone()
-        } else if let Some(path) = path_node {
-            // Extract last path segment from the import path, strip quotes
-            let path_text = node_text(path, source);
-            let path_text = path_text.trim_matches('"');
-            path_text
-                .rsplit('/')
-                .next()
-                .unwrap_or(path_text)
-                .to_string()
-        } else {
-            walk_children_for_import_specs(node, source, non_import_ids, file_path, pipeline_name, findings);
-            return;
-        };
+            let imported_name = if let Some(ref alias_name) = alias {
+                if alias_name == "_" || alias_name == "." {
+                    // blank or dot import — skip, but continue walking children
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        let k = child.kind();
+                        if k == "import_spec" || k == "import_declaration" || k == "import_spec_list"
+                        {
+                            stack.push(child);
+                        }
+                    }
+                    continue;
+                }
+                alias_name.clone()
+            } else if let Some(path) = path_node {
+                let path_text = node_text(path, source);
+                let path_text = path_text.trim_matches('"');
+                path_text
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(path_text)
+                    .to_string()
+            } else {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    let k = child.kind();
+                    if k == "import_spec" || k == "import_declaration" || k == "import_spec_list" {
+                        stack.push(child);
+                    }
+                }
+                continue;
+            };
 
-        if !imported_name.is_empty() && !non_import_ids.contains(&imported_name) {
-            let start = node.start_position();
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line: start.row as u32 + 1,
-                column: start.column as u32 + 1,
-                severity: "info".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unused_import".to_string(),
-                message: format!(
-                    "import `{imported_name}` appears unused"
-                ),
-                snippet: extract_snippet(source, node, 1),
-            });
+            if !imported_name.is_empty() && !non_import_ids.contains(&imported_name) {
+                let start = node.start_position();
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line: start.row as u32 + 1,
+                    column: start.column as u32 + 1,
+                    severity: "info".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unused_import".to_string(),
+                    message: format!("import `{imported_name}` appears unused"),
+                    snippet: extract_snippet(source, node, 1),
+                });
+            }
         }
-    }
 
-    walk_children_for_import_specs(node, source, non_import_ids, file_path, pipeline_name, findings);
-}
-
-fn walk_children_for_import_specs(
-    node: tree_sitter::Node,
-    source: &[u8],
-    non_import_ids: &HashSet<String>,
-    file_path: &str,
-    pipeline_name: &str,
-    findings: &mut Vec<AuditFinding>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "import_spec" || child.kind() == "import_declaration" || child.kind() == "import_spec_list" {
-            collect_import_specs(child, source, non_import_ids, file_path, pipeline_name, findings);
+        // Walk children for import_spec, import_declaration, import_spec_list
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let k = child.kind();
+            if k == "import_spec" || k == "import_declaration" || k == "import_spec_list" {
+                stack.push(child);
+            }
         }
     }
 }
 
 fn collect_unreachable_in_blocks(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     return_kinds: &[&str],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "block" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code is unreachable after return/break/continue".to_string(),
-                snippet: String::new(),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "block" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code is unreachable after return/break/continue".to_string(),
+                    snippet: String::new(),
+                });
+            }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_in_blocks(child, return_kinds, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

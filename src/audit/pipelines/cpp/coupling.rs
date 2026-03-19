@@ -85,48 +85,51 @@ impl CouplingPipeline {
     }
 }
 
-/// Recursively find function_definition nodes and check parameter counts.
+/// Walk all function_definition nodes and check parameter counts.
 fn check_params_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "function_definition" {
-        // In C++ tree-sitter, the parameter_list is inside the function_declarator.
-        // function_definition -> declarator: function_declarator -> parameters: parameter_list
-        if let Some(declarator) = node.child_by_field_name("declarator") {
-            let func_declarator = find_function_declarator(declarator);
-            if let Some(func_decl) = func_declarator {
-                if let Some(params) = func_decl.child_by_field_name("parameters") {
-                    let param_count = count_parameters(params);
-                    if param_count > PARAM_THRESHOLD {
-                        let name = find_identifier_in_declarator(declarator, source)
-                            .unwrap_or_else(|| "<anonymous>".to_string());
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_definition" {
+            // In C++ tree-sitter, the parameter_list is inside the function_declarator.
+            // function_definition -> declarator: function_declarator -> parameters: parameter_list
+            if let Some(declarator) = node.child_by_field_name("declarator") {
+                let func_declarator = find_function_declarator(declarator);
+                if let Some(func_decl) = func_declarator {
+                    if let Some(params) = func_decl.child_by_field_name("parameters") {
+                        let param_count = count_parameters(params);
+                        if param_count > PARAM_THRESHOLD {
+                            let name = find_identifier_in_declarator(declarator, source)
+                                .unwrap_or_else(|| "<anonymous>".to_string());
 
-                        let start = node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: pipeline_name.to_string(),
-                            pattern: "parameter_overload".to_string(),
-                            message: format!(
-                                "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using a struct or builder"
-                            ),
-                            snippet: extract_snippet(source, node, 1),
-                        });
+                            let start = node.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "warning".to_string(),
+                                pipeline: pipeline_name.to_string(),
+                                pattern: "parameter_overload".to_string(),
+                                message: format!(
+                                    "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using a struct or builder"
+                                ),
+                                snippet: extract_snippet(source, node, 1),
+                            });
+                        }
                     }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_params_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -149,35 +152,38 @@ fn find_function_declarator(node: tree_sitter::Node) -> Option<tree_sitter::Node
     None
 }
 
-/// Recursively find methods inside class bodies and check if they reference `this`.
+/// Walk tree to find methods inside class bodies and check if they reference `this`.
 /// In C++ tree-sitter, methods inside a class are `function_definition` nodes
 /// inside `field_declaration_list` inside `class_specifier`.
 fn check_cohesion_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_specifier" {
-        if let Some(body) = node.child_by_field_name("body") {
-            // body is a field_declaration_list
-            let mut cursor = body.walk();
-            for child in body.children(&mut cursor) {
-                if child.kind() == "function_definition" {
-                    check_method_cohesion(child, source, file_path, pipeline_name, findings);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_specifier" {
+            if let Some(body) = node.child_by_field_name("body") {
+                // body is a field_declaration_list
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    if child.kind() == "function_definition" {
+                        check_method_cohesion(child, source, file_path, pipeline_name, findings);
+                    }
+                    // Also check access_specifier blocks — methods may be nested under them
+                    // In tree-sitter-cpp, methods after `public:` etc. are still direct children
+                    // of field_declaration_list, so we check them directly above.
                 }
-                // Also check access_specifier blocks — methods may be nested under them
-                // In tree-sitter-cpp, methods after `public:` etc. are still direct children
-                // of field_declaration_list, so we check them directly above.
             }
+            // Continue to push children to find nested classes
         }
-        // Continue recursing to find nested classes
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_cohesion_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

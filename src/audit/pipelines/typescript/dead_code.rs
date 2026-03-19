@@ -89,41 +89,44 @@ impl Pipeline for DeadCodePipeline {
     }
 }
 
-/// Recursively find all statement_block nodes and check for unreachable code.
+/// Find all statement_block nodes and check for unreachable code.
 fn find_unreachable_blocks(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     return_kinds: &[&str],
     file_path: &str,
     source: &[u8],
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "statement_block" {
-        let positions = find_unreachable_after(node, return_kinds);
-        for (line, col) in positions {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: "dead_code".to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "Code is unreachable after return/break/continue/throw".to_string(),
-                snippet: extract_snippet(source, node, 3),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "statement_block" {
+            let positions = find_unreachable_after(node, return_kinds);
+            for (line, col) in positions {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: "dead_code".to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "Code is unreachable after return/break/continue/throw".to_string(),
+                    snippet: extract_snippet(source, node, 3),
+                });
+            }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        find_unreachable_blocks(child, return_kinds, file_path, source, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
-/// Recursively collect identifiers from type_annotation, type_alias_declaration,
+/// Collect identifiers from type_annotation, type_alias_declaration,
 /// and interface_declaration nodes throughout the tree. This ensures type-only imports
 /// used in type positions are recognized as used.
 fn collect_type_identifiers(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     ids: &mut HashSet<String>,
 ) {
@@ -133,14 +136,17 @@ fn collect_type_identifiers(
         "interface_declaration",
     ];
 
-    if TYPE_NODE_KINDS.contains(&node.kind()) {
-        let type_ids = collect_identifiers(node, source);
-        ids.extend(type_ids);
-    }
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if TYPE_NODE_KINDS.contains(&node.kind()) {
+            let type_ids = collect_identifiers(node, source);
+            ids.extend(type_ids);
+        }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_type_identifiers(child, source, ids);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -154,31 +160,52 @@ fn extract_import_names(import_node: tree_sitter::Node, source: &[u8]) -> Vec<(S
 }
 
 fn extract_import_names_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     names: &mut Vec<(String, u32, u32)>,
 ) {
-    match node.kind() {
-        // `import x from '...'` — default import
-        "import_clause" => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                extract_import_names_recursive(child, source, names);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        match node.kind() {
+            // `import x from '...'` — default import
+            "import_clause" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    stack.push(child);
+                }
             }
-        }
-        // `import { a, b as c } from '...'`
-        "named_imports" => {
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                if child.kind() == "import_specifier" {
-                    // If aliased: `import { a as b }` — the local name is `b` (alias field)
-                    let local_name_node = child
-                        .child_by_field_name("alias")
-                        .or_else(|| child.child_by_field_name("name"));
-                    if let Some(name_node) = local_name_node {
-                        let text = name_node.utf8_text(source).unwrap_or("");
+            // `import { a, b as c } from '...'`
+            "named_imports" => {
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if child.kind() == "import_specifier" {
+                        // If aliased: `import { a as b }` — the local name is `b` (alias field)
+                        let local_name_node = child
+                            .child_by_field_name("alias")
+                            .or_else(|| child.child_by_field_name("name"));
+                        if let Some(name_node) = local_name_node {
+                            let text = name_node.utf8_text(source).unwrap_or("");
+                            if !text.is_empty() {
+                                let pos = name_node.start_position();
+                                names.push((
+                                    text.to_string(),
+                                    pos.row as u32 + 1,
+                                    pos.column as u32 + 1,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            // `import * as ns from '...'`
+            "namespace_import" => {
+                // The identifier after `as`
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if child.kind() == "identifier" {
+                        let text = child.utf8_text(source).unwrap_or("");
                         if !text.is_empty() {
-                            let pos = name_node.start_position();
+                            let pos = child.start_position();
                             names.push((
                                 text.to_string(),
                                 pos.row as u32 + 1,
@@ -188,46 +215,28 @@ fn extract_import_names_recursive(
                     }
                 }
             }
-        }
-        // `import * as ns from '...'`
-        "namespace_import" => {
-            // The identifier after `as`
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                if child.kind() == "identifier" {
-                    let text = child.utf8_text(source).unwrap_or("");
-                    if !text.is_empty() {
-                        let pos = child.start_position();
-                        names.push((
-                            text.to_string(),
-                            pos.row as u32 + 1,
-                            pos.column as u32 + 1,
-                        ));
+            // Default import identifier
+            "identifier" => {
+                // Only if parent is import_clause (default import)
+                if let Some(parent) = node.parent() {
+                    if parent.kind() == "import_clause" {
+                        let text = node.utf8_text(source).unwrap_or("");
+                        if !text.is_empty() {
+                            let pos = node.start_position();
+                            names.push((
+                                text.to_string(),
+                                pos.row as u32 + 1,
+                                pos.column as u32 + 1,
+                            ));
+                        }
                     }
                 }
             }
-        }
-        // Default import identifier
-        "identifier" => {
-            // Only if parent is import_clause (default import)
-            if let Some(parent) = node.parent() {
-                if parent.kind() == "import_clause" {
-                    let text = node.utf8_text(source).unwrap_or("");
-                    if !text.is_empty() {
-                        let pos = node.start_position();
-                        names.push((
-                            text.to_string(),
-                            pos.row as u32 + 1,
-                            pos.column as u32 + 1,
-                        ));
-                    }
+            _ => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    stack.push(child);
                 }
-            }
-        }
-        _ => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                extract_import_names_recursive(child, source, names);
             }
         }
     }

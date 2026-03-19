@@ -23,6 +23,7 @@ const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
     "bitfield_clause",
     "field_declaration",
     "array_declarator",
+    "initializer_list",
 ];
 
 pub struct CMagicNumbersPipeline {
@@ -84,7 +85,14 @@ impl Pipeline for CMagicNumbersPipeline {
 
         let number_idx = find_capture_index(&self.numeric_query, "number");
 
+        // Cap findings per file to avoid hanging on files with massive lookup tables
+        // (e.g., quantization tables with thousands of hex literals).
+        const MAX_FINDINGS_PER_FILE: usize = 200;
+
         while let Some(m) = matches.next() {
+            if findings.len() >= MAX_FINDINGS_PER_FILE {
+                break;
+            }
             let num_cap = m
                 .captures
                 .iter()

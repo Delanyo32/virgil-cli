@@ -104,114 +104,120 @@ impl Pipeline for CouplingPipeline {
 }
 
 fn check_params_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let kind = node.kind();
-    if kind == "method_declaration" || kind == "constructor_declaration" {
-        // Skip constructors — they often need many parameters for initialization
-        if kind == "constructor_declaration" {
-            // fall through to recurse
-        } else if let Some(params) = node.child_by_field_name("parameters") {
-            let param_count = count_parameters(params);
-            if param_count > PARAM_THRESHOLD {
-                let name = node
-                    .child_by_field_name("name")
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("<anonymous>");
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        if kind == "method_declaration" || kind == "constructor_declaration" {
+            // Skip constructors — they often need many parameters for initialization
+            if kind == "constructor_declaration" {
+                // fall through to push children
+            } else if let Some(params) = node.child_by_field_name("parameters") {
+                let param_count = count_parameters(params);
+                if param_count > PARAM_THRESHOLD {
+                    let name = node
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("<anonymous>");
 
-                // Also skip if the method name matches the enclosing class name (constructor pattern)
-                let is_constructor = node.parent().and_then(|p| {
-                    // class_body -> class_declaration
-                    p.parent().and_then(|class_node| {
-                        class_node.child_by_field_name("name")
-                            .map(|cn| node_text(cn, source) == name)
-                    })
-                }).unwrap_or(false);
+                    // Also skip if the method name matches the enclosing class name (constructor pattern)
+                    let is_constructor = node.parent().and_then(|p| {
+                        // class_body -> class_declaration
+                        p.parent().and_then(|class_node| {
+                            class_node.child_by_field_name("name")
+                                .map(|cn| node_text(cn, source) == name)
+                        })
+                    }).unwrap_or(false);
 
-                if !is_constructor {
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "parameter_overload".to_string(),
-                        message: format!(
-                            "method `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using a parameter object"
-                        ),
-                        snippet: extract_snippet(source, node, 1),
-                    });
+                    if !is_constructor {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "parameter_overload".to_string(),
+                            message: format!(
+                                "method `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using a parameter object"
+                            ),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                    }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_params_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn check_cohesion_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    // Look for method_declaration nodes inside class_body
-    if node.kind() == "class_body" {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() != "method_declaration" {
-                continue;
-            }
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        // Look for method_declaration nodes inside class_body
+        if node.kind() == "class_body" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() != "method_declaration" {
+                    continue;
+                }
 
-            // Skip static methods — they don't need `this`
-            if has_modifier(child, source, "static") {
-                continue;
-            }
+                // Skip static methods — they don't need `this`
+                if has_modifier(child, source, "static") {
+                    continue;
+                }
 
-            let body = match child.child_by_field_name("body") {
-                Some(b) => b,
-                None => continue,
-            };
+                let body = match child.child_by_field_name("body") {
+                    Some(b) => b,
+                    None => continue,
+                };
 
-            let method_name = child
-                .child_by_field_name("name")
-                .map(|n| node_text(n, source))
-                .unwrap_or("<anonymous>");
+                let method_name = child
+                    .child_by_field_name("name")
+                    .map(|n| node_text(n, source))
+                    .unwrap_or("<anonymous>");
 
-            // Check if body references "this" via field_access or identifier
-            let uses_this = body_has_member_access(body, source, "field_access", "this")
-                || body_references_identifier(body, source, "this");
+                // Check if body references "this" via field_access or identifier
+                let uses_this = body_has_member_access(body, source, "field_access", "this")
+                    || body_references_identifier(body, source, "this");
 
-            if !uses_this {
-                let start = child.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "info".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "low_cohesion".to_string(),
-                    message: format!(
-                        "method `{method_name}` does not reference `this` — consider making it static"
-                    ),
-                    snippet: extract_snippet(source, child, 1),
-                });
+                if !uses_this {
+                    let start = child.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "low_cohesion".to_string(),
+                        message: format!(
+                            "method `{method_name}` does not reference `this` — consider making it static"
+                        ),
+                        snippet: extract_snippet(source, child, 1),
+                    });
+                }
             }
         }
-    }
 
-    let mut child_cursor = node.walk();
-    for child in node.children(&mut child_cursor) {
-        check_cohesion_recursive(child, source, file_path, pipeline_name, findings);
+        let mut child_cursor = node.walk();
+        for child in node.children(&mut child_cursor) {
+            stack.push(child);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -11,6 +11,7 @@ use crate::parser;
 
 use super::models::{AuditFinding, AuditSummary};
 use super::pipeline::{self, Pipeline};
+use super::pipelines::helpers::count_all_identifier_occurrences;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipelineSelector {
@@ -26,6 +27,7 @@ pub struct AuditEngine {
     languages: Vec<Language>,
     pipeline_filter: Vec<String>,
     pipeline_selector: PipelineSelector,
+    progress: Option<indicatif::ProgressBar>,
 }
 
 impl AuditEngine {
@@ -34,6 +36,7 @@ impl AuditEngine {
             languages: vec![Language::Rust],
             pipeline_filter: Vec::new(),
             pipeline_selector: PipelineSelector::TechDebt,
+            progress: None,
         }
     }
 
@@ -49,6 +52,11 @@ impl AuditEngine {
 
     pub fn pipeline_selector(mut self, s: PipelineSelector) -> Self {
         self.pipeline_selector = s;
+        self
+    }
+
+    pub fn progress_bar(mut self, pb: indicatif::ProgressBar) -> Self {
+        self.progress = Some(pb);
         self
     }
 
@@ -84,113 +92,164 @@ impl AuditEngine {
 
         let pipeline_map = Arc::new(pipeline_map);
 
-        // Run pipelines in parallel over files
-        let all_findings: Vec<Vec<AuditFinding>> = files
-            .par_iter()
-            .filter_map(|path| {
-                let ext = path.extension()?.to_str()?;
-                let lang = Language::from_extension(ext)?;
-                let pipelines = pipeline_map.get(&lang)?;
-
-                let mut ts_parser = match parser::create_parser(lang) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!(
-                            "Warning: failed to create parser for {}: {e}",
-                            path.display()
-                        );
-                        return None;
+        // Phase 4.3: Pre-group files by language to avoid redundant from_extension() calls
+        let mut files_by_lang: HashMap<Language, Vec<PathBuf>> = HashMap::new();
+        for path in &files {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if let Some(lang) = Language::from_extension(ext) {
+                    if pipeline_map.contains_key(&lang) {
+                        files_by_lang.entry(lang).or_default().push(path.clone());
                     }
-                };
-
-                let source = match std::fs::read_to_string(path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Warning: failed to read {}: {e}", path.display());
-                        return None;
-                    }
-                };
-
-                let tree = match ts_parser.parse(&source, None) {
-                    Some(t) => t,
-                    None => {
-                        eprintln!("Warning: failed to parse {}", path.display());
-                        return None;
-                    }
-                };
-
-                let relative_path = path
-                    .strip_prefix(&root)
-                    .unwrap_or(path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-
-                let mut file_findings = Vec::new();
-                for pipeline in pipelines {
-                    file_findings.extend(pipeline.check(
-                        &tree,
-                        source.as_bytes(),
-                        &relative_path,
-                    ));
                 }
-
-                Some(file_findings)
-            })
+            }
+        }
+        let grouped_files: Vec<(Language, PathBuf)> = files_by_lang
+            .into_iter()
+            .flat_map(|(lang, paths)| paths.into_iter().map(move |p| (lang, p)))
             .collect();
 
-        let findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
-
-        // Compute summary
-        let files_with_findings = {
-            let mut seen = std::collections::HashSet::new();
-            for f in &findings {
-                seen.insert(f.file_path.clone());
-            }
-            seen.len()
-        };
-
-        let mut by_pipeline: HashMap<String, usize> = HashMap::new();
-        let mut by_pattern: HashMap<String, usize> = HashMap::new();
-        let mut pipeline_pattern_map: HashMap<String, HashMap<String, usize>> = HashMap::new();
-        for f in &findings {
-            *by_pipeline.entry(f.pipeline.clone()).or_insert(0) += 1;
-            *by_pattern.entry(f.pattern.clone()).or_insert(0) += 1;
-            *pipeline_pattern_map
-                .entry(f.pipeline.clone())
-                .or_default()
-                .entry(f.pattern.clone())
-                .or_insert(0) += 1;
+        if let Some(pb) = &self.progress {
+            pb.set_length(files.len() as u64);
         }
 
-        let mut by_pipeline: Vec<(String, usize)> = by_pipeline.into_iter().collect();
-        by_pipeline.sort_by(|a, b| b.1.cmp(&a.1));
+        let progress = self.progress.clone();
 
-        let mut by_pattern: Vec<(String, usize)> = by_pattern.into_iter().collect();
-        by_pattern.sort_by(|a, b| b.1.cmp(&a.1));
+        // Phase 4.4: Reduced stack size — stack-based iteration in helpers
+        // eliminates deep recursion, so 4MB suffices.
+        let pool = rayon::ThreadPoolBuilder::new()
+            .stack_size(4 * 1024 * 1024) // 4MB per thread (reduced from 16MB)
+            .build()
+            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
-        let by_pipeline_pattern: Vec<(String, Vec<(String, usize)>)> = by_pipeline
-            .iter()
-            .map(|(pipeline_name, _)| {
-                let mut patterns: Vec<(String, usize)> = pipeline_pattern_map
-                    .remove(pipeline_name)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect();
-                patterns.sort_by(|a, b| b.1.cmp(&a.1));
-                (pipeline_name.clone(), patterns)
+        // Run pipelines in parallel over pre-grouped files
+        let all_findings: Vec<Vec<AuditFinding>> = pool.install(|| grouped_files
+            .par_iter()
+            .filter_map(|(lang, path)| {
+                let result = (|| {
+                    let pipelines = pipeline_map.get(lang)?;
+
+                    let mut ts_parser = match parser::create_parser(*lang) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: failed to create parser for {}: {e}",
+                                path.display()
+                            );
+                            return None;
+                        }
+                    };
+
+                    // Skip files larger than 1MB — vendored or generated code
+                    const MAX_FILE_SIZE: u64 = 1_000_000;
+                    if let Ok(meta) = std::fs::metadata(path) {
+                        if meta.len() > MAX_FILE_SIZE {
+                            return None;
+                        }
+                    }
+
+                    let source = match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Warning: failed to read {}: {e}", path.display());
+                            return None;
+                        }
+                    };
+
+                    let tree = match ts_parser.parse(&source, None) {
+                        Some(t) => t,
+                        None => {
+                            eprintln!("Warning: failed to parse {}", path.display());
+                            return None;
+                        }
+                    };
+
+                    let relative_path = path
+                        .strip_prefix(&root)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+
+                    // Phase 4.1: Compute identifier counts once per file,
+                    // share across all pipelines via check_with_ids()
+                    let id_counts = count_all_identifier_occurrences(
+                        tree.root_node(),
+                        source.as_bytes(),
+                    );
+
+                    let mut file_findings = Vec::new();
+                    for pipeline in pipelines {
+                        file_findings.extend(pipeline.check_with_ids(
+                            &tree,
+                            source.as_bytes(),
+                            &relative_path,
+                            &id_counts,
+                        ));
+                    }
+
+                    Some(file_findings)
+                })();
+                if let Some(pb) = &progress {
+                    pb.inc(1);
+                }
+                result
             })
-            .collect();
+            .collect());
 
-        let summary = AuditSummary {
-            total_findings: findings.len(),
-            files_scanned: files.len(),
-            files_with_findings,
-            by_pipeline,
-            by_pattern,
-            by_pipeline_pattern,
-        };
+        if let Some(pb) = &self.progress {
+            pb.finish_and_clear();
+        }
+
+        let findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
+        let summary = compute_summary(&findings, files.len());
 
         Ok((findings, summary))
+    }
+}
+
+/// Phase 4.2: Single-pass summary computation with sort_unstable_by.
+fn compute_summary(findings: &[AuditFinding], files_scanned: usize) -> AuditSummary {
+    let mut files_seen: HashSet<&str> = HashSet::new();
+    let mut by_pipeline: HashMap<String, usize> = HashMap::new();
+    let mut by_pattern: HashMap<String, usize> = HashMap::new();
+    let mut pipeline_pattern: HashMap<String, HashMap<String, usize>> = HashMap::new();
+
+    for f in findings {
+        files_seen.insert(&f.file_path);
+        *by_pipeline.entry(f.pipeline.clone()).or_default() += 1;
+        *by_pattern.entry(f.pattern.clone()).or_default() += 1;
+        *pipeline_pattern
+            .entry(f.pipeline.clone())
+            .or_default()
+            .entry(f.pattern.clone())
+            .or_default() += 1;
+    }
+
+    let mut by_pipeline: Vec<(String, usize)> = by_pipeline.into_iter().collect();
+    by_pipeline.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+
+    let mut by_pattern: Vec<(String, usize)> = by_pattern.into_iter().collect();
+    by_pattern.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+
+    let by_pipeline_pattern: Vec<(String, Vec<(String, usize)>)> = by_pipeline
+        .iter()
+        .map(|(pipeline_name, _)| {
+            let mut patterns: Vec<(String, usize)> = pipeline_pattern
+                .remove(pipeline_name)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            patterns.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+            (pipeline_name.clone(), patterns)
+        })
+        .collect();
+
+    AuditSummary {
+        total_findings: findings.len(),
+        files_scanned,
+        files_with_findings: files_seen.len(),
+        by_pipeline,
+        by_pattern,
+        by_pipeline_pattern,
     }
 }
 

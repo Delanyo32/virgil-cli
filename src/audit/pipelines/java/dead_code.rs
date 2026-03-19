@@ -5,7 +5,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{collect_identifiers, find_unreachable_after};
+use crate::audit::pipelines::helpers::{collect_identifiers, count_all_identifier_occurrences, find_unreachable_after};
 
 use super::primitives::{extract_snippet, has_modifier, node_text};
 
@@ -132,66 +132,59 @@ impl Pipeline for DeadCodePipeline {
     }
 }
 
-/// Walk the tree looking for private method_declaration nodes inside class_body.
-/// If the method name does not appear elsewhere in the file (excluding its own
-/// definition name), flag as unused.
+/// Walk the tree looking for private method_declaration nodes inside class_body (stack-based).
 fn collect_unused_private_methods(
-    node: tree_sitter::Node,
+    root_node: tree_sitter::Node,
     source: &[u8],
     _all_identifiers: &HashSet<String>,
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_body" {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() != "method_declaration" {
-                continue;
-            }
-
-            // Check if the method has "private" modifier
-            if !has_modifier(child, source, "private") {
-                continue;
-            }
-
-            let name_node = match child.child_by_field_name("name") {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let method_name = node_text(name_node, source);
-            if method_name.is_empty() {
-                continue;
-            }
-
-            // Count usages of this method name in the file, excluding
-            // the definition name node itself
+    let mut stack = vec![root_node];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_body" {
             let root = find_root(node);
-            let mut usage_count = 0;
-            count_identifier_usages(root, source, method_name, name_node.id(), &mut usage_count);
+            let id_counts = count_all_identifier_occurrences(root, source);
 
-            if usage_count == 0 {
-                let start = child.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "info".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "unused_private_method".to_string(),
-                    message: format!(
-                        "private method `{method_name}` appears unused in this file"
-                    ),
-                    snippet: extract_snippet(source, child, 3),
-                });
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() != "method_declaration" {
+                    continue;
+                }
+                if !has_modifier(child, source, "private") {
+                    continue;
+                }
+                let name_node = match child.child_by_field_name("name") {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let method_name = node_text(name_node, source);
+                if method_name.is_empty() {
+                    continue;
+                }
+                let total_count = id_counts.get(method_name).copied().unwrap_or(0);
+                if total_count <= 1 {
+                    let start = child.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "unused_private_method".to_string(),
+                        message: format!(
+                            "private method `{method_name}` appears unused in this file"
+                        ),
+                        snippet: extract_snippet(source, child, 3),
+                    });
+                }
             }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unused_private_methods(child, source, _all_identifiers, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -202,25 +195,6 @@ fn find_root(node: tree_sitter::Node) -> tree_sitter::Node {
         current = parent;
     }
     current
-}
-
-/// Count usages of `target_name` as an identifier, excluding the node with `exclude_id`.
-fn count_identifier_usages(
-    node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    exclude_id: usize,
-    count: &mut usize,
-) {
-    if node.kind() == "identifier" && node.id() != exclude_id {
-        if node_text(node, source) == target_name {
-            *count += 1;
-        }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count_identifier_usages(child, source, target_name, exclude_id, count);
-    }
 }
 
 /// Extract the last identifier segment from a Java import_declaration.
@@ -257,59 +231,64 @@ fn collect_identifiers_excluding(
     exclude_kind: &str,
 ) -> HashSet<String> {
     let mut ids = HashSet::new();
-    collect_ids_excluding_recursive(root, source, exclude_kind, &mut ids);
+    collect_ids_excluding_iterative(root, source, exclude_kind, &mut ids);
     ids
 }
 
-fn collect_ids_excluding_recursive(
-    node: tree_sitter::Node,
+fn collect_ids_excluding_iterative(
+    root: tree_sitter::Node,
     source: &[u8],
     exclude_kind: &str,
     ids: &mut HashSet<String>,
 ) {
-    if node.kind() == exclude_kind {
-        return;
-    }
-    let kind = node.kind();
-    if kind == "identifier" || kind == "type_identifier" {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == exclude_kind {
+            continue;
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_ids_excluding_recursive(child, source, exclude_kind, ids);
+        let kind = node.kind();
+        if kind == "identifier" || kind == "type_identifier" {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
-/// Walk all block nodes and find unreachable code after return/break/continue/throw.
+/// Walk all block nodes and find unreachable code (stack-based).
 fn collect_unreachable_in_blocks(
-    node: tree_sitter::Node,
-    source: &[u8],
+    root: tree_sitter::Node,
+    _source: &[u8],
     return_kinds: &[&str],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "block" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code after return/break/continue/throw is unreachable".to_string(),
-                snippet: String::new(),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "block" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code after return/break/continue/throw is unreachable".to_string(),
+                    snippet: String::new(),
+                });
+            }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_in_blocks(child, source, return_kinds, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

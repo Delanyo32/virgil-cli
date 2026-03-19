@@ -105,22 +105,25 @@ impl Pipeline for DeadCodePipeline {
     }
 }
 
-/// Recursively collect all `function_item` nodes with their name text.
+/// Collect all `function_item` nodes with their name text (stack-based iteration).
 fn collect_function_items<'a>(
-    node: tree_sitter::Node<'a>,
+    root: tree_sitter::Node<'a>,
     source: &[u8],
     out: &mut Vec<(String, tree_sitter::Node<'a>)>,
 ) {
-    if node.kind() == "function_item" {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            if let Ok(name) = name_node.utf8_text(source) {
-                out.push((name.to_string(), node));
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_item" {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source) {
+                    out.push((name.to_string(), node));
+                }
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_function_items(child, source, out);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -144,39 +147,43 @@ fn collect_usage_identifiers(root: tree_sitter::Node, source: &[u8]) -> HashSet<
 }
 
 fn collect_usage_ids_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
-    skip_this_id: bool,
+    _skip_this_id: bool,
     ids: &mut HashSet<String>,
 ) {
-    let kind = node.kind();
+    // Stack holds (node, skip_this_id) pairs
+    let mut stack: Vec<(tree_sitter::Node, bool)> = vec![(root, _skip_this_id)];
+    while let Some((node, skip_this_id)) = stack.pop() {
+        let kind = node.kind();
 
-    // If we're at a function_item, recurse into children but mark the name child
-    // so its identifier is skipped.
-    if kind == "function_item" {
-        let name_id = node.child_by_field_name("name").map(|n| n.id());
+        // If we're at a function_item, push children but mark the name child
+        // so its identifier is skipped.
+        if kind == "function_item" {
+            let name_id = node.child_by_field_name("name").map(|n| n.id());
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                let is_fn_name = name_id.map(|id| id == child.id()).unwrap_or(false);
+                stack.push((child, is_fn_name));
+            }
+            continue;
+        }
+
+        // Collect identifiers (unless this node is the fn name position)
+        if !skip_this_id
+            && (kind == "identifier"
+                || kind == "field_identifier"
+                || kind == "type_identifier")
+        {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+            }
+        }
+
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            let is_fn_name = name_id.map(|id| id == child.id()).unwrap_or(false);
-            collect_usage_ids_recursive(child, source, is_fn_name, ids);
+            stack.push((child, false));
         }
-        return;
-    }
-
-    // Collect identifiers (unless this node is the fn name position)
-    if !skip_this_id
-        && (kind == "identifier"
-            || kind == "field_identifier"
-            || kind == "type_identifier")
-    {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
-        }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_usage_ids_recursive(child, source, false, ids);
     }
 }
 
@@ -237,60 +244,59 @@ fn collect_identifiers_excluding(
 }
 
 fn collect_ids_excluding_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     exclude_kind: &str,
     ids: &mut HashSet<String>,
 ) {
-    if node.kind() == exclude_kind {
-        return;
-    }
-    let kind = node.kind();
-    if kind == "identifier" || kind == "type_identifier" || kind == "field_identifier" {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == exclude_kind {
+            continue;
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_ids_excluding_recursive(child, source, exclude_kind, ids);
+        let kind = node.kind();
+        if kind == "identifier" || kind == "type_identifier" || kind == "field_identifier" {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
-/// Walk all block nodes and find unreachable code after return/break/continue.
+/// Walk all block nodes and find unreachable code after return/break/continue (stack-based iteration).
 fn collect_unreachable_findings(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     return_kinds: &[&str],
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "block" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code after return/break/continue is unreachable".to_string(),
-                snippet: extract_snippet(source, node, 3),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "block" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code after return/break/continue is unreachable".to_string(),
+                    snippet: extract_snippet(source, node, 3),
+                });
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_findings(
-            child,
-            source,
-            file_path,
-            pipeline_name,
-            return_kinds,
-            findings,
-        );
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

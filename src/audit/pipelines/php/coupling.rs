@@ -115,100 +115,106 @@ impl CouplingPipeline {
 }
 
 fn check_params_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let kind = node.kind();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
 
-    if kind == "function_definition" || kind == "method_declaration" {
-        if let Some(params) = node.child_by_field_name("parameters") {
-            let param_count = count_parameters(params);
-            if param_count > PARAM_THRESHOLD {
-                let name = node
-                    .child_by_field_name("name")
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("<anonymous>");
+        if kind == "function_definition" || kind == "method_declaration" {
+            if let Some(params) = node.child_by_field_name("parameters") {
+                let param_count = count_parameters(params);
+                if param_count > PARAM_THRESHOLD {
+                    let name = node
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("<anonymous>");
 
-                let start = node.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "parameter_overload".to_string(),
-                    message: format!(
-                        "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using an options object or parameter object"
-                    ),
-                    snippet: extract_snippet(source, node, 1),
-                });
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "parameter_overload".to_string(),
+                        message: format!(
+                            "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using an options object or parameter object"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
+                }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_params_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn check_cohesion_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_declaration" {
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut body_cursor = body.walk();
-            for child in body.named_children(&mut body_cursor) {
-                if child.kind() != "method_declaration" {
-                    continue;
-                }
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_declaration" {
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut body_cursor = body.walk();
+                for child in body.named_children(&mut body_cursor) {
+                    if child.kind() != "method_declaration" {
+                        continue;
+                    }
 
-                // Skip static methods
-                if has_static_modifier(child) {
-                    continue;
-                }
+                    // Skip static methods
+                    if has_static_modifier(child) {
+                        continue;
+                    }
 
-                // Skip constructors/destructors
-                let method_name = child
-                    .child_by_field_name("name")
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("");
-                if method_name.starts_with("__") {
-                    continue;
-                }
+                    // Skip constructors/destructors
+                    let method_name = child
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("");
+                    if method_name.starts_with("__") {
+                        continue;
+                    }
 
-                if let Some(method_body) = child.child_by_field_name("body") {
-                    // Check if body references $this
-                    if !body_references_this(method_body, source) {
-                        let start = child.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: pipeline_name.to_string(),
-                            pattern: "low_cohesion".to_string(),
-                            message: format!(
-                                "method `{method_name}` does not use `$this` — consider making it a static method or standalone function"
-                            ),
-                            snippet: extract_snippet(source, child, 1),
-                        });
+                    if let Some(method_body) = child.child_by_field_name("body") {
+                        // Check if body references $this
+                        if !body_references_this(method_body, source) {
+                            let start = child.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "info".to_string(),
+                                pipeline: pipeline_name.to_string(),
+                                pattern: "low_cohesion".to_string(),
+                                message: format!(
+                                    "method `{method_name}` does not use `$this` — consider making it a static method or standalone function"
+                                ),
+                                snippet: extract_snippet(source, child, 1),
+                            });
+                        }
                     }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_cohesion_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -224,26 +230,20 @@ fn has_static_modifier(method: tree_sitter::Node) -> bool {
 
 /// Check if a method body references `$this`.
 /// In PHP tree-sitter, `$this` appears as a `variable_name` node with text "$this".
-fn body_references_this(body: tree_sitter::Node, source: &[u8]) -> bool {
-    let mut found = false;
-    check_this_recursive(body, source, &mut found);
-    found
-}
-
-fn check_this_recursive(node: tree_sitter::Node, source: &[u8], found: &mut bool) {
-    if *found {
-        return;
-    }
-    if node.kind() == "variable_name" {
-        if node.utf8_text(source).unwrap_or("") == "$this" {
-            *found = true;
-            return;
+fn body_references_this(root: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "variable_name" {
+            if node.utf8_text(source).unwrap_or("") == "$this" {
+                return true;
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
         }
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_this_recursive(child, source, found);
-    }
+    false
 }
 
 impl Pipeline for CouplingPipeline {

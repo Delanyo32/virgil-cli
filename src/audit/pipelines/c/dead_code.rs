@@ -3,9 +3,9 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::find_unreachable_after;
+use crate::audit::pipelines::helpers::{count_all_identifier_occurrences, find_unreachable_after};
 
-use super::primitives::{extract_snippet, find_identifier_in_declarator, has_storage_class, node_text};
+use super::primitives::{extract_snippet, find_identifier_in_declarator, has_storage_class};
 
 pub struct DeadCodePipeline;
 
@@ -36,14 +36,13 @@ impl Pipeline for DeadCodePipeline {
         let mut static_fns: Vec<(String, tree_sitter::Node)> = Vec::new();
         collect_static_functions(root, source, &mut static_fns);
 
-        for (name, node) in &static_fns {
-            // Count usages of this name excluding the definition's own declarator
-            let mut usage_count = 0;
-            let declarator_node = node.child_by_field_name("declarator");
-            let exclude_id = declarator_node.map(|d| d.id());
-            count_identifier_usages(root, source, name, exclude_id, &mut usage_count);
+        // Build identifier count map once for the entire file — O(n) instead of O(n*m).
+        let id_counts = count_all_identifier_occurrences(root, source);
 
-            if usage_count == 0 {
+        for (name, node) in &static_fns {
+            // The declaration itself counts as 1. If total <= 1, the function is unused.
+            let total_count = id_counts.get(name.as_str()).copied().unwrap_or(0);
+            if total_count <= 1 {
                 let start = node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
@@ -79,130 +78,60 @@ impl Pipeline for DeadCodePipeline {
     }
 }
 
-/// Recursively collect all `function_definition` nodes that have `static` storage class.
+/// Collect all `function_definition` nodes that have `static` storage class (stack-based).
 fn collect_static_functions<'a>(
-    node: tree_sitter::Node<'a>,
+    root: tree_sitter::Node<'a>,
     source: &[u8],
     out: &mut Vec<(String, tree_sitter::Node<'a>)>,
 ) {
-    if node.kind() == "function_definition" {
-        if has_storage_class(node, source, "static") {
-            if let Some(declarator) = node.child_by_field_name("declarator") {
-                if let Some(name) = find_identifier_in_declarator(declarator, source) {
-                    out.push((name, node));
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_definition" {
+            if has_storage_class(node, source, "static") {
+                if let Some(declarator) = node.child_by_field_name("declarator") {
+                    if let Some(name) = find_identifier_in_declarator(declarator, source) {
+                        out.push((name, node));
+                    }
                 }
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_static_functions(child, source, out);
-    }
-}
-
-/// Count usages of `target_name` identifier across the tree, excluding nodes
-/// that are descendants of the node with `exclude_subtree_id`.
-/// Also detects function pointer passing patterns where the function name
-/// appears as an argument to a call_expression (e.g., `qsort(arr, n, sizeof, compare_fn)`).
-fn count_identifier_usages(
-    node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    exclude_subtree_id: Option<usize>,
-    count: &mut usize,
-) {
-    // Skip the entire declarator subtree of the definition itself
-    if let Some(excl_id) = exclude_subtree_id {
-        if node.id() == excl_id {
-            return;
-        }
-    }
-    if node.kind() == "identifier" || node.kind() == "field_identifier" {
-        if node_text(node, source) == target_name {
-            *count += 1;
-        }
-    }
-    // Check for function pointer passing in call_expression argument lists.
-    // The function name may appear inside argument_list as a pointer_expression (&fn_name)
-    // or cast_expression that wraps the identifier. Walk argument_list children
-    // to find the target name even when wrapped in such expressions.
-    if node.kind() == "call_expression" {
-        if let Some(args) = node.child_by_field_name("arguments") {
-            count_identifier_in_args(args, source, target_name, count);
-        }
-        // Still recurse into children normally below
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count_identifier_usages(child, source, target_name, exclude_subtree_id, count);
-    }
-}
-
-/// Search inside an argument_list for the target name, including when wrapped
-/// in pointer_expression (&fn), cast_expression, or parenthesized_expression.
-fn count_identifier_in_args(
-    args_node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    count: &mut usize,
-) {
-    let mut cursor = args_node.walk();
-    for child in args_node.children(&mut cursor) {
-        // Direct identifier argument (e.g., `compare_fn`)
-        if child.kind() == "identifier" && node_text(child, source) == target_name {
-            // This is already counted by the main walk, so don't double-count
-            return;
-        }
-        // Wrapped in pointer_expression (e.g., `&compare_fn`)
-        if child.kind() == "pointer_expression" {
-            let mut inner_cursor = child.walk();
-            for inner in child.children(&mut inner_cursor) {
-                if inner.kind() == "identifier" && node_text(inner, source) == target_name {
-                    *count += 1;
-                    return;
-                }
-            }
-        }
-        // Wrapped in cast_expression (e.g., `(comparator_t)compare_fn`)
-        if child.kind() == "cast_expression" {
-            if let Some(value) = child.child_by_field_name("value") {
-                if value.kind() == "identifier" && node_text(value, source) == target_name {
-                    *count += 1;
-                    return;
-                }
-            }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
         }
     }
 }
 
-/// Walk all `compound_statement` nodes and find unreachable code after
-/// return/break/continue.
+/// Walk all `compound_statement` nodes and find unreachable code (stack-based).
 fn collect_unreachable_findings(
-    node: tree_sitter::Node,
-    source: &[u8],
+    root: tree_sitter::Node,
+    _source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     return_kinds: &[&str],
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "compound_statement" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code after return/break/continue is unreachable".to_string(),
-                snippet: String::new(),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "compound_statement" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code after return/break/continue is unreachable".to_string(),
+                    snippet: String::new(),
+                });
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_findings(child, source, file_path, pipeline_name, return_kinds, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

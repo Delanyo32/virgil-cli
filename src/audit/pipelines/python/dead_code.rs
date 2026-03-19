@@ -5,7 +5,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::find_unreachable_after;
+use crate::audit::pipelines::helpers::{count_all_identifier_occurrences, find_unreachable_after};
 
 use super::primitives::{extract_snippet, node_text};
 
@@ -24,6 +24,9 @@ impl DeadCodePipeline {
     ) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
+
+        // Build identifier count map once for the entire file — O(n) instead of O(n*m).
+        let id_counts = count_all_identifier_occurrences(root, source);
 
         // Walk root children looking for function_definition with names starting with _
         let mut cursor = root.walk();
@@ -66,11 +69,9 @@ impl DeadCodePipeline {
                 continue;
             }
 
-            // Check if name is referenced elsewhere (excluding its own definition)
-            let mut usage_count = 0;
-            count_identifier_usages(root, source, name, name_node.id(), &mut usage_count);
-
-            if usage_count == 0 {
+            // The declaration itself counts as 1. If total <= 1, the function is unused.
+            let total_count = id_counts.get(name).copied().unwrap_or(0);
+            if total_count <= 1 {
                 let start = child.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
@@ -348,80 +349,54 @@ fn find_inner_function(decorated: tree_sitter::Node) -> Option<tree_sitter::Node
     None
 }
 
-/// Count usages of `target_name` identifier across the tree, excluding the node with `exclude_id`.
-fn count_identifier_usages(
-    node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    exclude_id: usize,
-    count: &mut usize,
-) {
-    if node.kind() == "identifier" && node.id() != exclude_id {
-        if node_text(node, source) == target_name {
-            *count += 1;
-        }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count_identifier_usages(child, source, target_name, exclude_id, count);
-    }
-}
-
 fn collect_identifiers_into(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     ids: &mut HashSet<String>,
 ) {
-    let kind = node.kind();
-    if kind == "identifier" || kind == "attribute" {
-        if let Ok(text) = node.utf8_text(source) {
-            // For attribute nodes, we only want the object part for identifier tracking
-            // but for simple identifiers, insert directly
-            if kind == "identifier" {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "identifier" {
+            if let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_identifiers_into(child, source, ids);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn collect_unreachable_in_blocks(
-    node: tree_sitter::Node,
-    source: &[u8],
+    root: tree_sitter::Node,
+    _source: &[u8],
     return_kinds: &[&str],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "block" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code is unreachable after return/break/continue/raise".to_string(),
-                snippet: String::new(),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "block" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code is unreachable after return/break/continue/raise".to_string(),
+                    snippet: String::new(),
+                });
+            }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_in_blocks(
-            child,
-            source,
-            return_kinds,
-            file_path,
-            pipeline_name,
-            findings,
-        );
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

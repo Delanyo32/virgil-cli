@@ -165,129 +165,135 @@ fn has_self_parameter(params_node: tree_sitter::Node, source: &[u8]) -> bool {
 
 /// Walk tree looking for function_definition nodes and check parameter counts.
 fn collect_parameter_overloads(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "function_definition" {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            let fn_name = node_text(name_node, source);
-            // Skip __init__ constructors — they often need many parameters
-            if fn_name != "__init__" {
-                if let Some(params_node) = node.child_by_field_name("parameters") {
-                    let param_count = count_python_parameters(params_node, source);
-                    if param_count > PARAMETER_OVERLOAD_THRESHOLD {
-                        let start = node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: pipeline_name.to_string(),
-                            pattern: "parameter_overload".to_string(),
-                            message: format!(
-                                "function `{fn_name}` has {param_count} parameters \
-                                 (threshold: {PARAMETER_OVERLOAD_THRESHOLD}) — consider using \
-                                 a configuration object or dataclass"
-                            ),
-                            snippet: extract_snippet(source, node, 1),
-                        });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_definition" {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                let fn_name = node_text(name_node, source);
+                // Skip __init__ constructors — they often need many parameters
+                if fn_name != "__init__" {
+                    if let Some(params_node) = node.child_by_field_name("parameters") {
+                        let param_count = count_python_parameters(params_node, source);
+                        if param_count > PARAMETER_OVERLOAD_THRESHOLD {
+                            let start = node.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "warning".to_string(),
+                                pipeline: pipeline_name.to_string(),
+                                pattern: "parameter_overload".to_string(),
+                                message: format!(
+                                    "function `{fn_name}` has {param_count} parameters \
+                                     (threshold: {PARAMETER_OVERLOAD_THRESHOLD}) — consider using \
+                                     a configuration object or dataclass"
+                                ),
+                                snippet: extract_snippet(source, node, 1),
+                            });
+                        }
                     }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_parameter_overloads(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 /// Walk tree looking for methods inside class_definition that have a `self` parameter
 /// but don't access `self` in their body.
 fn collect_low_cohesion_methods(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_definition" {
-        // Walk the class body looking for methods
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut cursor = body.walk();
-            for child in body.children(&mut cursor) {
-                let func_node = match child.kind() {
-                    "function_definition" => child,
-                    "decorated_definition" => {
-                        match find_inner_function(child) {
-                            Some(f) => f,
-                            None => continue,
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_definition" {
+            // Walk the class body looking for methods
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    let func_node = match child.kind() {
+                        "function_definition" => child,
+                        "decorated_definition" => {
+                            match find_inner_function(child) {
+                                Some(f) => f,
+                                None => continue,
+                            }
                         }
+                        _ => continue,
+                    };
+
+                    let name_node = match func_node.child_by_field_name("name") {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    let fn_name = node_text(name_node, source);
+
+                    // Skip dunder methods
+                    if fn_name.starts_with("__") && fn_name.ends_with("__") {
+                        continue;
                     }
-                    _ => continue,
-                };
 
-                let name_node = match func_node.child_by_field_name("name") {
-                    Some(n) => n,
-                    None => continue,
-                };
-                let fn_name = node_text(name_node, source);
+                    let params_node = match func_node.child_by_field_name("parameters") {
+                        Some(p) => p,
+                        None => continue,
+                    };
 
-                // Skip dunder methods
-                if fn_name.starts_with("__") && fn_name.ends_with("__") {
-                    continue;
-                }
+                    // Only check methods that have a `self` parameter
+                    if !has_self_parameter(params_node, source) {
+                        continue;
+                    }
 
-                let params_node = match func_node.child_by_field_name("parameters") {
-                    Some(p) => p,
-                    None => continue,
-                };
+                    let func_body = match func_node.child_by_field_name("body") {
+                        Some(b) => b,
+                        None => continue,
+                    };
 
-                // Only check methods that have a `self` parameter
-                if !has_self_parameter(params_node, source) {
-                    continue;
-                }
+                    // Skip trivial bodies (just `pass` or `...`)
+                    if is_trivial_body(func_body, source) {
+                        continue;
+                    }
 
-                let func_body = match func_node.child_by_field_name("body") {
-                    Some(b) => b,
-                    None => continue,
-                };
-
-                // Skip trivial bodies (just `pass` or `...`)
-                if is_trivial_body(func_body, source) {
-                    continue;
-                }
-
-                // Check if the body accesses self via attribute access
-                if !body_has_member_access(func_body, source, "attribute", "self") {
-                    let start = func_node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "info".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "low_cohesion".to_string(),
-                        message: format!(
-                            "method `{fn_name}` has a `self` parameter but never accesses \
-                             instance attributes — consider making it a function or @staticmethod"
-                        ),
-                        snippet: extract_snippet(source, func_node, 1),
-                    });
+                    // Check if the body accesses self via attribute access
+                    if !body_has_member_access(func_body, source, "attribute", "self") {
+                        let start = func_node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "info".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "low_cohesion".to_string(),
+                            message: format!(
+                                "method `{fn_name}` has a `self` parameter but never accesses \
+                                 instance attributes — consider making it a function or @staticmethod"
+                            ),
+                            snippet: extract_snippet(source, func_node, 1),
+                        });
+                    }
                 }
             }
+
+            // Don't recurse into nested classes from here; we'll catch them naturally
         }
 
-        // Don't recurse into nested classes from here; we'll catch them naturally
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_low_cohesion_methods(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

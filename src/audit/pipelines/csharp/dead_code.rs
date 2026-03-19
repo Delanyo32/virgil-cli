@@ -5,7 +5,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::find_unreachable_after;
+use crate::audit::pipelines::helpers::{count_all_identifier_occurrences, find_unreachable_after};
 
 use super::primitives::{extract_snippet, has_modifier, node_text};
 
@@ -26,7 +26,7 @@ impl DeadCodePipeline {
         let root = tree.root_node();
 
         // Walk for class_declaration -> declaration_list -> method_declaration
-        find_private_methods_recursive(
+        find_private_methods_iterative(
             root,
             source,
             file_path,
@@ -107,163 +107,134 @@ impl DeadCodePipeline {
     }
 }
 
-fn find_private_methods_recursive(
-    node: tree_sitter::Node,
+fn find_private_methods_iterative(
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    // Look for class_declaration -> declaration_list -> method_declaration
-    if node.kind() == "class_declaration" {
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut cursor = body.walk();
-            for child in body.children(&mut cursor) {
-                if child.kind() != "method_declaration" {
-                    continue;
-                }
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_declaration" {
+            let id_counts = count_all_identifier_occurrences(node, source);
 
-                // Check for private modifier
-                if !has_modifier(child, source, "private") {
-                    continue;
-                }
-
-                // Get method name
-                let name_node = match child.child_by_field_name("name") {
-                    Some(n) => n,
-                    None => continue,
-                };
-                let name = node_text(name_node, source);
-                if name.is_empty() {
-                    continue;
-                }
-
-                // Check if the name appears elsewhere in the file (excluding the declaration itself)
-                let mut usage_count = 0;
-                count_identifier_usages(
-                    node, // search within the class
-                    source,
-                    name,
-                    name_node.id(),
-                    &mut usage_count,
-                );
-
-                if usage_count == 0 {
-                    let start = child.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "info".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "unused_private_method".to_string(),
-                        message: format!(
-                            "private method `{name}` appears unused within this class"
-                        ),
-                        snippet: extract_snippet(source, child, 1),
-                    });
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    if child.kind() != "method_declaration" {
+                        continue;
+                    }
+                    if !has_modifier(child, source, "private") {
+                        continue;
+                    }
+                    let name_node = match child.child_by_field_name("name") {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    let name = node_text(name_node, source);
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let total_count = id_counts.get(name).copied().unwrap_or(0);
+                    if total_count <= 1 {
+                        let start = child.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "info".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "unused_private_method".to_string(),
+                            message: format!(
+                                "private method `{name}` appears unused within this class"
+                            ),
+                            snippet: extract_snippet(source, child, 1),
+                        });
+                    }
                 }
             }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        find_private_methods_recursive(child, source, file_path, pipeline_name, findings);
-    }
-}
-
-/// Count usages of `target_name` identifier across the tree, excluding the node with `exclude_id`.
-fn count_identifier_usages(
-    node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    exclude_id: usize,
-    count: &mut usize,
-) {
-    if node.kind() == "identifier" && node.id() != exclude_id {
-        if node_text(node, source) == target_name {
-            *count += 1;
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count_identifier_usages(child, source, target_name, exclude_id, count);
     }
 }
 
 fn collect_identifiers_into(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     ids: &mut HashSet<String>,
 ) {
-    let kind = node.kind();
-    if kind == "identifier"
-        || kind == "field_identifier"
-        || kind == "type_identifier"
-        || kind == "property_identifier"
-    {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        if kind == "identifier"
+            || kind == "field_identifier"
+            || kind == "type_identifier"
+            || kind == "property_identifier"
+        {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_identifiers_into(child, source, ids);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
-/// Extract the last identifier from a using_directive node.
-/// e.g., `using System.Collections.Generic;` -> "Generic"
+/// Extract the last identifier from a using_directive node (stack-based).
 fn extract_last_identifier(using_node: tree_sitter::Node, source: &[u8]) -> String {
     let mut last_id = String::new();
-    find_last_identifier_recursive(using_node, source, &mut last_id);
+    let mut stack = vec![using_node];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "identifier" {
+            if let Ok(text) = node.utf8_text(source) {
+                last_id = text.to_string();
+            }
+        }
+        let mut cursor = node.walk();
+        // Push in reverse so left-to-right order means last identifier wins
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
     last_id
 }
 
-fn find_last_identifier_recursive(
-    node: tree_sitter::Node,
-    source: &[u8],
-    last_id: &mut String,
-) {
-    if node.kind() == "identifier" {
-        if let Ok(text) = node.utf8_text(source) {
-            *last_id = text.to_string();
-        }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        find_last_identifier_recursive(child, source, last_id);
-    }
-}
-
 fn collect_unreachable_in_blocks(
-    node: tree_sitter::Node,
-    source: &[u8],
+    root: tree_sitter::Node,
+    _source: &[u8],
     return_kinds: &[&str],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "block" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code is unreachable after return/break/continue/throw".to_string(),
-                snippet: String::new(),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "block" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code is unreachable after return/break/continue/throw".to_string(),
+                    snippet: String::new(),
+                });
+            }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_in_blocks(child, source, return_kinds, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

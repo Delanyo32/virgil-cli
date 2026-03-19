@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use tree_sitter::Tree;
 
@@ -10,6 +12,19 @@ pub trait Pipeline: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding>;
+
+    /// Check with pre-computed identifier occurrence counts.
+    /// Pipelines that need identifier counts (e.g., dead_code) can override this
+    /// to avoid recomputing them per-pipeline.
+    fn check_with_ids(
+        &self,
+        tree: &Tree,
+        source: &[u8],
+        file_path: &str,
+        _id_counts: &HashMap<String, usize>,
+    ) -> Vec<AuditFinding> {
+        self.check(tree, source, file_path)
+    }
 }
 
 pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {

@@ -47,51 +47,54 @@ impl CouplingPipeline {
 
     /// Find function/method nodes with too many parameters.
     fn check_parameter_overload(
-        node: tree_sitter::Node,
+        root: tree_sitter::Node,
         source: &[u8],
         file_path: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        let kind = node.kind();
-        let is_function = kind == "function_declaration"
-            || kind == "arrow_function"
-            || kind == "function_expression"
-            || kind == "method_definition"
-            || kind == "generator_function_declaration";
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            let kind = node.kind();
+            let is_function = kind == "function_declaration"
+                || kind == "arrow_function"
+                || kind == "function_expression"
+                || kind == "method_definition"
+                || kind == "generator_function_declaration";
 
-        if is_function {
-            // Try both "parameters" and "formal_parameters" field names
-            let params_node = node
-                .child_by_field_name("parameters")
-                .or_else(|| node.child_by_field_name("formal_parameters"));
+            if is_function {
+                // Try both "parameters" and "formal_parameters" field names
+                let params_node = node
+                    .child_by_field_name("parameters")
+                    .or_else(|| node.child_by_field_name("formal_parameters"));
 
-            if let Some(params) = params_node {
-                let count = count_parameters(params);
-                if count > PARAMETER_THRESHOLD {
-                    let start = node.start_position();
-                    let name = node
-                        .child_by_field_name("name")
-                        .and_then(|n| n.utf8_text(source).ok())
-                        .unwrap_or("<anonymous>");
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: "coupling".to_string(),
-                        pattern: "parameter_overload".to_string(),
-                        message: format!(
-                            "`{name}` has {count} parameters (threshold: {PARAMETER_THRESHOLD}) — consider using an options object"
-                        ),
-                        snippet: extract_snippet(source, node, 1),
-                    });
+                if let Some(params) = params_node {
+                    let count = count_parameters(params);
+                    if count > PARAMETER_THRESHOLD {
+                        let start = node.start_position();
+                        let name = node
+                            .child_by_field_name("name")
+                            .and_then(|n| n.utf8_text(source).ok())
+                            .unwrap_or("<anonymous>");
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: "coupling".to_string(),
+                            pattern: "parameter_overload".to_string(),
+                            message: format!(
+                                "`{name}` has {count} parameters (threshold: {PARAMETER_THRESHOLD}) — consider using an options object"
+                            ),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                    }
                 }
             }
-        }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::check_parameter_overload(child, source, file_path, findings);
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
         }
     }
 
@@ -99,50 +102,53 @@ impl CouplingPipeline {
     /// Check if the method body references "this" via member_expression.
     /// No "this" access = low cohesion flag.
     fn check_low_cohesion(
-        node: tree_sitter::Node,
+        root: tree_sitter::Node,
         source: &[u8],
         file_path: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        if node.kind() == "class_body" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "method_definition" {
-                    // Skip constructor — it typically sets this.* fields
-                    let method_name = child
-                        .child_by_field_name("name")
-                        .and_then(|n| n.utf8_text(source).ok())
-                        .unwrap_or("");
-                    if method_name == "constructor" {
-                        continue;
-                    }
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "class_body" {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "method_definition" {
+                        // Skip constructor — it typically sets this.* fields
+                        let method_name = child
+                            .child_by_field_name("name")
+                            .and_then(|n| n.utf8_text(source).ok())
+                            .unwrap_or("");
+                        if method_name == "constructor" {
+                            continue;
+                        }
 
-                    if let Some(body) = child.child_by_field_name("body") {
-                        let uses_this =
-                            body_has_member_access(body, source, "member_expression", "this");
-                        if !uses_this {
-                            let start = child.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "info".to_string(),
-                                pipeline: "coupling".to_string(),
-                                pattern: "low_cohesion".to_string(),
-                                message: format!(
-                                    "method `{method_name}` does not access `this` — consider making it a standalone function"
-                                ),
-                                snippet: extract_snippet(source, child, 1),
-                            });
+                        if let Some(body) = child.child_by_field_name("body") {
+                            let uses_this =
+                                body_has_member_access(body, source, "member_expression", "this");
+                            if !uses_this {
+                                let start = child.start_position();
+                                findings.push(AuditFinding {
+                                    file_path: file_path.to_string(),
+                                    line: start.row as u32 + 1,
+                                    column: start.column as u32 + 1,
+                                    severity: "info".to_string(),
+                                    pipeline: "coupling".to_string(),
+                                    pattern: "low_cohesion".to_string(),
+                                    message: format!(
+                                        "method `{method_name}` does not access `this` — consider making it a standalone function"
+                                    ),
+                                    snippet: extract_snippet(source, child, 1),
+                                });
+                            }
                         }
                     }
                 }
             }
-        }
 
-        let mut child_cursor = node.walk();
-        for child in node.children(&mut child_cursor) {
-            Self::check_low_cohesion(child, source, file_path, findings);
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
         }
     }
 }

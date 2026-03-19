@@ -67,118 +67,124 @@ impl Pipeline for CouplingPipeline {
 
 /// Walk the tree to find functions/methods and check parameter count.
 fn check_parameter_overload(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let kind = node.kind();
-    let is_func = kind == "function_declaration"
-        || kind == "arrow_function"
-        || kind == "method_definition";
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        let is_func = kind == "function_declaration"
+            || kind == "arrow_function"
+            || kind == "method_definition";
 
-    if is_func {
-        // Try both "parameters" and "formal_parameters" field names
-        let params_node = node
-            .child_by_field_name("parameters")
-            .or_else(|| node.child_by_field_name("formal_parameters"));
+        if is_func {
+            // Try both "parameters" and "formal_parameters" field names
+            let params_node = node
+                .child_by_field_name("parameters")
+                .or_else(|| node.child_by_field_name("formal_parameters"));
 
-        if let Some(params) = params_node {
-            let param_count = count_parameters(params);
-            if param_count > 5 {
-                let fn_name = node
-                    .child_by_field_name("name")
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("<anonymous>");
-                let start = node.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
-                    pipeline: "coupling".to_string(),
-                    pattern: "parameter_overload".to_string(),
-                    message: format!(
-                        "Function `{}` has {} parameters (threshold: 5) — consider using an options object",
-                        fn_name, param_count
-                    ),
-                    snippet: extract_snippet(source, node, 3),
-                });
+            if let Some(params) = params_node {
+                let param_count = count_parameters(params);
+                if param_count > 5 {
+                    let fn_name = node
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("<anonymous>");
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: "coupling".to_string(),
+                        pattern: "parameter_overload".to_string(),
+                        message: format!(
+                            "Function `{}` has {} parameters (threshold: 5) — consider using an options object",
+                            fn_name, param_count
+                        ),
+                        snippet: extract_snippet(source, node, 3),
+                    });
+                }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_parameter_overload(child, source, file_path, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 /// Find method_definition nodes inside class_body inside class_declaration.
 /// Check if the method body references `this` via member_expression.
 fn check_low_cohesion(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_declaration" {
-        let class_name = node
-            .child_by_field_name("name")
-            .map(|n| node_text(n, source))
-            .unwrap_or("<anonymous>");
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_declaration" {
+            let class_name = node
+                .child_by_field_name("name")
+                .map(|n| node_text(n, source))
+                .unwrap_or("<anonymous>");
 
-        // Find class_body child
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "class_body" {
-                let mut body_cursor = child.walk();
-                for member in child.children(&mut body_cursor) {
-                    if member.kind() == "method_definition" {
-                        let method_name = member
-                            .child_by_field_name("name")
-                            .map(|n| node_text(n, source))
-                            .unwrap_or("<anonymous>");
+            // Find class_body child
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "class_body" {
+                    let mut body_cursor = child.walk();
+                    for member in child.children(&mut body_cursor) {
+                        if member.kind() == "method_definition" {
+                            let method_name = member
+                                .child_by_field_name("name")
+                                .map(|n| node_text(n, source))
+                                .unwrap_or("<anonymous>");
 
-                        // Skip constructor — it typically assigns to this
-                        if method_name == "constructor" {
-                            continue;
-                        }
+                            // Skip constructor — it typically assigns to this
+                            if method_name == "constructor" {
+                                continue;
+                            }
 
-                        if let Some(body) = member.child_by_field_name("body") {
-                            let uses_this = body_has_member_access(
-                                body,
-                                source,
-                                "member_expression",
-                                "this",
-                            );
-                            if !uses_this {
-                                let start = member.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "info".to_string(),
-                                    pipeline: "coupling".to_string(),
-                                    pattern: "low_cohesion".to_string(),
-                                    message: format!(
-                                        "Method `{}` in class `{}` does not access `this` — consider making it a standalone function",
-                                        method_name, class_name
-                                    ),
-                                    snippet: extract_snippet(source, member, 3),
-                                });
+                            if let Some(body) = member.child_by_field_name("body") {
+                                let uses_this = body_has_member_access(
+                                    body,
+                                    source,
+                                    "member_expression",
+                                    "this",
+                                );
+                                if !uses_this {
+                                    let start = member.start_position();
+                                    findings.push(AuditFinding {
+                                        file_path: file_path.to_string(),
+                                        line: start.row as u32 + 1,
+                                        column: start.column as u32 + 1,
+                                        severity: "info".to_string(),
+                                        pipeline: "coupling".to_string(),
+                                        pattern: "low_cohesion".to_string(),
+                                        message: format!(
+                                            "Method `{}` in class `{}` does not access `this` — consider making it a standalone function",
+                                            method_name, class_name
+                                        ),
+                                        snippet: extract_snippet(source, member, 3),
+                                    });
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // Recurse into children (to find nested classes etc.)
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_low_cohesion(child, source, file_path, findings);
+        // Push children to stack (to find nested classes etc.)
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

@@ -59,70 +59,76 @@ impl Pipeline for CouplingPipeline {
     }
 }
 
-/// Find function_item nodes with too many parameters.
+/// Find function_item nodes with too many parameters (stack-based iteration).
 fn check_parameter_overload(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "function_item" {
-        if let Some(params) = node.child_by_field_name("parameters") {
-            let param_count = count_parameters(params);
-            if param_count > PARAMETER_OVERLOAD_THRESHOLD {
-                let fn_name = node
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source).ok())
-                    .unwrap_or("<anonymous>");
-                // Skip constructors (Rust convention: `new`)
-                if fn_name == "new" {
-                    return;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_item" {
+            if let Some(params) = node.child_by_field_name("parameters") {
+                let param_count = count_parameters(params);
+                if param_count > PARAMETER_OVERLOAD_THRESHOLD {
+                    let fn_name = node
+                        .child_by_field_name("name")
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .unwrap_or("<anonymous>");
+                    // Skip constructors (Rust convention: `new`)
+                    if fn_name == "new" {
+                        continue;
+                    }
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "parameter_overload".to_string(),
+                        message: format!(
+                            "function `{fn_name}` has {param_count} parameters (threshold: {PARAMETER_OVERLOAD_THRESHOLD}) — consider grouping into a struct or builder"
+                        ),
+                        snippet: extract_snippet(source, node, 3),
+                    });
                 }
-                let start = node.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "parameter_overload".to_string(),
-                    message: format!(
-                        "function `{fn_name}` has {param_count} parameters (threshold: {PARAMETER_OVERLOAD_THRESHOLD}) — consider grouping into a struct or builder"
-                    ),
-                    snippet: extract_snippet(source, node, 3),
-                });
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_parameter_overload(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
-/// Find methods inside impl blocks that take `self` but never reference it in the body.
+/// Find methods inside impl blocks that take `self` but never reference it in the body (stack-based iteration).
 fn check_low_cohesion(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "impl_item" {
-        if let Some(decl_list) = node.child_by_field_name("body") {
-            let mut cursor = decl_list.walk();
-            for child in decl_list.named_children(&mut cursor) {
-                if child.kind() == "function_item" {
-                    check_method_cohesion(child, source, file_path, pipeline_name, findings);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "impl_item" {
+            if let Some(decl_list) = node.child_by_field_name("body") {
+                let mut cursor = decl_list.walk();
+                for child in decl_list.named_children(&mut cursor) {
+                    if child.kind() == "function_item" {
+                        check_method_cohesion(child, source, file_path, pipeline_name, findings);
+                    }
                 }
             }
+            // Don't recurse into nested items from here; we handle them below.
         }
-        // Don't recurse into nested items from here; we handle them below.
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_low_cohesion(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

@@ -85,79 +85,80 @@ impl DeadCodePipeline {
 }
 
 fn collect_unused_private_methods(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_declaration" {
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut body_cursor = body.walk();
-            for child in body.named_children(&mut body_cursor) {
-                if child.kind() != "method_declaration" {
-                    continue;
-                }
-
-                // Check for visibility_modifier child with text "private"
-                let is_private = has_visibility(child, source, "private");
-                if !is_private {
-                    continue;
-                }
-
-                let name = match child.child_by_field_name("name") {
-                    Some(n) => node_text(n, source),
-                    None => continue,
-                };
-
-                if name.is_empty() || name == "__construct" || name == "__destruct" {
-                    continue;
-                }
-
-                // Check if the name appears in identifiers elsewhere
-                // The all_identifiers set collects "name" kind nodes, which includes
-                // method names in call sites like $this->methodName()
-                // We need to count usages excluding the declaration itself
-                let name_node = child.child_by_field_name("name").unwrap();
-                let mut usage_count = 0;
-                count_name_usages(
-                    node, // Search within the class
-                    source,
-                    name,
-                    name_node.id(),
-                    &mut usage_count,
-                );
-
-                if usage_count == 0 {
-                    // Additionally check if the method name appears in any string
-                    // literal in the class body (covers `call_user_func('methodName')`
-                    // and similar dynamic dispatch patterns).
-                    let referenced_in_string = string_contains_name(body, source, name);
-                    if referenced_in_string {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_declaration" {
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut body_cursor = body.walk();
+                for child in body.named_children(&mut body_cursor) {
+                    if child.kind() != "method_declaration" {
                         continue;
                     }
 
-                    let start = child.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "info".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "unused_private_method".to_string(),
-                        message: format!(
-                            "private method `{name}` appears unused within this class"
-                        ),
-                        snippet: extract_snippet(source, child, 1),
-                    });
+                    // Check for visibility_modifier child with text "private"
+                    let is_private = has_visibility(child, source, "private");
+                    if !is_private {
+                        continue;
+                    }
+
+                    let name = match child.child_by_field_name("name") {
+                        Some(n) => node_text(n, source),
+                        None => continue,
+                    };
+
+                    if name.is_empty() || name == "__construct" || name == "__destruct" {
+                        continue;
+                    }
+
+                    // Check if the name appears in identifiers elsewhere
+                    // The all_identifiers set collects "name" kind nodes, which includes
+                    // method names in call sites like $this->methodName()
+                    // We need to count usages excluding the declaration itself
+                    let name_node = child.child_by_field_name("name").unwrap();
+                    let usage_count = count_name_usages(
+                        node, // Search within the class
+                        source,
+                        name,
+                        name_node.id(),
+                    );
+
+                    if usage_count == 0 {
+                        // Additionally check if the method name appears in any string
+                        // literal in the class body (covers `call_user_func('methodName')`
+                        // and similar dynamic dispatch patterns).
+                        let referenced_in_string = string_contains_name(body, source, name);
+                        if referenced_in_string {
+                            continue;
+                        }
+
+                        let start = child.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "info".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "unused_private_method".to_string(),
+                            message: format!(
+                                "private method `{name}` appears unused within this class"
+                            ),
+                            snippet: extract_snippet(source, child, 1),
+                        });
+                    }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unused_private_methods(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
@@ -177,179 +178,181 @@ fn has_visibility(method: tree_sitter::Node, source: &[u8], target: &str) -> boo
 /// Check if any `string` or `encapsed_string` node within `root` contains `target_name`.
 /// This covers dynamic dispatch patterns like `call_user_func('methodName')`.
 fn string_contains_name(root: tree_sitter::Node, source: &[u8], target_name: &str) -> bool {
-    let mut found = false;
-    string_contains_name_recursive(root, source, target_name, &mut found);
-    found
-}
-
-fn string_contains_name_recursive(
-    node: tree_sitter::Node,
-    source: &[u8],
-    target_name: &str,
-    found: &mut bool,
-) {
-    if *found {
-        return;
-    }
-    let kind = node.kind();
-    if kind == "string" || kind == "encapsed_string" {
-        if let Ok(text) = node.utf8_text(source) {
-            if text.contains(target_name) {
-                *found = true;
-                return;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+        if kind == "string" || kind == "encapsed_string" {
+            if let Ok(text) = node.utf8_text(source) {
+                if text.contains(target_name) {
+                    return true;
+                }
             }
         }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        string_contains_name_recursive(child, source, target_name, found);
-    }
+    false
 }
 
 /// Count usages of a name (via `name` kind nodes) across the tree, excluding the node with `exclude_id`.
 fn count_name_usages(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     target_name: &str,
     exclude_id: usize,
-    count: &mut usize,
-) {
-    if node.kind() == "name" && node.id() != exclude_id {
-        if node_text(node, source) == target_name {
-            *count += 1;
+) -> usize {
+    let mut count = 0;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "name" && node.id() != exclude_id {
+            if node_text(node, source) == target_name {
+                count += 1;
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
         }
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count_name_usages(child, source, target_name, exclude_id, count);
-    }
+    count
 }
 
 fn collect_non_import_identifiers(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     ids: &mut HashSet<String>,
 ) {
-    let kind = node.kind();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
 
-    // Skip import-like nodes
-    if kind == "namespace_use_declaration"
-        || kind == "include_expression"
-        || kind == "include_once_expression"
-        || kind == "require_expression"
-        || kind == "require_once_expression"
-    {
-        return;
-    }
+        // Skip import-like nodes
+        if kind == "namespace_use_declaration"
+            || kind == "include_expression"
+            || kind == "include_once_expression"
+            || kind == "require_expression"
+            || kind == "require_once_expression"
+        {
+            continue;
+        }
 
-    if kind == "name" || kind == "qualified_name" {
-        if let Ok(text) = node.utf8_text(source) {
-            ids.insert(text.to_string());
-            // Also insert the last segment for qualified names
-            if let Some(last) = text.rsplit('\\').next() {
-                ids.insert(last.to_string());
+        if kind == "name" || kind == "qualified_name" {
+            if let Ok(text) = node.utf8_text(source) {
+                ids.insert(text.to_string());
+                // Also insert the last segment for qualified names
+                if let Some(last) = text.rsplit('\\').next() {
+                    ids.insert(last.to_string());
+                }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_non_import_identifiers(child, source, ids);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn collect_unused_imports(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     non_import_ids: &HashSet<String>,
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let kind = node.kind();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
 
-    if kind == "namespace_use_declaration" {
-        // PHP `use` statement: use App\Models\User;
-        // Walk children for namespace_use_clause which contains qualified_name
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "namespace_use_clause" {
-                // Get the qualified name and extract last segment
-                let full_text = node_text(child, source).trim().to_string();
-                let last_segment = full_text
-                    .rsplit('\\')
-                    .next()
-                    .unwrap_or(&full_text)
-                    .to_string();
+        if kind == "namespace_use_declaration" {
+            // PHP `use` statement: use App\Models\User;
+            // Walk children for namespace_use_clause which contains qualified_name
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "namespace_use_clause" {
+                    // Get the qualified name and extract last segment
+                    let full_text = node_text(child, source).trim().to_string();
+                    let last_segment = full_text
+                        .rsplit('\\')
+                        .next()
+                        .unwrap_or(&full_text)
+                        .to_string();
 
-                // Check if alias is present
-                let alias = child.child_by_field_name("alias");
-                let imported_name = if let Some(alias_node) = alias {
-                    node_text(alias_node, source).to_string()
-                } else {
-                    last_segment
-                };
+                    // Check if alias is present
+                    let alias = child.child_by_field_name("alias");
+                    let imported_name = if let Some(alias_node) = alias {
+                        node_text(alias_node, source).to_string()
+                    } else {
+                        last_segment
+                    };
 
-                if !imported_name.is_empty() && !non_import_ids.contains(&imported_name) {
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "info".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "unused_import".to_string(),
-                        message: format!("import `{imported_name}` appears unused"),
-                        snippet: extract_snippet(source, node, 1),
-                    });
+                    if !imported_name.is_empty() && !non_import_ids.contains(&imported_name) {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "info".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "unused_import".to_string(),
+                            message: format!("import `{imported_name}` appears unused"),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                    }
                 }
             }
+            continue;
         }
-        return;
-    }
 
-    if kind == "include_expression"
-        || kind == "include_once_expression"
-        || kind == "require_expression"
-        || kind == "require_once_expression"
-    {
-        // For include/require, we typically don't flag as unused since they have side effects
-        return;
-    }
+        if kind == "include_expression"
+            || kind == "include_once_expression"
+            || kind == "require_expression"
+            || kind == "require_once_expression"
+        {
+            // For include/require, we typically don't flag as unused since they have side effects
+            continue;
+        }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unused_imports(child, source, non_import_ids, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn collect_unreachable_in_blocks(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     _source: &[u8],
     return_kinds: &[&str],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "compound_statement" {
-        let unreachable = find_unreachable_after(node, return_kinds);
-        for (line, col) in unreachable {
-            findings.push(AuditFinding {
-                file_path: file_path.to_string(),
-                line,
-                column: col,
-                severity: "warning".to_string(),
-                pipeline: pipeline_name.to_string(),
-                pattern: "unreachable_code".to_string(),
-                message: "code is unreachable after return/break/continue/throw".to_string(),
-                snippet: String::new(),
-            });
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "compound_statement" {
+            let unreachable = find_unreachable_after(node, return_kinds);
+            for (line, col) in unreachable {
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line,
+                    column: col,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "unreachable_code".to_string(),
+                    message: "code is unreachable after return/break/continue/throw".to_string(),
+                    snippet: String::new(),
+                });
+            }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_unreachable_in_blocks(child, _source, return_kinds, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

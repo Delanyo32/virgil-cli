@@ -90,94 +90,100 @@ impl CouplingPipeline {
 }
 
 fn check_params_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "method_declaration" {
-        if let Some(params) = node.child_by_field_name("parameters") {
-            let param_count = count_parameters(params);
-            if param_count > PARAM_THRESHOLD {
-                let name = node
-                    .child_by_field_name("name")
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("<anonymous>");
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "method_declaration" {
+            if let Some(params) = node.child_by_field_name("parameters") {
+                let param_count = count_parameters(params);
+                if param_count > PARAM_THRESHOLD {
+                    let name = node
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("<anonymous>");
 
-                let start = node.start_position();
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
-                    pipeline: pipeline_name.to_string(),
-                    pattern: "parameter_overload".to_string(),
-                    message: format!(
-                        "method `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) \u{2014} consider using a parameter object"
-                    ),
-                    snippet: extract_snippet(source, node, 1),
-                });
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "parameter_overload".to_string(),
+                        message: format!(
+                            "method `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) \u{2014} consider using a parameter object"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
+                }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_params_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn check_cohesion_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    // Look for class_declaration -> declaration_list -> method_declaration
-    if node.kind() == "class_declaration" {
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut cursor = body.walk();
-            for child in body.children(&mut cursor) {
-                if child.kind() != "method_declaration" {
-                    continue;
-                }
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        // Look for class_declaration -> declaration_list -> method_declaration
+        if node.kind() == "class_declaration" {
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    if child.kind() != "method_declaration" {
+                        continue;
+                    }
 
-                // Skip static methods
-                if has_modifier(child, source, "static") {
-                    continue;
-                }
+                    // Skip static methods
+                    if has_modifier(child, source, "static") {
+                        continue;
+                    }
 
-                if let Some(method_body) = child.child_by_field_name("body") {
-                    if !body_references_identifier(method_body, source, "this") {
-                        let method_name = child
-                            .child_by_field_name("name")
-                            .map(|n| node_text(n, source))
-                            .unwrap_or("<anonymous>");
+                    if let Some(method_body) = child.child_by_field_name("body") {
+                        if !body_references_identifier(method_body, source, "this") {
+                            let method_name = child
+                                .child_by_field_name("name")
+                                .map(|n| node_text(n, source))
+                                .unwrap_or("<anonymous>");
 
-                        let start = child.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: pipeline_name.to_string(),
-                            pattern: "low_cohesion".to_string(),
-                            message: format!(
-                                "method `{method_name}` does not reference `this` \u{2014} consider making it static"
-                            ),
-                            snippet: extract_snippet(source, child, 1),
-                        });
+                            let start = child.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "info".to_string(),
+                                pipeline: pipeline_name.to_string(),
+                                pattern: "low_cohesion".to_string(),
+                                message: format!(
+                                    "method `{method_name}` does not reference `this` \u{2014} consider making it static"
+                                ),
+                                snippet: extract_snippet(source, child, 1),
+                            });
+                        }
                     }
                 }
             }
         }
-    }
 
-    let mut child_cursor = node.walk();
-    for child in node.children(&mut child_cursor) {
-        check_cohesion_recursive(child, source, file_path, pipeline_name, findings);
+        let mut child_cursor = node.walk();
+        for child in node.children(&mut child_cursor) {
+            stack.push(child);
+        }
     }
 }
 

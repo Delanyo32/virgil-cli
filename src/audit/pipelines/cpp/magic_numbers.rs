@@ -26,6 +26,7 @@ const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
     "bitfield_clause",
     "field_declaration",
     "array_declarator",
+    "initializer_list",
 ];
 
 pub struct CppMagicNumbersPipeline {
@@ -85,7 +86,12 @@ impl Pipeline for CppMagicNumbersPipeline {
 
         let number_idx = find_capture_index(&self.numeric_query, "number");
 
+        const MAX_FINDINGS_PER_FILE: usize = 200;
+
         while let Some(m) = matches.next() {
+            if findings.len() >= MAX_FINDINGS_PER_FILE {
+                break;
+            }
             let num_cap = m
                 .captures
                 .iter()

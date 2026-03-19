@@ -84,117 +84,126 @@ impl CouplingPipeline {
     }
 }
 
-fn count_import_specs(node: tree_sitter::Node) -> usize {
+fn count_import_specs(root: tree_sitter::Node) -> usize {
     let mut count = 0;
-    if node.kind() == "import_spec" {
-        count += 1;
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        count += count_import_specs(child);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "import_spec" {
+            count += 1;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
     count
 }
 
 fn check_params_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let kind = node.kind();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
 
-    if kind == "function_declaration" || kind == "method_declaration" {
-        if let Some(params) = node.child_by_field_name("parameters") {
-            let param_count = count_parameters(params);
-            if param_count > PARAM_THRESHOLD {
-                let name = node
-                    .child_by_field_name("name")
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("<anonymous>");
+        if kind == "function_declaration" || kind == "method_declaration" {
+            if let Some(params) = node.child_by_field_name("parameters") {
+                let param_count = count_parameters(params);
+                if param_count > PARAM_THRESHOLD {
+                    let name = node
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("<anonymous>");
 
-                // Skip constructor functions (Go convention: New*)
-                if !name.starts_with("New") {
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "parameter_overload".to_string(),
-                        message: format!(
-                            "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using an options struct"
-                        ),
-                        snippet: extract_snippet(source, node, 1),
-                    });
+                    // Skip constructor functions (Go convention: New*)
+                    if !name.starts_with("New") {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "parameter_overload".to_string(),
+                            message: format!(
+                                "function `{name}` has {param_count} parameters (threshold: {PARAM_THRESHOLD}) — consider using an options struct"
+                            ),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                    }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_params_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 
 fn check_cohesion_recursive(
-    node: tree_sitter::Node,
+    root: tree_sitter::Node,
     source: &[u8],
     file_path: &str,
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "method_declaration" {
-        // Go method: func (r ReceiverType) Name(params) { body }
-        // The receiver is in the "receiver" field which is a parameter_list
-        if let Some(receiver_list) = node.child_by_field_name("receiver") {
-            // The receiver parameter_list contains parameter_declaration(s)
-            // Typically just one: (r *ReceiverType)
-            let mut recv_cursor = receiver_list.walk();
-            let receiver_param = receiver_list
-                .named_children(&mut recv_cursor)
-                .next();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "method_declaration" {
+            // Go method: func (r ReceiverType) Name(params) { body }
+            // The receiver is in the "receiver" field which is a parameter_list
+            if let Some(receiver_list) = node.child_by_field_name("receiver") {
+                // The receiver parameter_list contains parameter_declaration(s)
+                // Typically just one: (r *ReceiverType)
+                let mut recv_cursor = receiver_list.walk();
+                let receiver_param = receiver_list
+                    .named_children(&mut recv_cursor)
+                    .next();
 
-            if let Some(param) = receiver_param {
-                // The parameter_declaration has a name field (the receiver variable name)
-                if let Some(name_node) = param.child_by_field_name("name") {
-                    let receiver_name = node_text(name_node, source);
+                if let Some(param) = receiver_param {
+                    // The parameter_declaration has a name field (the receiver variable name)
+                    if let Some(name_node) = param.child_by_field_name("name") {
+                        let receiver_name = node_text(name_node, source);
 
-                    if !receiver_name.is_empty() {
-                        if let Some(body) = node.child_by_field_name("body") {
-                            if !body_references_identifier(body, source, receiver_name) {
-                                let method_name = node
-                                    .child_by_field_name("name")
-                                    .map(|n| node_text(n, source))
-                                    .unwrap_or("<anonymous>");
+                        if !receiver_name.is_empty() {
+                            if let Some(body) = node.child_by_field_name("body") {
+                                if !body_references_identifier(body, source, receiver_name) {
+                                    let method_name = node
+                                        .child_by_field_name("name")
+                                        .map(|n| node_text(n, source))
+                                        .unwrap_or("<anonymous>");
 
-                                let start = node.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "info".to_string(),
-                                    pipeline: pipeline_name.to_string(),
-                                    pattern: "low_cohesion".to_string(),
-                                    message: format!(
-                                        "method `{method_name}` does not use its receiver `{receiver_name}` — consider making it a function"
-                                    ),
-                                    snippet: extract_snippet(source, node, 1),
-                                });
+                                    let start = node.start_position();
+                                    findings.push(AuditFinding {
+                                        file_path: file_path.to_string(),
+                                        line: start.row as u32 + 1,
+                                        column: start.column as u32 + 1,
+                                        severity: "info".to_string(),
+                                        pipeline: pipeline_name.to_string(),
+                                        pattern: "low_cohesion".to_string(),
+                                        message: format!(
+                                            "method `{method_name}` does not use its receiver `{receiver_name}` — consider making it a function"
+                                        ),
+                                        snippet: extract_snippet(source, node, 1),
+                                    });
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        check_cohesion_recursive(child, source, file_path, pipeline_name, findings);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
 }
 

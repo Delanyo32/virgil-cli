@@ -1006,6 +1006,19 @@ fn run_raw_query(
     }
 }
 
+fn create_audit_progress_bar() -> indicatif::ProgressBar {
+    let pb = indicatif::ProgressBar::new_spinner();
+    pb.set_style(
+        indicatif::ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} files",
+        )
+        .unwrap()
+        .progress_chars("##-"),
+    );
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    pb
+}
+
 fn run_tech_debt(
     dir: &std::path::Path,
     lang_filter: Option<&str>,
@@ -1028,6 +1041,9 @@ fn run_tech_debt(
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
         engine = engine.pipelines(names);
     }
+
+    let pb = create_audit_progress_bar();
+    engine = engine.progress_bar(pb);
 
     let (findings, summary) = engine.run(dir)?;
 
@@ -1065,6 +1081,9 @@ fn run_complexity(
         engine = engine.pipelines(names);
     }
 
+    let pb = create_audit_progress_bar();
+    engine = engine.progress_bar(pb);
+
     let (findings, summary) = engine.run(dir)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
@@ -1100,6 +1119,9 @@ fn run_code_style(
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
         engine = engine.pipelines(names);
     }
+
+    let pb = create_audit_progress_bar();
+    engine = engine.progress_bar(pb);
 
     let (findings, summary) = engine.run(dir)?;
 
@@ -1137,6 +1159,9 @@ fn run_security(
         engine = engine.pipelines(names);
     }
 
+    let pb = create_audit_progress_bar();
+    engine = engine.progress_bar(pb);
+
     let (findings, summary) = engine.run(dir)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
@@ -1172,6 +1197,9 @@ fn run_scalability(
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
         engine = engine.pipelines(names);
     }
+
+    let pb = create_audit_progress_bar();
+    engine = engine.progress_bar(pb);
 
     let (findings, summary) = engine.run(dir)?;
 
@@ -1209,6 +1237,9 @@ fn run_architecture(
         engine = engine.pipelines(names);
     }
 
+    let pb = create_audit_progress_bar();
+    engine = engine.progress_bar(pb);
+
     let (findings, summary) = engine.run(dir)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
@@ -1233,25 +1264,47 @@ fn run_code_quality_summary(
 
     let start = Instant::now();
 
-    let td_engine = audit::engine::AuditEngine::new()
-        .languages(languages.clone());
-    let (_td_findings, td_summary) = td_engine.run(dir)?;
+    let mp = indicatif::MultiProgress::new();
+    let category_style = indicatif::ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] {msg}",
+    )
+    .unwrap();
+    let overall = mp.add(indicatif::ProgressBar::new(3));
+    overall.set_style(category_style);
 
+    overall.set_message("Auditing: Tech Debt");
+    let file_pb = mp.add(create_audit_progress_bar());
+    let td_engine = audit::engine::AuditEngine::new()
+        .languages(languages.clone())
+        .progress_bar(file_pb);
+    let (_td_findings, td_summary) = td_engine.run(dir)?;
+    overall.inc(1);
+
+    overall.set_message("Auditing: Complexity");
+    let file_pb = mp.add(create_audit_progress_bar());
     let cx_languages: Vec<Language> = languages.clone().into_iter()
         .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
         .collect();
     let cx_engine = audit::engine::AuditEngine::new()
         .languages(cx_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Complexity);
+        .pipeline_selector(audit::engine::PipelineSelector::Complexity)
+        .progress_bar(file_pb);
     let (_cx_findings, cx_summary) = cx_engine.run(dir)?;
+    overall.inc(1);
 
+    overall.set_message("Auditing: Code Style");
+    let file_pb = mp.add(create_audit_progress_bar());
     let cs_languages: Vec<Language> = languages.into_iter()
         .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
         .collect();
     let cs_engine = audit::engine::AuditEngine::new()
         .languages(cs_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle);
+        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
+        .progress_bar(file_pb);
     let (_cs_findings, cs_summary) = cs_engine.run(dir)?;
+    overall.inc(1);
+
+    overall.finish_and_clear();
 
     let summaries = vec![("Tech Debt", &td_summary), ("Complexity", &cx_summary), ("Code Style", &cs_summary)];
     let output = audit::format::format_code_quality_summary(&summaries, format, None)?;
@@ -1270,7 +1323,17 @@ fn run_full_audit(
 ) -> Result<()> {
     let start = Instant::now();
 
+    let mp = indicatif::MultiProgress::new();
+    let category_style = indicatif::ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] {msg}",
+    )
+    .unwrap();
+    let overall = mp.add(indicatif::ProgressBar::new(6));
+    overall.set_style(category_style);
+
     // Tech Debt
+    overall.set_message("Auditing: Tech Debt");
+    let file_pb = mp.add(create_audit_progress_bar());
     let td_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
             .into_iter()
@@ -1281,9 +1344,13 @@ fn run_full_audit(
     };
     let (_, td_summary) = audit::engine::AuditEngine::new()
         .languages(td_languages)
+        .progress_bar(file_pb)
         .run(dir)?;
+    overall.inc(1);
 
     // Complexity
+    overall.set_message("Auditing: Complexity");
+    let file_pb = mp.add(create_audit_progress_bar());
     let cx_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
             .into_iter()
@@ -1295,9 +1362,13 @@ fn run_full_audit(
     let (_, cx_summary) = audit::engine::AuditEngine::new()
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
+        .progress_bar(file_pb)
         .run(dir)?;
+    overall.inc(1);
 
     // Code Style
+    overall.set_message("Auditing: Code Style");
+    let file_pb = mp.add(create_audit_progress_bar());
     let cs_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
             .into_iter()
@@ -1309,9 +1380,13 @@ fn run_full_audit(
     let (_, cs_summary) = audit::engine::AuditEngine::new()
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
+        .progress_bar(file_pb)
         .run(dir)?;
+    overall.inc(1);
 
     // Security
+    overall.set_message("Auditing: Security");
+    let file_pb = mp.add(create_audit_progress_bar());
     let sec_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
             .into_iter()
@@ -1323,9 +1398,13 @@ fn run_full_audit(
     let (_, sec_summary) = audit::engine::AuditEngine::new()
         .languages(sec_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Security)
+        .progress_bar(file_pb)
         .run(dir)?;
+    overall.inc(1);
 
     // Scalability
+    overall.set_message("Auditing: Scalability");
+    let file_pb = mp.add(create_audit_progress_bar());
     let scl_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
             .into_iter()
@@ -1337,9 +1416,13 @@ fn run_full_audit(
     let (_, scl_summary) = audit::engine::AuditEngine::new()
         .languages(scl_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Scalability)
+        .progress_bar(file_pb)
         .run(dir)?;
+    overall.inc(1);
 
     // Architecture
+    overall.set_message("Auditing: Architecture");
+    let file_pb = mp.add(create_audit_progress_bar());
     let arch_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
             .into_iter()
@@ -1351,7 +1434,11 @@ fn run_full_audit(
     let (_, arch_summary) = audit::engine::AuditEngine::new()
         .languages(arch_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture)
+        .progress_bar(file_pb)
         .run(dir)?;
+    overall.inc(1);
+
+    overall.finish_and_clear();
 
     let summaries = vec![
         ("Tech Debt", &td_summary),
