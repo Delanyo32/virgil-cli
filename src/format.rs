@@ -10,7 +10,35 @@ pub fn format_results(
     project_name: &str,
     query_ms: u64,
 ) -> String {
+    // Read mode: return file content directly (not wrapped in JSON)
+    if let Some(ref read) = output.read {
+        return format_read(read, pretty, project_name, query_ms);
+    }
+
     let wrapper = build_wrapper(output, project_name, query_ms, format);
+
+    if pretty {
+        serde_json::to_string_pretty(&wrapper).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        serde_json::to_string(&wrapper).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+fn format_read(
+    read: &crate::query_engine::ReadResult,
+    pretty: bool,
+    project_name: &str,
+    query_ms: u64,
+) -> String {
+    let wrapper = serde_json::json!({
+        "project": project_name,
+        "query_ms": query_ms,
+        "file": read.file,
+        "start_line": read.start_line,
+        "end_line": read.end_line,
+        "total_lines": read.total_lines,
+        "content": read.content,
+    });
 
     if pretty {
         serde_json::to_string_pretty(&wrapper).unwrap_or_else(|_| "{}".to_string())

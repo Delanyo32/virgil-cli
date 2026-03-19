@@ -69,7 +69,12 @@ fn main() -> Result<()> {
                     (None, Some(path)) => std::fs::read_to_string(&path)
                         .map_err(|e| anyhow::anyhow!("failed to read query file: {e}"))?,
                     (None, None) => {
-                        // Read from stdin
+                        use std::io::IsTerminal;
+                        if std::io::stdin().is_terminal() {
+                            anyhow::bail!(
+                                "no query provided. Use --q '{{...}}', --file <path>, or pipe JSON to stdin"
+                            );
+                        }
                         use std::io::Read;
                         let mut buf = String::new();
                         std::io::stdin().read_to_string(&mut buf)?;

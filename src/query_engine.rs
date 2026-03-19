@@ -37,14 +37,30 @@ pub struct QueryResult {
     pub parent: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReadResult {
+    pub file: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub total_lines: u32,
+    pub content: String,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct QueryOutput {
     pub results: Vec<QueryResult>,
     pub files_parsed: usize,
     pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read: Option<ReadResult>,
 }
 
 pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<QueryOutput> {
+    // Handle read mode: return file content instead of symbol search
+    if let Some(ref file_path) = query.read {
+        return execute_read(project, file_path, query.lines.as_ref());
+    }
+
     let languages = match &project.languages {
         Some(f) => language::parse_language_filter(f),
         None => Language::all().to_vec(),
@@ -284,6 +300,55 @@ pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<Qu
         results,
         files_parsed,
         total,
+        read: None,
+    })
+}
+
+fn execute_read(
+    project: &ProjectEntry,
+    file_path: &str,
+    lines: Option<&crate::query_lang::LineRange>,
+) -> Result<QueryOutput> {
+    let full_path = project.path.join(file_path);
+    let source = std::fs::read_to_string(&full_path)
+        .with_context(|| format!("failed to read file: {}", full_path.display()))?;
+
+    let all_lines: Vec<&str> = source.lines().collect();
+    let total_lines = all_lines.len() as u32;
+
+    let (start, end) = match lines {
+        Some(lr) => {
+            let s = lr.min.unwrap_or(1).max(1);
+            let e = lr.max.unwrap_or(total_lines).min(total_lines);
+            (s, e)
+        }
+        None => (1, total_lines),
+    };
+
+    let start_idx = (start - 1) as usize;
+    let end_idx = std::cmp::min(end as usize, all_lines.len());
+    let content = if start_idx < all_lines.len() {
+        all_lines[start_idx..end_idx]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{:>4}  {}", start_idx + i + 1, line))
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        String::new()
+    };
+
+    Ok(QueryOutput {
+        results: Vec::new(),
+        files_parsed: 0,
+        total: 0,
+        read: Some(ReadResult {
+            file: file_path.to_string(),
+            start_line: start,
+            end_line: end,
+            total_lines,
+            content,
+        }),
     })
 }
 

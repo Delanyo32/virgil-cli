@@ -68,6 +68,60 @@ pub enum ProjectCommand {
     },
 
     /// Query a project using the JSON query language
+    ///
+    /// Pass a query via --q (inline), --file (path), or pipe JSON to stdin.
+    ///
+    /// QUERY FIELDS:
+    ///   find         Symbol kind(s): function, method, class, type, enum, struct,
+    ///                trait, variable, constant, property, namespace, module, any
+    ///   name         Glob string, {"contains": "..."}, or {"regex": "..."}
+    ///   files        Glob pattern(s) to scope files: "src/**/*.ts" or ["a/**", "b/**"]
+    ///   files_exclude  Glob pattern(s) to exclude files
+    ///   visibility   "exported", "public", "private", "protected", "internal"
+    ///   inside       Only symbols nested inside a parent with this name
+    ///   has          Filter by comment/decorator text; {"not": "docstring"} for inverse
+    ///   lines        {"min": N, "max": N} — filter by line count
+    ///   body         true — include full source body in results
+    ///   preview      N — include first N lines of each symbol
+    ///   calls        "down" (callees), "up" (callers), or "both"
+    ///   depth        Call graph traversal depth (default 1, max 5)
+    ///   read         File path to read (returns content instead of symbols)
+    ///                Combine with `lines` for a specific range
+    ///
+    /// EXAMPLES:
+    ///   # Find all exported functions
+    ///   virgil projects query myapp --q '{"find": "function", "visibility": "exported"}'
+    ///
+    ///   # Search by name pattern with preview
+    ///   virgil projects query myapp --q '{"name": "handle*", "preview": 5}' --pretty
+    ///
+    ///   # Methods inside a specific class
+    ///   virgil projects query myapp --q '{"find": "method", "inside": "AuthService"}'
+    ///
+    ///   # Large functions (50+ lines) in a directory
+    ///   virgil projects query myapp --q '{"files": "src/api/**", "find": "function", "lines": {"min": 50}}'
+    ///
+    ///   # Functions missing docstrings
+    ///   virgil projects query myapp --q '{"find": "function", "has": {"not": "docstring"}}'
+    ///
+    ///   # Name regex — all getters
+    ///   virgil projects query myapp --q '{"name": {"regex": "^get[A-Z]"}}'
+    ///
+    ///   # Call graph — what does authenticate() call?
+    ///   virgil projects query myapp --q '{"name": "authenticate", "calls": "down", "depth": 2}'
+    ///
+    ///   # Summary of an entire project
+    ///   virgil projects query myapp --q '{}' --out summary --pretty
+    ///
+    ///   # Read a file
+    ///   virgil projects query myapp --q '{"read": "src/main.rs"}' --pretty
+    ///
+    ///   # Read specific lines from a file
+    ///   virgil projects query myapp --q '{"read": "src/main.rs", "lines": {"min": 10, "max": 25}}'
+    ///
+    ///   # File:line locations only
+    ///   virgil projects query myapp --q '{"find": "class"}' --out locations
+    #[command(verbatim_doc_comment)]
     Query {
         /// Project name
         name: String,

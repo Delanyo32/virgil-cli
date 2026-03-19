@@ -53,6 +53,10 @@ pub struct TsQuery {
     /// Override output format
     #[serde(default)]
     pub format: Option<String>,
+
+    /// Read a file by path with optional line range (uses `lines` for range)
+    #[serde(default)]
+    pub read: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
