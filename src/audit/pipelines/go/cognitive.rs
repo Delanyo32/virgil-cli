@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_cognitive, ControlFlowConfig};
-use super::primitives::{extract_snippet, find_capture_index, node_text};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_cognitive};
 use crate::language::Language;
 
 const COGNITIVE_THRESHOLD: usize = 15;
@@ -51,8 +51,8 @@ fn config() -> ControlFlowConfig {
 
 fn compile_go_function_query() -> Result<Arc<Query>> {
     let lang = Language::Go.tree_sitter_language();
-    let query = Query::new(&lang, FUNCTION_QUERY)
-        .with_context(|| "failed to compile Go function query")?;
+    let query =
+        Query::new(&lang, FUNCTION_QUERY).with_context(|| "failed to compile Go function query")?;
     Ok(Arc::new(query))
 }
 

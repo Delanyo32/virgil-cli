@@ -7,14 +7,12 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_assignment_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_assignment_query, extract_snippet, find_capture_index, node_text};
 
 /// LHS identifier name patterns that suggest string concatenation
 const STRING_LIKE_PATTERNS: &[&str] = &[
-    "str", "name", "msg", "text", "result", "output", "sb", "buf",
-    "html", "xml", "json", "query", "sql", "line", "path",
+    "str", "name", "msg", "text", "result", "output", "sb", "buf", "html", "xml", "json", "query",
+    "sql", "line", "path",
 ];
 
 /// LHS identifier names that are clearly numeric (skip these)
@@ -92,7 +90,8 @@ impl Pipeline for StringConcatInLoopsPipeline {
 
                     // Only flag if LHS name contains a string-like pattern,
                     // OR if we have clear string evidence from RHS
-                    let lhs_looks_stringy = STRING_LIKE_PATTERNS.iter().any(|p| lhs_name.contains(p));
+                    let lhs_looks_stringy =
+                        STRING_LIKE_PATTERNS.iter().any(|p| lhs_name.contains(p));
                     let rhs_is_string = contains_string_literal(rhs_node, source)
                         || rhs_node.kind() == "binary_expression";
 
@@ -133,7 +132,7 @@ fn is_inside_loop(node: tree_sitter::Node) -> bool {
     while let Some(p) = parent {
         match p.kind() {
             "for_statement" | "enhanced_for_statement" | "while_statement" | "do_statement" => {
-                return true
+                return true;
             }
             "method_declaration" | "constructor_declaration" | "class_declaration" => return false,
             _ => parent = p.parent(),

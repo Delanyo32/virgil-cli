@@ -40,14 +40,32 @@ impl Pipeline for CommandInjectionPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 if fn_node.kind() == "attribute" {
-                    let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-                    let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                    let obj = fn_node
+                        .child_by_field_name("object")
+                        .map(|n| node_text(n, source));
+                    let attr = fn_node
+                        .child_by_field_name("attribute")
+                        .map(|n| node_text(n, source));
 
                     match (obj, attr) {
                         // os.system() / os.popen() with non-literal arg
@@ -72,9 +90,14 @@ impl Pipeline for CommandInjectionPipeline {
                             }
                         }
                         // subprocess.run/Popen/call with shell=True
-                        (Some("subprocess"), Some("run" | "Popen" | "call" | "check_output" | "check_call")) => {
+                        (
+                            Some("subprocess"),
+                            Some("run" | "Popen" | "call" | "check_output" | "check_call"),
+                        ) => {
                             let call_text = node_text(call_node, source);
-                            if call_text.contains("shell=True") || call_text.contains("shell = True") {
+                            if call_text.contains("shell=True")
+                                || call_text.contains("shell = True")
+                            {
                                 // Check if first arg is a string (not a list)
                                 if let Some(first_arg) = args_node.named_child(0) {
                                     if first_arg.kind() != "list" {

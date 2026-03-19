@@ -1,12 +1,12 @@
 use anyhow::Result;
 use tree_sitter::Tree;
 
+use super::primitives::extract_snippet;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::{
     body_references_identifier, count_nodes_of_kind, count_parameters,
 };
-use super::primitives::extract_snippet;
 
 const EXCESSIVE_IMPORT_THRESHOLD: usize = 15;
 const PARAMETER_OVERLOAD_THRESHOLD: usize = 5;
@@ -215,10 +215,7 @@ mod tests {
             .iter()
             .filter(|f| f.pattern == "excessive_imports")
             .collect();
-        assert!(
-            !excessive.is_empty(),
-            "should flag excessive imports"
-        );
+        assert!(!excessive.is_empty(), "should flag excessive imports");
         assert!(excessive[0].message.contains("20"));
     }
 

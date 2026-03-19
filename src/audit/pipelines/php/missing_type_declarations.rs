@@ -94,8 +94,23 @@ impl MissingTypeDeclarationsPipeline {
                 let fn_name = node_text(name_node, source);
                 let start = def_node.start_position();
 
-                check_return_type(def_node, fn_name, file_path, start, "missing_type_declarations", findings);
-                check_param_types(params_node, fn_name, file_path, start, "missing_type_declarations", source, findings);
+                check_return_type(
+                    def_node,
+                    fn_name,
+                    file_path,
+                    start,
+                    "missing_type_declarations",
+                    findings,
+                );
+                check_param_types(
+                    params_node,
+                    fn_name,
+                    file_path,
+                    start,
+                    "missing_type_declarations",
+                    source,
+                    findings,
+                );
             }
         }
     }
@@ -143,8 +158,23 @@ impl MissingTypeDeclarationsPipeline {
 
                 let start = decl_node.start_position();
 
-                check_return_type(decl_node, method_name, file_path, start, "missing_type_declarations", findings);
-                check_param_types(params_node, method_name, file_path, start, "missing_type_declarations", source, findings);
+                check_return_type(
+                    decl_node,
+                    method_name,
+                    file_path,
+                    start,
+                    "missing_type_declarations",
+                    findings,
+                );
+                check_param_types(
+                    params_node,
+                    method_name,
+                    file_path,
+                    start,
+                    "missing_type_declarations",
+                    source,
+                    findings,
+                );
             }
         }
     }

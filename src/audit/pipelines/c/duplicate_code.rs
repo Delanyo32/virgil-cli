@@ -68,13 +68,8 @@ impl Pipeline for DuplicateCodePipeline {
         }
 
         // ── duplicate_switch_cases ──────────────────────────────────
-        let switch_dups = find_duplicate_arms(
-            root,
-            source,
-            "switch_statement",
-            "case_statement",
-            None,
-        );
+        let switch_dups =
+            find_duplicate_arms(root, source, "switch_statement", "case_statement", None);
 
         for (switch_line, dup_lines) in &switch_dups {
             for dup_line in dup_lines {
@@ -120,10 +115,11 @@ fn collect_function_hashes(
                     .unwrap_or_else(|| "<anonymous>".to_string());
                 let hash = hash_block_normalized(body, source);
                 let pos = node.start_position();
-                hash_map
-                    .entry(hash)
-                    .or_default()
-                    .push((name, pos.row as u32 + 1, pos.column as u32 + 1));
+                hash_map.entry(hash).or_default().push((
+                    name,
+                    pos.row as u32 + 1,
+                    pos.column as u32 + 1,
+                ));
             }
         }
     }

@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const GROWTH_METHODS: &[&str] = &["push", "insert", "extend"];
 
@@ -268,7 +268,11 @@ fn collect_events(rx: Receiver<Event>) {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "unbounded_growth_in_loop"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "unbounded_growth_in_loop")
+        );
     }
 
     #[test]
@@ -282,8 +286,11 @@ fn index_items(items: &[Item]) {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "unbounded_growth_in_loop"
-            && f.message.contains("insert")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "unbounded_growth_in_loop" && f.message.contains("insert"))
+        );
     }
 
     #[test]

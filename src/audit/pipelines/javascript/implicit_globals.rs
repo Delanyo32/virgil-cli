@@ -61,11 +61,7 @@ impl ImplicitGlobalsPipeline {
         false
     }
 
-    fn scope_has_declaration(
-        scope_node: tree_sitter::Node,
-        name: &str,
-        source: &[u8],
-    ) -> bool {
+    fn scope_has_declaration(scope_node: tree_sitter::Node, name: &str, source: &[u8]) -> bool {
         // Walk all descendants looking for variable_declarator or formal_parameters
         let mut cursor = scope_node.walk();
         Self::search_declarations(scope_node, &mut cursor, name, source)
@@ -133,10 +129,7 @@ impl Pipeline for ImplicitGlobalsPipeline {
 
         while let Some(m) = matches.next() {
             let lhs_cap = m.captures.iter().find(|c| c.index as usize == lhs_idx);
-            let assign_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == assign_idx);
+            let assign_cap = m.captures.iter().find(|c| c.index as usize == assign_idx);
 
             if let (Some(lhs), Some(assign)) = (lhs_cap, assign_cap) {
                 // Only flag bare identifier assignments (not member_expression like obj.prop = ...)

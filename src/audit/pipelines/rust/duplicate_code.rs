@@ -51,7 +51,8 @@ impl Pipeline for DuplicateCodePipeline {
         // In tree-sitter-rust, match_arm has a `value` field for the body expression.
         // We hash only the body so arms with different patterns but identical bodies
         // are flagged as duplicates.
-        let dup_arms = find_duplicate_arms(root, source, "match_expression", "match_arm", Some("value"));
+        let dup_arms =
+            find_duplicate_arms(root, source, "match_expression", "match_arm", Some("value"));
         for (match_line, dup_lines) in &dup_arms {
             for dup_line in dup_lines {
                 findings.push(AuditFinding {
@@ -143,7 +144,10 @@ fn multiply(a: i32, b: i32) -> i32 {
             .iter()
             .filter(|f| f.pattern == "duplicate_function_body")
             .collect();
-        assert!(dups.is_empty(), "different function bodies should not be flagged");
+        assert!(
+            dups.is_empty(),
+            "different function bodies should not be flagged"
+        );
     }
 
     #[test]
@@ -162,10 +166,7 @@ fn example(x: i32) {
             .iter()
             .filter(|f| f.pattern == "duplicate_match_arm")
             .collect();
-        assert!(
-            !dup_arms.is_empty(),
-            "should detect duplicate match arms"
-        );
+        assert!(!dup_arms.is_empty(), "should detect duplicate match arms");
     }
 
     #[test]

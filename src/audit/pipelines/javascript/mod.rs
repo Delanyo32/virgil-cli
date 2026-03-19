@@ -36,14 +36,14 @@ pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
 
-pub mod module_size_distribution;
+pub mod api_surface_area;
 pub mod circular_dependencies;
 pub mod dependency_graph_depth;
-pub mod api_surface_area;
+pub mod module_size_distribution;
 
-use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
+use anyhow::Result;
 
 pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
@@ -85,7 +85,9 @@ pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> 
         Box::new(code_injection::CodeInjectionPipeline::new(language)?),
         Box::new(command_injection::CommandInjectionPipeline::new(language)?),
         Box::new(path_traversal::PathTraversalPipeline::new(language)?),
-        Box::new(prototype_pollution::PrototypePollutionPipeline::new(language)?),
+        Box::new(prototype_pollution::PrototypePollutionPipeline::new(
+            language,
+        )?),
         Box::new(redos_resource_exhaustion::RedosResourceExhaustionPipeline::new(language)?),
         Box::new(ssrf::SsrfPipeline::new(language)?),
         Box::new(insecure_deserialization::InsecureDeserializationPipeline::new(language)?),

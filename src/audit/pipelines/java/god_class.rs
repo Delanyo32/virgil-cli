@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_class_decl_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_class_decl_query, extract_snippet, find_capture_index, node_text};
 use crate::audit::pipelines::helpers::has_annotation;
 
 const METHOD_THRESHOLD: usize = 10;
@@ -118,9 +116,8 @@ fn is_accessor_method(method_node: tree_sitter::Node, source: &[u8]) -> bool {
         .map(|n| node_text(n, source))
         .unwrap_or("");
 
-    let is_accessor_name = name.starts_with("get")
-        || name.starts_with("set")
-        || name.starts_with("is");
+    let is_accessor_name =
+        name.starts_with("get") || name.starts_with("set") || name.starts_with("is");
 
     if !is_accessor_name {
         return false;

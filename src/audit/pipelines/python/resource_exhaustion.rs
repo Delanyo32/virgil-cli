@@ -9,7 +9,15 @@ use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
 
-const RE_METHODS: &[&str] = &["compile", "match", "search", "findall", "finditer", "sub", "fullmatch"];
+const RE_METHODS: &[&str] = &[
+    "compile",
+    "match",
+    "search",
+    "findall",
+    "finditer",
+    "sub",
+    "fullmatch",
+];
 
 pub struct ResourceExhaustionPipeline {
     call_query: Arc<Query>,
@@ -42,17 +50,35 @@ impl Pipeline for ResourceExhaustionPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 if fn_node.kind() != "attribute" {
                     continue;
                 }
 
-                let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-                let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                let obj = fn_node
+                    .child_by_field_name("object")
+                    .map(|n| node_text(n, source));
+                let attr = fn_node
+                    .child_by_field_name("attribute")
+                    .map(|n| node_text(n, source));
 
                 if obj != Some("re") {
                     continue;
@@ -77,7 +103,8 @@ impl Pipeline for ResourceExhaustionPipeline {
                             severity: "warning".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "redos_pattern".to_string(),
-                            message: "regex pattern with nested quantifiers — potential ReDoS".to_string(),
+                            message: "regex pattern with nested quantifiers — potential ReDoS"
+                                .to_string(),
                             snippet: extract_snippet(source, call_node, 1),
                         });
                     }

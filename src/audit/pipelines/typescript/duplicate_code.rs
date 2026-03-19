@@ -88,11 +88,7 @@ impl Pipeline for DuplicateCodePipeline {
 }
 
 /// Find a node that starts near the given line and extract a snippet from it.
-fn find_snippet_at_line(
-    root: tree_sitter::Node,
-    source: &[u8],
-    target_line: u32,
-) -> String {
+fn find_snippet_at_line(root: tree_sitter::Node, source: &[u8], target_line: u32) -> String {
     let target_row = target_line.saturating_sub(1) as usize;
     let mut best: Option<tree_sitter::Node> = None;
 

@@ -7,13 +7,18 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_invocation_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_invocation_query, extract_snippet, find_capture_index, node_text};
 
 const FILE_METHODS: &[&str] = &[
-    "ReadAllText", "ReadAllBytes", "ReadAllLines", "WriteAllText",
-    "WriteAllBytes", "WriteAllLines", "OpenRead", "OpenWrite", "Delete",
+    "ReadAllText",
+    "ReadAllBytes",
+    "ReadAllLines",
+    "WriteAllText",
+    "WriteAllBytes",
+    "WriteAllLines",
+    "OpenRead",
+    "OpenWrite",
+    "Delete",
 ];
 
 pub struct CSharpPathTraversalPipeline {
@@ -47,18 +52,32 @@ impl Pipeline for CSharpPathTraversalPipeline {
         let inv_idx = find_capture_index(&self.invocation_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node) {
+            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node)
+            {
                 let fn_text = node_text(fn_node, source);
                 let args_text = node_text(args_node, source);
 
                 // File.ReadAllText(base + param), etc.
-                let is_file_method = FILE_METHODS.iter().any(|m| fn_text.contains(m))
-                    && fn_text.contains("File");
-                if is_file_method && (args_text.contains('+') || contains_interpolation(args_node)) {
+                let is_file_method =
+                    FILE_METHODS.iter().any(|m| fn_text.contains(m)) && fn_text.contains("File");
+                if is_file_method && (args_text.contains('+') || contains_interpolation(args_node))
+                {
                     let start = inv_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
@@ -93,7 +112,8 @@ impl Pipeline for CSharpPathTraversalPipeline {
                     if has_variable_arg {
                         // Check if GetFullPath+StartsWith is used nearby
                         let source_str = std::str::from_utf8(source).unwrap_or("");
-                        if !source_str.contains("GetFullPath") || !source_str.contains("StartsWith") {
+                        if !source_str.contains("GetFullPath") || !source_str.contains("StartsWith")
+                        {
                             let start = inv_node.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),

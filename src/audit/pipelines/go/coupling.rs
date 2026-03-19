@@ -69,12 +69,7 @@ impl CouplingPipeline {
         findings
     }
 
-    fn check_low_cohesion(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-        file_path: &str,
-    ) -> Vec<AuditFinding> {
+    fn check_low_cohesion(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
@@ -162,9 +157,7 @@ fn check_cohesion_recursive(
                 // The receiver parameter_list contains parameter_declaration(s)
                 // Typically just one: (r *ReceiverType)
                 let mut recv_cursor = receiver_list.walk();
-                let receiver_param = receiver_list
-                    .named_children(&mut recv_cursor)
-                    .next();
+                let receiver_param = receiver_list.named_children(&mut recv_cursor).next();
 
                 if let Some(param) = receiver_param {
                     // The parameter_declaration has a name field (the receiver variable name)
@@ -244,9 +237,7 @@ mod tests {
 
     #[test]
     fn detects_excessive_imports() {
-        let imports: Vec<String> = (0..16)
-            .map(|i| format!("\"pkg{i}\""))
-            .collect();
+        let imports: Vec<String> = (0..16).map(|i| format!("\"pkg{i}\"")).collect();
         let src = format!(
             "package main\n\nimport (\n{}\n)\n\nfunc main() {{}}\n",
             imports.join("\n")

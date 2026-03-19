@@ -45,14 +45,12 @@ impl MemoryLeakIndicatorsPipeline {
   arguments: (arguments) @args) @call
 "#;
         Ok(Self {
-            method_call_query: Arc::new(
-                Query::new(&js_lang(), method_call_str)
-                    .with_context(|| "failed to compile method_call query for memory_leak_indicators")?,
-            ),
-            direct_call_query: Arc::new(
-                Query::new(&js_lang(), direct_call_str)
-                    .with_context(|| "failed to compile direct_call query for memory_leak_indicators")?,
-            ),
+            method_call_query: Arc::new(Query::new(&js_lang(), method_call_str).with_context(
+                || "failed to compile method_call query for memory_leak_indicators",
+            )?),
+            direct_call_query: Arc::new(Query::new(&js_lang(), direct_call_str).with_context(
+                || "failed to compile direct_call query for memory_leak_indicators",
+            )?),
         })
     }
 
@@ -98,8 +96,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         // Scan method calls
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let call_idx = find_capture_index(&self.method_call_query, "call");
 
@@ -129,9 +126,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     }
 
                     // Check for .push() / .unshift() inside loops
-                    if ARRAY_GROWTH_METHODS.contains(&method_name)
-                        && Self::is_inside_loop(call)
-                    {
+                    if ARRAY_GROWTH_METHODS.contains(&method_name) && Self::is_inside_loop(call) {
                         growth_in_loop_nodes.push(call);
                     }
                 }
@@ -141,8 +136,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         // Scan direct function calls (setInterval, clearInterval)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_name_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
 

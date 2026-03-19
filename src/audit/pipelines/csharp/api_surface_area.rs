@@ -1,9 +1,9 @@
 use anyhow::Result;
 use tree_sitter::Tree;
 
+use super::primitives::{has_modifier, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives::{has_modifier, node_text};
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
@@ -49,7 +49,8 @@ fn check_classes_recursive(
     findings: &mut Vec<AuditFinding>,
 ) {
     if node.kind() == "class_declaration" {
-        let is_public_class = has_modifier(node, source, "public") || has_modifier(node, source, "internal");
+        let is_public_class =
+            has_modifier(node, source, "public") || has_modifier(node, source, "internal");
         let class_name = node
             .child_by_field_name("name")
             .map(|n| node_text(n, source))
@@ -69,7 +70,8 @@ fn check_classes_recursive(
                 }
 
                 total_members += 1;
-                if has_modifier(child, source, "public") || has_modifier(child, source, "internal") {
+                if has_modifier(child, source, "public") || has_modifier(child, source, "internal")
+                {
                     exported_members += 1;
                 }
 
@@ -176,10 +178,7 @@ mod tests {
             methods.push_str(&format!("    public void Method_{}() {{ }}\n", i));
         }
         methods.push_str("    private void PrivateMethod() { }\n");
-        let src = format!(
-            "public class OrderService {{\n{}}}\n",
-            methods
-        );
+        let src = format!("public class OrderService {{\n{}}}\n", methods);
         let findings = parse_and_check(&src);
         assert!(findings.iter().any(|f| f.pattern == "excessive_public_api"));
     }
@@ -208,7 +207,11 @@ public class UserRepository {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -221,7 +224,11 @@ public class Config {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -234,7 +241,11 @@ public class UserRepository {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -246,7 +257,11 @@ class InternalRepo {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -260,6 +275,10 @@ namespace MyApp {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 }

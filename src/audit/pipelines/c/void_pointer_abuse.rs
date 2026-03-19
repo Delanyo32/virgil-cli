@@ -105,10 +105,7 @@ impl Pipeline for VoidPointerAbusePipeline {
                     .captures
                     .iter()
                     .find(|c| c.index as usize == declarator_idx);
-                let fn_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_def_idx);
+                let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_def_idx);
 
                 if let (Some(decl_cap), Some(fn_cap)) = (decl_cap, fn_cap) {
                     let fn_node = fn_cap.node;
@@ -136,7 +133,9 @@ impl Pipeline for VoidPointerAbusePipeline {
                         severity: "info".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "void_pointer_parameter".to_string(),
-                        message: "function returns void* — callers must cast, which bypasses type safety".to_string(),
+                        message:
+                            "function returns void* — callers must cast, which bypasses type safety"
+                                .to_string(),
                         snippet: extract_snippet(source, fn_cap.node, 1),
                     });
                 }
@@ -166,7 +165,11 @@ mod tests {
     fn detects_void_pointer_param() {
         let src = "void process(void *data) {}";
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "void_pointer_parameter"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "void_pointer_parameter")
+        );
     }
 
     #[test]

@@ -4,9 +4,9 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 
 pub struct UnsafeMemoryPipeline {
     unsafe_query: Arc<Query>,
@@ -98,8 +98,16 @@ impl Pipeline for UnsafeMemoryPipeline {
 
                     // Non-pointer receiver patterns: calls like Duration.add(), Instant.sub()
                     const NON_POINTER_PATTERNS: &[&str] = &[
-                        "Duration", "duration", "chrono", "time", "Instant", "instant",
-                        "DateTime", "NaiveDate", "NaiveTime", "NaiveDateTime",
+                        "Duration",
+                        "duration",
+                        "chrono",
+                        "time",
+                        "Instant",
+                        "instant",
+                        "DateTime",
+                        "NaiveDate",
+                        "NaiveTime",
+                        "NaiveDateTime",
                     ];
 
                     while let Some(im) = inner_matches.next() {
@@ -111,7 +119,9 @@ impl Pipeline for UnsafeMemoryPipeline {
                         let call_node = im
                             .captures
                             .iter()
-                            .find(|c| c.index as usize == find_capture_index(&self.method_query, "call"))
+                            .find(|c| {
+                                c.index as usize == find_capture_index(&self.method_query, "call")
+                            })
                             .map(|c| c.node);
                         if let Some(name_node) = name_node {
                             let method_name = node_text(name_node, source);
@@ -126,7 +136,10 @@ impl Pipeline for UnsafeMemoryPipeline {
                                             if let Some(obj) = func.child_by_field_name("value") {
                                                 let receiver_text = node_text(obj, source);
                                                 // Skip if receiver matches non-pointer patterns
-                                                if NON_POINTER_PATTERNS.iter().any(|p| receiver_text.contains(p)) {
+                                                if NON_POINTER_PATTERNS
+                                                    .iter()
+                                                    .any(|p| receiver_text.contains(p))
+                                                {
                                                     continue;
                                                 }
                                             }
@@ -171,9 +184,8 @@ impl Pipeline for UnsafeMemoryPipeline {
                                             severity: "error".to_string(),
                                             pipeline: self.name().to_string(),
                                             pattern: "raw_pointer_deref".to_string(),
-                                            message:
-                                                "raw pointer dereference in unsafe block"
-                                                    .to_string(),
+                                            message: "raw pointer dereference in unsafe block"
+                                                .to_string(),
                                             snippet: extract_snippet(source, block, 3),
                                         });
                                     }

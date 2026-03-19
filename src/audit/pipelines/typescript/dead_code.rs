@@ -66,10 +66,7 @@ impl Pipeline for DeadCodePipeline {
                         severity: "info".to_string(),
                         pipeline: "dead_code".to_string(),
                         pattern: "unused_imports".to_string(),
-                        message: format!(
-                            "Import `{}` is not used in this file",
-                            name
-                        ),
+                        message: format!("Import `{}` is not used in this file", name),
                         snippet: extract_snippet(source, child, 1),
                     });
                 }
@@ -125,11 +122,7 @@ fn find_unreachable_blocks(
 /// Collect identifiers from type_annotation, type_alias_declaration,
 /// and interface_declaration nodes throughout the tree. This ensures type-only imports
 /// used in type positions are recognized as used.
-fn collect_type_identifiers(
-    root: tree_sitter::Node,
-    source: &[u8],
-    ids: &mut HashSet<String>,
-) {
+fn collect_type_identifiers(root: tree_sitter::Node, source: &[u8], ids: &mut HashSet<String>) {
     const TYPE_NODE_KINDS: &[&str] = &[
         "type_annotation",
         "type_alias_declaration",

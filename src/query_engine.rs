@@ -1,0 +1,492 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use globset::{Glob, GlobSet, GlobSetBuilder};
+use rayon::prelude::*;
+use regex::Regex;
+
+use crate::call_graph;
+use crate::discovery;
+use crate::language::{self, Language};
+use crate::languages;
+use crate::models::{CommentInfo, SymbolInfo, SymbolKind};
+use crate::parser;
+use crate::query_lang::{FindFilter, HasFilter, NameFilter, TsQuery};
+use crate::registry::ProjectEntry;
+use crate::signature;
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct QueryResult {
+    pub name: String,
+    pub kind: String,
+    pub file: String,
+    pub line: u32,
+    pub end_line: u32,
+    pub column: u32,
+    pub exported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docstring: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct QueryOutput {
+    pub results: Vec<QueryResult>,
+    pub files_parsed: usize,
+    pub total: usize,
+}
+
+pub fn execute(project: &ProjectEntry, query: &TsQuery, max: usize) -> Result<QueryOutput> {
+    let languages = match &project.languages {
+        Some(f) => language::parse_language_filter(f),
+        None => Language::all().to_vec(),
+    };
+
+    // Discover files
+    let all_files = discovery::discover_files(&project.path, &languages)?;
+
+    // Apply file glob filter
+    let files: Vec<_> = if let Some(ref file_filter) = query.files {
+        let globset = build_globset(&file_filter.patterns())?;
+        all_files
+            .into_iter()
+            .filter(|path| {
+                let rel = path
+                    .strip_prefix(&project.path)
+                    .unwrap_or(path)
+                    .to_string_lossy();
+                globset.is_match(rel.as_ref())
+            })
+            .collect()
+    } else {
+        all_files
+    };
+
+    // Apply files_exclude
+    let files: Vec<_> = if let Some(ref excludes) = query.files_exclude {
+        let patterns: Vec<&str> = excludes.iter().map(|s| s.as_str()).collect();
+        let excludeset = build_globset(&patterns)?;
+        files
+            .into_iter()
+            .filter(|path| {
+                let rel = path
+                    .strip_prefix(&project.path)
+                    .unwrap_or(path)
+                    .to_string_lossy();
+                !excludeset.is_match(rel.as_ref())
+            })
+            .collect()
+    } else {
+        files
+    };
+
+    // Resolve find kinds
+    let find_kinds = resolve_find_kinds(query.find.as_ref());
+
+    // Compile name matcher
+    let name_matcher = compile_name_matcher(query.name.as_ref())?;
+
+    // Pre-compile tree-sitter queries per language
+    let mut sym_queries: HashMap<Language, Arc<tree_sitter::Query>> = HashMap::new();
+    let mut cmt_queries: HashMap<Language, Arc<tree_sitter::Query>> = HashMap::new();
+    for lang in &languages {
+        sym_queries.insert(*lang, languages::compile_symbol_query(*lang)?);
+        cmt_queries.insert(*lang, languages::compile_comment_query(*lang)?);
+    }
+    let sym_queries = Arc::new(sym_queries);
+    let cmt_queries = Arc::new(cmt_queries);
+
+    let need_comments = query.has.is_some();
+
+    let include_body = query.body.unwrap_or(false);
+    let preview_lines = query.preview;
+
+    let visibility = query.visibility.as_deref();
+    let inside = query.inside.as_deref();
+    let lines_filter = query.lines.as_ref();
+    let has_filter = query.has.as_ref();
+
+    let files_parsed = files.len();
+
+    // Parallel parse + filter
+    let per_file_results: Vec<Vec<QueryResult>> = files
+        .par_iter()
+        .filter_map(|path| {
+            let ext = path.extension()?.to_str()?;
+            let lang = Language::from_extension(ext)?;
+            let sym_query = sym_queries.get(&lang)?;
+            let cmt_query = cmt_queries.get(&lang)?;
+
+            let mut ts_parser = parser::create_parser(lang).ok()?;
+            let (metadata, tree) =
+                parser::parse_file(&mut ts_parser, path, &project.path, lang).ok()?;
+            let source = std::fs::read_to_string(path).ok()?;
+
+            let all_symbols = languages::extract_symbols(
+                &tree,
+                source.as_bytes(),
+                sym_query,
+                &metadata.path,
+                lang,
+            );
+
+            let comments = if need_comments {
+                languages::extract_comments(
+                    &tree,
+                    source.as_bytes(),
+                    cmt_query,
+                    &metadata.path,
+                    lang,
+                )
+            } else {
+                Vec::new()
+            };
+
+            let source_lines: Vec<&str> = source.lines().collect();
+
+            let mut results = Vec::new();
+
+            for sym in &all_symbols {
+                // find filter
+                if let Some(ref kinds) = find_kinds {
+                    if !kinds.contains(&sym.kind) {
+                        continue;
+                    }
+                }
+
+                // name filter
+                if let Some(ref matcher) = name_matcher {
+                    if !matcher.matches(&sym.name) {
+                        continue;
+                    }
+                }
+
+                // visibility filter
+                if let Some(vis) = visibility {
+                    let matches = match vis {
+                        "exported" | "public" => sym.is_exported,
+                        "private" | "protected" | "internal" => !sym.is_exported,
+                        _ => true,
+                    };
+                    if !matches {
+                        continue;
+                    }
+                }
+
+                // lines filter
+                if let Some(lr) = lines_filter {
+                    let line_count = sym.end_line.saturating_sub(sym.start_line) + 1;
+                    if let Some(min) = lr.min {
+                        if line_count < min {
+                            continue;
+                        }
+                    }
+                    if let Some(max) = lr.max {
+                        if line_count > max {
+                            continue;
+                        }
+                    }
+                }
+
+                // inside filter
+                if let Some(parent_name) = inside {
+                    let is_inside = all_symbols.iter().any(|s| {
+                        s.name == parent_name
+                            && s.start_line <= sym.start_line
+                            && s.end_line >= sym.end_line
+                            && !(s.start_line == sym.start_line
+                                && s.end_line == sym.end_line
+                                && s.name == sym.name)
+                    });
+                    if !is_inside {
+                        continue;
+                    }
+                }
+
+                // has filter
+                if let Some(hf) = has_filter {
+                    if !check_has_filter(hf, sym, &comments) {
+                        continue;
+                    }
+                }
+
+                // Extract signature
+                let signature = signature::extract_signature(&source, sym.start_line, lang);
+
+                // Extract docstring from associated comments
+                let docstring = comments.iter().find_map(|c| {
+                    if c.associated_symbol.as_deref() == Some(&sym.name) && c.kind == "doc" {
+                        Some(c.text.clone())
+                    } else {
+                        None
+                    }
+                });
+
+                // Extract body
+                let body = if include_body {
+                    extract_lines(&source_lines, sym.start_line, sym.end_line)
+                } else {
+                    None
+                };
+
+                // Extract preview
+                let preview = preview_lines.map(|n| {
+                    let end = std::cmp::min(sym.start_line + n as u32 - 1, sym.end_line);
+                    extract_lines(&source_lines, sym.start_line, end).unwrap_or_default()
+                });
+
+                // Determine parent
+                let parent = find_parent(sym, &all_symbols);
+
+                results.push(QueryResult {
+                    name: sym.name.clone(),
+                    kind: sym.kind.to_string(),
+                    file: metadata.path.clone(),
+                    line: sym.start_line,
+                    end_line: sym.end_line,
+                    column: sym.start_column,
+                    exported: sym.is_exported,
+                    signature,
+                    docstring,
+                    body,
+                    preview,
+                    parent,
+                });
+            }
+
+            Some(results)
+        })
+        .collect();
+
+    // Flatten, sort, limit
+    let mut results: Vec<QueryResult> = per_file_results.into_iter().flatten().collect();
+    results.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+
+    // Call graph traversal if requested
+    if let Some(ref direction) = query.calls {
+        let depth = query.depth.unwrap_or(1).min(5);
+        let call_results = call_graph::traverse_call_graph(project, &results, direction, depth)?;
+        results = call_results;
+    }
+
+    let total = results.len();
+    results.truncate(max);
+
+    Ok(QueryOutput {
+        results,
+        files_parsed,
+        total,
+    })
+}
+
+fn build_globset(patterns: &[&str]) -> Result<GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        builder
+            .add(Glob::new(pattern).with_context(|| format!("invalid glob pattern: {pattern}"))?);
+    }
+    builder.build().context("failed to build glob set")
+}
+
+fn resolve_find_kinds(find: Option<&FindFilter>) -> Option<Vec<SymbolKind>> {
+    let filter = find?;
+    let kinds: Vec<SymbolKind> = filter
+        .kinds()
+        .iter()
+        .flat_map(|k| match *k {
+            "function" => vec![SymbolKind::Function, SymbolKind::ArrowFunction],
+            "method" => vec![SymbolKind::Method],
+            "class" => vec![SymbolKind::Class],
+            "interface" => vec![SymbolKind::Interface],
+            "type" => vec![SymbolKind::TypeAlias, SymbolKind::Typedef],
+            "enum" => vec![SymbolKind::Enum],
+            "struct" => vec![SymbolKind::Struct],
+            "trait" => vec![SymbolKind::Trait],
+            "variable" => vec![SymbolKind::Variable],
+            "constant" => vec![SymbolKind::Constant],
+            "property" => vec![SymbolKind::Property],
+            "namespace" => vec![SymbolKind::Namespace],
+            "module" => vec![SymbolKind::Module],
+            "macro" => vec![SymbolKind::Macro],
+            "union" => vec![SymbolKind::Union],
+            "arrow_function" => vec![SymbolKind::ArrowFunction],
+            "constructor" => vec![SymbolKind::Method], // post-filter by name handled separately
+            "import" => vec![],                        // handled separately
+            "any" => vec![
+                SymbolKind::Function,
+                SymbolKind::ArrowFunction,
+                SymbolKind::Class,
+                SymbolKind::Method,
+                SymbolKind::Variable,
+                SymbolKind::Interface,
+                SymbolKind::TypeAlias,
+                SymbolKind::Enum,
+                SymbolKind::Struct,
+                SymbolKind::Union,
+                SymbolKind::Namespace,
+                SymbolKind::Macro,
+                SymbolKind::Property,
+                SymbolKind::Typedef,
+                SymbolKind::Trait,
+                SymbolKind::Constant,
+                SymbolKind::Module,
+            ],
+            _ => vec![],
+        })
+        .collect();
+
+    if kinds.is_empty() { None } else { Some(kinds) }
+}
+
+enum NameMatcher {
+    GlobSet(GlobSet),
+    Contains(String),
+    Regex(Regex),
+}
+
+impl NameMatcher {
+    fn matches(&self, name: &str) -> bool {
+        match self {
+            NameMatcher::GlobSet(gs) => gs.is_match(name),
+            NameMatcher::Contains(s) => name.contains(s.as_str()),
+            NameMatcher::Regex(r) => r.is_match(name),
+        }
+    }
+}
+
+fn compile_name_matcher(name: Option<&NameFilter>) -> Result<Option<NameMatcher>> {
+    let filter = match name {
+        Some(f) => f,
+        None => return Ok(None),
+    };
+
+    match filter {
+        NameFilter::Glob(pattern) => {
+            let mut builder = GlobSetBuilder::new();
+            builder
+                .add(Glob::new(pattern).with_context(|| format!("invalid name glob: {pattern}"))?);
+            Ok(Some(NameMatcher::GlobSet(builder.build()?)))
+        }
+        NameFilter::Complex { contains, regex } => {
+            if let Some(r) = regex {
+                let re = Regex::new(r).with_context(|| format!("invalid regex: {r}"))?;
+                Ok(Some(NameMatcher::Regex(re)))
+            } else if let Some(c) = contains {
+                Ok(Some(NameMatcher::Contains(c.clone())))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
+fn check_has_filter(filter: &HasFilter, sym: &SymbolInfo, comments: &[CommentInfo]) -> bool {
+    match filter {
+        HasFilter::Single(text) => has_associated_text(sym, comments, text),
+        HasFilter::Multiple(texts) => texts.iter().all(|t| has_associated_text(sym, comments, t)),
+        HasFilter::Not { not } => {
+            if not == "docstring" {
+                !comments
+                    .iter()
+                    .any(|c| c.associated_symbol.as_deref() == Some(&sym.name) && c.kind == "doc")
+            } else {
+                !has_associated_text(sym, comments, not)
+            }
+        }
+    }
+}
+
+fn has_associated_text(sym: &SymbolInfo, comments: &[CommentInfo], text: &str) -> bool {
+    // Check comments associated with this symbol
+    comments
+        .iter()
+        .any(|c| c.associated_symbol.as_deref() == Some(&sym.name) && c.text.contains(text))
+}
+
+fn extract_lines(source_lines: &[&str], start: u32, end: u32) -> Option<String> {
+    if start == 0 || end == 0 {
+        return None;
+    }
+    let start_idx = (start - 1) as usize;
+    let end_idx = std::cmp::min(end as usize, source_lines.len());
+    if start_idx >= source_lines.len() {
+        return None;
+    }
+    Some(source_lines[start_idx..end_idx].join("\n"))
+}
+
+fn find_parent(sym: &SymbolInfo, all_symbols: &[SymbolInfo]) -> Option<String> {
+    all_symbols
+        .iter()
+        .filter(|s| {
+            s.start_line < sym.start_line && s.end_line > sym.end_line && s.name != sym.name
+        })
+        .min_by_key(|s| s.end_line - s.start_line)
+        .map(|s| s.name.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_function_kinds() {
+        let filter = FindFilter::Single("function".to_string());
+        let kinds = resolve_find_kinds(Some(&filter)).unwrap();
+        assert!(kinds.contains(&SymbolKind::Function));
+        assert!(kinds.contains(&SymbolKind::ArrowFunction));
+    }
+
+    #[test]
+    fn resolve_any_kinds() {
+        let filter = FindFilter::Single("any".to_string());
+        let kinds = resolve_find_kinds(Some(&filter)).unwrap();
+        assert!(kinds.len() >= 10);
+    }
+
+    #[test]
+    fn name_glob_matching() {
+        let matcher = compile_name_matcher(Some(&NameFilter::Glob("handle*".to_string())))
+            .unwrap()
+            .unwrap();
+        assert!(matcher.matches("handleClick"));
+        assert!(matcher.matches("handleSubmit"));
+        assert!(!matcher.matches("onClick"));
+    }
+
+    #[test]
+    fn name_contains_matching() {
+        let matcher = compile_name_matcher(Some(&NameFilter::Complex {
+            contains: Some("auth".to_string()),
+            regex: None,
+        }))
+        .unwrap()
+        .unwrap();
+        assert!(matcher.matches("authenticate"));
+        assert!(matcher.matches("oauth_token"));
+        assert!(!matcher.matches("login"));
+        assert!(!matcher.matches("isAuthValid")); // case-sensitive: "Auth" != "auth"
+    }
+
+    #[test]
+    fn name_regex_matching() {
+        let matcher = compile_name_matcher(Some(&NameFilter::Complex {
+            contains: None,
+            regex: Some("^get[A-Z]".to_string()),
+        }))
+        .unwrap()
+        .unwrap();
+        assert!(matcher.matches("getUser"));
+        assert!(matcher.matches("getName"));
+        assert!(!matcher.matches("fetchUser"));
+        assert!(!matcher.matches("getter"));
+    }
+}

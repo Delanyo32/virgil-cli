@@ -46,10 +46,7 @@ impl Pipeline for IgnoredReturnValuesPipeline {
         let call_idx = find_capture_index(&self.expr_call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_name_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
             let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
 
             if let (Some(fn_cap), Some(call_cap)) = (fn_cap, call_cap) {

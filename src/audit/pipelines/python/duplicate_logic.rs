@@ -49,8 +49,7 @@ impl DuplicateLogicPipeline {
                     }
                     "typed_default_parameter" => {
                         if let Some(type_node) = child.child_by_field_name("type") {
-                            param_types
-                                .push(format!("{}=", node_text(type_node, source)));
+                            param_types.push(format!("{}=", node_text(type_node, source)));
                         } else {
                             param_types.push("_=".to_string());
                         }

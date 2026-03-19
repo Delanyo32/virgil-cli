@@ -42,11 +42,25 @@ impl Pipeline for CodeInjectionPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 if fn_node.kind() != "identifier" {
                     continue;
                 }

@@ -42,16 +42,32 @@ impl Pipeline for SqlInjectionPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 if fn_node.kind() != "attribute" {
                     continue;
                 }
 
-                let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                let attr = fn_node
+                    .child_by_field_name("attribute")
+                    .map(|n| node_text(n, source));
                 let method_name = match attr {
                     Some(name) if SQL_METHODS.contains(&name) => name,
                     _ => continue,
@@ -65,22 +81,31 @@ impl Pipeline for SqlInjectionPipeline {
                     let is_fstring = kind == "string" && has_interpolation(first_arg);
 
                     let (pattern, msg) = if is_fstring {
-                        ("sql_fstring", format!(
-                            "`.{method_name}()` with f-string — use parameterized queries instead"
-                        ))
+                        (
+                            "sql_fstring",
+                            format!(
+                                "`.{method_name}()` with f-string — use parameterized queries instead"
+                            ),
+                        )
                     } else {
                         match kind {
                             // %-format: binary_operator with % on a string
                             "binary_operator" => {
                                 let text = node_text(first_arg, source);
                                 if text.contains('%') {
-                                    ("sql_percent_format", format!(
-                                        "`.{method_name}()` with %-formatting — use parameterized queries instead"
-                                    ))
+                                    (
+                                        "sql_percent_format",
+                                        format!(
+                                            "`.{method_name}()` with %-formatting — use parameterized queries instead"
+                                        ),
+                                    )
                                 } else if text.contains('+') {
-                                    ("sql_concat", format!(
-                                        "`.{method_name}()` with string concatenation — use parameterized queries instead"
-                                    ))
+                                    (
+                                        "sql_concat",
+                                        format!(
+                                            "`.{method_name}()` with string concatenation — use parameterized queries instead"
+                                        ),
+                                    )
                                 } else {
                                     continue;
                                 }
@@ -89,9 +114,12 @@ impl Pipeline for SqlInjectionPipeline {
                             "call" => {
                                 let arg_text = node_text(first_arg, source);
                                 if arg_text.contains(".format(") {
-                                    ("sql_format", format!(
-                                        "`.{method_name}()` with .format() — use parameterized queries instead"
-                                    ))
+                                    (
+                                        "sql_format",
+                                        format!(
+                                            "`.{method_name}()` with .format() — use parameterized queries instead"
+                                        ),
+                                    )
                                 } else {
                                     continue;
                                 }

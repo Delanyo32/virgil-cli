@@ -54,11 +54,25 @@ impl Pipeline for GodStructPipeline {
             let decl_idx = find_capture_index(&self.struct_query, "type_decl");
 
             while let Some(m) = matches.next() {
-                let name_node = m.captures.iter().find(|c| c.index as usize == name_idx).map(|c| c.node);
-                let fields_node = m.captures.iter().find(|c| c.index as usize == fields_idx).map(|c| c.node);
-                let decl_node = m.captures.iter().find(|c| c.index as usize == decl_idx).map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == name_idx)
+                    .map(|c| c.node);
+                let fields_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == fields_idx)
+                    .map(|c| c.node);
+                let decl_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == decl_idx)
+                    .map(|c| c.node);
 
-                if let (Some(name_node), Some(fields_node), Some(decl_node)) = (name_node, fields_node, decl_node) {
+                if let (Some(name_node), Some(fields_node), Some(decl_node)) =
+                    (name_node, fields_node, decl_node)
+                {
                     let field_count = (0..fields_node.named_child_count())
                         .filter_map(|i| fields_node.named_child(i))
                         .filter(|child| child.kind() == "field_declaration")
@@ -115,8 +129,16 @@ impl Pipeline for GodStructPipeline {
             let mut first_method: HashMap<String, (u32, u32, String)> = HashMap::new();
 
             while let Some(m) = matches.next() {
-                let receiver_node = m.captures.iter().find(|c| c.index as usize == receiver_idx).map(|c| c.node);
-                let decl_node = m.captures.iter().find(|c| c.index as usize == method_decl_idx).map(|c| c.node);
+                let receiver_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == receiver_idx)
+                    .map(|c| c.node);
+                let decl_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == method_decl_idx)
+                    .map(|c| c.node);
 
                 if let (Some(receiver_node), Some(decl_node)) = (receiver_node, decl_node) {
                     let receiver_text = node_text(receiver_node, source);
@@ -194,7 +216,10 @@ mod tests {
 
     #[test]
     fn detects_large_struct() {
-        let src = format!("package main\ntype BigStruct struct {{\n{}\n}}\n", gen_fields(16));
+        let src = format!(
+            "package main\ntype BigStruct struct {{\n{}\n}}\n",
+            gen_fields(16)
+        );
         let findings = parse_and_check(&src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "large_struct");
@@ -202,7 +227,10 @@ mod tests {
 
     #[test]
     fn clean_small_struct() {
-        let src = format!("package main\ntype SmallStruct struct {{\n{}\n}}\n", gen_fields(5));
+        let src = format!(
+            "package main\ntype SmallStruct struct {{\n{}\n}}\n",
+            gen_fields(5)
+        );
         let findings = parse_and_check(&src);
         assert!(findings.is_empty());
     }

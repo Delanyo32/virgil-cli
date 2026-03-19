@@ -142,7 +142,9 @@ mod tests {
         parser
             .set_language(&Language::Tsx.tree_sitter_language())
             .unwrap();
-        let tree = parser.parse("let x: Record<string, any> = {};", None).unwrap();
+        let tree = parser
+            .parse("let x: Record<string, any> = {};", None)
+            .unwrap();
         let findings = pipeline.check(&tree, b"let x: Record<string, any> = {};", "test.tsx");
         assert_eq!(findings.len(), 1);
     }

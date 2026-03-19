@@ -4,14 +4,13 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::struct_has_derive;
-use super::primitives;
 
 const SUSPICIOUS_NAMES: &[&str] = &[
-    "kind", "type", "status", "mode", "state", "level", "role", "variant",
-    "phase", "stage",
+    "kind", "type", "status", "mode", "state", "level", "role", "variant", "phase", "stage",
 ];
 
 const STRING_TYPES: &[&str] = &["String", "&str", "Option<String>", "Option<&str>"];

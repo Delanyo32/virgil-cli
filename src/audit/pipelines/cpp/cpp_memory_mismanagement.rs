@@ -75,9 +75,7 @@ impl CppMemoryMismanagementPipeline {
                             severity: "error".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "delete_then_use".to_string(),
-                            message: format!(
-                                "`{var}` used after `delete` — undefined behavior"
-                            ),
+                            message: format!("`{var}` used after `delete` — undefined behavior"),
                             snippet: extract_snippet(source, child, 1),
                         });
                         break;
@@ -171,18 +169,11 @@ impl Pipeline for CppMemoryMismanagementPipeline {
         let body_idx = find_capture_index(&self.fn_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == body_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == body_idx);
 
             if let Some(body_cap) = body_cap {
                 // Pattern 1: delete-then-use
-                findings.extend(self.scan_body_for_delete_use(
-                    body_cap.node,
-                    source,
-                    file_path,
-                ));
+                findings.extend(self.scan_body_for_delete_use(body_cap.node, source, file_path));
 
                 // Pattern 2: dangling string_view
                 findings.extend(self.scan_body_for_dangling_string_view(

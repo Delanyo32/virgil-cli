@@ -53,8 +53,7 @@ impl Pipeline for FunctionLengthPipeline {
             let body_cap = m.captures.iter().find(|c| c.index as usize == body_idx);
             let func_cap = m.captures.iter().find(|c| c.index as usize == func_idx);
 
-            if let (Some(name_cap), Some(body_cap), Some(func_cap)) =
-                (name_cap, body_cap, func_cap)
+            if let (Some(name_cap), Some(body_cap), Some(func_cap)) = (name_cap, body_cap, func_cap)
             {
                 let fn_name = node_text(name_cap.node, source);
                 let (lines, statements) = count_function_lines(body_cap.node);

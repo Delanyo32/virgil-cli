@@ -4,12 +4,10 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{compile_function_with_body_query, extract_snippet, find_capture_index};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_function_lines;
-use super::primitives::{
-    compile_function_with_body_query, extract_snippet, find_capture_index,
-};
 
 const LINE_THRESHOLD: usize = 50;
 const STATEMENT_THRESHOLD: usize = 20;

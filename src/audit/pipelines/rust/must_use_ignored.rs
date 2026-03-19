@@ -129,10 +129,7 @@ impl Pipeline for MustUseIgnoredPipeline {
             while let Some(m) = matches.next() {
                 let name_node = m.captures.iter().find(|c| c.index as usize == name_idx);
                 let call_node = m.captures.iter().find(|c| c.index as usize == call_idx);
-                let let_node = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == let_stmt_idx);
+                let let_node = m.captures.iter().find(|c| c.index as usize == let_stmt_idx);
 
                 if let (Some(name_cap), Some(call_cap), Some(let_cap)) =
                     (name_node, call_node, let_node)

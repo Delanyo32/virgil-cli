@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, has_storage_class, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_top_level_definitions;
 use crate::language::Language;
-use super::primitives::{find_capture_index, has_storage_class, node_text};
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
@@ -92,7 +92,10 @@ impl Pipeline for ApiSurfaceAreaPipeline {
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     if cap.index as usize == def_idx {
-                        let is_top_level = cap.node.parent().map_or(false, |p| p.kind() == "translation_unit");
+                        let is_top_level = cap
+                            .node
+                            .parent()
+                            .map_or(false, |p| p.kind() == "translation_unit");
                         if is_top_level && !has_storage_class(cap.node, source, "static") {
                             exported_count += 1;
                         }
@@ -304,7 +307,11 @@ public:
 };
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -320,7 +327,11 @@ private:
 };
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -335,7 +346,11 @@ public:
 };
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -349,6 +364,10 @@ public:
 };
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 }

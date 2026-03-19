@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -131,7 +131,11 @@ import (
 func Init() {}
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -146,7 +150,11 @@ import (
 func main() {}
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -175,6 +183,10 @@ import (
 func main() {}
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 }

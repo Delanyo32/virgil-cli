@@ -26,13 +26,7 @@ impl DeadCodePipeline {
         let root = tree.root_node();
 
         // Walk for class_declaration -> declaration_list -> method_declaration
-        collect_unused_private_methods(
-            root,
-            source,
-            file_path,
-            self.name(),
-            &mut findings,
-        );
+        collect_unused_private_methods(root, source, file_path, self.name(), &mut findings);
 
         findings
     }
@@ -51,7 +45,14 @@ impl DeadCodePipeline {
         collect_non_import_identifiers(root, source, &mut non_import_ids);
 
         // Walk for use_declaration, include_expression, require_expression
-        collect_unused_imports(root, source, &non_import_ids, file_path, self.name(), &mut findings);
+        collect_unused_imports(
+            root,
+            source,
+            &non_import_ids,
+            file_path,
+            self.name(),
+            &mut findings,
+        );
 
         findings
     }

@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_call_expression_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_call_expression_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct CppInjectionPipeline {
     call_query: Arc<Query>,
@@ -44,26 +46,16 @@ impl Pipeline for CppInjectionPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_name_idx);
-            let args_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == args_idx);
-            let call_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == call_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
+            let args_cap = m.captures.iter().find(|c| c.index as usize == args_idx);
+            let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
 
             if let (Some(fn_cap), Some(args_cap), Some(call_cap)) = (fn_cap, args_cap, call_cap) {
                 let fn_text = node_text(fn_cap.node, source);
                 let args_text = node_text(args_cap.node, source);
 
                 // Pattern: system() with dynamic argument
-                if matches_function(fn_text, "system") || matches_function(fn_text, "std::system")
-                {
+                if matches_function(fn_text, "system") || matches_function(fn_text, "std::system") {
                     // Check if argument contains string concatenation or dynamic content
                     let has_dynamic = args_text.contains(".c_str()")
                         || args_text.contains('+')
@@ -143,19 +135,11 @@ impl Pipeline for CppInjectionPipeline {
 }
 
 impl CppInjectionPipeline {
-    fn first_arg_is_string_literal(
-        &self,
-        args_node: tree_sitter::Node,
-        source: &[u8],
-    ) -> bool {
+    fn first_arg_is_string_literal(&self, args_node: tree_sitter::Node, source: &[u8]) -> bool {
         self.nth_named_arg_is_string_literal(args_node, source, 0)
     }
 
-    fn second_arg_is_string_literal(
-        &self,
-        args_node: tree_sitter::Node,
-        source: &[u8],
-    ) -> bool {
+    fn second_arg_is_string_literal(&self, args_node: tree_sitter::Node, source: &[u8]) -> bool {
         self.nth_named_arg_is_string_literal(args_node, source, 1)
     }
 

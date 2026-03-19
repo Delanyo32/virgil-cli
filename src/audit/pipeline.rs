@@ -35,7 +35,9 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline
         Language::Php => pipelines::php::tech_debt_pipelines(),
         Language::Java => pipelines::java::tech_debt_pipelines(),
         Language::JavaScript => pipelines::javascript::tech_debt_pipelines(),
-        Language::TypeScript | Language::Tsx => pipelines::typescript::tech_debt_pipelines(language),
+        Language::TypeScript | Language::Tsx => {
+            pipelines::typescript::tech_debt_pipelines(language)
+        }
         Language::C => pipelines::c::tech_debt_pipelines(),
         Language::Cpp => pipelines::cpp::tech_debt_pipelines(),
         Language::CSharp => pipelines::csharp::tech_debt_pipelines(),
@@ -51,7 +53,9 @@ pub fn complexity_pipelines_for_language(language: Language) -> Result<Vec<Box<d
         Language::Php => pipelines::php::complexity_pipelines(),
         Language::Java => pipelines::java::complexity_pipelines(),
         Language::JavaScript => pipelines::javascript::complexity_pipelines(),
-        Language::TypeScript | Language::Tsx => pipelines::typescript::complexity_pipelines(language),
+        Language::TypeScript | Language::Tsx => {
+            pipelines::typescript::complexity_pipelines(language)
+        }
         Language::C => pipelines::c::complexity_pipelines(),
         Language::Cpp => pipelines::cpp::complexity_pipelines(),
         Language::CSharp => pipelines::csharp::complexity_pipelines(),
@@ -61,17 +65,33 @@ pub fn complexity_pipelines_for_language(language: Language) -> Result<Vec<Box<d
 
 pub fn supported_audit_languages() -> Vec<Language> {
     vec![
-        Language::Rust, Language::Go, Language::Python, Language::Php,
-        Language::Java, Language::JavaScript, Language::TypeScript,
-        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+        Language::Rust,
+        Language::Go,
+        Language::Python,
+        Language::Php,
+        Language::Java,
+        Language::JavaScript,
+        Language::TypeScript,
+        Language::Tsx,
+        Language::C,
+        Language::Cpp,
+        Language::CSharp,
     ]
 }
 
 pub fn supported_complexity_languages() -> Vec<Language> {
     vec![
-        Language::Rust, Language::Go, Language::Python, Language::Php,
-        Language::Java, Language::JavaScript, Language::TypeScript,
-        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+        Language::Rust,
+        Language::Go,
+        Language::Python,
+        Language::Php,
+        Language::Java,
+        Language::JavaScript,
+        Language::TypeScript,
+        Language::Tsx,
+        Language::C,
+        Language::Cpp,
+        Language::CSharp,
     ]
 }
 
@@ -83,7 +103,9 @@ pub fn code_style_pipelines_for_language(language: Language) -> Result<Vec<Box<d
         Language::Php => pipelines::php::code_style_pipelines(),
         Language::Java => pipelines::java::code_style_pipelines(),
         Language::JavaScript => pipelines::javascript::code_style_pipelines(),
-        Language::TypeScript | Language::Tsx => pipelines::typescript::code_style_pipelines(language),
+        Language::TypeScript | Language::Tsx => {
+            pipelines::typescript::code_style_pipelines(language)
+        }
         Language::C => pipelines::c::code_style_pipelines(),
         Language::Cpp => pipelines::cpp::code_style_pipelines(),
         Language::CSharp => pipelines::csharp::code_style_pipelines(),
@@ -93,9 +115,17 @@ pub fn code_style_pipelines_for_language(language: Language) -> Result<Vec<Box<d
 
 pub fn supported_code_style_languages() -> Vec<Language> {
     vec![
-        Language::Rust, Language::Go, Language::Python, Language::Php,
-        Language::Java, Language::JavaScript, Language::TypeScript,
-        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+        Language::Rust,
+        Language::Go,
+        Language::Python,
+        Language::Php,
+        Language::Java,
+        Language::JavaScript,
+        Language::TypeScript,
+        Language::Tsx,
+        Language::C,
+        Language::Cpp,
+        Language::CSharp,
     ]
 }
 
@@ -117,10 +147,17 @@ pub fn security_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn
 
 pub fn supported_security_languages() -> Vec<Language> {
     vec![
-        Language::C, Language::Cpp,
-        Language::Rust, Language::Go, Language::Python, Language::Php,
-        Language::Java, Language::CSharp,
-        Language::JavaScript, Language::TypeScript, Language::Tsx,
+        Language::C,
+        Language::Cpp,
+        Language::Rust,
+        Language::Go,
+        Language::Python,
+        Language::Php,
+        Language::Java,
+        Language::CSharp,
+        Language::JavaScript,
+        Language::TypeScript,
+        Language::Tsx,
     ]
 }
 
@@ -132,7 +169,9 @@ pub fn scalability_pipelines_for_language(language: Language) -> Result<Vec<Box<
         Language::Php => pipelines::php::scalability_pipelines(),
         Language::Java => pipelines::java::scalability_pipelines(),
         Language::JavaScript => pipelines::javascript::scalability_pipelines(),
-        Language::TypeScript | Language::Tsx => pipelines::typescript::scalability_pipelines(language),
+        Language::TypeScript | Language::Tsx => {
+            pipelines::typescript::scalability_pipelines(language)
+        }
         Language::C => pipelines::c::scalability_pipelines(),
         Language::Cpp => pipelines::cpp::scalability_pipelines(),
         Language::CSharp => pipelines::csharp::scalability_pipelines(),
@@ -142,9 +181,17 @@ pub fn scalability_pipelines_for_language(language: Language) -> Result<Vec<Box<
 
 pub fn supported_scalability_languages() -> Vec<Language> {
     vec![
-        Language::Rust, Language::Go, Language::Python, Language::Php,
-        Language::Java, Language::JavaScript, Language::TypeScript,
-        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+        Language::Rust,
+        Language::Go,
+        Language::Python,
+        Language::Php,
+        Language::Java,
+        Language::JavaScript,
+        Language::TypeScript,
+        Language::Tsx,
+        Language::C,
+        Language::Cpp,
+        Language::CSharp,
     ]
 }
 
@@ -156,7 +203,9 @@ pub fn architecture_pipelines_for_language(language: Language) -> Result<Vec<Box
         Language::Php => pipelines::php::architecture_pipelines(),
         Language::Java => pipelines::java::architecture_pipelines(),
         Language::JavaScript => pipelines::javascript::architecture_pipelines(),
-        Language::TypeScript | Language::Tsx => pipelines::typescript::architecture_pipelines(language),
+        Language::TypeScript | Language::Tsx => {
+            pipelines::typescript::architecture_pipelines(language)
+        }
         Language::C => pipelines::c::architecture_pipelines(),
         Language::Cpp => pipelines::cpp::architecture_pipelines(),
         Language::CSharp => pipelines::csharp::architecture_pipelines(),
@@ -166,8 +215,16 @@ pub fn architecture_pipelines_for_language(language: Language) -> Result<Vec<Box
 
 pub fn supported_architecture_languages() -> Vec<Language> {
     vec![
-        Language::Rust, Language::Go, Language::Python, Language::Php,
-        Language::Java, Language::JavaScript, Language::TypeScript,
-        Language::Tsx, Language::C, Language::Cpp, Language::CSharp,
+        Language::Rust,
+        Language::Go,
+        Language::Python,
+        Language::Php,
+        Language::Java,
+        Language::JavaScript,
+        Language::TypeScript,
+        Language::Tsx,
+        Language::C,
+        Language::Cpp,
+        Language::CSharp,
     ]
 }

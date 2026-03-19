@@ -13,9 +13,23 @@ use super::primitives::{
 };
 
 const SUSPICIOUS_NAMES: &[&str] = &[
-    "status", "state", "type", "kind", "role", "mode", "category",
-    "level", "priority", "stage", "phase", "action", "event_type",
-    "permission", "color", "currency", "country",
+    "status",
+    "state",
+    "type",
+    "kind",
+    "role",
+    "mode",
+    "category",
+    "level",
+    "priority",
+    "stage",
+    "phase",
+    "action",
+    "event_type",
+    "permission",
+    "color",
+    "currency",
+    "country",
 ];
 
 pub struct StringlyTypedPipeline {
@@ -55,11 +69,25 @@ impl Pipeline for StringlyTypedPipeline {
             let param_idx = find_capture_index(&self.param_query, "param");
 
             while let Some(m) = matches.next() {
-                let type_node = m.captures.iter().find(|c| c.index as usize == param_type_idx).map(|c| c.node);
-                let name_node = m.captures.iter().find(|c| c.index as usize == param_name_idx).map(|c| c.node);
-                let param_node = m.captures.iter().find(|c| c.index as usize == param_idx).map(|c| c.node);
+                let type_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == param_type_idx)
+                    .map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == param_name_idx)
+                    .map(|c| c.node);
+                let param_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == param_idx)
+                    .map(|c| c.node);
 
-                if let (Some(type_node), Some(name_node), Some(param_node)) = (type_node, name_node, param_node) {
+                if let (Some(type_node), Some(name_node), Some(param_node)) =
+                    (type_node, name_node, param_node)
+                {
                     let type_text = node_text(type_node, source);
                     let param_name = node_text(name_node, source);
 
@@ -90,8 +118,16 @@ impl Pipeline for StringlyTypedPipeline {
             let field_decl_idx = find_capture_index(&self.field_query, "field_decl");
 
             while let Some(m) = matches.next() {
-                let name_node = m.captures.iter().find(|c| c.index as usize == field_name_idx).map(|c| c.node);
-                let decl_node = m.captures.iter().find(|c| c.index as usize == field_decl_idx).map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == field_name_idx)
+                    .map(|c| c.node);
+                let decl_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == field_decl_idx)
+                    .map(|c| c.node);
 
                 if let (Some(name_node), Some(decl_node)) = (name_node, decl_node) {
                     let field_name = node_text(name_node, source);
@@ -125,11 +161,25 @@ impl Pipeline for StringlyTypedPipeline {
             let prop_decl_idx = find_capture_index(&self.property_query, "prop_decl");
 
             while let Some(m) = matches.next() {
-                let type_node = m.captures.iter().find(|c| c.index as usize == prop_type_idx).map(|c| c.node);
-                let name_node = m.captures.iter().find(|c| c.index as usize == prop_name_idx).map(|c| c.node);
-                let decl_node = m.captures.iter().find(|c| c.index as usize == prop_decl_idx).map(|c| c.node);
+                let type_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == prop_type_idx)
+                    .map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == prop_name_idx)
+                    .map(|c| c.node);
+                let decl_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == prop_decl_idx)
+                    .map(|c| c.node);
 
-                if let (Some(type_node), Some(name_node), Some(decl_node)) = (type_node, name_node, decl_node) {
+                if let (Some(type_node), Some(name_node), Some(decl_node)) =
+                    (type_node, name_node, decl_node)
+                {
                     let type_text = node_text(type_node, source);
                     let prop_name = node_text(name_node, source);
 
@@ -162,11 +212,9 @@ fn is_string_type(type_text: &str) -> bool {
 
 fn is_suspicious_name(name: &str) -> bool {
     let lower = name.to_lowercase();
-    SUSPICIOUS_NAMES.iter().any(|&s| {
-        lower == s
-            || lower.ends_with(&format!("_{s}"))
-            || name.ends_with(&capitalize(s))
-    })
+    SUSPICIOUS_NAMES
+        .iter()
+        .any(|&s| lower == s || lower.ends_with(&format!("_{s}")) || name.ends_with(&capitalize(s)))
 }
 
 fn get_field_type<'a>(field_decl: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
@@ -196,7 +244,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = StringlyTypedPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")

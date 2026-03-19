@@ -83,18 +83,9 @@ impl Pipeline for CppWeakRandomnessPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_name_idx);
-            let args_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == args_idx);
-            let call_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == call_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
+            let args_cap = m.captures.iter().find(|c| c.index as usize == args_idx);
+            let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
 
             if let (Some(fn_cap), Some(args_cap), Some(call_cap)) = (fn_cap, args_cap, call_cap) {
                 let fn_text = node_text(fn_cap.node, source);
@@ -103,8 +94,7 @@ impl Pipeline for CppWeakRandomnessPipeline {
                 let rand_fns = ["rand", "srand"];
                 for &target in &rand_fns {
                     if matches_function(fn_text, target) {
-                        if let Some(enclosing) =
-                            find_enclosing_function_name(call_cap.node, source)
+                        if let Some(enclosing) = find_enclosing_function_name(call_cap.node, source)
                         {
                             if name_contains_security_keyword(&enclosing) {
                                 let start = call_cap.node.start_position();

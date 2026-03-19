@@ -65,13 +65,8 @@ impl Pipeline for DuplicateCodePipeline {
         }
 
         // ── duplicate_switch_cases ──
-        let switch_dups = find_duplicate_arms(
-            root,
-            source,
-            "switch_statement",
-            "case_statement",
-            None,
-        );
+        let switch_dups =
+            find_duplicate_arms(root, source, "switch_statement", "case_statement", None);
 
         for (switch_line, dup_lines) in &switch_dups {
             for dup_line in dup_lines {

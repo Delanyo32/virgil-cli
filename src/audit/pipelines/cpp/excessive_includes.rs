@@ -48,10 +48,7 @@ impl Pipeline for ExcessiveIncludesPipeline {
         let mut count = 0;
 
         while let Some(m) = matches.next() {
-            if m.captures
-                .iter()
-                .any(|c| c.index as usize == include_idx)
-            {
+            if m.captures.iter().any(|c| c.index as usize == include_idx) {
                 count += 1;
             }
         }

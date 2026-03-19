@@ -42,8 +42,7 @@ impl Pipeline for SsrfPipeline {
         // fetch(x) direct call
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let args_idx = find_capture_index(&self.direct_call_query, "args");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
@@ -92,8 +91,7 @@ impl Pipeline for SsrfPipeline {
         // http.get/request, https.get/request, axios.get/post, res.redirect
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let args_idx = find_capture_index(&self.method_call_query, "args");
@@ -188,9 +186,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::JavaScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = SsrfPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.js")

@@ -327,7 +327,11 @@ mod tests {
         let (tree, source) = parse_java(src);
         // Find the field_declaration node
         let root = tree.root_node();
-        let class_body = root.named_child(0).unwrap().child_by_field_name("body").unwrap();
+        let class_body = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
         let field = class_body.named_child(0).unwrap();
         assert!(has_modifier(field, &source, "public"));
         assert!(!has_modifier(field, &source, "private"));
@@ -338,7 +342,11 @@ mod tests {
         let src = "class Foo { private final int x = 1; }";
         let (tree, source) = parse_java(src);
         let root = tree.root_node();
-        let class_body = root.named_child(0).unwrap().child_by_field_name("body").unwrap();
+        let class_body = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
         let field = class_body.named_child(0).unwrap();
         assert!(has_modifier(field, &source, "private"));
         assert!(has_modifier(field, &source, "final"));

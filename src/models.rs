@@ -31,6 +31,31 @@ pub enum SymbolKind {
     Module,
 }
 
+impl SymbolKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "function" => Some(SymbolKind::Function),
+            "class" => Some(SymbolKind::Class),
+            "method" => Some(SymbolKind::Method),
+            "variable" => Some(SymbolKind::Variable),
+            "interface" => Some(SymbolKind::Interface),
+            "type_alias" => Some(SymbolKind::TypeAlias),
+            "enum" => Some(SymbolKind::Enum),
+            "arrow_function" => Some(SymbolKind::ArrowFunction),
+            "struct" => Some(SymbolKind::Struct),
+            "union" => Some(SymbolKind::Union),
+            "namespace" => Some(SymbolKind::Namespace),
+            "macro" => Some(SymbolKind::Macro),
+            "property" => Some(SymbolKind::Property),
+            "typedef" => Some(SymbolKind::Typedef),
+            "trait" => Some(SymbolKind::Trait),
+            "constant" => Some(SymbolKind::Constant),
+            "module" => Some(SymbolKind::Module),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for SymbolKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {

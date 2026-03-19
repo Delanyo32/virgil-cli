@@ -50,11 +50,25 @@ impl Pipeline for ConcreteReturnTypePipeline {
         let decl_idx = find_capture_index(&self.fn_query, "fn_decl");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == name_idx).map(|c| c.node);
-            let return_node = m.captures.iter().find(|c| c.index as usize == return_idx).map(|c| c.node);
-            let decl_node = m.captures.iter().find(|c| c.index as usize == decl_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == name_idx)
+                .map(|c| c.node);
+            let return_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == return_idx)
+                .map(|c| c.node);
+            let decl_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == decl_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(return_node), Some(decl_node)) = (name_node, return_node, decl_node) {
+            if let (Some(name_node), Some(return_node), Some(decl_node)) =
+                (name_node, return_node, decl_node)
+            {
                 let fn_name = node_text(name_node, source);
 
                 // Only flag exported functions (starts with uppercase)
@@ -106,7 +120,8 @@ mod tests {
 
     #[test]
     fn detects_exported_concrete_return() {
-        let src = "package main\ntype RedisCache struct{}\nfunc GetCache() *RedisCache { return nil }\n";
+        let src =
+            "package main\ntype RedisCache struct{}\nfunc GetCache() *RedisCache { return nil }\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "exported_concrete_pointer_return");
@@ -115,7 +130,8 @@ mod tests {
 
     #[test]
     fn skips_new_constructor() {
-        let src = "package main\ntype RedisCache struct{}\nfunc NewCache() *RedisCache { return nil }\n";
+        let src =
+            "package main\ntype RedisCache struct{}\nfunc NewCache() *RedisCache { return nil }\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }
@@ -129,7 +145,8 @@ mod tests {
 
     #[test]
     fn skips_unexported_function() {
-        let src = "package main\ntype RedisCache struct{}\nfunc newCache() *RedisCache { return nil }\n";
+        let src =
+            "package main\ntype RedisCache struct{}\nfunc newCache() *RedisCache { return nil }\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }

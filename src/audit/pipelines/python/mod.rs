@@ -27,17 +27,17 @@ pub mod sql_injection;
 pub mod ssrf;
 pub mod xxe_format_string;
 
+pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
-pub mod memory_leak_indicators;
 
-pub mod module_size_distribution;
+pub mod api_surface_area;
 pub mod circular_dependencies;
 pub mod dependency_graph_depth;
-pub mod api_surface_area;
+pub mod module_size_distribution;
 
-use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
+use anyhow::Result;
 
 pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![

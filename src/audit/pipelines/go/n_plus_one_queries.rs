@@ -21,17 +21,12 @@ const AMBIGUOUS_DB_METHODS: &[&str] = &[
     "Get", "Find", "First", "Where", "Select", "Create", "Update", "Delete", "Save",
 ];
 
-const DB_RECEIVER_PATTERNS: &[&str] = &[
-    "db", "conn", "tx", "repo", "session", "orm", "gorm", "ent",
-];
+const DB_RECEIVER_PATTERNS: &[&str] =
+    &["db", "conn", "tx", "repo", "session", "orm", "gorm", "ent"];
 
-const NON_DB_RECEIVER_PATTERNS: &[&str] = &[
-    "map", "cache", "list", "slice", "arr", "iter",
-];
+const NON_DB_RECEIVER_PATTERNS: &[&str] = &["map", "cache", "list", "slice", "arr", "iter"];
 
-const HTTP_METHOD_NAMES: &[&str] = &[
-    "Get", "Post", "Do", "Put", "Patch", "Delete", "Head",
-];
+const HTTP_METHOD_NAMES: &[&str] = &["Get", "Post", "Do", "Put", "Patch", "Delete", "Head"];
 
 const HTTP_PACKAGE_NAMES: &[&str] = &["http", "client"];
 
@@ -127,7 +122,9 @@ impl NPlusOneQueriesPipeline {
                 } else if AMBIGUOUS_DB_METHODS.contains(&method_name) {
                     // For ambiguous methods, check the receiver
                     let receiver = extract_receiver_text(call, source);
-                    if !receiver.is_empty() && receiver_matches_any(receiver, NON_DB_RECEIVER_PATTERNS) {
+                    if !receiver.is_empty()
+                        && receiver_matches_any(receiver, NON_DB_RECEIVER_PATTERNS)
+                    {
                         continue;
                     }
                     results.push((call, "db_query_in_loop"));

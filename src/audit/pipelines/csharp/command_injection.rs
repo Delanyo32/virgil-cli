@@ -8,8 +8,8 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_object_creation_query, compile_assignment_expression_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_assignment_expression_query, compile_object_creation_query, extract_snippet,
+    find_capture_index, node_text,
 };
 
 pub struct CommandInjectionPipeline {
@@ -59,20 +59,37 @@ impl CommandInjectionPipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
-            if let (Some(type_node), Some(args_node), Some(creation_node)) = (type_node, args_node, creation_node) {
+            if let (Some(type_node), Some(args_node), Some(creation_node)) =
+                (type_node, args_node, creation_node)
+            {
                 let type_name = node_text(type_node, source);
                 if type_name != "ProcessStartInfo" {
                     continue;
                 }
 
                 let args_text = node_text(args_node, source);
-                let has_shell = args_text.contains("\"cmd\"") || args_text.contains("\"bash\"")
-                    || args_text.contains("\"sh\"") || args_text.contains("\"powershell\"")
-                    || args_text.contains("cmd.exe") || args_text.contains("powershell.exe");
+                let has_shell = args_text.contains("\"cmd\"")
+                    || args_text.contains("\"bash\"")
+                    || args_text.contains("\"sh\"")
+                    || args_text.contains("\"powershell\"")
+                    || args_text.contains("cmd.exe")
+                    || args_text.contains("powershell.exe");
 
                 if has_shell && (args_text.contains('+') || contains_interpolation(args_node)) {
                     let start = creation_node.start_position();
@@ -106,11 +123,25 @@ impl CommandInjectionPipeline {
         let assign_idx = find_capture_index(&self.assign_query, "assign");
 
         while let Some(m) = matches.next() {
-            let lhs_node = m.captures.iter().find(|c| c.index as usize == lhs_idx).map(|c| c.node);
-            let rhs_node = m.captures.iter().find(|c| c.index as usize == rhs_idx).map(|c| c.node);
-            let assign_node = m.captures.iter().find(|c| c.index as usize == assign_idx).map(|c| c.node);
+            let lhs_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == lhs_idx)
+                .map(|c| c.node);
+            let rhs_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == rhs_idx)
+                .map(|c| c.node);
+            let assign_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == assign_idx)
+                .map(|c| c.node);
 
-            if let (Some(lhs_node), Some(rhs_node), Some(assign_node)) = (lhs_node, rhs_node, assign_node) {
+            if let (Some(lhs_node), Some(rhs_node), Some(assign_node)) =
+                (lhs_node, rhs_node, assign_node)
+            {
                 let lhs_text = node_text(lhs_node, source);
                 if !lhs_text.contains("Arguments") {
                     continue;
@@ -120,8 +151,10 @@ impl CommandInjectionPipeline {
                 if rhs_text.contains('+') || rhs_node.kind() == "interpolated_string_expression" {
                     // Check if there's a shell process in context
                     let source_str = std::str::from_utf8(source).unwrap_or("");
-                    let has_shell = source_str.contains("cmd") || source_str.contains("bash")
-                        || source_str.contains("powershell") || source_str.contains("ProcessStartInfo");
+                    let has_shell = source_str.contains("cmd")
+                        || source_str.contains("bash")
+                        || source_str.contains("powershell")
+                        || source_str.contains("ProcessStartInfo");
 
                     if has_shell {
                         let start = assign_node.start_position();

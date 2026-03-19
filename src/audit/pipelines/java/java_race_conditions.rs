@@ -8,12 +8,18 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_field_decl_query, compile_class_decl_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_class_decl_query, compile_field_decl_query, extract_snippet, find_capture_index,
+    node_text,
 };
 
 const UNSYNC_COLLECTIONS: &[&str] = &[
-    "HashMap", "ArrayList", "LinkedList", "HashSet", "TreeMap", "TreeSet", "LinkedHashMap",
+    "HashMap",
+    "ArrayList",
+    "LinkedList",
+    "HashSet",
+    "TreeMap",
+    "TreeSet",
+    "LinkedHashMap",
 ];
 
 pub struct JavaRaceConditionsPipeline {
@@ -61,7 +67,11 @@ impl JavaRaceConditionsPipeline {
         let field_idx = find_capture_index(&self.field_query, "field_decl");
 
         while let Some(m) = matches.next() {
-            let field_node = m.captures.iter().find(|c| c.index as usize == field_idx).map(|c| c.node);
+            let field_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == field_idx)
+                .map(|c| c.node);
 
             if let Some(field_node) = field_node {
                 let field_text = node_text(field_node, source);
@@ -72,15 +82,21 @@ impl JavaRaceConditionsPipeline {
                 }
 
                 // Skip if it's already using a concurrent variant or synchronized wrapper
-                if field_text.contains("Concurrent") || field_text.contains("synchronized") || field_text.contains("Collections.synchronized") {
+                if field_text.contains("Concurrent")
+                    || field_text.contains("synchronized")
+                    || field_text.contains("Collections.synchronized")
+                {
                     continue;
                 }
 
                 // Check if the field is shared (non-private static, or just non-local)
                 let source_str = std::str::from_utf8(source).unwrap_or("");
-                let has_threads = source_str.contains("Thread") || source_str.contains("Runnable")
-                    || source_str.contains("synchronized") || source_str.contains("Executor")
-                    || source_str.contains("@Async") || source_str.contains("volatile");
+                let has_threads = source_str.contains("Thread")
+                    || source_str.contains("Runnable")
+                    || source_str.contains("synchronized")
+                    || source_str.contains("Executor")
+                    || source_str.contains("@Async")
+                    || source_str.contains("volatile");
 
                 if has_threads {
                     let start = field_node.start_position();
@@ -112,7 +128,11 @@ impl JavaRaceConditionsPipeline {
         let body_idx = find_capture_index(&self.class_query, "class_body");
 
         while let Some(m) = matches.next() {
-            let body_node = m.captures.iter().find(|c| c.index as usize == body_idx).map(|c| c.node);
+            let body_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == body_idx)
+                .map(|c| c.node);
 
             if let Some(body_node) = body_node {
                 let body_text = node_text(body_node, source);
@@ -125,7 +145,9 @@ impl JavaRaceConditionsPipeline {
                         let line_start = body_node.start_position().row;
                         let line_end = body_node.end_position().row;
                         if i >= line_start && i <= line_end {
-                            if (line.contains("++") || line.contains("+=")) && !line.contains("Atomic") {
+                            if (line.contains("++") || line.contains("+="))
+                                && !line.contains("Atomic")
+                            {
                                 // Check if the variable is volatile by looking at surrounding context
                                 let trimmed = line.trim();
                                 if !trimmed.starts_with("//") && !trimmed.starts_with("*") {

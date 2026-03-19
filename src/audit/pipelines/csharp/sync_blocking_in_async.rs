@@ -37,9 +37,7 @@ impl SyncBlockingInAsyncPipeline {
   name: (identifier) @member_name) @member_access
 "#;
         let member_access_query = Query::new(&csharp_lang(), member_access_query_str)
-            .with_context(|| {
-                "failed to compile member_access query for sync_blocking_in_async"
-            })?;
+            .with_context(|| "failed to compile member_access query for sync_blocking_in_async")?;
 
         let invocation_query_str = r#"
 (invocation_expression
@@ -111,12 +109,10 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // Pattern 1: .Result property access inside async method
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.member_access_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.member_access_query, tree.root_node(), source);
 
             let member_name_idx = find_capture_index(&self.member_access_query, "member_name");
-            let member_access_idx =
-                find_capture_index(&self.member_access_query, "member_access");
+            let member_access_idx = find_capture_index(&self.member_access_query, "member_access");
 
             while let Some(m) = matches.next() {
                 let name_node = m
@@ -154,8 +150,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // Pattern 2: .Wait(), .GetAwaiter().GetResult(), Task.WaitAll(), Task.WaitAny() calls
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.invocation_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.invocation_query, tree.root_node(), source);
 
             let fn_idx = find_capture_index(&self.invocation_query, "fn_expr");
             let inv_idx = find_capture_index(&self.invocation_query, "invocation");

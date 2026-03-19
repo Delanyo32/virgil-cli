@@ -8,8 +8,8 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_object_creation_query, compile_invocation_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_invocation_query, compile_object_creation_query, extract_snippet, find_capture_index,
+    node_text,
 };
 
 pub struct XxePipeline {
@@ -58,14 +58,22 @@ impl XxePipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         let source_str = std::str::from_utf8(source).unwrap_or("");
-        let has_xml_resolver_null = source_str.contains("XmlResolver = null")
-            || source_str.contains("XmlResolver=null");
+        let has_xml_resolver_null =
+            source_str.contains("XmlResolver = null") || source_str.contains("XmlResolver=null");
         let has_dtd_prohibit = source_str.contains("DtdProcessing.Prohibit")
             || source_str.contains("ProhibitDtd = true");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
             if let (Some(type_node), Some(creation_node)) = (type_node, creation_node) {
                 let type_name = node_text(type_node, source);
@@ -79,7 +87,8 @@ impl XxePipeline {
                         severity: "error".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "unsafe_xml_document".to_string(),
-                        message: "new XmlDocument() without XmlResolver = null — vulnerable to XXE".to_string(),
+                        message: "new XmlDocument() without XmlResolver = null — vulnerable to XXE"
+                            .to_string(),
                         snippet: extract_snippet(source, creation_node, 1),
                     });
                 }
@@ -93,7 +102,9 @@ impl XxePipeline {
                         severity: "error".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "unsafe_xml_reader".to_string(),
-                        message: "new XmlTextReader() without DtdProcessing.Prohibit — vulnerable to XXE".to_string(),
+                        message:
+                            "new XmlTextReader() without DtdProcessing.Prohibit — vulnerable to XXE"
+                                .to_string(),
                         snippet: extract_snippet(source, creation_node, 1),
                     });
                 }
@@ -116,13 +127,29 @@ impl XxePipeline {
         let inv_idx = find_capture_index(&self.invocation_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node) {
+            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node)
+            {
                 let fn_text = node_text(fn_node, source);
-                if !fn_text.contains("SelectNodes") && !fn_text.contains("SelectSingleNode") && !fn_text.contains("Evaluate") {
+                if !fn_text.contains("SelectNodes")
+                    && !fn_text.contains("SelectSingleNode")
+                    && !fn_text.contains("Evaluate")
+                {
                     continue;
                 }
 
@@ -136,7 +163,9 @@ impl XxePipeline {
                         severity: "warning".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "xpath_injection".to_string(),
-                        message: "XPath expression built with dynamic input — use parameterized XPath".to_string(),
+                        message:
+                            "XPath expression built with dynamic input — use parameterized XPath"
+                                .to_string(),
                         snippet: extract_snippet(source, inv_node, 1),
                     });
                 }

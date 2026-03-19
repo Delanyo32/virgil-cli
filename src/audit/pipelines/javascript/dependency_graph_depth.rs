@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_path_depth;
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const BARREL_REEXPORT_THRESHOLD: usize = 5;
 const DEEP_IMPORT_DEPTH_THRESHOLD: usize = 4;
@@ -37,8 +37,9 @@ impl DependencyGraphDepthPipeline {
 (import_statement
   source: (string) @import_path) @import_stmt
 "#;
-        let import_path_query = Query::new(&js_lang(), import_path_query_str)
-            .with_context(|| "failed to compile import path query for JavaScript dependency depth")?;
+        let import_path_query = Query::new(&js_lang(), import_path_query_str).with_context(
+            || "failed to compile import path query for JavaScript dependency depth",
+        )?;
 
         Ok(Self {
             reexport_query: Arc::new(reexport_query),
@@ -69,7 +70,9 @@ impl Pipeline for DependencyGraphDepthPipeline {
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     if cap.index as usize == reexport_idx {
-                        if cap.node.parent().map_or(false, |p| p.kind() == "program") || cap.node.parent().is_none() {
+                        if cap.node.parent().map_or(false, |p| p.kind() == "program")
+                            || cap.node.parent().is_none()
+                        {
                             reexport_count += 1;
                         }
                     }

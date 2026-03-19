@@ -24,32 +24,38 @@ pub mod duplicate_code;
 pub mod type_system_bypass;
 pub mod unsafe_type_assertions_security;
 
+pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
-pub mod memory_leak_indicators;
 
-pub mod module_size_distribution;
+pub mod api_surface_area;
 pub mod circular_dependencies;
 pub mod dependency_graph_depth;
-pub mod api_surface_area;
+pub mod module_size_distribution;
 
-use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines;
 use crate::language::Language;
+use anyhow::Result;
 
 pub fn tech_debt_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
         Box::new(any_escape_hatch::AnyEscapeHatchPipeline::new(language)?),
         Box::new(type_assertions::TypeAssertionsPipeline::new(language)?),
-        Box::new(optional_everything::OptionalEverythingPipeline::new(language)?),
+        Box::new(optional_everything::OptionalEverythingPipeline::new(
+            language,
+        )?),
         Box::new(type_duplication::TypeDuplicationPipeline::new(language)?),
         Box::new(record_string_any::RecordStringAnyPipeline::new(language)?),
         Box::new(enum_usage::EnumUsagePipeline::new(language)?),
         Box::new(implicit_any::ImplicitAnyPipeline::new(language)?),
-        Box::new(unchecked_index_access::UncheckedIndexAccessPipeline::new(language)?),
+        Box::new(unchecked_index_access::UncheckedIndexAccessPipeline::new(
+            language,
+        )?),
         Box::new(mutable_types::MutableTypesPipeline::new(language)?),
-        Box::new(unconstrained_generics::UnconstrainedGenericsPipeline::new(language)?),
+        Box::new(unconstrained_generics::UnconstrainedGenericsPipeline::new(
+            language,
+        )?),
         Box::new(leaking_impl_types::LeakingImplTypesPipeline::new(language)?),
     ])
 }
@@ -75,24 +81,36 @@ pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> 
     // Start with all 9 shared JS/TS security pipelines
     let mut pipes = pipelines::javascript::security_pipelines(language)?;
     // Add 2 TypeScript-specific security pipelines
-    pipes.push(Box::new(type_system_bypass::TypeSystemBypassPipeline::new(language)?));
-    pipes.push(Box::new(unsafe_type_assertions_security::UnsafeTypeAssertionsSecurityPipeline::new(language)?));
+    pipes.push(Box::new(type_system_bypass::TypeSystemBypassPipeline::new(
+        language,
+    )?));
+    pipes.push(Box::new(
+        unsafe_type_assertions_security::UnsafeTypeAssertionsSecurityPipeline::new(language)?,
+    ));
     Ok(pipes)
 }
 
 pub fn scalability_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
         Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new(language)?),
-        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new(language)?),
-        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new(language)?),
+        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new(
+            language,
+        )?),
+        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new(
+            language,
+        )?),
     ])
 }
 
 pub fn architecture_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
         Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new(language)?),
-        Box::new(circular_dependencies::CircularDependenciesPipeline::new(language)?),
-        Box::new(dependency_graph_depth::DependencyGraphDepthPipeline::new(language)?),
+        Box::new(circular_dependencies::CircularDependenciesPipeline::new(
+            language,
+        )?),
+        Box::new(dependency_graph_depth::DependencyGraphDepthPipeline::new(
+            language,
+        )?),
         Box::new(api_surface_area::ApiSurfaceAreaPipeline::new(language)?),
     ])
 }

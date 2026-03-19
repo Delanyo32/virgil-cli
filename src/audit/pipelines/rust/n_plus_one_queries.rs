@@ -4,30 +4,30 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 // High-confidence DB methods (always flag)
-const DEFINITE_DB_METHODS: &[&str] = &[
-    "fetch_one",
-    "fetch_all",
-    "fetch_optional",
-    "query_as",
-];
+const DEFINITE_DB_METHODS: &[&str] = &["fetch_one", "fetch_all", "fetch_optional", "query_as"];
 
 // Ambiguous methods — require receiver heuristic
 const MAYBE_DB_METHODS: &[&str] = &["execute", "load", "first", "find", "query"];
 const MAYBE_HTTP_METHODS: &[&str] = &["send", "get", "post", "put", "delete"];
 
 // Receiver patterns that indicate DB context
-const DB_RECEIVERS: &[&str] = &["conn", "pool", "db", "client", "sqlx", "diesel", "sea_orm", "query", "stmt"];
+const DB_RECEIVERS: &[&str] = &[
+    "conn", "pool", "db", "client", "sqlx", "diesel", "sea_orm", "query", "stmt",
+];
 // Receiver patterns that indicate HTTP context
 const HTTP_RECEIVERS: &[&str] = &["client", "reqwest", "http", "hyper"];
 // Receiver patterns that are NOT DB/HTTP (skip these)
-const NON_DB_RECEIVERS: &[&str] = &["tx", "sender", "mpsc", "map", "iter", "vec", "url", "params", "cache", "arr", "list", "set", "hash", "btree"];
+const NON_DB_RECEIVERS: &[&str] = &[
+    "tx", "sender", "mpsc", "map", "iter", "vec", "url", "params", "cache", "arr", "list", "set",
+    "hash", "btree",
+];
 
 fn rust_lang() -> tree_sitter::Language {
     Language::Rust.tree_sitter_language()

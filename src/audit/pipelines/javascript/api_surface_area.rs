@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::find_capture_index;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_top_level_definitions;
 use crate::language::Language;
-use super::primitives::find_capture_index;
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
@@ -42,8 +42,9 @@ impl ApiSurfaceAreaPipeline {
     (variable_declaration) @decl
   ]) @export
 "#;
-        let exported_decl_query = Query::new(&js_lang(), exported_decl_query_str)
-            .with_context(|| "failed to compile exported declaration query for JavaScript API surface")?;
+        let exported_decl_query = Query::new(&js_lang(), exported_decl_query_str).with_context(
+            || "failed to compile exported declaration query for JavaScript API surface",
+        )?;
 
         // Match exported classes with field definitions (leaky abstraction)
         // In JS, class fields without a private marker (#) default to public
@@ -231,7 +232,11 @@ export class CacheManager {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -243,7 +248,11 @@ class InternalPool {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -255,6 +264,10 @@ export class Service {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 }

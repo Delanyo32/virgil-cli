@@ -49,17 +49,35 @@ impl Pipeline for InsecureDeserializationPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 if fn_node.kind() != "attribute" {
                     continue;
                 }
 
-                let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-                let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                let obj = fn_node
+                    .child_by_field_name("object")
+                    .map(|n| node_text(n, source));
+                let attr = fn_node
+                    .child_by_field_name("attribute")
+                    .map(|n| node_text(n, source));
 
                 if let (Some(obj_name), Some(attr_name)) = (obj, attr) {
                     // Check yaml.load specifically — yaml.safe_load is fine
@@ -71,9 +89,9 @@ impl Pipeline for InsecureDeserializationPipeline {
                         }
                     }
 
-                    let matching = DANGEROUS_DESERIALIZE.iter().find(|(module, method, _)| {
-                        *module == obj_name && *method == attr_name
-                    });
+                    let matching = DANGEROUS_DESERIALIZE
+                        .iter()
+                        .find(|(module, method, _)| *module == obj_name && *method == attr_name);
 
                     if let Some((module, method, pattern)) = matching {
                         // Check that first arg is not a plain string literal

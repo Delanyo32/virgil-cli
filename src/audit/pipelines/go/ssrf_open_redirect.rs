@@ -9,11 +9,7 @@ use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 
-const SSRF_METHODS: &[(&str, &str)] = &[
-    ("http", "Get"),
-    ("http", "Post"),
-    ("http", "Head"),
-];
+const SSRF_METHODS: &[(&str, &str)] = &[("http", "Get"), ("http", "Post"), ("http", "Head")];
 
 pub struct SsrfOpenRedirectPipeline {
     selector_query: Arc<Query>,

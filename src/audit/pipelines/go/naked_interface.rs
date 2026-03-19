@@ -56,8 +56,16 @@ impl NakedInterfacePipeline {
         let decl_idx = find_capture_index(query, decl_capture);
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let decl_node = m.captures.iter().find(|c| c.index as usize == decl_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let decl_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == decl_idx)
+                .map(|c| c.node);
 
             if let (Some(type_node), Some(decl_node)) = (type_node, decl_node) {
                 if Self::is_naked_interface(type_node, source) {
@@ -91,8 +99,24 @@ impl Pipeline for NakedInterfacePipeline {
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
-        findings.extend(self.check_with_query(tree, source, &self.param_query, "param_type", "param", file_path, "empty_interface_param"));
-        findings.extend(self.check_with_query(tree, source, &self.field_query, "field_type", "field", file_path, "empty_interface_field"));
+        findings.extend(self.check_with_query(
+            tree,
+            source,
+            &self.param_query,
+            "param_type",
+            "param",
+            file_path,
+            "empty_interface_param",
+        ));
+        findings.extend(self.check_with_query(
+            tree,
+            source,
+            &self.field_query,
+            "field_type",
+            "field",
+            file_path,
+            "empty_interface_field",
+        ));
         findings
     }
 }

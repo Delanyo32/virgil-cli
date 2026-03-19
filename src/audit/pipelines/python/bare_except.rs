@@ -38,10 +38,7 @@ impl Pipeline for BareExceptPipeline {
         let except_idx = find_capture_index(&self.except_query, "except");
 
         while let Some(m) = matches.next() {
-            let except_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == except_idx);
+            let except_cap = m.captures.iter().find(|c| c.index as usize == except_idx);
 
             if let Some(except_cap) = except_cap {
                 let node = except_cap.node;

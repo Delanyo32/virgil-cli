@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_function_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_function_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 const SUPERGLOBALS: &[&str] = &["$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_SERVER"];
 
@@ -42,11 +44,25 @@ impl Pipeline for InsecureDeserializationPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(args_node), Some(call_node)) = (name_node, args_node, call_node) {
+            if let (Some(name_node), Some(args_node), Some(call_node)) =
+                (name_node, args_node, call_node)
+            {
                 let fn_name = node_text(name_node, source);
                 if fn_name != "unserialize" {
                     continue;
@@ -66,7 +82,8 @@ impl Pipeline for InsecureDeserializationPipeline {
                         severity: "error".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "unserialize_user_input".to_string(),
-                        message: "unserialize() with user input — potential remote code execution".to_string(),
+                        message: "unserialize() with user input — potential remote code execution"
+                            .to_string(),
                         snippet: extract_snippet(source, call_node, 1),
                     });
                     continue;
@@ -74,13 +91,18 @@ impl Pipeline for InsecureDeserializationPipeline {
 
                 // Check if allowed_classes restriction is missing (only 1 arg)
                 // PHP wraps args in `argument` nodes, so count those
-                let arg_count = args_node.named_children(&mut args_node.walk())
+                let arg_count = args_node
+                    .named_children(&mut args_node.walk())
                     .filter(|c| c.kind() == "argument")
                     .count();
                 if arg_count < 2 {
                     // Check the first argument isn't a string literal
                     let first_expr = args_node.named_child(0).and_then(|arg| {
-                        if arg.kind() == "argument" { arg.named_child(0) } else { Some(arg) }
+                        if arg.kind() == "argument" {
+                            arg.named_child(0)
+                        } else {
+                            Some(arg)
+                        }
                     });
                     if let Some(expr) = first_expr {
                         if expr.kind() == "string" || expr.kind() == "encapsed_string" {

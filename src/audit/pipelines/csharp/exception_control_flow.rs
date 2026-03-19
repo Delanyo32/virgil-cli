@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_catch_clause_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_catch_clause_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct ExceptionControlFlowPipeline {
     catch_query: Arc<Query>,
@@ -39,8 +41,16 @@ impl Pipeline for ExceptionControlFlowPipeline {
         let catch_idx = find_capture_index(&self.catch_query, "catch");
 
         while let Some(m) = matches.next() {
-            let body_node = m.captures.iter().find(|c| c.index as usize == catch_body_idx).map(|c| c.node);
-            let catch_node = m.captures.iter().find(|c| c.index as usize == catch_idx).map(|c| c.node);
+            let body_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == catch_body_idx)
+                .map(|c| c.node);
+            let catch_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == catch_idx)
+                .map(|c| c.node);
 
             if let (Some(body_node), Some(catch_node)) = (body_node, catch_node) {
                 let named_count = body_node.named_child_count();
@@ -146,7 +156,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ExceptionControlFlowPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")
@@ -164,7 +176,10 @@ mod tests {
     fn detects_catch_return_null() {
         let src = "class Foo { object M() { try { return new object(); } catch (Exception e) { return null; } } }";
         let findings = parse_and_check(src);
-        let catch_null: Vec<_> = findings.iter().filter(|f| f.pattern == "catch_return_default").collect();
+        let catch_null: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "catch_return_default")
+            .collect();
         assert_eq!(catch_null.len(), 1);
     }
 
@@ -181,7 +196,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let broad: Vec<_> = findings.iter().filter(|f| f.pattern == "overly_broad_catch").collect();
+        let broad: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "overly_broad_catch")
+            .collect();
         assert_eq!(broad.len(), 1);
     }
 

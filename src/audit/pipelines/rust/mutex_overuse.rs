@@ -4,9 +4,9 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives;
 
 pub struct MutexOverusePipeline {
     generic_query: Arc<Query>,
@@ -76,13 +76,36 @@ impl Pipeline for MutexOverusePipeline {
 
                     // Determine severity based on whether an atomic alternative exists
                     let (severity, message) = if full_text.contains("Mutex<bool>") {
-                        ("warning", format!("`Arc<Mutex<bool>>` — use `AtomicBool` instead for better performance"))
-                    } else if full_text.contains("Mutex<usize>") || full_text.contains("Mutex<u64>") || full_text.contains("Mutex<u32>") || full_text.contains("Mutex<i64>") || full_text.contains("Mutex<i32>") {
-                        ("warning", format!("`{full_text}` — use the corresponding `Atomic*` type instead"))
-                    } else if full_text.contains("Mutex<HashMap") || full_text.contains("Mutex<BTreeMap") {
-                        ("warning", format!("`{full_text}` — consider `DashMap` for concurrent map access"))
+                        (
+                            "warning",
+                            format!(
+                                "`Arc<Mutex<bool>>` — use `AtomicBool` instead for better performance"
+                            ),
+                        )
+                    } else if full_text.contains("Mutex<usize>")
+                        || full_text.contains("Mutex<u64>")
+                        || full_text.contains("Mutex<u32>")
+                        || full_text.contains("Mutex<i64>")
+                        || full_text.contains("Mutex<i32>")
+                    {
+                        (
+                            "warning",
+                            format!("`{full_text}` — use the corresponding `Atomic*` type instead"),
+                        )
+                    } else if full_text.contains("Mutex<HashMap")
+                        || full_text.contains("Mutex<BTreeMap")
+                    {
+                        (
+                            "warning",
+                            format!("`{full_text}` — consider `DashMap` for concurrent map access"),
+                        )
                     } else {
-                        ("info", format!("`Arc<{inner_text}<T>>` detected — consider if a concurrent data structure or message passing would be simpler"))
+                        (
+                            "info",
+                            format!(
+                                "`Arc<{inner_text}<T>>` detected — consider if a concurrent data structure or message passing would be simpler"
+                            ),
+                        )
                     };
 
                     let start = generic_cap.node.start_position();

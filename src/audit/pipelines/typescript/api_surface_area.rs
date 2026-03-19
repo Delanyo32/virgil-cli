@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_top_level_definitions;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
@@ -50,8 +50,9 @@ impl ApiSurfaceAreaPipeline {
     (enum_declaration) @decl
   ]) @export
 "#;
-        let exported_query = Query::new(&ts_lang, exported_query_str)
-            .with_context(|| "failed to compile exported symbols query for TypeScript API surface")?;
+        let exported_query = Query::new(&ts_lang, exported_query_str).with_context(
+            || "failed to compile exported symbols query for TypeScript API surface",
+        )?;
 
         // Find exported classes with public_field_definition nodes.
         // In TypeScript's grammar, ALL class fields are `public_field_definition`
@@ -243,7 +244,11 @@ export class CacheManager {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -254,7 +259,11 @@ class InternalPool {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -266,7 +275,11 @@ export class ConnectionPool {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]

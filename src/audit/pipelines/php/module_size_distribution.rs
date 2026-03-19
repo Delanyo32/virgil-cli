@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_top_level_definitions;
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index};
 
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
@@ -71,7 +71,9 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         let total_lines = source.split(|&b| b == b'\n').count();
 
         // Pattern 1: Oversized module
-        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD || total_lines >= OVERSIZED_LINE_THRESHOLD {
+        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD
+            || total_lines >= OVERSIZED_LINE_THRESHOLD
+        {
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: 1,
@@ -137,7 +139,9 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                 severity: "info".to_string(),
                 pipeline: "module_size_distribution".to_string(),
                 pattern: "anemic_module".to_string(),
-                message: "Module contains only 1 definition — consider merging into a related module".to_string(),
+                message:
+                    "Module contains only 1 definition — consider merging into a related module"
+                        .to_string(),
                 snippet,
             });
         }
@@ -182,7 +186,11 @@ mod tests {
             src.push_str(&format!("function func_{}() {{}}\n", i));
         }
         let findings = parse_and_check(&src);
-        assert!(findings.iter().any(|f| f.pattern == "monolithic_export_surface"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "monolithic_export_surface")
+        );
     }
 
     #[test]

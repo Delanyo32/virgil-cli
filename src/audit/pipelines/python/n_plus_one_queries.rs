@@ -31,14 +31,10 @@ const ORM_METHOD_NAMES: &[&str] = &[
 ];
 
 /// Bare function calls that suggest network/DB access.
-const BARE_CALL_PATTERNS: &[&str] = &[
-    "urlopen",
-];
+const BARE_CALL_PATTERNS: &[&str] = &["urlopen"];
 
 /// Attribute call patterns where any object can be the receiver (e.g. `urllib.request.urlopen`).
-const DEEP_ATTR_TAILS: &[&str] = &[
-    "urlopen",
-];
+const DEEP_ATTR_TAILS: &[&str] = &["urlopen"];
 
 /// Non-DB receiver patterns — skip these for ambiguous methods like .filter(), .get(), etc.
 const NON_DB_RECEIVERS: &[&str] = &[
@@ -89,16 +85,23 @@ impl NPlusOneQueriesPipeline {
         let fn_text = node_text(fn_node, source);
 
         if fn_node.kind() == "attribute" {
-            let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-            let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+            let obj = fn_node
+                .child_by_field_name("object")
+                .map(|n| node_text(n, source));
+            let attr = fn_node
+                .child_by_field_name("attribute")
+                .map(|n| node_text(n, source));
 
             if let (Some(obj), Some(attr)) = (obj, attr) {
                 // Check specific obj.method patterns
                 for &(expected_obj, expected_method) in DB_ATTR_CALLS {
                     if obj == expected_obj && attr == expected_method {
-                        return Some(self.make_finding(call_node, source, file_path, &format!(
-                            "`{obj}.{attr}()` called inside a loop — potential N+1 query"
-                        )));
+                        return Some(self.make_finding(
+                            call_node,
+                            source,
+                            file_path,
+                            &format!("`{obj}.{attr}()` called inside a loop — potential N+1 query"),
+                        ));
                     }
                 }
 
@@ -111,9 +114,12 @@ impl NPlusOneQueriesPipeline {
                     }
                     // Only flag if receiver matches DB patterns or is unknown
                     if receiver.is_empty() || receiver_matches_any(receiver, DB_RECEIVERS) {
-                        return Some(self.make_finding(call_node, source, file_path, &format!(
-                            "`.{attr}()` called inside a loop — potential N+1 query"
-                        )));
+                        return Some(self.make_finding(
+                            call_node,
+                            source,
+                            file_path,
+                            &format!("`.{attr}()` called inside a loop — potential N+1 query"),
+                        ));
                     }
                     // No pattern match, skip (conservative)
                     return None;
@@ -121,17 +127,23 @@ impl NPlusOneQueriesPipeline {
 
                 // Check deep attribute tails (e.g. urllib.request.urlopen)
                 if DEEP_ATTR_TAILS.contains(&attr) {
-                    return Some(self.make_finding(call_node, source, file_path, &format!(
-                        "`{fn_text}()` called inside a loop — potential N+1 query"
-                    )));
+                    return Some(self.make_finding(
+                        call_node,
+                        source,
+                        file_path,
+                        &format!("`{fn_text}()` called inside a loop — potential N+1 query"),
+                    ));
                 }
             }
         } else if fn_node.kind() == "identifier" {
             // Bare function calls like urlopen(...)
             if BARE_CALL_PATTERNS.contains(&fn_text) {
-                return Some(self.make_finding(call_node, source, file_path, &format!(
-                    "`{fn_text}()` called inside a loop — potential N+1 query"
-                )));
+                return Some(self.make_finding(
+                    call_node,
+                    source,
+                    file_path,
+                    &format!("`{fn_text}()` called inside a loop — potential N+1 query"),
+                ));
             }
         }
 
@@ -177,8 +189,16 @@ impl Pipeline for NPlusOneQueriesPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
             if let (Some(fn_node), Some(call_node)) = (fn_node, call_node) {
                 if !Self::is_inside_loop(call_node) {

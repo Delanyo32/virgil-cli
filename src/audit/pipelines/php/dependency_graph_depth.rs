@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_path_depth;
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const BARREL_REEXPORT_THRESHOLD: usize = 5;
 const DEEP_IMPORT_DEPTH_THRESHOLD: usize = 4;

@@ -75,7 +75,9 @@ impl RuleOfFivePipeline {
                 }
 
                 // Also check for = default / = delete patterns
-                if text.contains(&format!("~{class_name}")) && (text.contains("default") || text.contains("delete")) {
+                if text.contains(&format!("~{class_name}"))
+                    && (text.contains("default") || text.contains("delete"))
+                {
                     has_destructor = true;
                 }
             }

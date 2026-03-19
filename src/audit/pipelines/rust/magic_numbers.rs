@@ -4,18 +4,16 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{is_test_file, is_test_context_rust};
-use super::primitives;
+use crate::audit::pipelines::helpers::{is_test_context_rust, is_test_file};
 
 const EXCLUDED_VALUES: &[&str] = &[
-    "0", "1", "2", "0.0", "1.0",
-    // Common powers of 2 and sizes
+    "0", "1", "2", "0.0", "1.0", // Common powers of 2 and sizes
     "10", "100", "1000", "256", "512", "1024", "2048", "4096", "8192", "16384", "32768", "65536",
     // Common hex masks
-    "0xFF", "0xff", "0x80", "0xFFFF", "0xffff", "0xFF00", "0xff00",
-    "0x00", "0x01", "0x02",
+    "0xFF", "0xff", "0x80", "0xFFFF", "0xffff", "0xFF00", "0xff00", "0x00", "0x01", "0x02",
 ];
 
 const EXEMPT_ANCESTOR_KINDS: &[&str] = &[

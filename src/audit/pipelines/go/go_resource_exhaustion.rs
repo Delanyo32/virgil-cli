@@ -77,8 +77,9 @@ impl Pipeline for GoResourceExhaustionPipeline {
                             severity: "warning".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "unbounded_goroutine_spawn".to_string(),
-                            message: "goroutine spawned in loop without bound may exhaust resources"
-                                .to_string(),
+                            message:
+                                "goroutine spawned in loop without bound may exhaust resources"
+                                    .to_string(),
                             snippet: extract_snippet(source, stmt, 3),
                         });
                     }

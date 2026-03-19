@@ -44,7 +44,11 @@ impl Pipeline for NullReferenceRiskPipeline {
             let return_stmt_idx = find_capture_index(&self.return_null_query, "return_stmt");
 
             while let Some(m) = matches.next() {
-                let return_node = m.captures.iter().find(|c| c.index as usize == return_stmt_idx).map(|c| c.node);
+                let return_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == return_stmt_idx)
+                    .map(|c| c.node);
                 if let Some(return_node) = return_node {
                     let start = return_node.start_position();
                     findings.push(AuditFinding {
@@ -68,7 +72,11 @@ impl Pipeline for NullReferenceRiskPipeline {
             let member_access_idx = find_capture_index(&self.member_access_query, "member_access");
 
             while let Some(m) = matches.next() {
-                let access_node = m.captures.iter().find(|c| c.index as usize == member_access_idx).map(|c| c.node);
+                let access_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == member_access_idx)
+                    .map(|c| c.node);
                 if let Some(access_node) = access_node {
                     // Count nesting depth: how many member_access_expression ancestors
                     let depth = count_member_access_depth(access_node);
@@ -76,7 +84,10 @@ impl Pipeline for NullReferenceRiskPipeline {
                         // Check that the chain doesn't use conditional_access_expression (?.)
                         if !has_conditional_access_ancestor(access_node) {
                             // Only report on the outermost (deepest) chain
-                            if access_node.parent().map_or(true, |p| p.kind() != "member_access_expression") {
+                            if access_node
+                                .parent()
+                                .map_or(true, |p| p.kind() != "member_access_expression")
+                            {
                                 let start = access_node.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -130,7 +141,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = NullReferenceRiskPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")
@@ -146,7 +159,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let null_returns: Vec<_> = findings.iter().filter(|f| f.pattern == "explicit_null_return").collect();
+        let null_returns: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "explicit_null_return")
+            .collect();
         assert_eq!(null_returns.len(), 1);
     }
 
@@ -160,7 +176,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let chains: Vec<_> = findings.iter().filter(|f| f.pattern == "deep_member_chain").collect();
+        let chains: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "deep_member_chain")
+            .collect();
         assert_eq!(chains.len(), 1);
     }
 
@@ -174,7 +193,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let chains: Vec<_> = findings.iter().filter(|f| f.pattern == "deep_member_chain").collect();
+        let chains: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "deep_member_chain")
+            .collect();
         assert!(chains.is_empty());
     }
 

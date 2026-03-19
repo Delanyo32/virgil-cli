@@ -42,8 +42,7 @@ impl Pipeline for CommandInjectionPipeline {
         // child_process.exec/execSync/execFileSync with non-literal first arg
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let args_idx = find_capture_index(&self.method_call_query, "args");
             let call_idx = find_capture_index(&self.method_call_query, "call");
@@ -65,8 +64,7 @@ impl Pipeline for CommandInjectionPipeline {
                     .find(|c| c.index as usize == call_idx)
                     .map(|c| c.node);
 
-                if let (Some(method), Some(args), Some(call)) =
-                    (method_node, args_node, call_node)
+                if let (Some(method), Some(args), Some(call)) = (method_node, args_node, call_node)
                 {
                     let method_name = node_text(method, source);
 
@@ -94,8 +92,7 @@ impl Pipeline for CommandInjectionPipeline {
                     // spawn with shell: true
                     if method_name == "spawn" {
                         let call_text = node_text(call, source);
-                        if call_text.contains("shell: true") || call_text.contains("shell:true")
-                        {
+                        if call_text.contains("shell: true") || call_text.contains("shell:true") {
                             let start = call.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
@@ -104,9 +101,8 @@ impl Pipeline for CommandInjectionPipeline {
                                 severity: "error".to_string(),
                                 pipeline: self.name().to_string(),
                                 pattern: "spawn_shell_injection".to_string(),
-                                message:
-                                    "`spawn()` with `shell: true` — command injection risk"
-                                        .to_string(),
+                                message: "`spawn()` with `shell: true` — command injection risk"
+                                    .to_string(),
                                 snippet: extract_snippet(source, call, 1),
                             });
                         }
@@ -118,8 +114,7 @@ impl Pipeline for CommandInjectionPipeline {
         // Direct exec() calls (require('child_process').exec pattern)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let args_idx = find_capture_index(&self.direct_call_query, "args");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
@@ -178,9 +173,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::JavaScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = CommandInjectionPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.js")

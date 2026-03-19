@@ -123,8 +123,7 @@ mod tests {
 
     #[test]
     fn detects_leaking_prisma() {
-        let findings =
-            parse_and_check("export function getDB(): PrismaClient { return prisma; }");
+        let findings = parse_and_check("export function getDB(): PrismaClient { return prisma; }");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "leaking_orm_type");
     }
@@ -138,22 +137,19 @@ mod tests {
 
     #[test]
     fn skips_non_exported() {
-        let findings =
-            parse_and_check("function getDB(): PrismaClient { return prisma; }");
+        let findings = parse_and_check("function getDB(): PrismaClient { return prisma; }");
         assert!(findings.is_empty());
     }
 
     #[test]
     fn skips_safe_return_type() {
-        let findings =
-            parse_and_check("export function getUser(): User { return user; }");
+        let findings = parse_and_check("export function getUser(): User { return user; }");
         assert!(findings.is_empty());
     }
 
     #[test]
     fn skips_no_return_type() {
-        let findings =
-            parse_and_check("export function doStuff() { return 1; }");
+        let findings = parse_and_check("export function doStuff() { return 1; }");
         assert!(findings.is_empty());
     }
 

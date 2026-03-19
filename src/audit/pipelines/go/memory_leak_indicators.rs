@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_for_statement_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_for_statement_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct MemoryLeakIndicatorsPipeline {
     for_query: Arc<Query>,
@@ -249,9 +251,11 @@ func collect(ch chan int) {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings
-            .iter()
-            .any(|f| f.pattern == "unbounded_append_in_loop"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "unbounded_append_in_loop")
+        );
     }
 
     #[test]

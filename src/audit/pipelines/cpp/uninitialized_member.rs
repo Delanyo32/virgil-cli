@@ -8,14 +8,32 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_field_declaration_query, extract_snippet,
-    find_capture_index, find_identifier_in_declarator, is_inside_node_kind, node_text,
+    compile_field_declaration_query, extract_snippet, find_capture_index,
+    find_identifier_in_declarator, is_inside_node_kind, node_text,
 };
 
 const PRIMITIVE_TYPES: &[&str] = &[
-    "int", "unsigned", "signed", "short", "long", "float", "double", "char", "bool", "size_t",
-    "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
-    "ptrdiff_t", "intptr_t", "uintptr_t",
+    "int",
+    "unsigned",
+    "signed",
+    "short",
+    "long",
+    "float",
+    "double",
+    "char",
+    "bool",
+    "size_t",
+    "int8_t",
+    "int16_t",
+    "int32_t",
+    "int64_t",
+    "uint8_t",
+    "uint16_t",
+    "uint32_t",
+    "uint64_t",
+    "ptrdiff_t",
+    "intptr_t",
+    "uintptr_t",
 ];
 
 pub struct UninitializedMemberPipeline {
@@ -33,8 +51,13 @@ impl UninitializedMemberPipeline {
         let trimmed = type_text.trim();
         // Handle multi-word types like "unsigned int", "long long"
         let words: Vec<&str> = trimmed.split_whitespace().collect();
-        words.iter().all(|w| PRIMITIVE_TYPES.contains(w) || *w == "unsigned" || *w == "signed" || *w == "long" || *w == "short")
-            && !words.is_empty()
+        words.iter().all(|w| {
+            PRIMITIVE_TYPES.contains(w)
+                || *w == "unsigned"
+                || *w == "signed"
+                || *w == "long"
+                || *w == "short"
+        }) && !words.is_empty()
     }
 
     fn has_initializer(field_node: tree_sitter::Node, source: &[u8]) -> bool {
@@ -45,7 +68,10 @@ impl UninitializedMemberPipeline {
 
     fn has_default_member_init(declarator_node: tree_sitter::Node) -> bool {
         // Check if the declarator has a default_value field or init child
-        if declarator_node.child_by_field_name("default_value").is_some() {
+        if declarator_node
+            .child_by_field_name("default_value")
+            .is_some()
+        {
             return true;
         }
         let mut cursor = declarator_node.walk();

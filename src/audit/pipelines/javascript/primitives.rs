@@ -251,7 +251,9 @@ pub fn has_nested_quantifier(regex_text: &str) -> bool {
                 // Check if a quantifier follows this group
                 if i + 1 < chars.len() && matches!(chars[i + 1], '+' | '*' | '?') {
                     // If the group contained a quantifier, we have nested quantifiers
-                    if depth + 1 < prev_quantifier_at_depth.len() && prev_quantifier_at_depth[depth + 1] {
+                    if depth + 1 < prev_quantifier_at_depth.len()
+                        && prev_quantifier_at_depth[depth + 1]
+                    {
                         return true;
                     }
                     if depth < prev_quantifier_at_depth.len() {

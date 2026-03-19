@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_function_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_function_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 const SSRF_FUNCTIONS: &[(&str, &str)] = &[
     ("file_get_contents", "ssrf_file_get_contents"),
@@ -47,11 +49,25 @@ impl Pipeline for SsrfPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(args_node), Some(call_node)) = (name_node, args_node, call_node) {
+            if let (Some(name_node), Some(args_node), Some(call_node)) =
+                (name_node, args_node, call_node)
+            {
                 let fn_name = node_text(name_node, source);
 
                 let matching = SSRF_FUNCTIONS.iter().find(|(name, _)| *name == fn_name);
@@ -73,9 +89,7 @@ impl Pipeline for SsrfPipeline {
                     severity: "warning".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: pattern.to_string(),
-                    message: format!(
-                        "`{fn_name}()` with dynamic URL/path — potential SSRF"
-                    ),
+                    message: format!("`{fn_name}()` with dynamic URL/path — potential SSRF"),
                     snippet: extract_snippet(source, call_node, 1),
                 });
             }

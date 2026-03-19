@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_selector_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_selector_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct CommandInjectionPipeline {
     selector_query: Arc<Query>,
@@ -40,9 +42,21 @@ impl Pipeline for CommandInjectionPipeline {
         let call_idx = find_capture_index(&self.selector_query, "call");
 
         while let Some(m) = matches.next() {
-            let pkg_node = m.captures.iter().find(|c| c.index as usize == pkg_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let pkg_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == pkg_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
             if let (Some(pkg), Some(method), Some(call)) = (pkg_node, method_node, call_node) {
                 let pkg_name = node_text(pkg, source);
@@ -55,7 +69,11 @@ impl Pipeline for CommandInjectionPipeline {
                 let call_text = node_text(call, source);
                 // Check if first arg is a shell
                 let shells = [
-                    "\"sh\"", "\"bash\"", "\"/bin/sh\"", "\"/bin/bash\"", "\"cmd\"",
+                    "\"sh\"",
+                    "\"bash\"",
+                    "\"/bin/sh\"",
+                    "\"/bin/bash\"",
+                    "\"cmd\"",
                 ];
                 let is_shell = shells.iter().any(|s| call_text.contains(s));
 

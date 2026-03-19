@@ -54,13 +54,7 @@ impl Pipeline for CouplingPipeline {
         // ── parameter_overload ───────────────────────────────────────
         // Find function_definition nodes, get the parameter_list from the
         // function_declarator, and count parameters.
-        collect_parameter_overload_findings(
-            root,
-            source,
-            file_path,
-            self.name(),
-            &mut findings,
-        );
+        collect_parameter_overload_findings(root, source, file_path, self.name(), &mut findings);
 
         findings
     }

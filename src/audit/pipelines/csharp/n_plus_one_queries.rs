@@ -57,13 +57,17 @@ const LINQ_AMBIGUOUS_METHODS: &[&str] = &[
 
 /// Receiver patterns that indicate in-memory collections (skip flagging).
 const IN_MEMORY_RECEIVER_PATTERNS: &[&str] = &[
-    "list", "array", "collection", "enumerable", "items", "results",
+    "list",
+    "array",
+    "collection",
+    "enumerable",
+    "items",
+    "results",
 ];
 
 /// Receiver patterns that indicate DB context (require for ambiguous methods).
-const DB_CONTEXT_RECEIVER_PATTERNS: &[&str] = &[
-    "context", "dbcontext", "dbset", "repository", "entities",
-];
+const DB_CONTEXT_RECEIVER_PATTERNS: &[&str] =
+    &["context", "dbcontext", "dbset", "repository", "entities"];
 
 fn csharp_lang() -> tree_sitter::Language {
     Language::CSharp.tree_sitter_language()
@@ -106,9 +110,7 @@ impl NPlusOneQueriesPipeline {
   arguments: (argument_list) @args) @creation
 "#;
         let object_creation_query = Query::new(&csharp_lang(), object_creation_query_str)
-            .with_context(|| {
-                "failed to compile object_creation query for C# n_plus_one_queries"
-            })?;
+            .with_context(|| "failed to compile object_creation query for C# n_plus_one_queries")?;
 
         Ok(Self {
             loop_query: Arc::new(loop_query),
@@ -160,7 +162,8 @@ impl NPlusOneQueriesPipeline {
                                         break;
                                     }
                                     // For ambiguous methods, only flag if receiver looks like a DB context
-                                    if !receiver_matches_any(receiver, DB_CONTEXT_RECEIVER_PATTERNS) {
+                                    if !receiver_matches_any(receiver, DB_CONTEXT_RECEIVER_PATTERNS)
+                                    {
                                         break;
                                     }
                                 }

@@ -8,8 +8,8 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_method_invocation_with_object_query, compile_field_access_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_field_access_query, compile_method_invocation_with_object_query, extract_snippet,
+    find_capture_index, node_text,
 };
 
 pub struct WeakCryptographyPipeline {
@@ -60,10 +60,26 @@ impl WeakCryptographyPipeline {
         let inv_idx = find_capture_index(&self.method_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let obj_node = m.captures.iter().find(|c| c.index as usize == obj_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let obj_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == obj_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
             if let (Some(obj_node), Some(method_node), Some(args_node), Some(inv_node)) =
                 (obj_node, method_node, args_node, inv_node)
@@ -74,7 +90,10 @@ impl WeakCryptographyPipeline {
 
                 // MessageDigest.getInstance("MD5") or ("SHA-1")
                 if obj_name == "MessageDigest" && method_name == "getInstance" {
-                    if args_text.contains("\"MD5\"") || args_text.contains("\"SHA-1\"") || args_text.contains("\"SHA1\"") {
+                    if args_text.contains("\"MD5\"")
+                        || args_text.contains("\"SHA-1\"")
+                        || args_text.contains("\"SHA1\"")
+                    {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -102,7 +121,8 @@ impl WeakCryptographyPipeline {
                             severity: "error".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "ecb_mode".to_string(),
-                            message: "Cipher.getInstance() uses ECB mode — use CBC or GCM instead".to_string(),
+                            message: "Cipher.getInstance() uses ECB mode — use CBC or GCM instead"
+                                .to_string(),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
@@ -111,9 +131,10 @@ impl WeakCryptographyPipeline {
                 // String.equals on hash/token comparison (timing attack)
                 if method_name == "equals" {
                     let inv_text = node_text(inv_node, source);
-                    let looks_like_secret = ["hash", "token", "secret", "password", "digest", "signature"]
-                        .iter()
-                        .any(|kw| inv_text.to_lowercase().contains(kw));
+                    let looks_like_secret =
+                        ["hash", "token", "secret", "password", "digest", "signature"]
+                            .iter()
+                            .any(|kw| inv_text.to_lowercase().contains(kw));
                     if looks_like_secret {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
@@ -147,11 +168,25 @@ impl WeakCryptographyPipeline {
         let access_idx = find_capture_index(&self.field_query, "access");
 
         while let Some(m) = matches.next() {
-            let obj_node = m.captures.iter().find(|c| c.index as usize == obj_idx).map(|c| c.node);
-            let field_node = m.captures.iter().find(|c| c.index as usize == field_idx).map(|c| c.node);
-            let access_node = m.captures.iter().find(|c| c.index as usize == access_idx).map(|c| c.node);
+            let obj_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == obj_idx)
+                .map(|c| c.node);
+            let field_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == field_idx)
+                .map(|c| c.node);
+            let access_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == access_idx)
+                .map(|c| c.node);
 
-            if let (Some(obj_node), Some(field_node), Some(access_node)) = (obj_node, field_node, access_node) {
+            if let (Some(obj_node), Some(field_node), Some(access_node)) =
+                (obj_node, field_node, access_node)
+            {
                 let obj_name = node_text(obj_node, source);
                 let field_name = node_text(field_node, source);
 
@@ -160,18 +195,19 @@ impl WeakCryptographyPipeline {
                     // Check if this is used in a security-sensitive context
                     if let Some(parent) = access_node.parent() {
                         let parent_text = node_text(parent, source);
-                        let in_security_context = ["token", "secret", "key", "nonce", "iv", "salt", "password"]
-                            .iter()
-                            .any(|kw| {
-                                // Check surrounding code
-                                let line_start = access_node.start_position().row;
-                                let source_str = std::str::from_utf8(source).unwrap_or("");
-                                if let Some(line) = source_str.lines().nth(line_start) {
-                                    line.to_lowercase().contains(kw)
-                                } else {
-                                    parent_text.to_lowercase().contains(kw)
-                                }
-                            });
+                        let in_security_context =
+                            ["token", "secret", "key", "nonce", "iv", "salt", "password"]
+                                .iter()
+                                .any(|kw| {
+                                    // Check surrounding code
+                                    let line_start = access_node.start_position().row;
+                                    let source_str = std::str::from_utf8(source).unwrap_or("");
+                                    if let Some(line) = source_str.lines().nth(line_start) {
+                                        line.to_lowercase().contains(kw)
+                                    } else {
+                                        parent_text.to_lowercase().contains(kw)
+                                    }
+                                });
 
                         if in_security_context {
                             let start = access_node.start_position();

@@ -139,7 +139,8 @@ impl CppPathTraversalPipeline {
         let body_text = node_text(body, source);
 
         // Check if the function body uses filesystem path concatenation with a parameter
-        let has_path_concat = (body_text.contains("fs::path") || body_text.contains("filesystem::path"))
+        let has_path_concat = (body_text.contains("fs::path")
+            || body_text.contains("filesystem::path"))
             && body_text.contains('/');
 
         if !has_path_concat {
@@ -243,14 +244,8 @@ impl Pipeline for CppPathTraversalPipeline {
         let body_idx = find_capture_index(&self.fn_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_def_idx);
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == body_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_def_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == body_idx);
 
             if let (Some(fn_cap), Some(body_cap)) = (fn_cap, body_cap) {
                 let param_names = Self::extract_param_names(fn_cap.node, source);

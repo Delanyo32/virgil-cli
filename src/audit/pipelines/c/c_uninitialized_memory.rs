@@ -62,11 +62,7 @@ impl CUninitializedMemoryPipeline {
 
     /// Check if a call targets one of the initialization functions and its first arg
     /// matches the given buffer name.
-    fn is_init_call_for_buffer(
-        node: tree_sitter::Node,
-        source: &[u8],
-        buffer_name: &str,
-    ) -> bool {
+    fn is_init_call_for_buffer(node: tree_sitter::Node, source: &[u8], buffer_name: &str) -> bool {
         if node.kind() != "expression_statement" {
             return false;
         }
@@ -205,10 +201,7 @@ impl Pipeline for CUninitializedMemoryPipeline {
         let fn_body_idx = find_capture_index(&self.fn_def_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_body_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
             if let Some(body_cap) = body_cap {
                 let mut body_findings =

@@ -45,8 +45,9 @@ impl MemoryLeakIndicatorsPipeline {
         let new_query_str = r#"
 (new_expression) @new_expr
 "#;
-        let new_query = Query::new(&cpp_lang(), new_query_str)
-            .with_context(|| "failed to compile new_expression query for C++ memory_leak_indicators")?;
+        let new_query = Query::new(&cpp_lang(), new_query_str).with_context(
+            || "failed to compile new_expression query for C++ memory_leak_indicators",
+        )?;
 
         let loop_query_str = r#"
 [
@@ -326,23 +327,22 @@ impl MemoryLeakIndicatorsPipeline {
                 }
 
                 // Check if the class has a virtual destructor
-                let has_virtual_destructor = if body_text.contains("virtual ~")
-                    || body_text.contains("virtual~")
-                {
-                    true
-                } else {
-                    // More careful check: look for "virtual" before "~ClassName"
-                    let dtor_pattern = format!("~{class_name}");
-                    if let Some(dtor_pos) = body_text.find(&dtor_pattern) {
-                        let before = &body_text[..dtor_pos];
-                        before.rfind("virtual").map_or(false, |vpos| {
-                            // Make sure there's no semicolon between virtual and ~
-                            !before[vpos..].contains(';')
-                        })
+                let has_virtual_destructor =
+                    if body_text.contains("virtual ~") || body_text.contains("virtual~") {
+                        true
                     } else {
-                        false
-                    }
-                };
+                        // More careful check: look for "virtual" before "~ClassName"
+                        let dtor_pattern = format!("~{class_name}");
+                        if let Some(dtor_pos) = body_text.find(&dtor_pattern) {
+                            let before = &body_text[..dtor_pos];
+                            before.rfind("virtual").map_or(false, |vpos| {
+                                // Make sure there's no semicolon between virtual and ~
+                                !before[vpos..].contains(';')
+                            })
+                        } else {
+                            false
+                        }
+                    };
 
                 if !has_virtual_destructor {
                     let start = class_n.start_position();

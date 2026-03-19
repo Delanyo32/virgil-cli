@@ -112,7 +112,9 @@ impl SyncBlockingInAsyncPipeline {
         let mut current = node.parent();
         while let Some(parent) = current {
             match parent.kind() {
-                "function_declaration" | "arrow_function" | "function_expression"
+                "function_declaration"
+                | "arrow_function"
+                | "function_expression"
                 | "method_definition" => {
                     let fn_text = node_text(parent, source);
                     if fn_text.trim_start().starts_with("async") {
@@ -144,8 +146,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // Check method calls (obj.methodSync patterns)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let call_idx = find_capture_index(&self.method_call_query, "call");
@@ -167,9 +168,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                     .find(|c| c.index as usize == call_idx)
                     .map(|c| c.node);
 
-                if let (Some(obj), Some(method), Some(call)) =
-                    (obj_node, method_node, call_node)
-                {
+                if let (Some(obj), Some(method), Some(call)) = (obj_node, method_node, call_node) {
                     if !Self::is_inside_async_function(call, source) {
                         continue;
                     }
@@ -213,8 +212,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // Check bare function calls (readFileSync, alert, prompt, etc.)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_name_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
 
@@ -269,9 +267,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::TypeScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = SyncBlockingInAsyncPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.ts")

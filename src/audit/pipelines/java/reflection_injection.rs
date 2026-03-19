@@ -43,10 +43,26 @@ impl Pipeline for ReflectionInjectionPipeline {
         let inv_idx = find_capture_index(&self.method_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let obj_node = m.captures.iter().find(|c| c.index as usize == obj_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let obj_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == obj_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
             if let (Some(obj_node), Some(method_node), Some(args_node), Some(inv_node)) =
                 (obj_node, method_node, args_node, inv_node)
@@ -94,7 +110,10 @@ impl Pipeline for ReflectionInjectionPipeline {
                 // ScriptEngine.eval(param) — script injection
                 if method_name == "eval" {
                     let inv_text = node_text(inv_node, source);
-                    if inv_text.contains("engine") || inv_text.contains("Engine") || inv_text.contains("script") {
+                    if inv_text.contains("engine")
+                        || inv_text.contains("Engine")
+                        || inv_text.contains("script")
+                    {
                         if let Some(first_arg) = args_node.named_child(0) {
                             if first_arg.kind() != "string_literal" {
                                 let start = inv_node.start_position();

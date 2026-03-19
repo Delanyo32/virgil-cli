@@ -287,8 +287,7 @@ impl MemoryLeakIndicatorsPipeline {
                 .find(|c| c.index as usize == assign_idx)
                 .map(|c| c.node);
 
-            if let (Some(obj_n), Some(rhs_n), Some(assign_n)) = (obj_node, rhs_node, assign_node)
-            {
+            if let (Some(obj_n), Some(rhs_n), Some(assign_n)) = (obj_node, rhs_node, assign_node) {
                 let obj_text = node_text(obj_n, source);
                 let rhs_text = node_text(rhs_n, source);
 

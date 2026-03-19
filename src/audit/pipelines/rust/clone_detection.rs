@@ -3,9 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use tree_sitter::{Query, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives;
 
 pub struct CloneDetectionPipeline {
     method_query: Arc<Query>,
@@ -22,7 +22,9 @@ impl CloneDetectionPipeline {
         match pattern {
             "clone" => ".clone() call — consider borrowing or taking ownership instead",
             "to_owned" => ".to_owned() call — consider borrowing a &str instead",
-            "to_string" => ".to_string() on a type that may already be a String — consider borrowing",
+            "to_string" => {
+                ".to_string() on a type that may already be a String — consider borrowing"
+            }
             _ => "potential unnecessary clone",
         }
     }

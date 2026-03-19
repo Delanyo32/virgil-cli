@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use anyhow::Result;
 use tree_sitter::Tree;
 
+use super::primitives::extract_snippet;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::find_unreachable_after;
-use super::primitives::extract_snippet;
 
 pub struct DeadCodePipeline;
 
@@ -53,9 +53,7 @@ impl Pipeline for DeadCodePipeline {
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "unused_private_function".to_string(),
-                    message: format!(
-                        "private function `{name}` appears unused in this file"
-                    ),
+                    message: format!("private function `{name}` appears unused in this file"),
                     snippet: extract_snippet(source, *node, 3),
                 });
             }
@@ -78,9 +76,7 @@ impl Pipeline for DeadCodePipeline {
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "unused_import".to_string(),
-                    message: format!(
-                        "import `{imported_name}` appears unused in this file"
-                    ),
+                    message: format!("import `{imported_name}` appears unused in this file"),
                     snippet: extract_snippet(source, *node, 1),
                 });
             }
@@ -171,9 +167,7 @@ fn collect_usage_ids_recursive(
 
         // Collect identifiers (unless this node is the fn name position)
         if !skip_this_id
-            && (kind == "identifier"
-                || kind == "field_identifier"
-                || kind == "type_identifier")
+            && (kind == "identifier" || kind == "field_identifier" || kind == "type_identifier")
         {
             if let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
@@ -332,7 +326,9 @@ fn main() {
             .filter(|f| f.pattern == "unused_private_function")
             .collect();
         assert!(
-            unused_fn.iter().any(|f| f.message.contains("unused_helper")),
+            unused_fn
+                .iter()
+                .any(|f| f.message.contains("unused_helper")),
             "should flag unused_helper as unused"
         );
     }
@@ -374,7 +370,9 @@ fn main() {}
             .filter(|f| f.pattern == "unused_private_function")
             .collect();
         assert!(
-            !unused_fn.iter().any(|f| f.message.contains("unused_but_public")),
+            !unused_fn
+                .iter()
+                .any(|f| f.message.contains("unused_but_public")),
             "should not flag pub functions"
         );
     }
@@ -432,10 +430,7 @@ fn example() {
             .iter()
             .filter(|f| f.pattern == "unreachable_code")
             .collect();
-        assert!(
-            !unreachable.is_empty(),
-            "should detect code after return"
-        );
+        assert!(!unreachable.is_empty(), "should detect code after return");
     }
 
     #[test]

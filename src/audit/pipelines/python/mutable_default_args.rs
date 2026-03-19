@@ -42,10 +42,7 @@ impl Pipeline for MutableDefaultArgsPipeline {
         let param_idx = find_capture_index(&self.default_param_query, "default_param");
 
         while let Some(m) = matches.next() {
-            let param_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == param_idx);
+            let param_cap = m.captures.iter().find(|c| c.index as usize == param_idx);
 
             if let Some(param_cap) = param_cap {
                 let node = param_cap.node;

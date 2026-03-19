@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_comparison_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_comparison_query, extract_snippet, find_capture_index, node_text};
 
 const SUSPICIOUS_NAMES: &[&str] = &[
     "status", "kind", "type", "mode", "state", "action", "level", "category", "role", "variant",
@@ -50,10 +48,7 @@ impl Pipeline for StringlyTypedPipeline {
         let comp_idx = find_capture_index(&self.comparison_query, "comparison");
 
         while let Some(m) = matches.next() {
-            let comp_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == comp_idx);
+            let comp_cap = m.captures.iter().find(|c| c.index as usize == comp_idx);
 
             if let Some(comp_cap) = comp_cap {
                 let node = comp_cap.node;
@@ -79,7 +74,8 @@ impl Pipeline for StringlyTypedPipeline {
                                 if let Some(attr) = child.child_by_field_name("attribute") {
                                     let name = node_text(attr, source);
                                     if Self::is_suspicious_name(name) {
-                                        suspicious_identifier = Some(node_text(child, source).to_string());
+                                        suspicious_identifier =
+                                            Some(node_text(child, source).to_string());
                                     }
                                 }
                             }

@@ -65,8 +65,16 @@ impl Pipeline for GoRaceConditionsPipeline {
             let for_stmt_idx = find_capture_index(&self.for_query, "for_stmt");
 
             while let Some(m) = matches.next() {
-                let body_node = m.captures.iter().find(|c| c.index as usize == for_body_idx).map(|c| c.node);
-                let stmt_node = m.captures.iter().find(|c| c.index as usize == for_stmt_idx).map(|c| c.node);
+                let body_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == for_body_idx)
+                    .map(|c| c.node);
+                let stmt_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == for_stmt_idx)
+                    .map(|c| c.node);
 
                 if let (Some(body), Some(stmt)) = (body_node, stmt_node) {
                     if Self::contains_go_statement(body) {
@@ -95,8 +103,16 @@ impl Pipeline for GoRaceConditionsPipeline {
             let go_stmt_idx = find_capture_index(&self.go_query, "go_stmt");
 
             while let Some(m) = matches.next() {
-                let expr_node = m.captures.iter().find(|c| c.index as usize == go_expr_idx).map(|c| c.node);
-                let stmt_node = m.captures.iter().find(|c| c.index as usize == go_stmt_idx).map(|c| c.node);
+                let expr_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == go_expr_idx)
+                    .map(|c| c.node);
+                let stmt_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == go_stmt_idx)
+                    .map(|c| c.node);
 
                 if let (Some(expr), Some(stmt)) = (expr_node, stmt_node) {
                     if Self::contains_bracket_access(expr, source) {

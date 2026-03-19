@@ -7,13 +7,16 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_invocation_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_invocation_query, extract_snippet, find_capture_index, node_text};
 
 const HTTP_METHODS: &[&str] = &[
-    "GetAsync", "PostAsync", "PutAsync", "DeleteAsync",
-    "GetStringAsync", "GetByteArrayAsync", "GetStreamAsync",
+    "GetAsync",
+    "PostAsync",
+    "PutAsync",
+    "DeleteAsync",
+    "GetStringAsync",
+    "GetByteArrayAsync",
+    "GetStreamAsync",
     "SendAsync",
 ];
 
@@ -48,11 +51,24 @@ impl Pipeline for CSharpSsrfPipeline {
         let inv_idx = find_capture_index(&self.invocation_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node) {
+            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node)
+            {
                 let fn_text = node_text(fn_node, source);
 
                 // HttpClient.GetAsync(param), etc.

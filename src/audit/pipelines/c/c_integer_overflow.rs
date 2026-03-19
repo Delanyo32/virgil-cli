@@ -79,10 +79,7 @@ impl CIntegerOverflowPipeline {
     }
 
     /// Extract parameter names and their type text from a function_definition.
-    fn extract_param_types(
-        fn_def: tree_sitter::Node,
-        source: &[u8],
-    ) -> Vec<(String, String)> {
+    fn extract_param_types(fn_def: tree_sitter::Node, source: &[u8]) -> Vec<(String, String)> {
         let mut params = Vec::new();
         if let Some(declarator) = fn_def.child_by_field_name("declarator") {
             if let Some(param_list) = declarator.child_by_field_name("parameters") {
@@ -161,10 +158,7 @@ impl Pipeline for CIntegerOverflowPipeline {
         let args_idx = find_capture_index(&self.call_query, "args");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_name_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
             let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
             let args_cap = m.captures.iter().find(|c| c.index as usize == args_idx);
 
@@ -207,14 +201,10 @@ impl Pipeline for CIntegerOverflowPipeline {
                             let arg_name = node_text(*size_arg, source);
 
                             // Walk up to find enclosing function and check param type
-                            if let Some(fn_def) =
-                                Self::find_enclosing_function(call_cap.node)
-                            {
+                            if let Some(fn_def) = Self::find_enclosing_function(call_cap.node) {
                                 let params = Self::extract_param_types(fn_def, source);
                                 for (param_name, param_type) in &params {
-                                    if param_name == arg_name
-                                        && Self::is_signed_type(param_type)
-                                    {
+                                    if param_name == arg_name && Self::is_signed_type(param_type) {
                                         let start = call_cap.node.start_position();
                                         findings.push(AuditFinding {
                                             file_path: file_path.to_string(),

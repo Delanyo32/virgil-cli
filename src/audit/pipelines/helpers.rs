@@ -246,7 +246,12 @@ pub fn find_unreachable_after(body: Node, return_kinds: &[&str]) -> Vec<(u32, u3
             for unreachable in &children[i + 1..] {
                 // Skip closing braces and whitespace-only nodes
                 let kind = unreachable.kind();
-                if kind == "}" || kind == "{" || kind == "comment" || kind == "line_comment" || kind == "block_comment" {
+                if kind == "}"
+                    || kind == "{"
+                    || kind == "comment"
+                    || kind == "line_comment"
+                    || kind == "block_comment"
+                {
                     continue;
                 }
                 let pos = unreachable.start_position();
@@ -416,8 +421,11 @@ fn collect_functions_iterative(
     while let Some(node) = stack.pop() {
         if func_kinds.contains(&node.kind()) {
             if let Some(body) = node.child_by_field_name(body_field) {
-                let body_lines =
-                    body.end_position().row.saturating_sub(body.start_position().row) + 1;
+                let body_lines = body
+                    .end_position()
+                    .row
+                    .saturating_sub(body.start_position().row)
+                    + 1;
                 if body_lines >= min_lines {
                     let hash = hash_block_normalized(body, source);
                     let name = node
@@ -425,10 +433,11 @@ fn collect_functions_iterative(
                         .map(|n| n.utf8_text(source).unwrap_or("<unknown>").to_string())
                         .unwrap_or_else(|| "<anonymous>".to_string());
                     let pos = node.start_position();
-                    hash_map
-                        .entry(hash)
-                        .or_default()
-                        .push((name, pos.row as u32 + 1, pos.column as u32 + 1));
+                    hash_map.entry(hash).or_default().push((
+                        name,
+                        pos.row as u32 + 1,
+                        pos.column as u32 + 1,
+                    ));
                 }
             }
         }
@@ -449,7 +458,14 @@ pub fn find_duplicate_arms(
     body_field: Option<&str>,
 ) -> Vec<(u32, Vec<u32>)> {
     let mut results = Vec::new();
-    find_switches_iterative(root, source, switch_kind, arm_kind, body_field, &mut results);
+    find_switches_iterative(
+        root,
+        source,
+        switch_kind,
+        arm_kind,
+        body_field,
+        &mut results,
+    );
     results
 }
 
@@ -572,7 +588,12 @@ pub fn is_entry_file(file_path: &str, exclusions: &[&str]) -> bool {
 
 /// Check if a method body contains member access via a specific pattern (e.g., "self." in Python, "this." in Java).
 /// Uses stack-based iteration with early termination.
-pub fn body_has_member_access(body: Node, source: &[u8], access_kind: &str, object_text: &str) -> bool {
+pub fn body_has_member_access(
+    body: Node,
+    source: &[u8],
+    access_kind: &str,
+    object_text: &str,
+) -> bool {
     let mut stack = vec![body];
     while let Some(node) = stack.pop() {
         if node.kind() == access_kind {
@@ -880,7 +901,7 @@ pub fn has_annotation(node: Node, source: &[u8], name: &str) -> bool {
         loop {
             match current {
                 Some(n) if n.kind() == "method_declaration" || n.kind() == "class_declaration" => {
-                    break n
+                    break n;
                 }
                 Some(n) => current = n.parent(),
                 None => return false,
@@ -893,7 +914,9 @@ pub fn has_annotation(node: Node, source: &[u8], name: &str) -> bool {
         if child.kind() == "modifiers" {
             let mut inner_cursor = child.walk();
             for modifier_child in child.children(&mut inner_cursor) {
-                if modifier_child.kind() == "marker_annotation" || modifier_child.kind() == "annotation" {
+                if modifier_child.kind() == "marker_annotation"
+                    || modifier_child.kind() == "annotation"
+                {
                     let text = modifier_child.utf8_text(source).unwrap_or("");
                     if text.contains(name) {
                         return true;
@@ -921,7 +944,15 @@ pub fn is_in_try_with_resources(node: Node) -> bool {
 
 /// Check if a JS/TS node is inside a test context (describe, it, test, beforeEach blocks).
 pub fn is_test_context_js(node: Node, source: &[u8]) -> bool {
-    let test_callee_names = ["describe", "it", "test", "beforeEach", "afterEach", "beforeAll", "afterAll"];
+    let test_callee_names = [
+        "describe",
+        "it",
+        "test",
+        "beforeEach",
+        "afterEach",
+        "beforeAll",
+        "afterAll",
+    ];
     let mut current = node.parent();
     while let Some(p) = current {
         if p.kind() == "call_expression" {
@@ -990,7 +1021,10 @@ pub fn extract_receiver_text<'a>(call_node: Node<'a>, source: &'a [u8]) -> &'a s
     }
     // Rust/Go/JS/TS: call_expression > function: (field_expression|member_expression)
     if let Some(func) = call_node.child_by_field_name("function") {
-        if func.kind() == "field_expression" || func.kind() == "member_expression" || func.kind() == "attribute" {
+        if func.kind() == "field_expression"
+            || func.kind() == "member_expression"
+            || func.kind() == "attribute"
+        {
             if let Some(obj) = func.child_by_field_name("object") {
                 return obj.utf8_text(source).unwrap_or("");
             }
@@ -1099,11 +1133,8 @@ mod tests {
     fn comment_ratio_basic() {
         let src = "// comment\nlet x = 1;\nlet y = 2;\n";
         let tree = parse_js(src);
-        let (comment_lines, code_lines) = compute_comment_ratio(
-            tree.root_node(),
-            src.as_bytes(),
-            &js_config(),
-        );
+        let (comment_lines, code_lines) =
+            compute_comment_ratio(tree.root_node(), src.as_bytes(), &js_config());
         assert_eq!(comment_lines, 1);
         assert_eq!(code_lines, 2);
     }
@@ -1132,7 +1163,8 @@ mod tests {
         let body = func.child_by_field_name("body").unwrap();
         // Find the if_statement
         let mut cursor = body.walk();
-        let if_stmt = body.named_children(&mut cursor)
+        let if_stmt = body
+            .named_children(&mut cursor)
             .find(|c| c.kind() == "if_statement")
             .unwrap();
         assert!(ancestor_has_kind(if_stmt, &["statement_block"]));

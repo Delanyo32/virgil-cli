@@ -80,9 +80,7 @@ impl DeadCodePipeline {
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "unused_private_function".to_string(),
-                    message: format!(
-                        "private function `{name}` appears unused within this file"
-                    ),
+                    message: format!("private function `{name}` appears unused within this file"),
                     snippet: extract_snippet(source, child, 1),
                 });
             }
@@ -133,9 +131,7 @@ impl DeadCodePipeline {
                                             severity: "info".to_string(),
                                             pipeline: self.name().to_string(),
                                             pattern: "unused_import".to_string(),
-                                            message: format!(
-                                                "import `{name}` appears unused"
-                                            ),
+                                            message: format!("import `{name}` appears unused"),
                                             snippet: extract_snippet(source, child, 1),
                                         });
                                     }
@@ -154,9 +150,7 @@ impl DeadCodePipeline {
                                             severity: "info".to_string(),
                                             pipeline: self.name().to_string(),
                                             pattern: "unused_import".to_string(),
-                                            message: format!(
-                                                "import `{name}` appears unused"
-                                            ),
+                                            message: format!("import `{name}` appears unused"),
                                             snippet: extract_snippet(source, child, 1),
                                         });
                                     }
@@ -183,7 +177,8 @@ impl DeadCodePipeline {
                                 // Extract the last segment
                                 let text = node_text(import_child, source);
                                 let name = text.rsplit('.').next().unwrap_or(text);
-                                if !name.is_empty() && name != "*" && !non_import_ids.contains(name) {
+                                if !name.is_empty() && name != "*" && !non_import_ids.contains(name)
+                                {
                                     let start = import_child.start_position();
                                     findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
@@ -210,9 +205,7 @@ impl DeadCodePipeline {
                                             severity: "info".to_string(),
                                             pipeline: self.name().to_string(),
                                             pattern: "unused_import".to_string(),
-                                            message: format!(
-                                                "import `{name}` appears unused"
-                                            ),
+                                            message: format!("import `{name}` appears unused"),
                                             snippet: extract_snippet(source, child, 1),
                                         });
                                     }
@@ -229,9 +222,7 @@ impl DeadCodePipeline {
                                     continue;
                                 }
                                 let name = node_text(import_child, source);
-                                if !name.is_empty()
-                                    && name != "*"
-                                    && !non_import_ids.contains(name)
+                                if !name.is_empty() && name != "*" && !non_import_ids.contains(name)
                                 {
                                     let start = import_child.start_position();
                                     findings.push(AuditFinding {
@@ -241,9 +232,7 @@ impl DeadCodePipeline {
                                         severity: "info".to_string(),
                                         pipeline: self.name().to_string(),
                                         pattern: "unused_import".to_string(),
-                                        message: format!(
-                                            "import `{name}` appears unused"
-                                        ),
+                                        message: format!("import `{name}` appears unused"),
                                         snippet: extract_snippet(source, child, 1),
                                     });
                                 }
@@ -349,11 +338,7 @@ fn find_inner_function(decorated: tree_sitter::Node) -> Option<tree_sitter::Node
     None
 }
 
-fn collect_identifiers_into(
-    root: tree_sitter::Node,
-    source: &[u8],
-    ids: &mut HashSet<String>,
-) {
+fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut HashSet<String>) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "identifier" {

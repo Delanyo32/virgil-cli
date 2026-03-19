@@ -85,8 +85,16 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
             let call_idx = find_capture_index(&self.call_query, "call");
 
             while let Some(m) = matches.next() {
-                let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-                let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+                let fn_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == fn_expr_idx)
+                    .map(|c| c.node);
+                let call_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == call_idx)
+                    .map(|c| c.node);
 
                 if let (Some(fn_node), Some(call_node)) = (fn_node, call_node) {
                     // Check for open() not inside `with`
@@ -110,7 +118,9 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     if fn_node.kind() == "attribute" {
                         if let Some(attr) = fn_node.child_by_field_name("attribute") {
                             let method_name = node_text(attr, source);
-                            if GROWTH_METHODS.contains(&method_name) && Self::is_inside_loop(call_node) {
+                            if GROWTH_METHODS.contains(&method_name)
+                                && Self::is_inside_loop(call_node)
+                            {
                                 let start = call_node.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -140,8 +150,16 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
             let method_def_idx = find_capture_index(&self.class_method_query, "method_def");
 
             while let Some(m) = matches.next() {
-                let name_node = m.captures.iter().find(|c| c.index as usize == method_name_idx).map(|c| c.node);
-                let def_node = m.captures.iter().find(|c| c.index as usize == method_def_idx).map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == method_name_idx)
+                    .map(|c| c.node);
+                let def_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == method_def_idx)
+                    .map(|c| c.node);
 
                 if let (Some(name_node), Some(def_node)) = (name_node, def_node) {
                     if node_text(name_node, source) == "__del__" {

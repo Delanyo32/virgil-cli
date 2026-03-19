@@ -21,22 +21,21 @@ const DEFINITE_DB_METHODS: &[&str] = &[
 ];
 
 /// Ambiguous methods — only flagged when receiver matches a DB-related pattern
-const AMBIGUOUS_DB_METHODS: &[&str] = &[
-    "find",
-    "findById",
-    "get",
-    "load",
-];
+const AMBIGUOUS_DB_METHODS: &[&str] = &["find", "findById", "get", "load"];
 
 /// Receiver patterns that indicate a DB context for ambiguous methods
 const DB_RECEIVER_PATTERNS: &[&str] = &[
-    "entitymanager", "session", "repository", "repo", "dao", "jdbc", "connection",
+    "entitymanager",
+    "session",
+    "repository",
+    "repo",
+    "dao",
+    "jdbc",
+    "connection",
 ];
 
 /// Receiver patterns that indicate a non-DB context (skip)
-const NON_DB_RECEIVER_PATTERNS: &[&str] = &[
-    "list", "map", "array", "cache", "set", "collection",
-];
+const NON_DB_RECEIVER_PATTERNS: &[&str] = &["list", "map", "array", "cache", "set", "collection"];
 
 const DB_CHAINED_CALLS: &[(&str, &str)] = &[
     ("entityManager", "find"),
@@ -76,8 +75,9 @@ impl NPlusOneQueriesPipeline {
   name: (identifier) @method_name
   arguments: (argument_list) @args) @invocation
 "#;
-        let method_query = Query::new(&java_lang(), method_query_str)
-            .with_context(|| "failed to compile method_invocation query for Java n_plus_one_queries")?;
+        let method_query = Query::new(&java_lang(), method_query_str).with_context(
+            || "failed to compile method_invocation query for Java n_plus_one_queries",
+        )?;
 
         Ok(Self {
             loop_query: Arc::new(loop_query),

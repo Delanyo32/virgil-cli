@@ -35,8 +35,7 @@ impl GoPathTraversalPipeline {
                 if child.kind() == "parameter_list" {
                     // Check if there are actual parameter declarations
                     let mut param_cursor = QueryCursor::new();
-                    let mut matches =
-                        param_cursor.matches(&self.param_query, child, source);
+                    let mut matches = param_cursor.matches(&self.param_query, child, source);
                     return matches.next().is_some();
                 }
             }
@@ -44,7 +43,10 @@ impl GoPathTraversalPipeline {
         false
     }
 
-    fn enclosing_function_body<'a>(&self, node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+    fn enclosing_function_body<'a>(
+        &self,
+        node: tree_sitter::Node<'a>,
+    ) -> Option<tree_sitter::Node<'a>> {
         let mut current = node.parent();
         while let Some(parent) = current {
             if parent.kind() == "function_declaration" {
@@ -94,9 +96,21 @@ impl Pipeline for GoPathTraversalPipeline {
         let call_idx = find_capture_index(&self.selector_query, "call");
 
         while let Some(m) = matches.next() {
-            let pkg_node = m.captures.iter().find(|c| c.index as usize == pkg_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let pkg_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == pkg_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
             if let (Some(pkg), Some(method), Some(call)) = (pkg_node, method_node, call_node) {
                 let pkg_name = node_text(pkg, source);
@@ -120,7 +134,9 @@ impl Pipeline for GoPathTraversalPipeline {
                         }
                     }
                 } else if pkg_name == "os"
-                    && (method_name == "Open" || method_name == "Create" || method_name == "OpenFile")
+                    && (method_name == "Open"
+                        || method_name == "Create"
+                        || method_name == "OpenFile")
                 {
                     // Flag if arguments are not all literals (i.e., contain variables)
                     if !Self::call_has_only_literals(call, source) {

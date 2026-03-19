@@ -54,10 +54,7 @@ impl SyncBlockingInAsyncPipeline {
 
                             for (pkg, method) in BLOCKING_CALLS {
                                 if pkg_name == *pkg && method_name == *method {
-                                    findings.push((
-                                        node,
-                                        format!("{pkg_name}.{method_name}"),
-                                    ));
+                                    findings.push((node, format!("{pkg_name}.{method_name}")));
                                     break;
                                 }
                             }
@@ -240,7 +237,11 @@ func main() {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.message.contains("bare channel receive")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.message.contains("bare channel receive"))
+        );
     }
 
     #[test]

@@ -42,11 +42,25 @@ impl Pipeline for MissingCancellationTokenPipeline {
         let params_idx = find_capture_index(&self.method_query, "params");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == method_name_idx).map(|c| c.node);
-            let decl_node = m.captures.iter().find(|c| c.index as usize == method_decl_idx).map(|c| c.node);
-            let params_node = m.captures.iter().find(|c| c.index as usize == params_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_name_idx)
+                .map(|c| c.node);
+            let decl_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_decl_idx)
+                .map(|c| c.node);
+            let params_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == params_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(decl_node), Some(params_node)) = (name_node, decl_node, params_node) {
+            if let (Some(name_node), Some(decl_node), Some(params_node)) =
+                (name_node, decl_node, params_node)
+            {
                 // Only check async methods
                 if !has_modifier(decl_node, source, "async") {
                     continue;
@@ -100,7 +114,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MissingCancellationTokenPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")

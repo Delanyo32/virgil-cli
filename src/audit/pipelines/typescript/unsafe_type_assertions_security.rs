@@ -45,8 +45,7 @@ impl Pipeline for UnsafeTypeAssertionsSecurityPipeline {
         // Type predicate function with `as any` in body
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.type_predicate_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.type_predicate_query, tree.root_node(), source);
             let body_idx = find_capture_index(&self.type_predicate_query, "body");
             let func_idx = find_capture_index(&self.type_predicate_query, "func");
 
@@ -86,8 +85,7 @@ impl Pipeline for UnsafeTypeAssertionsSecurityPipeline {
         // Generic function returning JSON.parse without validation
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.function_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.function_query, tree.root_node(), source);
             let func_idx = find_capture_index(&self.function_query, "func");
             let params_idx = find_capture_index(&self.function_query, "params");
 
@@ -105,9 +103,7 @@ impl Pipeline for UnsafeTypeAssertionsSecurityPipeline {
 
                 if let Some(func) = func_node {
                     // Check if function has type parameters (generic)
-                    let has_type_params = func
-                        .child_by_field_name("type_parameters")
-                        .is_some();
+                    let has_type_params = func.child_by_field_name("type_parameters").is_some();
 
                     if !has_type_params {
                         continue;
@@ -157,9 +153,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::TypeScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = UnsafeTypeAssertionsSecurityPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.ts")

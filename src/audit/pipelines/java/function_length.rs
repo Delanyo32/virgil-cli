@@ -4,12 +4,10 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{compile_method_with_body_query, extract_snippet, find_capture_index};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_function_lines;
-use super::primitives::{
-    compile_method_with_body_query, extract_snippet, find_capture_index,
-};
 
 const LINE_THRESHOLD: usize = 50;
 const STATEMENT_THRESHOLD: usize = 20;
@@ -127,9 +125,7 @@ mod tests {
         for i in 0..50 {
             body_lines.push_str(&format!("        int x{i} = {i};\n"));
         }
-        let src = format!(
-            "class Foo {{\n    void longMethod() {{\n{body_lines}    }}\n}}\n"
-        );
+        let src = format!("class Foo {{\n    void longMethod() {{\n{body_lines}    }}\n}}\n");
         let findings = parse_and_check(&src);
         assert!(findings.iter().any(|f| f.pattern == "function_too_long"));
     }
@@ -140,9 +136,7 @@ mod tests {
         for i in 0..22 {
             stmts.push_str(&format!("        int x{i} = {i};\n"));
         }
-        let src = format!(
-            "class Foo {{\n    void manyStmts() {{\n{stmts}    }}\n}}\n"
-        );
+        let src = format!("class Foo {{\n    void manyStmts() {{\n{stmts}    }}\n}}\n");
         let findings = parse_and_check(&src);
         assert!(findings.iter().any(|f| f.pattern == "too_many_statements"));
     }

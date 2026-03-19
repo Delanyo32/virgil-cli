@@ -61,9 +61,21 @@ impl TypeJugglingPipeline {
         let bin_idx = find_capture_index(&self.bin_query, "bin_expr");
 
         while let Some(m) = matches.next() {
-            let left = m.captures.iter().find(|c| c.index as usize == left_idx).map(|c| c.node);
-            let right = m.captures.iter().find(|c| c.index as usize == right_idx).map(|c| c.node);
-            let bin_node = m.captures.iter().find(|c| c.index as usize == bin_idx).map(|c| c.node);
+            let left = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == left_idx)
+                .map(|c| c.node);
+            let right = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == right_idx)
+                .map(|c| c.node);
+            let bin_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == bin_idx)
+                .map(|c| c.node);
 
             if let (Some(_left), Some(_right), Some(bin_node)) = (left, right, bin_node) {
                 let text = node_text(bin_node, source);
@@ -109,11 +121,25 @@ impl TypeJugglingPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(args_node), Some(call_node)) = (name_node, args_node, call_node) {
+            if let (Some(name_node), Some(args_node), Some(call_node)) =
+                (name_node, args_node, call_node)
+            {
                 let fn_name = node_text(name_node, source);
                 if fn_name != "in_array" && fn_name != "array_search" {
                     continue;
@@ -121,7 +147,8 @@ impl TypeJugglingPipeline {
 
                 // Check if the third argument (strict flag) is present
                 // PHP wraps each arg in `argument` nodes
-                let arg_count = args_node.named_children(&mut args_node.walk())
+                let arg_count = args_node
+                    .named_children(&mut args_node.walk())
                     .filter(|c| c.kind() == "argument")
                     .count();
                 if arg_count < 3 {
@@ -164,7 +191,10 @@ mod tests {
     fn detects_loose_comparison_get() {
         let src = "<?php\nif ($_GET['pin'] == $stored) { }\n";
         let findings = parse_and_check(src);
-        let loose: Vec<_> = findings.iter().filter(|f| f.pattern == "loose_comparison").collect();
+        let loose: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "loose_comparison")
+            .collect();
         assert_eq!(loose.len(), 1);
     }
 
@@ -172,7 +202,10 @@ mod tests {
     fn ignores_strict_comparison() {
         let src = "<?php\nif ($_GET['pin'] === $stored) { }\n";
         let findings = parse_and_check(src);
-        let loose: Vec<_> = findings.iter().filter(|f| f.pattern == "loose_comparison").collect();
+        let loose: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "loose_comparison")
+            .collect();
         assert!(loose.is_empty());
     }
 

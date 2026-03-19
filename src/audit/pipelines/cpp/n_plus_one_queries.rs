@@ -46,13 +46,7 @@ const DB_IO_QUALIFIED_PATTERNS: &[&str] = &[
 ];
 
 const DB_IO_METHOD_PATTERNS: &[&str] = &[
-    "execute",
-    "query",
-    "fetch",
-    "prepare",
-    "open",
-    "close",
-    "getline",
+    "execute", "query", "fetch", "prepare", "open", "close", "getline",
 ];
 
 fn cpp_lang() -> tree_sitter::Language {

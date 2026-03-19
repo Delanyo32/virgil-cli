@@ -123,7 +123,14 @@ impl CppBufferOverflowPipeline {
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_for_subscripts(child, source, param_names, findings, file_path, pipeline_name);
+            Self::walk_for_subscripts(
+                child,
+                source,
+                param_names,
+                findings,
+                file_path,
+                pipeline_name,
+            );
         }
     }
 }
@@ -148,14 +155,8 @@ impl Pipeline for CppBufferOverflowPipeline {
             let call_idx = find_capture_index(&self.call_query, "call");
 
             while let Some(m) = matches.next() {
-                let fn_name_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_name_idx);
-                let call_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == call_idx);
+                let fn_name_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
+                let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
 
                 if let (Some(fn_name_cap), Some(call_cap)) = (fn_name_cap, call_cap) {
                     let fn_name = node_text(fn_name_cap.node, source);
@@ -186,14 +187,8 @@ impl Pipeline for CppBufferOverflowPipeline {
             let fn_body_idx = find_capture_index(&self.fn_query, "fn_body");
 
             while let Some(m) = matches.next() {
-                let fn_def_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_def_idx);
-                let fn_body_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_body_idx);
+                let fn_def_cap = m.captures.iter().find(|c| c.index as usize == fn_def_idx);
+                let fn_body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
                 if let (Some(fn_def_cap), Some(fn_body_cap)) = (fn_def_cap, fn_body_cap) {
                     let param_names = Self::get_param_names(fn_def_cap.node, source);

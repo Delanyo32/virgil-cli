@@ -49,13 +49,24 @@ impl Pipeline for InsecureDeserializationPipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
             if let (Some(type_node), Some(creation_node)) = (type_node, creation_node) {
                 let type_name = node_text(type_node, source);
 
-                if let Some((_, pattern)) = DANGEROUS_SERIALIZERS.iter().find(|(name, _)| *name == type_name) {
+                if let Some((_, pattern)) = DANGEROUS_SERIALIZERS
+                    .iter()
+                    .find(|(name, _)| *name == type_name)
+                {
                     let start = creation_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),

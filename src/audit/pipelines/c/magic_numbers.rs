@@ -10,10 +10,8 @@ use crate::audit::pipeline::Pipeline;
 use super::primitives::{compile_numeric_literal_query, find_capture_index, has_type_qualifier};
 
 const EXCLUDED_VALUES: &[&str] = &[
-    "0", "1", "2", "0.0", "1.0", "-1",
-    "10", "100", "1000",
-    "256", "512", "1024", "2048", "4096", "8192",
-    "0xFF", "0xff", "0x80", "0xFFFF", "0xffff",
+    "0", "1", "2", "0.0", "1.0", "-1", "10", "100", "1000", "256", "512", "1024", "2048", "4096",
+    "8192", "0xFF", "0xff", "0x80", "0xFFFF", "0xffff",
 ];
 
 const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
@@ -93,10 +91,7 @@ impl Pipeline for CMagicNumbersPipeline {
             if findings.len() >= MAX_FINDINGS_PER_FILE {
                 break;
             }
-            let num_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == number_idx);
+            let num_cap = m.captures.iter().find(|c| c.index as usize == number_idx);
 
             if let Some(num_cap) = num_cap {
                 let value = num_cap.node.utf8_text(source).unwrap_or("");

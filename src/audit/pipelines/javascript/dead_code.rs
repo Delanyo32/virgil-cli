@@ -44,9 +44,7 @@ impl DeadCodePipeline {
                         severity: "info".to_string(),
                         pipeline: "dead_code".to_string(),
                         pattern: "unused_imports".to_string(),
-                        message: format!(
-                            "imported `{name}` is never used in this file"
-                        ),
+                        message: format!("imported `{name}` is never used in this file"),
                         snippet: extract_snippet(source, child, 1),
                     });
                 }
@@ -167,7 +165,9 @@ impl DeadCodePipeline {
             }
 
             let kind = node.kind();
-            if (kind == "identifier" || kind == "property_identifier" || kind == "shorthand_property_identifier")
+            if (kind == "identifier"
+                || kind == "property_identifier"
+                || kind == "shorthand_property_identifier")
                 && node.utf8_text(source).unwrap_or("") == name
             {
                 return true;
@@ -207,7 +207,8 @@ impl DeadCodePipeline {
                         severity: "warning".to_string(),
                         pipeline: "dead_code".to_string(),
                         pattern: "unreachable_code".to_string(),
-                        message: "code after return/break/continue/throw is unreachable".to_string(),
+                        message: "code after return/break/continue/throw is unreachable"
+                            .to_string(),
                         snippet: String::new(),
                     });
                 }

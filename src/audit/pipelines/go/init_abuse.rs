@@ -61,8 +61,16 @@ impl Pipeline for InitAbusePipeline {
         let mut init_body_ranges: Vec<tree_sitter::Range> = Vec::new();
 
         while let Some(m) = fn_matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
-            let body_node = m.captures.iter().find(|c| c.index as usize == fn_body_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
+            let body_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_body_idx)
+                .map(|c| c.node);
 
             if let (Some(name_node), Some(body_node)) = (name_node, body_node) {
                 if node_text(name_node, source) == "init" {
@@ -84,11 +92,25 @@ impl Pipeline for InitAbusePipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = call_matches.next() {
-            let pkg_node = m.captures.iter().find(|c| c.index as usize == pkg_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let pkg_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == pkg_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(pkg_node), Some(method_node), Some(call_node)) = (pkg_node, method_node, call_node) {
+            if let (Some(pkg_node), Some(method_node), Some(call_node)) =
+                (pkg_node, method_node, call_node)
+            {
                 let pkg_name = node_text(pkg_node, source);
                 let method_name = node_text(method_node, source);
 
@@ -102,9 +124,9 @@ impl Pipeline for InitAbusePipeline {
 
                 // Check if call is inside an init() body
                 let call_start = call_node.start_byte();
-                let in_init = init_body_ranges.iter().any(|range| {
-                    call_start >= range.start_byte && call_start <= range.end_byte
-                });
+                let in_init = init_body_ranges
+                    .iter()
+                    .any(|range| call_start >= range.start_byte && call_start <= range.end_byte);
 
                 if !in_init {
                     continue;
@@ -155,7 +177,8 @@ mod tests {
 
     #[test]
     fn clean_init_with_variable_only() {
-        let src = "package main\nvar defaultTimeout = 30\nfunc init() {\n\tdefaultTimeout = 60\n}\n";
+        let src =
+            "package main\nvar defaultTimeout = 30\nfunc init() {\n\tdefaultTimeout = 60\n}\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }

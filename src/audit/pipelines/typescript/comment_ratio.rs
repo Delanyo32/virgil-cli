@@ -3,7 +3,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_comment_ratio, is_test_file, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_comment_ratio, is_test_file};
 use crate::language::Language;
 
 fn ts_config() -> ControlFlowConfig {
@@ -40,7 +40,9 @@ pub struct CommentToCodeRatioPipeline {
 
 impl CommentToCodeRatioPipeline {
     pub fn new(language: Language) -> Result<Self> {
-        Ok(Self { _language: language })
+        Ok(Self {
+            _language: language,
+        })
     }
 }
 

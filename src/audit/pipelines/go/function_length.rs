@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_function_lines;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::language::Language;
 
 const LINE_THRESHOLD: usize = 50;
@@ -26,8 +26,8 @@ const FUNCTION_QUERY: &str = r#"
 
 fn compile_go_function_query() -> Result<Arc<Query>> {
     let lang = Language::Go.tree_sitter_language();
-    let query = Query::new(&lang, FUNCTION_QUERY)
-        .with_context(|| "failed to compile Go function query")?;
+    let query =
+        Query::new(&lang, FUNCTION_QUERY).with_context(|| "failed to compile Go function query")?;
     Ok(Arc::new(query))
 }
 
@@ -138,9 +138,7 @@ mod tests {
         for i in 0..55 {
             body_lines.push_str(&format!("    x{i} := {i}\n"));
         }
-        let src = format!(
-            "package main\n\nfunc longFunc() {{\n{body_lines}}}\n"
-        );
+        let src = format!("package main\n\nfunc longFunc() {{\n{body_lines}}}\n");
         let findings = parse_and_check(&src);
         assert!(findings.iter().any(|f| f.pattern == "function_too_long"));
     }
@@ -151,9 +149,7 @@ mod tests {
         for i in 0..22 {
             stmts.push_str(&format!("    x{i} := {i}\n"));
         }
-        let src = format!(
-            "package main\n\nfunc manyStmts() {{\n{stmts}}}\n"
-        );
+        let src = format!("package main\n\nfunc manyStmts() {{\n{stmts}}}\n");
         let findings = parse_and_check(&src);
         assert!(findings.iter().any(|f| f.pattern == "too_many_statements"));
     }

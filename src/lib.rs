@@ -1,10 +1,13 @@
 pub mod audit;
+pub mod call_graph;
 pub mod cli;
 pub mod discovery;
+pub mod format;
 pub mod language;
 pub mod languages;
 pub mod models;
-pub mod output;
 pub mod parser;
-pub mod query;
-pub mod s3;
+pub mod query_engine;
+pub mod query_lang;
+pub mod registry;
+pub mod signature;

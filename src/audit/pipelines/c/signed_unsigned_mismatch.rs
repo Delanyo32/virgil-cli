@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_for_statement_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_for_statement_query, extract_snippet, find_capture_index, node_text,
+};
 
 const SIZE_LIKE_IDENTIFIERS: &[&str] = &["size", "len", "length", "count", "num", "sz"];
 const SIZE_FUNCTIONS: &[&str] = &["strlen", "sizeof", "wcslen"];
@@ -72,21 +74,11 @@ impl Pipeline for SignedUnsignedMismatchPipeline {
         let for_stmt_idx = find_capture_index(&self.for_query, "for_stmt");
 
         while let Some(m) = matches.next() {
-            let init_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == for_init_idx);
-            let cond_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == for_cond_idx);
-            let stmt_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == for_stmt_idx);
+            let init_cap = m.captures.iter().find(|c| c.index as usize == for_init_idx);
+            let cond_cap = m.captures.iter().find(|c| c.index as usize == for_cond_idx);
+            let stmt_cap = m.captures.iter().find(|c| c.index as usize == for_stmt_idx);
 
-            if let (Some(init_cap), Some(cond_cap), Some(stmt_cap)) =
-                (init_cap, cond_cap, stmt_cap)
+            if let (Some(init_cap), Some(cond_cap), Some(stmt_cap)) = (init_cap, cond_cap, stmt_cap)
             {
                 // Check: init declares `int` variable
                 if !Self::init_type_is_int(init_cap.node, source) {

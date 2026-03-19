@@ -4,7 +4,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_cognitive, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_cognitive};
 use crate::audit::primitives::{extract_snippet, find_capture_index, node_text};
 
 const QUERY_SRC: &str = r#"
@@ -83,8 +83,7 @@ impl Pipeline for CognitiveComplexityPipeline {
             let body_cap = m.captures.iter().find(|c| c.index as usize == body_idx);
             let func_cap = m.captures.iter().find(|c| c.index as usize == func_idx);
 
-            if let (Some(name_cap), Some(body_cap), Some(func_cap)) =
-                (name_cap, body_cap, func_cap)
+            if let (Some(name_cap), Some(body_cap), Some(func_cap)) = (name_cap, body_cap, func_cap)
             {
                 let fn_name = node_text(name_cap.node, source);
                 let cog = compute_cognitive(body_cap.node, &config, source);

@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -42,7 +42,11 @@ impl CircularDependenciesPipeline {
         })
     }
 
-    fn extract_internal_import_sources(&self, source: &[u8], tree: &Tree) -> Vec<(String, u32, u32)> {
+    fn extract_internal_import_sources(
+        &self,
+        source: &[u8],
+        tree: &Tree,
+    ) -> Vec<(String, u32, u32)> {
         let mut cursor = QueryCursor::new();
         let source_idx = find_capture_index(&self.import_query, "source");
         let mut matches = cursor.matches(&self.import_query, tree.root_node(), source);
@@ -145,7 +149,11 @@ from .logging import Logger
 from .messaging import EventBus
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -155,7 +163,11 @@ from .config import AppConfig
 from .database import Pool
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -182,6 +194,10 @@ from ...config import AppConfig
 from .database import Pool
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 }

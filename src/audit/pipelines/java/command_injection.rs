@@ -8,8 +8,8 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_method_invocation_with_object_query, compile_object_creation_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_method_invocation_with_object_query, compile_object_creation_query, extract_snippet,
+    find_capture_index, node_text,
 };
 
 pub struct CommandInjectionPipeline {
@@ -59,11 +59,25 @@ impl CommandInjectionPipeline {
         let inv_idx = find_capture_index(&self.method_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(method_node), Some(args_node), Some(inv_node)) = (method_node, args_node, inv_node) {
+            if let (Some(method_node), Some(args_node), Some(inv_node)) =
+                (method_node, args_node, inv_node)
+            {
                 let method_name = node_text(method_node, source);
                 if method_name != "exec" {
                     continue;
@@ -84,7 +98,9 @@ impl CommandInjectionPipeline {
                         severity: "error".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "runtime_exec_injection".to_string(),
-                        message: "Runtime.exec() with string concatenation enables command injection".to_string(),
+                        message:
+                            "Runtime.exec() with string concatenation enables command injection"
+                                .to_string(),
                         snippet: extract_snippet(source, inv_node, 1),
                     });
                 }
@@ -107,19 +123,35 @@ impl CommandInjectionPipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
-            if let (Some(type_node), Some(args_node), Some(creation_node)) = (type_node, args_node, creation_node) {
+            if let (Some(type_node), Some(args_node), Some(creation_node)) =
+                (type_node, args_node, creation_node)
+            {
                 let type_name = node_text(type_node, source);
                 if type_name != "ProcessBuilder" {
                     continue;
                 }
 
                 let args_text = node_text(args_node, source);
-                let has_shell = args_text.contains("\"bash\"") || args_text.contains("\"sh\"")
-                    || args_text.contains("\"/bin/sh\"") || args_text.contains("\"/bin/bash\"")
+                let has_shell = args_text.contains("\"bash\"")
+                    || args_text.contains("\"sh\"")
+                    || args_text.contains("\"/bin/sh\"")
+                    || args_text.contains("\"/bin/bash\"")
                     || args_text.contains("\"cmd\"");
 
                 if has_shell && args_text.contains('+') {

@@ -98,9 +98,7 @@ impl CMemoryMismanagementPipeline {
                                 severity: "error".to_string(),
                                 pipeline: pipeline_name.to_string(),
                                 pattern: "double_free".to_string(),
-                                message: format!(
-                                    "double `free()` on `{arg}` — undefined behavior"
-                                ),
+                                message: format!("double `free()` on `{arg}` — undefined behavior"),
                                 snippet: extract_snippet(source, child, 1),
                             });
                         } else {
@@ -202,10 +200,7 @@ impl Pipeline for CMemoryMismanagementPipeline {
         let fn_body_idx = find_capture_index(&self.fn_def_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_body_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
             if let Some(body_cap) = body_cap {
                 let mut body_findings =

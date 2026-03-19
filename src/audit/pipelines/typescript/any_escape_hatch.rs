@@ -8,9 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::primitives::{
-    compile_predefined_type_query, extract_snippet, node_text,
-};
+use super::primitives::{compile_predefined_type_query, extract_snippet, node_text};
 
 pub struct AnyEscapeHatchPipeline {
     query: Arc<Query>,

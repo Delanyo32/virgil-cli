@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_method_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_method_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct SqlInjectionPipeline {
     method_query: Arc<Query>,
@@ -41,8 +43,16 @@ impl Pipeline for SqlInjectionPipeline {
         let sql_methods = ["Query", "QueryRow", "Exec", "QueryContext", "ExecContext"];
 
         while let Some(m) = matches.next() {
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
             if let (Some(method_node), Some(call_node)) = (method_node, call_node) {
                 let method_name = node_text(method_node, source);

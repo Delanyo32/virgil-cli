@@ -70,12 +70,7 @@ impl CouplingPipeline {
         findings
     }
 
-    fn check_low_cohesion(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-        file_path: &str,
-    ) -> Vec<AuditFinding> {
+    fn check_low_cohesion(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
@@ -126,13 +121,17 @@ fn check_params_recursive(
                         .unwrap_or("<anonymous>");
 
                     // Also skip if the method name matches the enclosing class name (constructor pattern)
-                    let is_constructor = node.parent().and_then(|p| {
-                        // class_body -> class_declaration
-                        p.parent().and_then(|class_node| {
-                            class_node.child_by_field_name("name")
-                                .map(|cn| node_text(cn, source) == name)
+                    let is_constructor = node
+                        .parent()
+                        .and_then(|p| {
+                            // class_body -> class_declaration
+                            p.parent().and_then(|class_node| {
+                                class_node
+                                    .child_by_field_name("name")
+                                    .map(|cn| node_text(cn, source) == name)
+                            })
                         })
-                    }).unwrap_or(false);
+                        .unwrap_or(false);
 
                     if !is_constructor {
                         let start = node.start_position();
@@ -243,10 +242,7 @@ mod tests {
         let imports: Vec<String> = (0..16)
             .map(|i| format!("import com.example.pkg{i}.Foo{i};"))
             .collect();
-        let src = format!(
-            "{}\n\nclass Foo {{}}\n",
-            imports.join("\n")
-        );
+        let src = format!("{}\n\nclass Foo {{}}\n", imports.join("\n"));
         let findings = parse_and_check(&src);
         let excessive: Vec<_> = findings
             .iter()

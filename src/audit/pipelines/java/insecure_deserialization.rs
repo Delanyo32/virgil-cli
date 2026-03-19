@@ -41,8 +41,16 @@ impl Pipeline for InsecureDeserializationPipeline {
         let inv_idx = find_capture_index(&self.method_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
             if let (Some(method_node), Some(inv_node)) = (method_node, inv_node) {
                 let method_name = node_text(method_node, source);
@@ -52,7 +60,11 @@ impl Pipeline for InsecureDeserializationPipeline {
 
                 let inv_text = node_text(inv_node, source);
                 // Heuristic: check if used with ObjectInputStream
-                if inv_text.contains("ObjectInput") || inv_text.contains("ois.") || inv_text.contains("oin.") || inv_text.contains("objectInput") {
+                if inv_text.contains("ObjectInput")
+                    || inv_text.contains("ois.")
+                    || inv_text.contains("oin.")
+                    || inv_text.contains("objectInput")
+                {
                     let start = inv_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),

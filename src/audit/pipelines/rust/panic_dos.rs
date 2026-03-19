@@ -4,9 +4,9 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 
 const NARROWING_TYPES: &[&str] = &["i8", "i16", "i32", "u8", "u16", "u32"];
 
@@ -175,7 +175,9 @@ impl Pipeline for PanicDosPipeline {
                                     severity: "warning".to_string(),
                                     pipeline: self.name().to_string(),
                                     pattern: "narrowing_cast".to_string(),
-                                    message: "narrowing cast may truncate and cause unexpected behavior".to_string(),
+                                    message:
+                                        "narrowing cast may truncate and cause unexpected behavior"
+                                            .to_string(),
                                     snippet: extract_snippet(source, expr_n, 1),
                                 });
                             }

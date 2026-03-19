@@ -153,12 +153,7 @@ impl LogicInViewsPipeline {
     }
 }
 
-fn has_html_output(
-    tree: &Tree,
-    source: &[u8],
-    text_query: &Query,
-    echo_query: &Query,
-) -> bool {
+fn has_html_output(tree: &Tree, source: &[u8], text_query: &Query, echo_query: &Query) -> bool {
     // Check for text nodes (inline HTML)
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(text_query, tree.root_node(), source);
@@ -189,7 +184,8 @@ mod tests {
 
     #[test]
     fn detects_db_call_with_html() {
-        let src = "<?php\n$rows = mysqli_query($conn, 'SELECT * FROM users');\n?>\n<h1>Users</h1>\n";
+        let src =
+            "<?php\n$rows = mysqli_query($conn, 'SELECT * FROM users');\n?>\n<h1>Users</h1>\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "db_in_view");

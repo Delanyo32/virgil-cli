@@ -9,9 +9,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::primitives::{
-    compile_interface_declaration_query, find_capture_index, node_text,
-};
+use super::primitives::{compile_interface_declaration_query, find_capture_index, node_text};
 
 pub struct TypeDuplicationPipeline {
     query: Arc<Query>,
@@ -119,13 +117,16 @@ impl Pipeline for TypeDuplicationPipeline {
                     reported.insert((i, j));
 
                     let shared: Vec<&String> = {
-                        let mut s: Vec<&String> =
-                            a.fields.intersection(&b.fields).collect();
+                        let mut s: Vec<&String> = a.fields.intersection(&b.fields).collect();
                         s.sort();
                         s
                     };
                     let shared_preview: String = if shared.len() <= 5 {
-                        shared.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                        shared
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     } else {
                         let mut preview: String = shared[..5]
                             .iter()
@@ -136,8 +137,7 @@ impl Pipeline for TypeDuplicationPipeline {
                         preview
                     };
 
-                    let snippet_bytes =
-                        &source[a.node_start..a.node_end.min(source.len())];
+                    let snippet_bytes = &source[a.node_start..a.node_end.min(source.len())];
                     let snippet_text = std::str::from_utf8(snippet_bytes).unwrap_or("");
                     let snippet_lines: Vec<&str> = snippet_text.lines().collect();
                     let snippet = if snippet_lines.len() <= 3 {
@@ -170,7 +170,9 @@ impl Pipeline for TypeDuplicationPipeline {
 
         // Check for suffix patterns (UserRow/UserDTO/UserResponse)
         let mut base_groups: HashMap<String, Vec<usize>> = HashMap::new();
-        let suffixes = ["Row", "DTO", "Response", "Input", "Output", "Model", "Entity"];
+        let suffixes = [
+            "Row", "DTO", "Response", "Input", "Output", "Model", "Entity",
+        ];
         for (idx, iface) in interfaces.iter().enumerate() {
             for suffix in &suffixes {
                 if iface.name.ends_with(suffix) {

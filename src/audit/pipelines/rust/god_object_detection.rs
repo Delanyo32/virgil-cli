@@ -3,10 +3,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use tree_sitter::{Query, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::is_trait_impl;
-use super::primitives;
 
 const LARGE_IMPL_THRESHOLD: usize = 10;
 const LARGE_STRUCT_THRESHOLD: usize = 15;
@@ -37,14 +37,24 @@ impl Pipeline for GodObjectDetectionPipeline {
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
 
-        let impl_matches =
-            primitives::find_large_impl_blocks(tree, source, &self.impl_query, LARGE_IMPL_THRESHOLD);
+        let impl_matches = primitives::find_large_impl_blocks(
+            tree,
+            source,
+            &self.impl_query,
+            LARGE_IMPL_THRESHOLD,
+        );
 
         for m in impl_matches {
             // Skip trait impls — they cannot be split; flagging is not actionable
             let impl_node = tree.root_node().descendant_for_point_range(
-                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
-                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+                tree_sitter::Point {
+                    row: (m.line - 1) as usize,
+                    column: (m.column - 1) as usize,
+                },
+                tree_sitter::Point {
+                    row: (m.line - 1) as usize,
+                    column: (m.column - 1) as usize,
+                },
             );
             if let Some(n) = impl_node {
                 // Walk up to find the impl_item
@@ -80,8 +90,12 @@ impl Pipeline for GodObjectDetectionPipeline {
             });
         }
 
-        let struct_matches =
-            primitives::find_large_structs(tree, source, &self.struct_query, LARGE_STRUCT_THRESHOLD);
+        let struct_matches = primitives::find_large_structs(
+            tree,
+            source,
+            &self.struct_query,
+            LARGE_STRUCT_THRESHOLD,
+        );
 
         for m in struct_matches {
             findings.push(AuditFinding {

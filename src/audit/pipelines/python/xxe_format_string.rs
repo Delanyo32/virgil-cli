@@ -52,14 +52,32 @@ impl Pipeline for XxeFormatStringPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 if fn_node.kind() == "attribute" {
-                    let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-                    let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                    let obj = fn_node
+                        .child_by_field_name("object")
+                        .map(|n| node_text(n, source));
+                    let attr = fn_node
+                        .child_by_field_name("attribute")
+                        .map(|n| node_text(n, source));
 
                     if let (Some(obj_name), Some(attr_name)) = (obj, attr) {
                         // Check for XML parsing with untrusted data
@@ -90,10 +108,14 @@ impl Pipeline for XxeFormatStringPipeline {
                         // Check for format string injection: variable.format(...)
                         if attr_name == "format" {
                             // The object should be a variable, not a string literal
-                            if fn_node.child_by_field_name("object").map(|n| n.kind()) != Some("string") {
+                            if fn_node.child_by_field_name("object").map(|n| n.kind())
+                                != Some("string")
+                            {
                                 // This is variable.format(...) — only flag if the object is an identifier
                                 // (user-controlled template)
-                                if fn_node.child_by_field_name("object").map(|n| n.kind()) == Some("identifier") {
+                                if fn_node.child_by_field_name("object").map(|n| n.kind())
+                                    == Some("identifier")
+                                {
                                     let start = call_node.start_position();
                                     findings.push(AuditFinding {
                                         file_path: file_path.to_string(),

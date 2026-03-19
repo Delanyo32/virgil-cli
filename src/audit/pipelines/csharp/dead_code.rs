@@ -26,13 +26,7 @@ impl DeadCodePipeline {
         let root = tree.root_node();
 
         // Walk for class_declaration -> declaration_list -> method_declaration
-        find_private_methods_iterative(
-            root,
-            source,
-            file_path,
-            self.name(),
-            &mut findings,
-        );
+        find_private_methods_iterative(root, source, file_path, self.name(), &mut findings);
 
         findings
     }
@@ -101,7 +95,14 @@ impl DeadCodePipeline {
             "continue_statement",
             "throw_statement",
         ];
-        collect_unreachable_in_blocks(root, source, &return_kinds, file_path, self.name(), &mut findings);
+        collect_unreachable_in_blocks(
+            root,
+            source,
+            &return_kinds,
+            file_path,
+            self.name(),
+            &mut findings,
+        );
 
         findings
     }
@@ -162,11 +163,7 @@ fn find_private_methods_iterative(
     }
 }
 
-fn collect_identifiers_into(
-    root: tree_sitter::Node,
-    source: &[u8],
-    ids: &mut HashSet<String>,
-) {
+fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut HashSet<String>) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();

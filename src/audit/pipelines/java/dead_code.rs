@@ -5,7 +5,9 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{collect_identifiers, count_all_identifier_occurrences, find_unreachable_after};
+use crate::audit::pipelines::helpers::{
+    collect_identifiers, count_all_identifier_occurrences, find_unreachable_after,
+};
 
 use super::primitives::{extract_snippet, has_modifier, node_text};
 
@@ -74,9 +76,7 @@ impl DeadCodePipeline {
                         severity: "info".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "unused_import".to_string(),
-                        message: format!(
-                            "import `{imported_name}` appears unused in this file"
-                        ),
+                        message: format!("import `{imported_name}` appears unused in this file"),
                         snippet: extract_snippet(source, child, 1),
                     });
                 }

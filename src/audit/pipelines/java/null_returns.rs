@@ -85,7 +85,9 @@ impl Pipeline for NullReturnsPipeline {
 
             // Skip if the enclosing method has @Test or @Deprecated annotation
             if let Some(m_node) = method_node {
-                if has_annotation(m_node, source, "Test") || has_annotation(m_node, source, "Deprecated") {
+                if has_annotation(m_node, source, "Test")
+                    || has_annotation(m_node, source, "Deprecated")
+                {
                     continue;
                 }
             }

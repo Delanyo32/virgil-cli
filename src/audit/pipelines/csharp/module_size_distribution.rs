@@ -1,10 +1,10 @@
 use anyhow::Result;
 use tree_sitter::Tree;
 
+use super::primitives::{extract_snippet, has_modifier};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::is_entry_file;
-use super::primitives::{extract_snippet, has_modifier};
 
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
@@ -82,7 +82,9 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         let total_lines = source.split(|&b| b == b'\n').count();
 
         // Pattern 1: Oversized module
-        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD || total_lines >= OVERSIZED_LINE_THRESHOLD {
+        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD
+            || total_lines >= OVERSIZED_LINE_THRESHOLD
+        {
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: 1,
@@ -203,7 +205,11 @@ namespace MyApp {
         }
         src.push_str("}\n");
         let findings = parse_and_check(&src);
-        assert!(findings.iter().any(|f| f.pattern == "monolithic_export_surface"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "monolithic_export_surface")
+        );
     }
 
     #[test]

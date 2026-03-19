@@ -23,14 +23,8 @@ impl DuplicateCodePipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        let groups = find_duplicate_bodies(
-            root,
-            source,
-            &["function_definition"],
-            "body",
-            "name",
-            5,
-        );
+        let groups =
+            find_duplicate_bodies(root, source, &["function_definition"], "body", "name", 5);
 
         for group in &groups {
             if group.len() < 2 {

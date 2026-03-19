@@ -26,10 +26,8 @@ impl CouplingPipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        let import_count = count_nodes_of_kind(
-            root,
-            &["import_statement", "import_from_statement"],
-        );
+        let import_count =
+            count_nodes_of_kind(root, &["import_statement", "import_from_statement"]);
 
         if import_count > EXCESSIVE_IMPORTS_THRESHOLD {
             findings.push(AuditFinding {
@@ -59,33 +57,16 @@ impl CouplingPipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        collect_parameter_overloads(
-            root,
-            source,
-            file_path,
-            self.name(),
-            &mut findings,
-        );
+        collect_parameter_overloads(root, source, file_path, self.name(), &mut findings);
 
         findings
     }
 
-    fn check_low_cohesion(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-        file_path: &str,
-    ) -> Vec<AuditFinding> {
+    fn check_low_cohesion(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        collect_low_cohesion_methods(
-            root,
-            source,
-            file_path,
-            self.name(),
-            &mut findings,
-        );
+        collect_low_cohesion_methods(root, source, file_path, self.name(), &mut findings);
 
         findings
     }
@@ -227,12 +208,10 @@ fn collect_low_cohesion_methods(
                 for child in body.children(&mut cursor) {
                     let func_node = match child.kind() {
                         "function_definition" => child,
-                        "decorated_definition" => {
-                            match find_inner_function(child) {
-                                Some(f) => f,
-                                None => continue,
-                            }
-                        }
+                        "decorated_definition" => match find_inner_function(child) {
+                            Some(f) => f,
+                            None => continue,
+                        },
                         _ => continue,
                     };
 
@@ -366,9 +345,7 @@ mod tests {
 
     #[test]
     fn detects_excessive_imports() {
-        let imports: String = (0..16)
-            .map(|i| format!("import mod{i}\n"))
-            .collect();
+        let imports: String = (0..16).map(|i| format!("import mod{i}\n")).collect();
         let src = format!("{imports}\ndef main():\n    pass\n");
         let findings = parse_and_check(&src);
         let excessive: Vec<_> = findings

@@ -3,7 +3,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_comment_ratio, is_test_file, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_comment_ratio, is_test_file};
 
 const UNDER_DOCUMENTED_THRESHOLD: f64 = 0.05;
 const OVER_DOCUMENTED_THRESHOLD: f64 = 0.60;
@@ -105,7 +105,11 @@ mod tests {
     #[test]
     fn detects_under_documented() {
         // Many lines of code with no comments
-        let mut lines = vec!["package main".to_string(), String::new(), "func main() {".to_string()];
+        let mut lines = vec![
+            "package main".to_string(),
+            String::new(),
+            "func main() {".to_string(),
+        ];
         for i in 0..30 {
             lines.push(format!("    x{i} := {i}"));
         }

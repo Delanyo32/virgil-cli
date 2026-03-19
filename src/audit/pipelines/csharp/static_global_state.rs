@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_field_decl_query, extract_snippet, find_capture_index, has_modifier, node_text};
+use super::primitives::{
+    compile_field_decl_query, extract_snippet, find_capture_index, has_modifier, node_text,
+};
 
 pub struct StaticGlobalStatePipeline {
     field_query: Arc<Query>,
@@ -39,8 +41,16 @@ impl Pipeline for StaticGlobalStatePipeline {
         let field_name_idx = find_capture_index(&self.field_query, "field_name");
 
         while let Some(m) = matches.next() {
-            let decl_node = m.captures.iter().find(|c| c.index as usize == field_decl_idx).map(|c| c.node);
-            let name_node = m.captures.iter().find(|c| c.index as usize == field_name_idx).map(|c| c.node);
+            let decl_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == field_decl_idx)
+                .map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == field_name_idx)
+                .map(|c| c.node);
 
             if let (Some(decl_node), Some(name_node)) = (decl_node, name_node) {
                 if has_modifier(decl_node, source, "static")
@@ -76,7 +86,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = StaticGlobalStatePipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")

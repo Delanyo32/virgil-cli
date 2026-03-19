@@ -3,7 +3,7 @@ use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_comment_ratio, is_test_file, ControlFlowConfig};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_comment_ratio, is_test_file};
 
 const UNDER_DOCUMENTED_THRESHOLD: f64 = 0.05;
 const OVER_DOCUMENTED_THRESHOLD: f64 = 0.60;

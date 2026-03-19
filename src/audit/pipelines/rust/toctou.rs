@@ -4,9 +4,9 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 
 const PATH_CHECK_METHODS: &[&str] = &["exists", "is_file", "is_dir"];
 const FILE_OP_METHODS: &[&str] = &["open", "read", "write", "create", "remove"];
@@ -29,9 +29,9 @@ impl ToctouPipeline {
     }
 
     fn text_contains_file_op(text: &str) -> bool {
-        FILE_OP_METHODS
-            .iter()
-            .any(|method| text.contains(&format!(".{method}(")) || text.contains(&format!("::{method}(")))
+        FILE_OP_METHODS.iter().any(|method| {
+            text.contains(&format!(".{method}(")) || text.contains(&format!("::{method}("))
+        })
     }
 }
 
@@ -70,8 +70,7 @@ impl Pipeline for ToctouPipeline {
                 .find(|c| c.index as usize == if_expr_idx)
                 .map(|c| c.node);
 
-            if let (Some(cond_n), Some(body_n), Some(if_n)) =
-                (condition_cap, body_cap, if_expr_cap)
+            if let (Some(cond_n), Some(body_n), Some(if_n)) = (condition_cap, body_cap, if_expr_cap)
             {
                 let cond_text = node_text(cond_n, source);
                 let body_text = node_text(body_n, source);
@@ -87,7 +86,9 @@ impl Pipeline for ToctouPipeline {
                         severity: "warning".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "path_check_use_race".to_string(),
-                        message: "TOCTOU: path check followed by file operation creates a race window".to_string(),
+                        message:
+                            "TOCTOU: path check followed by file operation creates a race window"
+                                .to_string(),
                         snippet: extract_snippet(source, if_n, 3),
                     });
                 }

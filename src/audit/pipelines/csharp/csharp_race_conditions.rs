@@ -8,13 +8,20 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_field_decl_query, compile_class_decl_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_class_decl_query, compile_field_decl_query, extract_snippet, find_capture_index,
+    node_text,
 };
 
 const UNSYNC_COLLECTIONS: &[&str] = &[
-    "Dictionary", "List", "HashSet", "Queue", "Stack", "LinkedList",
-    "SortedDictionary", "SortedList", "SortedSet",
+    "Dictionary",
+    "List",
+    "HashSet",
+    "Queue",
+    "Stack",
+    "LinkedList",
+    "SortedDictionary",
+    "SortedList",
+    "SortedSet",
 ];
 
 pub struct CSharpRaceConditionsPipeline {
@@ -63,16 +70,23 @@ impl CSharpRaceConditionsPipeline {
         let field_idx = find_capture_index(&self.field_query, "field_decl");
 
         let source_str = std::str::from_utf8(source).unwrap_or("");
-        let has_threads = source_str.contains("Task") || source_str.contains("Thread")
-            || source_str.contains("async") || source_str.contains("lock")
-            || source_str.contains("Parallel") || source_str.contains("volatile");
+        let has_threads = source_str.contains("Task")
+            || source_str.contains("Thread")
+            || source_str.contains("async")
+            || source_str.contains("lock")
+            || source_str.contains("Parallel")
+            || source_str.contains("volatile");
 
         if !has_threads {
             return;
         }
 
         while let Some(m) = matches.next() {
-            let field_node = m.captures.iter().find(|c| c.index as usize == field_idx).map(|c| c.node);
+            let field_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == field_idx)
+                .map(|c| c.node);
 
             if let Some(field_node) = field_node {
                 let field_text = node_text(field_node, source);
@@ -115,7 +129,11 @@ impl CSharpRaceConditionsPipeline {
         let body_idx = find_capture_index(&self.class_query, "class_body");
 
         while let Some(m) = matches.next() {
-            let body_node = m.captures.iter().find(|c| c.index as usize == body_idx).map(|c| c.node);
+            let body_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == body_idx)
+                .map(|c| c.node);
 
             if let Some(body_node) = body_node {
                 let body_text = node_text(body_node, source);
@@ -123,15 +141,19 @@ impl CSharpRaceConditionsPipeline {
                 // Check for volatile/shared fields with ++ or +=
                 if body_text.contains("volatile") || body_text.contains("static") {
                     let source_str = std::str::from_utf8(source).unwrap_or("");
-                    let has_threads = source_str.contains("Task") || source_str.contains("Thread")
-                        || source_str.contains("async") || source_str.contains("Parallel");
+                    let has_threads = source_str.contains("Task")
+                        || source_str.contains("Thread")
+                        || source_str.contains("async")
+                        || source_str.contains("Parallel");
 
                     if has_threads {
                         for (i, line) in source_str.lines().enumerate() {
                             let line_start = body_node.start_position().row;
                             let line_end = body_node.end_position().row;
                             if i >= line_start && i <= line_end {
-                                if (line.contains("++") || line.contains("+=")) && !line.contains("Interlocked") {
+                                if (line.contains("++") || line.contains("+="))
+                                    && !line.contains("Interlocked")
+                                {
                                     let trimmed = line.trim();
                                     if !trimmed.starts_with("//") && !trimmed.starts_with("*") {
                                         findings.push(AuditFinding {
@@ -169,9 +191,16 @@ impl CSharpRaceConditionsPipeline {
             for (i, line) in source_str.lines().enumerate() {
                 if line.contains("File.Exists") {
                     // Check subsequent lines for file operations
-                    let remaining: String = source_str.lines().skip(i + 1).take(5).collect::<Vec<_>>().join("\n");
-                    let has_file_op = remaining.contains("File.Read") || remaining.contains("File.Write")
-                        || remaining.contains("File.Open") || remaining.contains("File.Delete");
+                    let remaining: String = source_str
+                        .lines()
+                        .skip(i + 1)
+                        .take(5)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let has_file_op = remaining.contains("File.Read")
+                        || remaining.contains("File.Write")
+                        || remaining.contains("File.Open")
+                        || remaining.contains("File.Delete");
 
                     if has_file_op {
                         findings.push(AuditFinding {

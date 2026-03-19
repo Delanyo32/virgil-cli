@@ -106,9 +106,7 @@ impl NPlusOneQueriesPipeline {
                             if call_node.kind() == "call_expression" {
                                 if let Some(func) = call_node.child_by_field_name("function") {
                                     if func.kind() == "member_expression" {
-                                        if let Some(prop) =
-                                            func.child_by_field_name("property")
-                                        {
+                                        if let Some(prop) = func.child_by_field_name("property") {
                                             let method_name = node_text(prop, source);
                                             if ARRAY_LOOP_METHODS.contains(&method_name) {
                                                 return true;
@@ -182,8 +180,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
         // Check method calls (obj.method patterns)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let call_idx = find_capture_index(&self.method_call_query, "call");
@@ -205,9 +202,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
                     .find(|c| c.index as usize == call_idx)
                     .map(|c| c.node);
 
-                if let (Some(obj), Some(method), Some(call)) =
-                    (obj_node, method_node, call_node)
-                {
+                if let (Some(obj), Some(method), Some(call)) = (obj_node, method_node, call_node) {
                     if !Self::is_in_loop_context(call, source) {
                         continue;
                     }
@@ -252,8 +247,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
         // Check bare function calls (fetch, request)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_name_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
 
@@ -302,9 +296,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::TypeScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = NPlusOneQueriesPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.ts")

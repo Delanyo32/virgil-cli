@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file, is_test_file};
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
@@ -68,7 +68,10 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         }
 
         // Skip generated files (first line starts with "// Code generated")
-        if let Some(first_line) = std::str::from_utf8(source).ok().and_then(|s| s.lines().next()) {
+        if let Some(first_line) = std::str::from_utf8(source)
+            .ok()
+            .and_then(|s| s.lines().next())
+        {
             if first_line.starts_with("// Code generated") {
                 return Vec::new();
             }
@@ -81,7 +84,9 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         let total_lines = source.split(|&b| b == b'\n').count();
 
         // Pattern 1: Oversized module
-        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD || total_lines >= OVERSIZED_LINE_THRESHOLD {
+        if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD
+            || total_lines >= OVERSIZED_LINE_THRESHOLD
+        {
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: 1,
@@ -111,7 +116,11 @@ impl Pipeline for ModuleSizeDistributionPipeline {
             for cap in m.captures {
                 if cap.index as usize == def_idx {
                     // Only count top-level definitions
-                    if cap.node.parent().map_or(false, |p| p.kind() == "source_file") {
+                    if cap
+                        .node
+                        .parent()
+                        .map_or(false, |p| p.kind() == "source_file")
+                    {
                         is_top_level = true;
                     }
                 }
@@ -147,7 +156,8 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         // Pattern 3: Anemic module
         // Exclude main.go and _test.go files
         let is_test_file = file_path.ends_with("_test.go");
-        if total_definitions == 1 && !is_entry_file(file_path, ANEMIC_ENTRY_FILES) && !is_test_file {
+        if total_definitions == 1 && !is_entry_file(file_path, ANEMIC_ENTRY_FILES) && !is_test_file
+        {
             let snippet = {
                 let mut cursor = root.walk();
                 root.children(&mut cursor)
@@ -162,7 +172,9 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                 severity: "info".to_string(),
                 pipeline: "module_size_distribution".to_string(),
                 pattern: "anemic_module".to_string(),
-                message: "Module contains only 1 definition — consider merging into a related module".to_string(),
+                message:
+                    "Module contains only 1 definition — consider merging into a related module"
+                        .to_string(),
                 snippet,
             });
         }
@@ -207,7 +219,11 @@ mod tests {
             src.push_str(&format!("func Func{}() {{}}\n", i));
         }
         let findings = parse_and_check(&src);
-        assert!(findings.iter().any(|f| f.pattern == "monolithic_export_surface"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "monolithic_export_surface")
+        );
     }
 
     #[test]
@@ -217,7 +233,11 @@ mod tests {
             src.push_str(&format!("func func{}() {{}}\n", i));
         }
         let findings = parse_and_check(&src);
-        assert!(!findings.iter().any(|f| f.pattern == "monolithic_export_surface"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "monolithic_export_surface")
+        );
     }
 
     #[test]

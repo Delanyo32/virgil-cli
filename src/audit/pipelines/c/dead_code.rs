@@ -51,20 +51,14 @@ impl Pipeline for DeadCodePipeline {
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "unused_static_function".to_string(),
-                    message: format!(
-                        "static function `{name}` appears unused in this file"
-                    ),
+                    message: format!("static function `{name}` appears unused in this file"),
                     snippet: extract_snippet(source, *node, 3),
                 });
             }
         }
 
         // ── unreachable_code ─────────────────────────────────────────
-        let return_kinds = [
-            "return_statement",
-            "break_statement",
-            "continue_statement",
-        ];
+        let return_kinds = ["return_statement", "break_statement", "continue_statement"];
         collect_unreachable_findings(
             root,
             source,
@@ -252,6 +246,9 @@ int foo(void) {
         let pipeline = DeadCodePipeline::new().unwrap();
         assert_eq!(pipeline.name(), "dead_code");
         assert!(!pipeline.description().is_empty());
-        assert_eq!(pipeline.description(), "Detects unused static functions and unreachable code in C");
+        assert_eq!(
+            pipeline.description(),
+            "Detects unused static functions and unreachable code in C"
+        );
     }
 }

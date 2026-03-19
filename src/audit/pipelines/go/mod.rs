@@ -21,25 +21,25 @@ pub mod dead_code;
 pub mod duplicate_code;
 
 pub mod command_injection;
-pub mod sql_injection;
+pub mod go_integer_overflow;
 pub mod go_path_traversal;
 pub mod go_race_conditions;
 pub mod go_resource_exhaustion;
-pub mod go_integer_overflow;
 pub mod go_type_confusion;
+pub mod sql_injection;
 pub mod ssrf_open_redirect;
 
+pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
-pub mod memory_leak_indicators;
 
-pub mod module_size_distribution;
+pub mod api_surface_area;
 pub mod circular_dependencies;
 pub mod dependency_graph_depth;
-pub mod api_surface_area;
+pub mod module_size_distribution;
 
-use anyhow::Result;
 use crate::audit::pipeline::Pipeline;
+use anyhow::Result;
 
 pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![

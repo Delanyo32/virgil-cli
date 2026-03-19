@@ -46,8 +46,7 @@ impl CppExceptionSafetyPipeline {
                     if grandparent.kind() == "init_declarator" {
                         if let Some(declaration) = grandparent.parent() {
                             let decl_text = node_text(declaration, source);
-                            if decl_text.contains("unique_ptr")
-                                || decl_text.contains("shared_ptr")
+                            if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr")
                             {
                                 return true;
                             }
@@ -134,8 +133,7 @@ impl CppExceptionSafetyPipeline {
                     // Check if the result is wrapped in a smart pointer
                     let in_smart_ptr = if let Some(parent) = node.parent() {
                         let parent_text = node_text(parent, source);
-                        if parent_text.contains("unique_ptr")
-                            || parent_text.contains("shared_ptr")
+                        if parent_text.contains("unique_ptr") || parent_text.contains("shared_ptr")
                         {
                             true
                         } else if let Some(gp) = parent.parent() {
@@ -192,10 +190,7 @@ impl Pipeline for CppExceptionSafetyPipeline {
             let new_idx = find_capture_index(&self.new_query, "new_expr");
 
             while let Some(m) = matches.next() {
-                let new_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == new_idx);
+                let new_cap = m.captures.iter().find(|c| c.index as usize == new_idx);
 
                 if let Some(new_cap) = new_cap {
                     if Self::is_smart_ptr_context(new_cap.node, source) {
@@ -226,10 +221,7 @@ impl Pipeline for CppExceptionSafetyPipeline {
             let fn_body_idx = find_capture_index(&self.fn_query, "fn_body");
 
             while let Some(m) = matches.next() {
-                let fn_body_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_body_idx);
+                let fn_body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
                 if let Some(fn_body_cap) = fn_body_cap {
                     let fn_body_text = node_text(fn_body_cap.node, source);

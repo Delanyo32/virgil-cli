@@ -5,16 +5,12 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use super::primitives;
 
-const BLOCKING_SCOPED_PREFIXES: &[&str] = &[
-    "std::fs::",
-    "fs::",
-    "std::thread::sleep",
-    "thread::sleep",
-];
+const BLOCKING_SCOPED_PREFIXES: &[&str] =
+    &["std::fs::", "fs::", "std::thread::sleep", "thread::sleep"];
 
 const BLOCKING_METHODS: &[&str] = &["join"];
 
@@ -124,8 +120,7 @@ impl Pipeline for AsyncBlockingPipeline {
                         && Self::is_in_async_body(&async_ranges, call_cap.node.start_byte())
                     {
                         let start = call_cap.node.start_position();
-                        let snippet =
-                            call_cap.node.utf8_text(source).unwrap_or("").to_string();
+                        let snippet = call_cap.node.utf8_text(source).unwrap_or("").to_string();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
@@ -180,12 +175,14 @@ impl Pipeline for AsyncBlockingPipeline {
                             }
                         }
                         // Skip calls inside spawn_blocking/block_in_place closures
-                        if crate::audit::pipelines::helpers::is_inside_spawn_blocking(call_cap.node, source) {
+                        if crate::audit::pipelines::helpers::is_inside_spawn_blocking(
+                            call_cap.node,
+                            source,
+                        ) {
                             continue;
                         }
                         let start = call_cap.node.start_position();
-                        let snippet =
-                            call_cap.node.utf8_text(source).unwrap_or("").to_string();
+                        let snippet = call_cap.node.utf8_text(source).unwrap_or("").to_string();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,

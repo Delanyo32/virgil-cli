@@ -51,8 +51,7 @@ impl MemoryLeaksPipeline {
                     if let Some(value) = declarator.child_by_field_name("value") {
                         if Self::is_alloc_call(value, source) {
                             if let Some(decl) = declarator.child_by_field_name("declarator") {
-                                if let Some(var_name) =
-                                    find_identifier_in_declarator(decl, source)
+                                if let Some(var_name) = find_identifier_in_declarator(decl, source)
                                 {
                                     allocs.push((node, var_name));
                                 }
@@ -121,14 +120,10 @@ impl Pipeline for MemoryLeaksPipeline {
         let fn_body_idx = find_capture_index(&self.fn_def_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_body_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
             if let Some(body_cap) = body_cap {
-                let (allocs, has_free, returned_vars) =
-                    Self::scan_body(body_cap.node, source);
+                let (allocs, has_free, returned_vars) = Self::scan_body(body_cap.node, source);
 
                 // If there's a free() anywhere in the function, skip
                 if has_free {

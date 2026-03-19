@@ -8,9 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::primitives::{
-    compile_function_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_function_query, extract_snippet, find_capture_index, node_text};
 
 pub struct ImplicitAnyPipeline {
     query: Arc<Query>,

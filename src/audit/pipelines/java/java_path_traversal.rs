@@ -8,8 +8,8 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_object_creation_query, compile_method_invocation_with_object_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_method_invocation_with_object_query, compile_object_creation_query, extract_snippet,
+    find_capture_index, node_text,
 };
 
 pub struct JavaPathTraversalPipeline {
@@ -59,11 +59,25 @@ impl JavaPathTraversalPipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
-            if let (Some(type_node), Some(args_node), Some(creation_node)) = (type_node, args_node, creation_node) {
+            if let (Some(type_node), Some(args_node), Some(creation_node)) =
+                (type_node, args_node, creation_node)
+            {
                 let type_name = node_text(type_node, source);
                 if type_name != "File" {
                     continue;
@@ -103,10 +117,26 @@ impl JavaPathTraversalPipeline {
         let inv_idx = find_capture_index(&self.method_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let obj_node = m.captures.iter().find(|c| c.index as usize == obj_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let obj_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == obj_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
             if let (Some(obj_node), Some(method_node), Some(args_node), Some(inv_node)) =
                 (obj_node, method_node, args_node, inv_node)

@@ -62,8 +62,16 @@ impl Pipeline for DisposableNotDisposedPipeline {
         let var_decl_idx = find_capture_index(&self.local_query, "var_decl");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == var_type_idx).map(|c| c.node);
-            let decl_node = m.captures.iter().find(|c| c.index as usize == var_decl_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == var_type_idx)
+                .map(|c| c.node);
+            let decl_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == var_decl_idx)
+                .map(|c| c.node);
 
             if let (Some(type_node), Some(decl_node)) = (type_node, decl_node) {
                 let type_text = node_text(type_node, source);
@@ -117,7 +125,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = DisposableNotDisposedPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")

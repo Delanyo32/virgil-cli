@@ -43,11 +43,25 @@ impl Pipeline for GodClassPipeline {
         let class_decl_idx = find_capture_index(&self.class_query, "class_decl");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == class_name_idx).map(|c| c.node);
-            let body_node = m.captures.iter().find(|c| c.index as usize == class_body_idx).map(|c| c.node);
-            let decl_node = m.captures.iter().find(|c| c.index as usize == class_decl_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == class_name_idx)
+                .map(|c| c.node);
+            let body_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == class_body_idx)
+                .map(|c| c.node);
+            let decl_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == class_decl_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(body_node), Some(decl_node)) = (name_node, body_node, decl_node) {
+            if let (Some(name_node), Some(body_node), Some(decl_node)) =
+                (name_node, body_node, decl_node)
+            {
                 let class_name = node_text(name_node, source);
 
                 let mut method_count = 0;
@@ -106,7 +120,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = GodClassPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")
@@ -114,7 +130,9 @@ mod tests {
 
     #[test]
     fn detects_too_many_methods() {
-        let methods: Vec<String> = (0..12).map(|i| format!("public void M{i}() {{ }}")).collect();
+        let methods: Vec<String> = (0..12)
+            .map(|i| format!("public void M{i}() {{ }}"))
+            .collect();
         let src = format!("class BigClass {{ {} }}", methods.join("\n"));
         let findings = parse_and_check(&src);
         assert_eq!(findings.len(), 1);

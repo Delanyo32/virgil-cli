@@ -8,8 +8,8 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_object_creation_query, compile_invocation_query,
-    extract_snippet, find_capture_index, node_text,
+    compile_invocation_query, compile_object_creation_query, extract_snippet, find_capture_index,
+    node_text,
 };
 
 pub struct SqlInjectionPipeline {
@@ -59,13 +59,30 @@ impl SqlInjectionPipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
-            if let (Some(type_node), Some(args_node), Some(creation_node)) = (type_node, args_node, creation_node) {
+            if let (Some(type_node), Some(args_node), Some(creation_node)) =
+                (type_node, args_node, creation_node)
+            {
                 let type_name = node_text(type_node, source);
-                if type_name != "SqlCommand" && type_name != "MySqlCommand" && type_name != "NpgsqlCommand" {
+                if type_name != "SqlCommand"
+                    && type_name != "MySqlCommand"
+                    && type_name != "NpgsqlCommand"
+                {
                     continue;
                 }
 
@@ -135,11 +152,24 @@ impl SqlInjectionPipeline {
         let sql_methods = ["ExecuteSqlRaw", "FromSqlRaw", "SqlQuery"];
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node) {
+            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node)
+            {
                 let fn_text = node_text(fn_node, source);
                 let matches_method = sql_methods.iter().any(|m| fn_text.contains(m));
                 if !matches_method {
@@ -156,7 +186,8 @@ impl SqlInjectionPipeline {
                         severity: "error".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "sql_string_concat".to_string(),
-                        message: "Raw SQL method with dynamic query — use parameterized queries".to_string(),
+                        message: "Raw SQL method with dynamic query — use parameterized queries"
+                            .to_string(),
                         snippet: extract_snippet(source, inv_node, 2),
                     });
                 }

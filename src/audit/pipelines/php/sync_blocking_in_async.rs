@@ -153,7 +153,8 @@ mod tests {
 
     #[test]
     fn detects_file_get_contents_in_callback() {
-        let src = "<?php\n$promise->then(function ($url) {\n    $data = file_get_contents($url);\n});\n";
+        let src =
+            "<?php\n$promise->then(function ($url) {\n    $data = file_get_contents($url);\n});\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("file_get_contents"));

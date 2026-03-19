@@ -50,9 +50,21 @@ impl Pipeline for PathTraversalPipeline {
         let mut fn_matches = fn_cursor.matches(&self.fn_query, tree.root_node(), source);
 
         while let Some(fn_m) = fn_matches.next() {
-            let params_node = fn_m.captures.iter().find(|c| c.index as usize == params_idx).map(|c| c.node);
-            let body_node = fn_m.captures.iter().find(|c| c.index as usize == fn_body_idx).map(|c| c.node);
-            let _fn_name_node = fn_m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
+            let params_node = fn_m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == params_idx)
+                .map(|c| c.node);
+            let body_node = fn_m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_body_idx)
+                .map(|c| c.node);
+            let _fn_name_node = fn_m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
 
             if let (Some(params), Some(body)) = (params_node, body_node) {
                 // Collect parameter names
@@ -69,14 +81,29 @@ impl Pipeline for PathTraversalPipeline {
                 // Search for calls within the function body
                 let mut call_cursor = QueryCursor::new();
                 call_cursor.set_byte_range(body.byte_range());
-                let mut call_matches = call_cursor.matches(&self.call_query, tree.root_node(), source);
+                let mut call_matches =
+                    call_cursor.matches(&self.call_query, tree.root_node(), source);
 
                 while let Some(cm) = call_matches.next() {
-                    let fn_node = cm.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-                    let call_args = cm.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-                    let call_node = cm.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+                    let fn_node = cm
+                        .captures
+                        .iter()
+                        .find(|c| c.index as usize == fn_expr_idx)
+                        .map(|c| c.node);
+                    let call_args = cm
+                        .captures
+                        .iter()
+                        .find(|c| c.index as usize == args_idx)
+                        .map(|c| c.node);
+                    let call_node = cm
+                        .captures
+                        .iter()
+                        .find(|c| c.index as usize == call_idx)
+                        .map(|c| c.node);
 
-                    if let (Some(fn_node), Some(call_args), Some(call_node)) = (fn_node, call_args, call_node) {
+                    if let (Some(fn_node), Some(call_args), Some(call_node)) =
+                        (fn_node, call_args, call_node)
+                    {
                         let (is_path_op, pattern) = is_path_operation(fn_node, source);
                         if !is_path_op {
                             continue;

@@ -12,23 +12,11 @@ use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 /// Function-call names that indicate a DB query.
-const DB_FUNCTIONS: &[&str] = &[
-    "mysqli_query",
-    "query",
-    "prepare",
-    "execute",
-];
+const DB_FUNCTIONS: &[&str] = &["mysqli_query", "query", "prepare", "execute"];
 
 /// Method names on objects that indicate a DB/ORM query.
 const DB_METHODS: &[&str] = &[
-    "find",
-    "get",
-    "where",
-    "first",
-    "all",
-    "query",
-    "prepare",
-    "execute",
+    "find", "get", "where", "first", "all", "query", "prepare", "execute",
 ];
 
 /// Function-call names that indicate an HTTP request.
@@ -182,9 +170,13 @@ impl NPlusOneQueriesPipeline {
                 let (is_match, pattern) = if method_name == "get" {
                     // Check receiver to disambiguate HTTP vs cache/collection usage
                     let receiver = extract_receiver_text(call_n, source);
-                    if !receiver.is_empty() && receiver_matches_any(receiver, CACHE_RECEIVER_PATTERNS) {
+                    if !receiver.is_empty()
+                        && receiver_matches_any(receiver, CACHE_RECEIVER_PATTERNS)
+                    {
                         (false, "")
-                    } else if !receiver.is_empty() && receiver_matches_any(receiver, HTTP_RECEIVER_PATTERNS) {
+                    } else if !receiver.is_empty()
+                        && receiver_matches_any(receiver, HTTP_RECEIVER_PATTERNS)
+                    {
                         (true, "http_call_in_loop")
                     } else {
                         // Ambiguous .get() — default to DB pattern for ORM-like objects
@@ -249,10 +241,20 @@ impl Pipeline for NPlusOneQueriesPipeline {
 
             if let (Some(body), Some(loop_n)) = (body_node, loop_node) {
                 self.check_function_calls_in_loop(
-                    tree, source, body, loop_n, file_path, &mut findings,
+                    tree,
+                    source,
+                    body,
+                    loop_n,
+                    file_path,
+                    &mut findings,
                 );
                 self.check_method_calls_in_loop(
-                    tree, source, body, loop_n, file_path, &mut findings,
+                    tree,
+                    source,
+                    body,
+                    loop_n,
+                    file_path,
+                    &mut findings,
                 );
             }
         }
@@ -296,7 +298,8 @@ mod tests {
 
     #[test]
     fn detects_http_call_in_while_loop() {
-        let src = "<?php\nwhile ($url = array_pop($urls)) {\n    $data = file_get_contents($url);\n}\n";
+        let src =
+            "<?php\nwhile ($url = array_pop($urls)) {\n    $data = file_get_contents($url);\n}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "http_call_in_loop");

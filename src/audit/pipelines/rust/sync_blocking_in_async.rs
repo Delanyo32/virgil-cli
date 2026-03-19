@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const BLOCKING_SCOPED_PREFIXES: &[&str] = &[
     "std::fs::read",
@@ -148,9 +148,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                         .iter()
                         .any(|prefix| fn_text.starts_with(prefix));
 
-                    if is_blocking
-                        && Self::is_in_async_body(&async_ranges, call_cap.start_byte())
-                    {
+                    if is_blocking && Self::is_in_async_body(&async_ranges, call_cap.start_byte()) {
                         let start = call_cap.start_position();
                         let pattern = if fn_text.contains("thread::sleep") {
                             "thread_sleep_in_async"
@@ -271,8 +269,11 @@ async fn save(data: &[u8]) {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "blocking_io_in_async"
-            && f.message.contains("write_all")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "blocking_io_in_async" && f.message.contains("write_all"))
+        );
     }
 
     #[test]

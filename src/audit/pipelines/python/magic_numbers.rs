@@ -6,13 +6,13 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{ancestor_has_kind, is_test_file, is_test_context_python};
+use crate::audit::pipelines::helpers::{ancestor_has_kind, is_test_context_python, is_test_file};
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index, node_text};
 
 const EXCLUDED_VALUES: &[&str] = &[
-    "0", "1", "2", "-1", "0.0", "1.0",
-    "10", "100", "1000", "256", "512", "1024", "2048", "4096", "8192",
+    "0", "1", "2", "-1", "0.0", "1.0", "10", "100", "1000", "256", "512", "1024", "2048", "4096",
+    "8192",
 ];
 
 pub struct PythonMagicNumbersPipeline {

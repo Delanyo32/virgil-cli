@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -26,8 +26,9 @@ impl CircularDependenciesPipeline {
 (import_statement
   source: (string) @import_source) @import_stmt
 "#;
-        let import_query = Query::new(&js_lang(), import_query_str)
-            .with_context(|| "failed to compile import statement query for JavaScript circular deps")?;
+        let import_query = Query::new(&js_lang(), import_query_str).with_context(
+            || "failed to compile import statement query for JavaScript circular deps",
+        )?;
 
         Ok(Self {
             import_query: Arc::new(import_query),
@@ -128,7 +129,11 @@ import { Pool } from './database';
 import { Logger } from '../logging';
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -138,7 +143,11 @@ import { AppConfig } from './config';
 import { Pool } from './database';
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -166,6 +175,10 @@ import lodash from 'lodash';
 "#;
         let findings = parse_and_check(src);
         // Only 3 relative imports, below threshold of 5
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 }

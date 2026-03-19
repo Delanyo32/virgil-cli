@@ -11,16 +11,29 @@ use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const BLOCKING_FUNCTIONS: &[&str] = &[
-    "sleep", "usleep", "nanosleep",
-    "fread", "fwrite", "fgets", "fputs",
-    "recv", "send", "recvfrom", "sendto",
-    "accept", "connect",
-    "read", "write",
-    "pread", "pwrite",
+    "sleep",
+    "usleep",
+    "nanosleep",
+    "fread",
+    "fwrite",
+    "fgets",
+    "fputs",
+    "recv",
+    "send",
+    "recvfrom",
+    "sendto",
+    "accept",
+    "connect",
+    "read",
+    "write",
+    "pread",
+    "pwrite",
     "getaddrinfo",
     "gethostbyname",
-    "select", "poll",
-    "waitpid", "wait",
+    "select",
+    "poll",
+    "waitpid",
+    "wait",
     "system",
 ];
 
@@ -42,8 +55,9 @@ impl SyncBlockingInAsyncPipeline {
   declarator: (_) @declarator
   body: (compound_statement) @fn_body) @fn_def
 "#;
-        let fn_def_query = Query::new(&c_lang(), fn_def_query_str)
-            .with_context(|| "failed to compile function_definition query for sync_blocking_in_async")?;
+        let fn_def_query = Query::new(&c_lang(), fn_def_query_str).with_context(
+            || "failed to compile function_definition query for sync_blocking_in_async",
+        )?;
 
         let call_query_str = r#"
 (call_expression
@@ -138,8 +152,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                 .map(|c| c.node);
 
             if let (Some(declarator), Some(body)) = (declarator_node, body_node) {
-                let fn_name = Self::extract_fn_name(declarator, source)
-                    .unwrap_or_default();
+                let fn_name = Self::extract_fn_name(declarator, source).unwrap_or_default();
                 let is_callback = Self::is_callback_name(&fn_name);
 
                 // Search for blocking calls inside this function body

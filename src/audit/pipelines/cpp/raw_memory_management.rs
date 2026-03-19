@@ -47,8 +47,7 @@ impl RawMemoryManagementPipeline {
                     if grandparent.kind() == "init_declarator" {
                         if let Some(declaration) = grandparent.parent() {
                             let decl_text = node_text(declaration, source);
-                            if decl_text.contains("unique_ptr")
-                                || decl_text.contains("shared_ptr")
+                            if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr")
                             {
                                 return true;
                             }
@@ -80,10 +79,7 @@ impl Pipeline for RawMemoryManagementPipeline {
             let new_idx = find_capture_index(&self.new_query, "new_expr");
 
             while let Some(m) = matches.next() {
-                let new_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == new_idx);
+                let new_cap = m.captures.iter().find(|c| c.index as usize == new_idx);
 
                 if let Some(new_cap) = new_cap {
                     if Self::is_smart_ptr_init(new_cap.node, source) {
@@ -121,10 +117,7 @@ impl Pipeline for RawMemoryManagementPipeline {
             let delete_idx = find_capture_index(&self.delete_query, "delete_expr");
 
             while let Some(m) = matches.next() {
-                let del_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == delete_idx);
+                let del_cap = m.captures.iter().find(|c| c.index as usize == delete_idx);
 
                 if let Some(del_cap) = del_cap {
                     let start = del_cap.node.start_position();
@@ -135,9 +128,8 @@ impl Pipeline for RawMemoryManagementPipeline {
                         severity: "warning".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "raw_new_delete".to_string(),
-                        message:
-                            "raw `delete` — smart pointers handle deallocation automatically"
-                                .to_string(),
+                        message: "raw `delete` — smart pointers handle deallocation automatically"
+                            .to_string(),
                         snippet: extract_snippet(source, del_cap.node, 1),
                     });
                 }

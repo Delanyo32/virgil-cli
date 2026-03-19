@@ -29,13 +29,29 @@ const GENERIC_METHOD_NAMES: &[&str] = &["find", "get"];
 
 /// Receiver patterns that indicate non-DB usage (case-insensitive).
 const NON_DB_RECEIVERS: &[&str] = &[
-    "arr", "array", "list", "map", "set", "cache", "store", "items", "collection", "data",
+    "arr",
+    "array",
+    "list",
+    "map",
+    "set",
+    "cache",
+    "store",
+    "items",
+    "collection",
+    "data",
 ];
 
 /// Receiver patterns that confirm DB usage (case-insensitive).
 #[allow(dead_code)]
 const DB_RECEIVERS: &[&str] = &[
-    "db", "conn", "model", "repository", "prisma", "sequelize", "mongoose", "knex",
+    "db",
+    "conn",
+    "model",
+    "repository",
+    "prisma",
+    "sequelize",
+    "mongoose",
+    "knex",
 ];
 
 /// Object.method patterns that suggest a database or HTTP call.
@@ -56,7 +72,9 @@ const DB_OBJ_METHOD_PAIRS: &[(&str, &str)] = &[
 const BARE_CALL_PATTERNS: &[&str] = &["fetch", "request"];
 
 /// Array iteration methods that act as implicit loops.
-const ARRAY_LOOP_METHODS: &[&str] = &["forEach", "map", "flatMap", "filter", "reduce", "some", "every"];
+const ARRAY_LOOP_METHODS: &[&str] = &[
+    "forEach", "map", "flatMap", "filter", "reduce", "some", "every",
+];
 
 /// Traditional loop node kinds.
 const LOOP_KINDS: &[&str] = &[
@@ -127,9 +145,7 @@ impl NPlusOneQueriesPipeline {
                             if call_node.kind() == "call_expression" {
                                 if let Some(func) = call_node.child_by_field_name("function") {
                                     if func.kind() == "member_expression" {
-                                        if let Some(prop) =
-                                            func.child_by_field_name("property")
-                                        {
+                                        if let Some(prop) = func.child_by_field_name("property") {
                                             let method_name = node_text(prop, source);
                                             if ARRAY_LOOP_METHODS.contains(&method_name) {
                                                 return true;
@@ -203,8 +219,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
         // Check method calls (obj.method patterns)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let call_idx = find_capture_index(&self.method_call_query, "call");
@@ -262,7 +277,9 @@ impl Pipeline for NPlusOneQueriesPipeline {
                         // to avoid false positives on array/collection operations
                         if GENERIC_METHOD_NAMES.contains(&method_name) {
                             let receiver = extract_receiver_text(call, source);
-                            if !receiver.is_empty() && receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                            if !receiver.is_empty()
+                                && receiver_matches_any(receiver, NON_DB_RECEIVERS)
+                            {
                                 continue;
                             }
                         }
@@ -284,8 +301,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
         // Check bare function calls (fetch, request)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_name_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
 

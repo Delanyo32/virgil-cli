@@ -75,8 +75,12 @@ impl AuditEngine {
                 PipelineSelector::Complexity => pipeline::complexity_pipelines_for_language(*lang)?,
                 PipelineSelector::CodeStyle => pipeline::code_style_pipelines_for_language(*lang)?,
                 PipelineSelector::Security => pipeline::security_pipelines_for_language(*lang)?,
-                PipelineSelector::Scalability => pipeline::scalability_pipelines_for_language(*lang)?,
-                PipelineSelector::Architecture => pipeline::architecture_pipelines_for_language(*lang)?,
+                PipelineSelector::Scalability => {
+                    pipeline::scalability_pipelines_for_language(*lang)?
+                }
+                PipelineSelector::Architecture => {
+                    pipeline::architecture_pipelines_for_language(*lang)?
+                }
             };
 
             if !self.pipeline_filter.is_empty() {
@@ -122,78 +126,78 @@ impl AuditEngine {
             .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
         // Run pipelines in parallel over pre-grouped files
-        let all_findings: Vec<Vec<AuditFinding>> = pool.install(|| grouped_files
-            .par_iter()
-            .filter_map(|(lang, path)| {
-                let result = (|| {
-                    let pipelines = pipeline_map.get(lang)?;
+        let all_findings: Vec<Vec<AuditFinding>> = pool.install(|| {
+            grouped_files
+                .par_iter()
+                .filter_map(|(lang, path)| {
+                    let result = (|| {
+                        let pipelines = pipeline_map.get(lang)?;
 
-                    let mut ts_parser = match parser::create_parser(*lang) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!(
-                                "Warning: failed to create parser for {}: {e}",
-                                path.display()
-                            );
-                            return None;
-                        }
-                    };
+                        let mut ts_parser = match parser::create_parser(*lang) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                eprintln!(
+                                    "Warning: failed to create parser for {}: {e}",
+                                    path.display()
+                                );
+                                return None;
+                            }
+                        };
 
-                    // Skip files larger than 1MB — vendored or generated code
-                    const MAX_FILE_SIZE: u64 = 1_000_000;
-                    if let Ok(meta) = std::fs::metadata(path) {
-                        if meta.len() > MAX_FILE_SIZE {
-                            return None;
+                        // Skip files larger than 1MB — vendored or generated code
+                        const MAX_FILE_SIZE: u64 = 1_000_000;
+                        if let Ok(meta) = std::fs::metadata(path) {
+                            if meta.len() > MAX_FILE_SIZE {
+                                return None;
+                            }
                         }
+
+                        let source = match std::fs::read_to_string(path) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                eprintln!("Warning: failed to read {}: {e}", path.display());
+                                return None;
+                            }
+                        };
+
+                        let tree = match ts_parser.parse(&source, None) {
+                            Some(t) => t,
+                            None => {
+                                eprintln!("Warning: failed to parse {}", path.display());
+                                return None;
+                            }
+                        };
+
+                        let relative_path = path
+                            .strip_prefix(&root)
+                            .unwrap_or(path)
+                            .to_string_lossy()
+                            .replace('\\', "/");
+
+                        // Phase 4.1: Compute identifier counts once per file,
+                        // share across all pipelines via check_with_ids()
+                        let id_counts =
+                            count_all_identifier_occurrences(tree.root_node(), source.as_bytes());
+
+                        let mut file_findings = Vec::new();
+                        for pipeline in pipelines {
+                            file_findings.extend(pipeline.check_with_ids(
+                                &tree,
+                                source.as_bytes(),
+                                &relative_path,
+                                &id_counts,
+                            ));
+                        }
+
+                        Some(file_findings)
+                    })();
+                    if let Some(pb) = &progress {
+                        pb.inc(1);
                     }
-
-                    let source = match std::fs::read_to_string(path) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            eprintln!("Warning: failed to read {}: {e}", path.display());
-                            return None;
-                        }
-                    };
-
-                    let tree = match ts_parser.parse(&source, None) {
-                        Some(t) => t,
-                        None => {
-                            eprintln!("Warning: failed to parse {}", path.display());
-                            return None;
-                        }
-                    };
-
-                    let relative_path = path
-                        .strip_prefix(&root)
-                        .unwrap_or(path)
-                        .to_string_lossy()
-                        .replace('\\', "/");
-
-                    // Phase 4.1: Compute identifier counts once per file,
-                    // share across all pipelines via check_with_ids()
-                    let id_counts = count_all_identifier_occurrences(
-                        tree.root_node(),
-                        source.as_bytes(),
-                    );
-
-                    let mut file_findings = Vec::new();
-                    for pipeline in pipelines {
-                        file_findings.extend(pipeline.check_with_ids(
-                            &tree,
-                            source.as_bytes(),
-                            &relative_path,
-                            &id_counts,
-                        ));
-                    }
-
-                    Some(file_findings)
-                })();
-                if let Some(pb) = &progress {
-                    pb.inc(1);
-                }
-                result
-            })
-            .collect());
+                    result
+                })
+                .collect()
+        });
 
         if let Some(pb) = &self.progress {
             pb.finish_and_clear();
@@ -311,11 +315,7 @@ mod tests {
     #[test]
     fn engine_skips_non_rust() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("test.ts"),
-            "const x = something.unwrap();",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("test.ts"), "const x = something.unwrap();").unwrap();
 
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])

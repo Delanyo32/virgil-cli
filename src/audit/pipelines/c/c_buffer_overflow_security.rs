@@ -140,10 +140,7 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
         let args_idx = find_capture_index(&self.call_query, "args");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_name_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
             let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
             let args_cap = m.captures.iter().find(|c| c.index as usize == args_idx);
 

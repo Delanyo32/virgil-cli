@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_class_decl_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_class_decl_query, extract_snippet, find_capture_index, node_text};
 
 const METHOD_THRESHOLD: usize = 10;
 

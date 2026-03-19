@@ -27,14 +27,8 @@ impl Pipeline for DuplicateCodePipeline {
         let root = tree.root_node();
 
         // ── duplicate_function_body ──
-        let groups = find_duplicate_bodies(
-            root,
-            source,
-            &["method_declaration"],
-            "body",
-            "name",
-            5,
-        );
+        let groups =
+            find_duplicate_bodies(root, source, &["method_declaration"], "body", "name", 5);
 
         for group in &groups {
             if group.len() < 2 {

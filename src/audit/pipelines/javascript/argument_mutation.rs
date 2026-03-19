@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_function_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_function_query, extract_snippet, find_capture_index, node_text};
 
 pub struct ArgumentMutationPipeline {
     func_query: Arc<Query>,
@@ -55,7 +53,14 @@ impl ArgumentMutationPipeline {
         pipeline_name: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        Self::walk_for_mutations(body_node, param_names, source, file_path, pipeline_name, findings);
+        Self::walk_for_mutations(
+            body_node,
+            param_names,
+            source,
+            file_path,
+            pipeline_name,
+            findings,
+        );
     }
 
     fn walk_for_mutations(
@@ -104,7 +109,14 @@ impl ArgumentMutationPipeline {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_for_mutations(child, param_names, source, file_path, pipeline_name, findings);
+            Self::walk_for_mutations(
+                child,
+                param_names,
+                source,
+                file_path,
+                pipeline_name,
+                findings,
+            );
         }
     }
 
@@ -139,10 +151,7 @@ impl Pipeline for ArgumentMutationPipeline {
         let body_idx = find_capture_index(&self.func_query, "body");
 
         while let Some(m) = matches.next() {
-            let params_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == params_idx);
+            let params_cap = m.captures.iter().find(|c| c.index as usize == params_idx);
             let body_cap = m.captures.iter().find(|c| c.index as usize == body_idx);
 
             if let (Some(params), Some(body)) = (params_cap, body_cap) {

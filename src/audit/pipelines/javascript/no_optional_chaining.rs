@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_member_expression_query, extract_snippet, find_capture_index,
-};
+use super::primitives::{compile_member_expression_query, extract_snippet, find_capture_index};
 
 const DEPTH_THRESHOLD: usize = 4;
 
@@ -83,10 +81,7 @@ impl Pipeline for NoOptionalChainingPipeline {
         let member_idx = find_capture_index(&self.member_query, "member");
 
         while let Some(m) = matches.next() {
-            let member_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == member_idx);
+            let member_cap = m.captures.iter().find(|c| c.index as usize == member_idx);
 
             if let Some(cap) = member_cap {
                 let node = cap.node;

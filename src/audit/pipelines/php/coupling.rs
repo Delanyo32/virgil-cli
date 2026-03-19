@@ -34,9 +34,7 @@ impl CouplingPipeline {
         let mut cursor = root.walk();
         for child in root.children(&mut cursor) {
             let kind = child.kind();
-            if kind == "namespace_use_declaration"
-                || kind == "expression_statement"
-            {
+            if kind == "namespace_use_declaration" || kind == "expression_statement" {
                 // For expression_statement, check if it wraps an include/require
                 if kind == "expression_statement" {
                     let mut inner_cursor = child.walk();
@@ -99,12 +97,7 @@ impl CouplingPipeline {
         findings
     }
 
-    fn check_low_cohesion(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-        file_path: &str,
-    ) -> Vec<AuditFinding> {
+    fn check_low_cohesion(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
 

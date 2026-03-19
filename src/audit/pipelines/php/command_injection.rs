@@ -7,10 +7,17 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_function_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_function_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 const DANGEROUS_FUNCTIONS: &[&str] = &[
-    "shell_exec", "system", "passthru", "exec", "popen", "proc_open",
+    "shell_exec",
+    "system",
+    "passthru",
+    "exec",
+    "popen",
+    "proc_open",
 ];
 
 pub struct CommandInjectionPipeline {
@@ -44,11 +51,25 @@ impl Pipeline for CommandInjectionPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(args_node), Some(call_node)) = (name_node, args_node, call_node) {
+            if let (Some(name_node), Some(args_node), Some(call_node)) =
+                (name_node, args_node, call_node)
+            {
                 let fn_name = node_text(name_node, source);
                 if !DANGEROUS_FUNCTIONS.contains(&fn_name) {
                     continue;
@@ -138,5 +159,4 @@ mod tests {
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }
-
 }

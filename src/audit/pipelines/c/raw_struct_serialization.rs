@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_call_expression_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_call_expression_query, extract_snippet, find_capture_index, node_text,
+};
 
 const SERIALIZATION_FUNCTIONS: &[&str] = &["fwrite", "fread"];
 pub struct RawStructSerializationPipeline {
@@ -37,8 +39,7 @@ impl RawStructSerializationPipeline {
             // Check if the sizeof operand is a struct type (not primitive)
             let mut child_cursor = node.walk();
             for child in node.children(&mut child_cursor) {
-                if child.kind() == "parenthesized_expression" || child.kind() == "type_descriptor"
-                {
+                if child.kind() == "parenthesized_expression" || child.kind() == "type_descriptor" {
                     let inner_text = node_text(child, source).trim().to_string();
                     // Remove parens
                     let inner = inner_text
@@ -117,10 +118,7 @@ impl Pipeline for RawStructSerializationPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_name_idx);
+            let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
             let args_cap = m.captures.iter().find(|c| c.index as usize == args_idx);
             let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
 

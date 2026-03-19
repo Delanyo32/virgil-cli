@@ -23,20 +23,14 @@ const BLOCKING_CALL_PATTERNS: &[&str] = &[
 
 /// Blocking method calls (member function names)
 const BLOCKING_METHOD_PATTERNS: &[&str] = &[
-    "get",      // std::future::get() without timeout
-    "wait",     // std::future::wait()
-    "join",     // std::thread::join()
+    "get",  // std::future::get() without timeout
+    "wait", // std::future::wait()
+    "join", // std::thread::join()
 ];
 
 /// Blocking I/O identifiers that suggest synchronous reads in coroutine context
 const BLOCKING_IO_PATTERNS: &[&str] = &[
-    "std::cin",
-    "getline",
-    "scanf",
-    "getchar",
-    "fgets",
-    "fread",
-    "fwrite",
+    "std::cin", "getline", "scanf", "getchar", "fgets", "fread", "fwrite",
 ];
 
 fn cpp_lang() -> tree_sitter::Language {
@@ -258,7 +252,11 @@ Task<std::string> read_input() {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "blocking_io_in_coroutine"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "blocking_io_in_coroutine")
+        );
     }
 
     #[test]
@@ -271,7 +269,11 @@ Task<int> compute() {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "blocking_wait_in_coroutine"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "blocking_wait_in_coroutine")
+        );
     }
 
     #[test]
@@ -309,7 +311,11 @@ Task<int> read_value() {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "blocking_io_in_coroutine"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "blocking_io_in_coroutine")
+        );
     }
 
     #[test]

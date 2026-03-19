@@ -47,8 +47,7 @@ impl UncheckedMallocPipeline {
                     if let Some(value) = declarator.child_by_field_name("value") {
                         if Self::is_alloc_call(value, source) {
                             if let Some(decl) = declarator.child_by_field_name("declarator") {
-                                if let Some(var_name) =
-                                    find_identifier_in_declarator(decl, source)
+                                if let Some(var_name) = find_identifier_in_declarator(decl, source)
                                 {
                                     results.push((node, var_name));
                                 }
@@ -101,11 +100,7 @@ impl UncheckedMallocPipeline {
         false
     }
 
-    fn has_null_check_after(
-        alloc_node: tree_sitter::Node,
-        var_name: &str,
-        source: &[u8],
-    ) -> bool {
+    fn has_null_check_after(alloc_node: tree_sitter::Node, var_name: &str, source: &[u8]) -> bool {
         // Check the next few siblings for an if-statement referencing the variable
         let mut sibling = alloc_node.next_named_sibling();
         let mut checked = 0;
@@ -150,10 +145,7 @@ impl Pipeline for UncheckedMallocPipeline {
         let fn_body_idx = find_capture_index(&self.fn_def_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_body_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
             if let Some(body_cap) = body_cap {
                 let allocs = Self::find_alloc_calls_in_body(body_cap.node, source);

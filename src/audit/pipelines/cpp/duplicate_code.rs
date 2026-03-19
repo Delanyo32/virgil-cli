@@ -72,13 +72,8 @@ impl DuplicateCodePipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        let switch_dups = find_duplicate_arms(
-            root,
-            source,
-            "switch_statement",
-            "case_statement",
-            None,
-        );
+        let switch_dups =
+            find_duplicate_arms(root, source, "switch_statement", "case_statement", None);
 
         for (switch_line, dup_lines) in &switch_dups {
             for dup_line in dup_lines {
@@ -111,7 +106,11 @@ fn collect_function_hashes(
     if node.kind() == "function_definition" {
         if let Some(body) = node.child_by_field_name("body") {
             if body.kind() == "compound_statement" {
-                let body_lines = body.end_position().row.saturating_sub(body.start_position().row) + 1;
+                let body_lines = body
+                    .end_position()
+                    .row
+                    .saturating_sub(body.start_position().row)
+                    + 1;
                 if body_lines >= min_lines {
                     let hash = hash_block_normalized(body, source);
                     let name = node
@@ -119,10 +118,11 @@ fn collect_function_hashes(
                         .and_then(|d| find_identifier_in_declarator(d, source))
                         .unwrap_or_else(|| "<anonymous>".to_string());
                     let pos = node.start_position();
-                    hash_map
-                        .entry(hash)
-                        .or_default()
-                        .push((name, pos.row as u32 + 1, pos.column as u32 + 1));
+                    hash_map.entry(hash).or_default().push((
+                        name,
+                        pos.row as u32 + 1,
+                        pos.column as u32 + 1,
+                    ));
                 }
             }
         }

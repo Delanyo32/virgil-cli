@@ -4,12 +4,10 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{compile_function_with_body_query, extract_snippet, find_capture_index};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_cyclomatic, ControlFlowConfig};
-use super::primitives::{
-    compile_function_with_body_query, extract_snippet, find_capture_index,
-};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_cyclomatic};
 
 const CC_THRESHOLD: usize = 10;
 

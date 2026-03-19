@@ -3,10 +3,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use tree_sitter::{Query, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{is_test_file, is_test_context_rust, is_main_function_rust, receiver_has_lock};
-use super::primitives;
+use crate::audit::pipelines::helpers::{
+    is_main_function_rust, is_test_context_rust, is_test_file, receiver_has_lock,
+};
 
 pub struct PanicDetectionPipeline {
     method_query: Arc<Query>,
@@ -57,8 +59,14 @@ impl Pipeline for PanicDetectionPipeline {
         for m in method_matches {
             // Find the node at this position for context checks
             let node = tree.root_node().descendant_for_point_range(
-                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
-                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+                tree_sitter::Point {
+                    row: (m.line - 1) as usize,
+                    column: (m.column - 1) as usize,
+                },
+                tree_sitter::Point {
+                    row: (m.line - 1) as usize,
+                    column: (m.column - 1) as usize,
+                },
             );
 
             if let Some(n) = node {
@@ -98,8 +106,14 @@ impl Pipeline for PanicDetectionPipeline {
 
         for m in macro_matches {
             let node = tree.root_node().descendant_for_point_range(
-                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
-                tree_sitter::Point { row: (m.line - 1) as usize, column: (m.column - 1) as usize },
+                tree_sitter::Point {
+                    row: (m.line - 1) as usize,
+                    column: (m.column - 1) as usize,
+                },
+                tree_sitter::Point {
+                    row: (m.line - 1) as usize,
+                    column: (m.column - 1) as usize,
+                },
             );
 
             if let Some(n) = node {

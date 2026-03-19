@@ -86,7 +86,9 @@ fn is_in_function_or_method(node: tree_sitter::Node) -> bool {
     let mut current = node;
     while let Some(parent) = current.parent() {
         match parent.kind() {
-            "function_declaration" | "arrow_function" | "method_definition"
+            "function_declaration"
+            | "arrow_function"
+            | "method_definition"
             | "function_expression" => return true,
             "class_declaration" | "class" | "interface_declaration" => return false,
             _ => current = parent,
@@ -118,8 +120,7 @@ mod tests {
 
     #[test]
     fn skips_constrained_generic() {
-        let findings =
-            parse_and_check("function foo<T extends object>(x: T): T { return x; }");
+        let findings = parse_and_check("function foo<T extends object>(x: T): T { return x; }");
         assert!(findings.is_empty());
     }
 

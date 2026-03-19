@@ -29,22 +29,26 @@ impl SyncBlockingInAsyncPipeline {
   arguments: (argument_list) @args) @invocation
 "#;
         let method_invocation_query = Query::new(&java_lang(), method_invocation_str)
-            .with_context(|| "failed to compile method_invocation query for sync_blocking_in_async")?;
+            .with_context(
+                || "failed to compile method_invocation query for sync_blocking_in_async",
+            )?;
 
         let synchronized_str = r#"
 (synchronized_statement
   body: (block) @sync_body) @sync_stmt
 "#;
-        let synchronized_query = Query::new(&java_lang(), synchronized_str)
-            .with_context(|| "failed to compile synchronized_statement query for sync_blocking_in_async")?;
+        let synchronized_query = Query::new(&java_lang(), synchronized_str).with_context(
+            || "failed to compile synchronized_statement query for sync_blocking_in_async",
+        )?;
 
         let method_decl_str = r#"
 (method_declaration
   name: (identifier) @method_name
   body: (block) @method_body) @method_decl
 "#;
-        let method_decl_query = Query::new(&java_lang(), method_decl_str)
-            .with_context(|| "failed to compile method_declaration query for sync_blocking_in_async")?;
+        let method_decl_query = Query::new(&java_lang(), method_decl_str).with_context(
+            || "failed to compile method_declaration query for sync_blocking_in_async",
+        )?;
 
         Ok(Self {
             method_invocation_query: Arc::new(method_invocation_query),
@@ -79,9 +83,7 @@ fn is_inside_completable_future(node: tree_sitter::Node, source: &[u8]) -> bool 
                 }
             }
         }
-        if p.kind() == "method_declaration"
-            || p.kind() == "class_declaration"
-        {
+        if p.kind() == "method_declaration" || p.kind() == "class_declaration" {
             break;
         }
         parent = p.parent();
@@ -123,7 +125,8 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // 1. Find Thread.sleep() calls and blocking I/O in async contexts
         {
             let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(&self.method_invocation_query, tree.root_node(), source);
+            let mut matches =
+                cursor.matches(&self.method_invocation_query, tree.root_node(), source);
 
             let object_idx = find_capture_index(&self.method_invocation_query, "object");
             let method_idx = find_capture_index(&self.method_invocation_query, "method_name");
@@ -155,7 +158,11 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                             let obj_text = node_text(obj, source);
                             if obj_text == "Thread" {
                                 let in_async = is_inside_completable_future(inv_node, source)
-                                    || is_inside_async_method(inv_node, source, &self.method_decl_query);
+                                    || is_inside_async_method(
+                                        inv_node,
+                                        source,
+                                        &self.method_decl_query,
+                                    );
                                 if in_async {
                                     let start = inv_node.start_position();
                                     findings.push(AuditFinding {
@@ -175,9 +182,15 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
 
                     // .get() on Future without timeout (blocking call)
                     if method_name == "get" {
-                        if let Some(args_node) = m.captures.iter().find(|c| {
-                            c.index as usize == find_capture_index(&self.method_invocation_query, "args")
-                        }).map(|c| c.node) {
+                        if let Some(args_node) = m
+                            .captures
+                            .iter()
+                            .find(|c| {
+                                c.index as usize
+                                    == find_capture_index(&self.method_invocation_query, "args")
+                            })
+                            .map(|c| c.node)
+                        {
                             let args_text = node_text(args_node, source);
                             // .get() with no arguments = blocking without timeout
                             if args_text.trim() == "()" {
@@ -277,7 +290,11 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "thread_sleep_in_async"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "thread_sleep_in_async")
+        );
     }
 
     #[test]
@@ -300,7 +317,11 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().all(|f| f.pattern != "thread_sleep_in_async"));
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.pattern != "thread_sleep_in_async")
+        );
     }
 
     #[test]
@@ -324,6 +345,10 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "thread_sleep_in_async"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "thread_sleep_in_async")
+        );
     }
 }

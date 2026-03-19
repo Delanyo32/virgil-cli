@@ -70,12 +70,7 @@ impl CouplingPipeline {
         findings
     }
 
-    fn check_low_cohesion(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-        file_path: &str,
-    ) -> Vec<AuditFinding> {
+    fn check_low_cohesion(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
@@ -256,13 +251,8 @@ mod tests {
 
     #[test]
     fn detects_excessive_includes() {
-        let includes: Vec<String> = (0..16)
-            .map(|i| format!("#include <header{i}>"))
-            .collect();
-        let src = format!(
-            "{}\n\nint main() {{ return 0; }}\n",
-            includes.join("\n")
-        );
+        let includes: Vec<String> = (0..16).map(|i| format!("#include <header{i}>")).collect();
+        let src = format!("{}\n\nint main() {{ return 0; }}\n", includes.join("\n"));
         let findings = parse_and_check(&src);
         let excessive: Vec<_> = findings
             .iter()

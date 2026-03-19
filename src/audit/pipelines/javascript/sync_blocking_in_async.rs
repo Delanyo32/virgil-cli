@@ -32,11 +32,7 @@ const SYNC_METHOD_NAMES: &[&str] = &[
 ];
 
 /// Bare function calls that are blocking.
-const SYNC_BARE_CALLS: &[&str] = &[
-    "execSync",
-    "spawnSync",
-    "execFileSync",
-];
+const SYNC_BARE_CALLS: &[&str] = &["execSync", "spawnSync", "execFileSync"];
 
 fn js_lang() -> tree_sitter::Language {
     Language::JavaScript.tree_sitter_language()
@@ -189,8 +185,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // Check method calls (fs.readFileSync, etc.)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let call_idx = find_capture_index(&self.method_call_query, "call");
@@ -235,8 +230,7 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         // Check bare function calls (execSync, spawnSync, etc.)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_name_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
 

@@ -4,10 +4,10 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{struct_has_derive, has_attribute_text};
-use super::primitives;
+use crate::audit::pipelines::helpers::{has_attribute_text, struct_has_derive};
 
 pub struct PubFieldLeakagePipeline {
     struct_query: Arc<Query>,

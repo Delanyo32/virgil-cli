@@ -48,17 +48,17 @@ impl MemoryLeakIndicatorsPipeline {
   type: (_) @type_name) @creation
 "#;
         let object_creation_query = Query::new(&csharp_lang(), object_creation_query_str)
-            .with_context(|| {
-                "failed to compile object_creation query for memory_leak_indicators"
-            })?;
+            .with_context(
+                || "failed to compile object_creation query for memory_leak_indicators",
+            )?;
 
         let using_statement_query_str = r#"
 (using_statement) @using_stmt
 "#;
         let using_statement_query = Query::new(&csharp_lang(), using_statement_query_str)
-            .with_context(|| {
-                "failed to compile using_statement query for memory_leak_indicators"
-            })?;
+            .with_context(
+                || "failed to compile using_statement query for memory_leak_indicators",
+            )?;
 
         let assignment_query_str = r#"
 (assignment_expression
@@ -66,9 +66,7 @@ impl MemoryLeakIndicatorsPipeline {
   right: (_) @rhs) @assign
 "#;
         let assignment_query = Query::new(&csharp_lang(), assignment_query_str)
-            .with_context(|| {
-                "failed to compile assignment query for memory_leak_indicators"
-            })?;
+            .with_context(|| "failed to compile assignment query for memory_leak_indicators")?;
 
         let loop_query_str = r#"
 [
@@ -110,11 +108,7 @@ impl MemoryLeakIndicatorsPipeline {
         let using_idx = find_capture_index(&self.using_statement_query, "using_stmt");
 
         while let Some(m) = matches.next() {
-            if let Some(cap) = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == using_idx)
-            {
+            if let Some(cap) = m.captures.iter().find(|c| c.index as usize == using_idx) {
                 ranges.push(cap.node.start_byte()..cap.node.end_byte());
             }
         }
@@ -192,7 +186,8 @@ impl MemoryLeakIndicatorsPipeline {
 
         // Track += and -= on same names
         let mut subscriptions: Vec<(String, tree_sitter::Node)> = Vec::new();
-        let mut unsubscriptions: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut unsubscriptions: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         while let Some(m) = matches.next() {
             let assign_node = m
@@ -260,8 +255,7 @@ impl MemoryLeakIndicatorsPipeline {
 
             if let Some(body) = body_node {
                 let mut inv_cursor = QueryCursor::new();
-                let mut inv_matches =
-                    inv_cursor.matches(&self.invocation_query, body, source);
+                let mut inv_matches = inv_cursor.matches(&self.invocation_query, body, source);
 
                 let fn_idx = find_capture_index(&self.invocation_query, "fn_expr");
                 let inv_idx = find_capture_index(&self.invocation_query, "invocation");
@@ -320,7 +314,12 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         let mut findings = Vec::new();
 
         let using_ranges = self.collect_using_ranges(tree, source);
-        findings.extend(self.check_disposable_without_using(tree, source, file_path, &using_ranges));
+        findings.extend(self.check_disposable_without_using(
+            tree,
+            source,
+            file_path,
+            &using_ranges,
+        ));
         findings.extend(self.check_event_handler_leaks(tree, source, file_path));
         findings.extend(self.check_unbounded_collection_growth(tree, source, file_path));
 

@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -45,7 +45,10 @@ impl CircularDependenciesPipeline {
                 if cap.index as usize == path_idx {
                     let text = node_text(cap.node, source);
                     // Only count intra-crate imports: crate::, super::, self::
-                    if text.starts_with("crate::") || text.starts_with("super::") || text.starts_with("self::") {
+                    if text.starts_with("crate::")
+                        || text.starts_with("super::")
+                        || text.starts_with("self::")
+                    {
                         // Extract the module target (first two segments for crate:: paths)
                         let module_target = extract_module_target(text);
                         let pos = cap.node.start_position();
@@ -63,7 +66,11 @@ impl CircularDependenciesPipeline {
 /// e.g., "super::models" -> "super::models"
 fn extract_module_target(path: &str) -> String {
     // For use list syntax like "crate::foo::{A, B}", the path captured might include the braces
-    let clean = path.split('{').next().unwrap_or(path).trim_end_matches("::");
+    let clean = path
+        .split('{')
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches("::");
     // Remove the last segment (the imported item) to get the module
     if let Some(last_sep) = clean.rfind("::") {
         clean[..last_sep].to_string()
@@ -149,7 +156,11 @@ use crate::logging::Logger;
 use crate::messaging::EventBus;
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -159,7 +170,11 @@ use crate::config::AppConfig;
 use crate::database::Pool;
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -186,6 +201,10 @@ use self::config::AppConfig;
 use self::database::Pool;
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 }

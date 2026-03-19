@@ -42,9 +42,7 @@ impl DeadCodePipeline {
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "unused_static_function".to_string(),
-                    message: format!(
-                        "static function `{name}` appears unused within this file"
-                    ),
+                    message: format!("static function `{name}` appears unused within this file"),
                     snippet: extract_snippet(source, *fn_node, 1),
                 });
             }
@@ -63,7 +61,14 @@ impl DeadCodePipeline {
         let root = tree.root_node();
 
         let return_kinds = ["return_statement", "break_statement", "continue_statement"];
-        collect_unreachable_in_blocks(root, source, &return_kinds, file_path, self.name(), &mut findings);
+        collect_unreachable_in_blocks(
+            root,
+            source,
+            &return_kinds,
+            file_path,
+            self.name(),
+            &mut findings,
+        );
 
         findings
     }

@@ -6,9 +6,11 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{is_test_context_go, is_go_constructor};
+use crate::audit::pipelines::helpers::{is_go_constructor, is_test_context_go};
 
-use super::primitives::{compile_selector_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_selector_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct ContextNotPropagatedPipeline {
     call_query: Arc<Query>,
@@ -54,11 +56,25 @@ impl Pipeline for ContextNotPropagatedPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let pkg_node = m.captures.iter().find(|c| c.index as usize == pkg_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let pkg_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == pkg_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(pkg_node), Some(method_node), Some(call_node)) = (pkg_node, method_node, call_node) {
+            if let (Some(pkg_node), Some(method_node), Some(call_node)) =
+                (pkg_node, method_node, call_node)
+            {
                 let pkg_name = node_text(pkg_node, source);
                 let method_name = node_text(method_node, source);
 

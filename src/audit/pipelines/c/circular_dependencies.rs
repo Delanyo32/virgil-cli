@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -128,7 +128,11 @@ mod tests {
 #include "logging.h"
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -138,7 +142,11 @@ mod tests {
 #include "database.h"
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -166,6 +174,10 @@ mod tests {
 "#;
         let findings = parse_and_check(src);
         // Only 1 distinct include, below threshold
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 }

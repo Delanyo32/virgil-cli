@@ -118,15 +118,11 @@ impl Pipeline for CCommandInjectionPipeline {
             let args_idx = find_capture_index(&self.call_query, "args");
 
             while let Some(m) = matches.next() {
-                let fn_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_name_idx);
+                let fn_cap = m.captures.iter().find(|c| c.index as usize == fn_name_idx);
                 let call_cap = m.captures.iter().find(|c| c.index as usize == call_idx);
                 let args_cap = m.captures.iter().find(|c| c.index as usize == args_idx);
 
-                if let (Some(fn_cap), Some(call_cap), Some(args_cap)) =
-                    (fn_cap, call_cap, args_cap)
+                if let (Some(fn_cap), Some(call_cap), Some(args_cap)) = (fn_cap, call_cap, args_cap)
                 {
                     let fn_name = fn_cap.node.utf8_text(source).unwrap_or("");
 
@@ -177,10 +173,7 @@ impl Pipeline for CCommandInjectionPipeline {
             let fn_body_idx = find_capture_index(&self.fn_def_query, "fn_body");
 
             while let Some(m) = matches.next() {
-                let body_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_body_idx);
+                let body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
                 if let Some(body_cap) = body_cap {
                     let mut sprintf_system_findings = Self::find_sprintf_system_patterns(

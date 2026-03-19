@@ -350,7 +350,11 @@ mod tests {
         let src = "class Foo { public int x; }";
         let (tree, source) = parse_csharp(src);
         let root = tree.root_node();
-        let class_body = root.named_child(0).unwrap().child_by_field_name("body").unwrap();
+        let class_body = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
         let field = class_body.named_child(0).unwrap();
         assert!(has_modifier(field, &source, "public"));
         assert!(!has_modifier(field, &source, "private"));
@@ -361,7 +365,11 @@ mod tests {
         let src = "class Foo { private static readonly int x = 1; }";
         let (tree, source) = parse_csharp(src);
         let root = tree.root_node();
-        let class_body = root.named_child(0).unwrap().child_by_field_name("body").unwrap();
+        let class_body = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
         let field = class_body.named_child(0).unwrap();
         assert!(has_modifier(field, &source, "private"));
         assert!(has_modifier(field, &source, "static"));

@@ -68,7 +68,9 @@ impl ErrorSwallowingPipeline {
                 // Check if any LHS element is blank identifier `_`
                 let has_blank = (0..lhs.named_child_count()).any(|i| {
                     lhs.named_child(i)
-                        .map(|child| child.kind() == "identifier" && node_text(child, source) == "_")
+                        .map(|child| {
+                            child.kind() == "identifier" && node_text(child, source) == "_"
+                        })
                         .unwrap_or(false)
                 });
 
@@ -176,7 +178,8 @@ mod tests {
 
     #[test]
     fn detects_assignment_error_swallow() {
-        let src = "package main\nfunc main() {\n\tvar data int\n\tdata, _ = someFunc()\n\t_ = data\n}\n";
+        let src =
+            "package main\nfunc main() {\n\tvar data int\n\tdata, _ = someFunc()\n\t_ = data\n}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "error_swallowed");

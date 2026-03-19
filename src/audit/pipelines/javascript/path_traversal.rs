@@ -30,7 +30,9 @@ fn is_in_parameterized_function(node: tree_sitter::Node) -> bool {
     let mut current = node.parent();
     while let Some(parent) = current {
         match parent.kind() {
-            "function_declaration" | "arrow_function" | "function_expression"
+            "function_declaration"
+            | "arrow_function"
+            | "function_expression"
             | "method_definition" => {
                 if let Some(params) = parent.child_by_field_name("parameters") {
                     return params.named_child_count() > 0;
@@ -57,8 +59,7 @@ impl Pipeline for PathTraversalPipeline {
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
-        let mut matches =
-            cursor.matches(&self.method_call_query, tree.root_node(), source);
+        let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
         let obj_idx = find_capture_index(&self.method_call_query, "obj");
         let method_idx = find_capture_index(&self.method_call_query, "method");
         let args_idx = find_capture_index(&self.method_call_query, "args");
@@ -162,9 +163,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::JavaScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = PathTraversalPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.js")

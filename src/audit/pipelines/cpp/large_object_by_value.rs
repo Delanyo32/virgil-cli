@@ -50,11 +50,7 @@ impl LargeObjectByValuePipeline {
 
     fn is_large_type(type_text: &str) -> bool {
         // Check if the base type (before any template args) is in our list
-        let base = type_text
-            .split('<')
-            .next()
-            .unwrap_or(type_text)
-            .trim();
+        let base = type_text.split('<').next().unwrap_or(type_text).trim();
         LARGE_TYPES.iter().any(|t| base == *t || base.ends_with(t))
     }
 }

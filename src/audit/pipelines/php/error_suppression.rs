@@ -38,10 +38,7 @@ impl Pipeline for ErrorSuppressionPipeline {
         let suppress_idx = find_capture_index(&self.suppress_query, "suppress");
 
         while let Some(m) = matches.next() {
-            let cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == suppress_idx);
+            let cap = m.captures.iter().find(|c| c.index as usize == suppress_idx);
 
             if let Some(cap) = cap {
                 let node = cap.node;
@@ -53,7 +50,9 @@ impl Pipeline for ErrorSuppressionPipeline {
                     severity: "warning".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "at_operator".to_string(),
-                    message: "error suppression operator @ hides failures — use proper error handling".to_string(),
+                    message:
+                        "error suppression operator @ hides failures — use proper error handling"
+                            .to_string(),
                     snippet: extract_snippet(source, node, 2),
                 });
             }

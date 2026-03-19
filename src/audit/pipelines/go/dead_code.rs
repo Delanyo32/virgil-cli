@@ -94,7 +94,14 @@ impl DeadCodePipeline {
         }
 
         // Walk for import_spec nodes (they can be nested inside import_declaration)
-        collect_import_specs(root, source, &non_import_ids, file_path, self.name(), &mut findings);
+        collect_import_specs(
+            root,
+            source,
+            &non_import_ids,
+            file_path,
+            self.name(),
+            &mut findings,
+        );
 
         findings
     }
@@ -135,11 +142,7 @@ fn count_all_identifiers(node: tree_sitter::Node, source: &[u8]) -> HashMap<Stri
     counts
 }
 
-fn collect_identifiers_into(
-    root: tree_sitter::Node,
-    source: &[u8],
-    ids: &mut HashSet<String>,
-) {
+fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut HashSet<String>) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();
@@ -181,7 +184,9 @@ fn collect_import_specs(
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         let k = child.kind();
-                        if k == "import_spec" || k == "import_declaration" || k == "import_spec_list"
+                        if k == "import_spec"
+                            || k == "import_declaration"
+                            || k == "import_spec_list"
                         {
                             stack.push(child);
                         }

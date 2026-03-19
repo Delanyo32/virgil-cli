@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_function_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_function_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 const WEAK_HASH_FUNCTIONS: &[&str] = &["md5", "sha1"];
 const WEAK_RANDOM_FUNCTIONS: &[&str] = &["uniqid", "rand", "mt_rand", "microtime"];
@@ -43,11 +45,25 @@ impl Pipeline for SessionAuthPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let name_node = m.captures.iter().find(|c| c.index as usize == fn_name_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let name_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_name_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(name_node), Some(args_node), Some(call_node)) = (name_node, args_node, call_node) {
+            if let (Some(name_node), Some(args_node), Some(call_node)) =
+                (name_node, args_node, call_node)
+            {
                 let fn_name = node_text(name_node, source);
 
                 if !WEAK_HASH_FUNCTIONS.contains(&fn_name) {

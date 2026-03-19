@@ -11,16 +11,21 @@ use crate::language::Language;
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const IO_FUNCTIONS: &[&str] = &[
-    "fopen", "fread", "fwrite", "fgets", "fputs", "fgetc", "fputc",
-    "recv", "send", "read", "write", "connect", "accept", "select",
-    "recvfrom", "sendto", "recvmsg", "sendmsg",
-    "pread", "pwrite",
+    "fopen", "fread", "fwrite", "fgets", "fputs", "fgetc", "fputc", "recv", "send", "read",
+    "write", "connect", "accept", "select", "recvfrom", "sendto", "recvmsg", "sendmsg", "pread",
+    "pwrite",
 ];
 
 const DB_FUNCTIONS: &[&str] = &[
-    "mysql_query", "mysql_real_query", "mysql_store_result",
-    "sqlite3_exec", "sqlite3_step", "sqlite3_prepare",
-    "PQexec", "PQexecParams", "PQsendQuery",
+    "mysql_query",
+    "mysql_real_query",
+    "mysql_store_result",
+    "sqlite3_exec",
+    "sqlite3_step",
+    "sqlite3_prepare",
+    "PQexec",
+    "PQexecParams",
+    "PQsendQuery",
 ];
 
 fn c_lang() -> tree_sitter::Language {

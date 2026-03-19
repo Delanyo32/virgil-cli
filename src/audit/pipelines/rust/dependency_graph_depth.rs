@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_path_depth;
 use crate::language::Language;
-use super::primitives::{extract_snippet, find_capture_index, node_text};
 
 const BARREL_REEXPORT_THRESHOLD: usize = 5;
 const DEEP_IMPORT_DEPTH_THRESHOLD: usize = 4;
@@ -68,7 +68,12 @@ impl Pipeline for DependencyGraphDepthPipeline {
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     if cap.index as usize == pub_use_idx {
-                        if cap.node.parent().map_or(false, |p| p.kind() == "source_file") || cap.node.parent().is_none() {
+                        if cap
+                            .node
+                            .parent()
+                            .map_or(false, |p| p.kind() == "source_file")
+                            || cap.node.parent().is_none()
+                        {
                             pub_use_count += 1;
                         }
                     }
@@ -108,7 +113,11 @@ impl Pipeline for DependencyGraphDepthPipeline {
                             .or_else(|| text.strip_prefix("super::"))
                             .unwrap_or(text);
                         // Also strip any use-list syntax
-                        let clean = clean.split('{').next().unwrap_or(clean).trim_end_matches("::");
+                        let clean = clean
+                            .split('{')
+                            .next()
+                            .unwrap_or(clean)
+                            .trim_end_matches("::");
                         let depth = count_path_depth(clean, "::");
                         if depth >= DEEP_IMPORT_DEPTH_THRESHOLD {
                             let pos = cap.node.start_position();

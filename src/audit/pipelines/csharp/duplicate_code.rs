@@ -27,14 +27,8 @@ impl Pipeline for DuplicateCodePipeline {
         let root = tree.root_node();
 
         // ── duplicate_function_body ──
-        let groups = find_duplicate_bodies(
-            root,
-            source,
-            &["method_declaration"],
-            "body",
-            "name",
-            5,
-        );
+        let groups =
+            find_duplicate_bodies(root, source, &["method_declaration"], "body", "name", 5);
 
         for group in &groups {
             if group.len() < 2 {
@@ -65,13 +59,8 @@ impl Pipeline for DuplicateCodePipeline {
         }
 
         // ── duplicate_switch_cases ──
-        let switch_dups = find_duplicate_arms(
-            root,
-            source,
-            "switch_statement",
-            "switch_section",
-            None,
-        );
+        let switch_dups =
+            find_duplicate_arms(root, source, "switch_statement", "switch_section", None);
 
         for (switch_line, dup_lines) in &switch_dups {
             for dup_line in dup_lines {

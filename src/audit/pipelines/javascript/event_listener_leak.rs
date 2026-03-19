@@ -75,9 +75,8 @@ impl Pipeline for EventListenerLeakPipeline {
                     severity: "info".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "missing_remove_listener".to_string(),
-                    message:
-                        "addEventListener without removeEventListener — potential memory leak"
-                            .to_string(),
+                    message: "addEventListener without removeEventListener — potential memory leak"
+                        .to_string(),
                     snippet: extract_snippet(source, node, 1),
                 }
             })

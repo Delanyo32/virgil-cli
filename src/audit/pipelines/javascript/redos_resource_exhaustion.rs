@@ -123,8 +123,7 @@ impl Pipeline for RedosResourceExhaustionPipeline {
         // req.on('data', ...) without size check
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let args_idx = find_capture_index(&self.method_call_query, "args");
@@ -204,9 +203,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::JavaScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = RedosResourceExhaustionPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.js")
@@ -252,7 +249,8 @@ mod tests {
 
     #[test]
     fn ignores_data_with_length_check() {
-        let src = r#"req.on("data", (chunk) => { if (body.length > MAX) return; body += chunk; });"#;
+        let src =
+            r#"req.on("data", (chunk) => { if (body.length > MAX) return; body += chunk; });"#;
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }

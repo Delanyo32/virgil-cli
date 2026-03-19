@@ -2,10 +2,10 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{compute_cyclomatic, ControlFlowConfig};
-use super::primitives::{extract_snippet, find_capture_index};
+use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_cyclomatic};
 
 const QUERY_SRC: &str = r#"
 (function_definition
@@ -91,8 +91,7 @@ impl Pipeline for CyclomaticComplexityPipeline {
             let body_cap = m.captures.iter().find(|c| c.index as usize == body_idx);
             let func_cap = m.captures.iter().find(|c| c.index as usize == func_idx);
 
-            if let (Some(name_cap), Some(body_cap), Some(func_cap)) =
-                (name_cap, body_cap, func_cap)
+            if let (Some(name_cap), Some(body_cap), Some(func_cap)) = (name_cap, body_cap, func_cap)
             {
                 let fn_name = extract_function_name(name_cap.node, source);
                 let cc = compute_cyclomatic(body_cap.node, &config, source);

@@ -54,11 +54,25 @@ impl Pipeline for XxePipeline {
             || source_str.contains("XMLConstants.ACCESS_EXTERNAL_DTD");
 
         while let Some(m) = matches.next() {
-            let obj_node = m.captures.iter().find(|c| c.index as usize == obj_idx).map(|c| c.node);
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let obj_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == obj_idx)
+                .map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(obj_node), Some(method_node), Some(inv_node)) = (obj_node, method_node, inv_node) {
+            if let (Some(obj_node), Some(method_node), Some(inv_node)) =
+                (obj_node, method_node, inv_node)
+            {
                 let obj_name = node_text(obj_node, source);
                 let method_name = node_text(method_node, source);
 

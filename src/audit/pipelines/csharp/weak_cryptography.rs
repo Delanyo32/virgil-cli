@@ -8,7 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{
-    compile_invocation_query, compile_object_creation_query, compile_assignment_expression_query,
+    compile_assignment_expression_query, compile_invocation_query, compile_object_creation_query,
     extract_snippet, find_capture_index, node_text,
 };
 
@@ -61,14 +61,24 @@ impl WeakCryptographyPipeline {
         let inv_idx = find_capture_index(&self.invocation_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
             if let (Some(fn_node), Some(inv_node)) = (fn_node, inv_node) {
                 let fn_text = node_text(fn_node, source);
 
                 // MD5.Create(), SHA1.Create()
-                if (fn_text.contains("MD5") || fn_text.contains("SHA1")) && fn_text.contains("Create") {
+                if (fn_text.contains("MD5") || fn_text.contains("SHA1"))
+                    && fn_text.contains("Create")
+                {
                     let start = inv_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
@@ -85,7 +95,10 @@ impl WeakCryptographyPipeline {
                 }
 
                 // DES.Create()
-                if fn_text.contains("DES") && fn_text.contains("Create") && !fn_text.contains("TripleDES") {
+                if fn_text.contains("DES")
+                    && fn_text.contains("Create")
+                    && !fn_text.contains("TripleDES")
+                {
                     let start = inv_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
@@ -116,8 +129,16 @@ impl WeakCryptographyPipeline {
         let creation_idx = find_capture_index(&self.creation_query, "creation");
 
         while let Some(m) = matches.next() {
-            let type_node = m.captures.iter().find(|c| c.index as usize == type_idx).map(|c| c.node);
-            let creation_node = m.captures.iter().find(|c| c.index as usize == creation_idx).map(|c| c.node);
+            let type_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == type_idx)
+                .map(|c| c.node);
+            let creation_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == creation_idx)
+                .map(|c| c.node);
 
             if let (Some(type_node), Some(creation_node)) = (type_node, creation_node) {
                 let type_name = node_text(type_node, source);
@@ -125,9 +146,11 @@ impl WeakCryptographyPipeline {
                 // new Random() for security purposes
                 if type_name == "Random" {
                     let source_str = std::str::from_utf8(source).unwrap_or("");
-                    let in_security_context = ["token", "secret", "key", "nonce", "salt", "password", "hash"]
-                        .iter()
-                        .any(|kw| source_str.to_lowercase().contains(kw));
+                    let in_security_context = [
+                        "token", "secret", "key", "nonce", "salt", "password", "hash",
+                    ]
+                    .iter()
+                    .any(|kw| source_str.to_lowercase().contains(kw));
 
                     if in_security_context {
                         let start = creation_node.start_position();
@@ -162,11 +185,25 @@ impl WeakCryptographyPipeline {
         let assign_idx = find_capture_index(&self.assign_query, "assign");
 
         while let Some(m) = matches.next() {
-            let lhs_node = m.captures.iter().find(|c| c.index as usize == lhs_idx).map(|c| c.node);
-            let rhs_node = m.captures.iter().find(|c| c.index as usize == rhs_idx).map(|c| c.node);
-            let assign_node = m.captures.iter().find(|c| c.index as usize == assign_idx).map(|c| c.node);
+            let lhs_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == lhs_idx)
+                .map(|c| c.node);
+            let rhs_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == rhs_idx)
+                .map(|c| c.node);
+            let assign_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == assign_idx)
+                .map(|c| c.node);
 
-            if let (Some(lhs_node), Some(rhs_node), Some(assign_node)) = (lhs_node, rhs_node, assign_node) {
+            if let (Some(lhs_node), Some(rhs_node), Some(assign_node)) =
+                (lhs_node, rhs_node, assign_node)
+            {
                 let lhs_text = node_text(lhs_node, source);
                 let rhs_text = node_text(rhs_node, source);
 

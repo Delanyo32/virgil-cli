@@ -14,8 +14,18 @@ use super::primitives::{
 };
 
 const SECURITY_NAMES: &[&str] = &[
-    "token", "hash", "secret", "password", "hmac", "signature", "digest", "apikey", "api_key",
-    "auth", "credential", "nonce",
+    "token",
+    "hash",
+    "secret",
+    "password",
+    "hmac",
+    "signature",
+    "digest",
+    "apikey",
+    "api_key",
+    "auth",
+    "credential",
+    "nonce",
 ];
 
 pub struct TimingWeakCryptoPipeline {
@@ -120,8 +130,7 @@ impl Pipeline for TimingWeakCryptoPipeline {
         // Math.random() for security, weak hash, insecure cipher
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let args_idx = find_capture_index(&self.method_call_query, "args");
@@ -218,8 +227,7 @@ impl Pipeline for TimingWeakCryptoPipeline {
                                     severity: "warning".to_string(),
                                     pipeline: self.name().to_string(),
                                     pattern: "insecure_cipher_mode".to_string(),
-                                    message:
-                                        "ECB cipher mode — use CBC or GCM instead".to_string(),
+                                    message: "ECB cipher mode — use CBC or GCM instead".to_string(),
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
@@ -240,9 +248,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::JavaScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = TimingWeakCryptoPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.js")
@@ -260,7 +266,11 @@ mod tests {
     fn detects_timing_attack_on_hash() {
         let src = "if (computedHash !== expectedHash) { reject(); }";
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "timing_attack_comparison"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "timing_attack_comparison")
+        );
     }
 
     #[test]

@@ -8,9 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::primitives::{
-    compile_as_expression_query, extract_snippet, is_test_file, node_text,
-};
+use super::primitives::{compile_as_expression_query, extract_snippet, is_test_file, node_text};
 
 pub struct TypeAssertionsPipeline {
     query: Arc<Query>,
@@ -48,9 +46,7 @@ impl Pipeline for TypeAssertionsPipeline {
                 let expr_child = node.named_child(0);
                 let type_child = node.named_child(1);
 
-                let target_type_text = type_child
-                    .map(|t| node_text(t, source))
-                    .unwrap_or("");
+                let target_type_text = type_child.map(|t| node_text(t, source)).unwrap_or("");
 
                 // Check if expression child is also as_expression (double assertion)
                 let is_double = expr_child

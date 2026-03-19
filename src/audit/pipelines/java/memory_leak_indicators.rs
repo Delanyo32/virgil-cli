@@ -63,8 +63,9 @@ impl MemoryLeakIndicatorsPipeline {
       type: (_) @creation_type
       arguments: (argument_list) @args)? @creation)) @var_decl
 "#;
-        let local_var_query = Query::new(&java_lang(), local_var_str)
-            .with_context(|| "failed to compile local_variable_declaration query for memory_leak_indicators")?;
+        let local_var_query = Query::new(&java_lang(), local_var_str).with_context(
+            || "failed to compile local_variable_declaration query for memory_leak_indicators",
+        )?;
 
         let method_invocation_str = r#"
 (method_invocation
@@ -73,7 +74,9 @@ impl MemoryLeakIndicatorsPipeline {
   arguments: (argument_list) @args) @invocation
 "#;
         let method_invocation_query = Query::new(&java_lang(), method_invocation_str)
-            .with_context(|| "failed to compile method_invocation query for memory_leak_indicators")?;
+            .with_context(
+                || "failed to compile method_invocation query for memory_leak_indicators",
+            )?;
 
         let static_field_str = r#"
 (field_declaration
@@ -146,9 +149,22 @@ fn collect_static_collection_fields<'a>(
     static_field_query: &Query,
 ) -> HashSet<String> {
     let collection_types: HashSet<&str> = [
-        "List", "ArrayList", "LinkedList", "Set", "HashSet", "TreeSet",
-        "Map", "HashMap", "TreeMap", "LinkedHashMap", "ConcurrentHashMap",
-        "Queue", "Deque", "ArrayDeque", "PriorityQueue", "Vector",
+        "List",
+        "ArrayList",
+        "LinkedList",
+        "Set",
+        "HashSet",
+        "TreeSet",
+        "Map",
+        "HashMap",
+        "TreeMap",
+        "LinkedHashMap",
+        "ConcurrentHashMap",
+        "Queue",
+        "Deque",
+        "ArrayDeque",
+        "PriorityQueue",
+        "Vector",
     ]
     .iter()
     .copied()
@@ -253,9 +269,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     let creation_type = creation_type_node
                         .map(|n| {
                             if n.kind() == "generic_type" {
-                                n.named_child(0)
-                                    .map(|c| node_text(c, source))
-                                    .unwrap_or("")
+                                n.named_child(0).map(|c| node_text(c, source)).unwrap_or("")
                             } else {
                                 node_text(n, source)
                             }
@@ -266,9 +280,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     let declared_type = type_node
                         .map(|n| {
                             if n.kind() == "generic_type" {
-                                n.named_child(0)
-                                    .map(|c| node_text(c, source))
-                                    .unwrap_or("")
+                                n.named_child(0).map(|c| node_text(c, source)).unwrap_or("")
                             } else {
                                 node_text(n, source)
                             }
@@ -312,7 +324,8 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         // 2. Find .add()/.put() inside loops (unbounded collection growth)
         {
             let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(&self.method_invocation_query, tree.root_node(), source);
+            let mut matches =
+                cursor.matches(&self.method_invocation_query, tree.root_node(), source);
 
             let method_idx = find_capture_index(&self.method_invocation_query, "method_name");
             let invocation_idx = find_capture_index(&self.method_invocation_query, "invocation");
@@ -357,15 +370,18 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
 
         // 3. Find static collections being populated (never cleared)
         {
-            let static_fields = collect_static_collection_fields(tree, source, &self.static_field_query);
+            let static_fields =
+                collect_static_collection_fields(tree, source, &self.static_field_query);
 
             if !static_fields.is_empty() {
                 let mut cursor = QueryCursor::new();
-                let mut matches = cursor.matches(&self.method_invocation_query, tree.root_node(), source);
+                let mut matches =
+                    cursor.matches(&self.method_invocation_query, tree.root_node(), source);
 
                 let object_idx = find_capture_index(&self.method_invocation_query, "object");
                 let method_idx = find_capture_index(&self.method_invocation_query, "method_name");
-                let invocation_idx = find_capture_index(&self.method_invocation_query, "invocation");
+                let invocation_idx =
+                    find_capture_index(&self.method_invocation_query, "invocation");
 
                 while let Some(m) = matches.next() {
                     let object_node = m
@@ -467,7 +483,11 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "unbounded_collection_growth"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "unbounded_collection_growth")
+        );
     }
 
     #[test]
@@ -480,7 +500,11 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().all(|f| f.pattern != "unbounded_collection_growth"));
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.pattern != "unbounded_collection_growth")
+        );
     }
 
     #[test]
@@ -493,7 +517,11 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "static_collection_accumulation"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "static_collection_accumulation")
+        );
     }
 
     #[test]
@@ -506,6 +534,10 @@ mod tests {
     }
 }"#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().all(|f| f.pattern != "static_collection_accumulation"));
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.pattern != "static_collection_accumulation")
+        );
     }
 }

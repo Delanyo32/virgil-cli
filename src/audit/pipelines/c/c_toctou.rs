@@ -84,10 +84,7 @@ impl Pipeline for CToctouPipeline {
         let fn_body_idx = find_capture_index(&self.fn_def_query, "fn_body");
 
         while let Some(m) = matches.next() {
-            let body_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == fn_body_idx);
+            let body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
             if let Some(body_cap) = body_cap {
                 let calls = Self::collect_calls_in_body(body_cap.node, source);

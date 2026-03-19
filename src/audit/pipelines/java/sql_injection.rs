@@ -44,11 +44,25 @@ impl Pipeline for SqlInjectionPipeline {
         let invocation_idx = find_capture_index(&self.method_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == invocation_idx).map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == invocation_idx)
+                .map(|c| c.node);
 
-            if let (Some(method_node), Some(args_node), Some(inv_node)) = (method_node, args_node, inv_node) {
+            if let (Some(method_node), Some(args_node), Some(inv_node)) =
+                (method_node, args_node, inv_node)
+            {
                 let method_name = node_text(method_node, source);
                 if !SQL_METHODS.contains(&method_name) {
                     continue;

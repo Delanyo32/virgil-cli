@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -51,7 +51,11 @@ impl CircularDependenciesPipeline {
                         // Strip surrounding quotes
                         let clean = text.trim_matches('"');
                         let pos = cap.node.start_position();
-                        targets.push((clean.to_string(), pos.row as u32 + 1, pos.column as u32 + 1));
+                        targets.push((
+                            clean.to_string(),
+                            pos.row as u32 + 1,
+                            pos.column as u32 + 1,
+                        ));
                     }
                 }
             }
@@ -129,7 +133,11 @@ mod tests {
 #include "scripting.hpp"
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -139,7 +147,11 @@ mod tests {
 #include "utils.hpp"
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -167,7 +179,11 @@ mod tests {
 "#;
         let findings = parse_and_check(src);
         // Only 1 distinct internal include, should not trigger hub detection
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -182,6 +198,10 @@ mod tests {
 #include "networking.hpp"
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 }

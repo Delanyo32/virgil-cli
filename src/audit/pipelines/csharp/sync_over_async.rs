@@ -48,8 +48,16 @@ impl Pipeline for SyncOverAsyncPipeline {
             let member_access_idx = find_capture_index(&self.member_access_query, "member_access");
 
             while let Some(m) = matches.next() {
-                let name_node = m.captures.iter().find(|c| c.index as usize == member_name_idx).map(|c| c.node);
-                let access_node = m.captures.iter().find(|c| c.index as usize == member_access_idx).map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == member_name_idx)
+                    .map(|c| c.node);
+                let access_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == member_access_idx)
+                    .map(|c| c.node);
 
                 if let (Some(name_node), Some(access_node)) = (name_node, access_node) {
                     if node_text(name_node, source) == "Result" {
@@ -77,12 +85,23 @@ impl Pipeline for SyncOverAsyncPipeline {
             let invocation_idx = find_capture_index(&self.invocation_query, "invocation");
 
             while let Some(m) = matches.next() {
-                let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-                let inv_node = m.captures.iter().find(|c| c.index as usize == invocation_idx).map(|c| c.node);
+                let fn_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == fn_expr_idx)
+                    .map(|c| c.node);
+                let inv_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == invocation_idx)
+                    .map(|c| c.node);
 
                 if let (Some(fn_node), Some(inv_node)) = (fn_node, inv_node) {
                     let fn_text = node_text(fn_node, source);
-                    if fn_text.ends_with(".Wait") || fn_text.ends_with(".WaitAll") || fn_text.ends_with(".WaitAny") {
+                    if fn_text.ends_with(".Wait")
+                        || fn_text.ends_with(".WaitAll")
+                        || fn_text.ends_with(".WaitAny")
+                    {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -91,7 +110,9 @@ impl Pipeline for SyncOverAsyncPipeline {
                             severity: "warning".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "blocking_wait_call".to_string(),
-                            message: "`.Wait()` blocks the calling thread \u{2014} use `await` instead".to_string(),
+                            message:
+                                "`.Wait()` blocks the calling thread \u{2014} use `await` instead"
+                                    .to_string(),
                             snippet: extract_snippet(source, inv_node, 3),
                         });
                     }
@@ -108,12 +129,28 @@ impl Pipeline for SyncOverAsyncPipeline {
             let method_decl_idx = find_capture_index(&self.method_query, "method_decl");
 
             while let Some(m) = matches.next() {
-                let type_node = m.captures.iter().find(|c| c.index as usize == return_type_idx).map(|c| c.node);
-                let name_node = m.captures.iter().find(|c| c.index as usize == method_name_idx).map(|c| c.node);
-                let decl_node = m.captures.iter().find(|c| c.index as usize == method_decl_idx).map(|c| c.node);
+                let type_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == return_type_idx)
+                    .map(|c| c.node);
+                let name_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == method_name_idx)
+                    .map(|c| c.node);
+                let decl_node = m
+                    .captures
+                    .iter()
+                    .find(|c| c.index as usize == method_decl_idx)
+                    .map(|c| c.node);
 
-                if let (Some(type_node), Some(name_node), Some(decl_node)) = (type_node, name_node, decl_node) {
-                    if has_modifier(decl_node, source, "async") && node_text(type_node, source) == "void" {
+                if let (Some(type_node), Some(name_node), Some(decl_node)) =
+                    (type_node, name_node, decl_node)
+                {
+                    if has_modifier(decl_node, source, "async")
+                        && node_text(type_node, source) == "void"
+                    {
                         let method_name = node_text(name_node, source);
                         let start = decl_node.start_position();
                         findings.push(AuditFinding {
@@ -144,7 +181,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = SyncOverAsyncPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")
@@ -160,7 +199,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let result_findings: Vec<_> = findings.iter().filter(|f| f.pattern == "blocking_result_access").collect();
+        let result_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "blocking_result_access")
+            .collect();
         assert_eq!(result_findings.len(), 1);
     }
 
@@ -174,7 +216,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let wait_findings: Vec<_> = findings.iter().filter(|f| f.pattern == "blocking_wait_call").collect();
+        let wait_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "blocking_wait_call")
+            .collect();
         assert_eq!(wait_findings.len(), 1);
     }
 
@@ -188,7 +233,10 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        let async_void: Vec<_> = findings.iter().filter(|f| f.pattern == "async_void").collect();
+        let async_void: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "async_void")
+            .collect();
         assert_eq!(async_void.len(), 1);
     }
 

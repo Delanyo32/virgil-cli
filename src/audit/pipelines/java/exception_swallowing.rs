@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_catch_clause_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_catch_clause_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct ExceptionSwallowingPipeline {
     catch_query: Arc<Query>,
@@ -195,8 +197,7 @@ mod tests {
 
     #[test]
     fn detects_printstacktrace_only() {
-        let src =
-            "class Foo { void m() { try { } catch (Exception e) { e.printStackTrace(); } } }";
+        let src = "class Foo { void m() { try { } catch (Exception e) { e.printStackTrace(); } } }";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "printstacktrace_only");
@@ -204,8 +205,7 @@ mod tests {
 
     #[test]
     fn detects_return_null_catch() {
-        let src =
-            "class Foo { Object m() { try { return new Object(); } catch (Exception e) { return null; } } }";
+        let src = "class Foo { Object m() { try { return new Object(); } catch (Exception e) { return null; } } }";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "catch_return_null");

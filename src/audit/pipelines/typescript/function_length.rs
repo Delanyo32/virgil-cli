@@ -141,7 +141,9 @@ mod tests {
         let findings = parse_and_check(&source);
         assert!(!findings.is_empty());
         let patterns: Vec<&str> = findings.iter().map(|f| f.pattern.as_str()).collect();
-        assert!(patterns.contains(&"function_too_long") || patterns.contains(&"too_many_statements"));
+        assert!(
+            patterns.contains(&"function_too_long") || patterns.contains(&"too_many_statements")
+        );
     }
 
     #[test]

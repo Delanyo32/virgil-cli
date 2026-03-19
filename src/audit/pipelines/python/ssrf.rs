@@ -54,21 +54,41 @@ impl Pipeline for SsrfPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(call_node)) = (fn_node, args_node, call_node) {
+            if let (Some(fn_node), Some(args_node), Some(call_node)) =
+                (fn_node, args_node, call_node)
+            {
                 let is_ssrf = match fn_node.kind() {
                     "identifier" => {
                         let name = node_text(fn_node, source);
                         SSRF_FUNCTIONS.contains(&name)
                     }
                     "attribute" => {
-                        let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-                        let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                        let obj = fn_node
+                            .child_by_field_name("object")
+                            .map(|n| node_text(n, source));
+                        let attr = fn_node
+                            .child_by_field_name("attribute")
+                            .map(|n| node_text(n, source));
                         if let (Some(obj_name), Some(attr_name)) = (obj, attr) {
-                            SSRF_METHODS.iter().any(|(m, f)| *m == obj_name && *f == attr_name)
+                            SSRF_METHODS
+                                .iter()
+                                .any(|(m, f)| *m == obj_name && *f == attr_name)
                         } else {
                             false
                         }

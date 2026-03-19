@@ -42,8 +42,12 @@ impl CppRaceConditionsPipeline {
     fn method_modifies_field(body: tree_sitter::Node, source: &[u8]) -> bool {
         let text = node_text(body, source);
         // Heuristic: look for assignment operators or increment/decrement on members
-        text.contains("++") || text.contains("--") || text.contains("+=")
-            || text.contains("-=") || text.contains("*=") || text.contains("/=")
+        text.contains("++")
+            || text.contains("--")
+            || text.contains("+=")
+            || text.contains("-=")
+            || text.contains("*=")
+            || text.contains("/=")
             || Self::has_simple_assignment(body, source)
     }
 
@@ -63,8 +67,7 @@ impl CppRaceConditionsPipeline {
 
     fn has_lock_guard(body: tree_sitter::Node, source: &[u8]) -> bool {
         let text = node_text(body, source);
-        text.contains("lock_guard") || text.contains("unique_lock")
-            || text.contains("scoped_lock")
+        text.contains("lock_guard") || text.contains("unique_lock") || text.contains("scoped_lock")
     }
 
     fn find_methods_in_class_body(
@@ -138,11 +141,7 @@ impl Pipeline for CppRaceConditionsPipeline {
                 }
 
                 // Check each method in the class for unguarded mutation
-                findings.extend(self.find_methods_in_class_body(
-                    body_cap.node,
-                    source,
-                    file_path,
-                ));
+                findings.extend(self.find_methods_in_class_body(body_cap.node, source, file_path));
             }
         }
 

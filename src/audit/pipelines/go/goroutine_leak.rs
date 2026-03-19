@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_go_statement_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_go_statement_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct GoroutineLeakPipeline {
     go_query: Arc<Query>,
@@ -90,8 +92,16 @@ impl Pipeline for GoroutineLeakPipeline {
         let stmt_idx = find_capture_index(&self.go_query, "go_stmt");
 
         while let Some(m) = matches.next() {
-            let expr_node = m.captures.iter().find(|c| c.index as usize == expr_idx).map(|c| c.node);
-            let stmt_node = m.captures.iter().find(|c| c.index as usize == stmt_idx).map(|c| c.node);
+            let expr_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == expr_idx)
+                .map(|c| c.node);
+            let stmt_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == stmt_idx)
+                .map(|c| c.node);
 
             if let (Some(expr_node), Some(stmt_node)) = (expr_node, stmt_node) {
                 // Look for func_literal in the go expression
@@ -131,7 +141,8 @@ impl Pipeline for GoroutineLeakPipeline {
                     severity: "warning".to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "goroutine_missing_done_channel".to_string(),
-                    message: "goroutine with for-loop but no select+ctx.Done() — may leak".to_string(),
+                    message: "goroutine with for-loop but no select+ctx.Done() — may leak"
+                        .to_string(),
                     snippet: extract_snippet(source, stmt_node, 3),
                 });
             }

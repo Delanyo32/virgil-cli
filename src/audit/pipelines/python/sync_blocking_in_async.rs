@@ -29,11 +29,7 @@ const BLOCKING_ATTR_CALLS: &[(&str, &str)] = &[
 ];
 
 /// Bare function calls that block.
-const BLOCKING_BARE_CALLS: &[&str] = &[
-    "open",
-    "input",
-    "sleep",
-];
+const BLOCKING_BARE_CALLS: &[&str] = &["open", "input", "sleep"];
 
 pub struct SyncBlockingInAsyncPipeline {
     call_query: Arc<Query>,
@@ -88,8 +84,16 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_expr_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_expr_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
             if let (Some(fn_node), Some(call_node)) = (fn_node, call_node) {
                 if !Self::is_inside_async_function(call_node, source) {
@@ -99,8 +103,12 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                 let mut matched_call: Option<String> = None;
 
                 if fn_node.kind() == "attribute" {
-                    let obj = fn_node.child_by_field_name("object").map(|n| node_text(n, source));
-                    let attr = fn_node.child_by_field_name("attribute").map(|n| node_text(n, source));
+                    let obj = fn_node
+                        .child_by_field_name("object")
+                        .map(|n| node_text(n, source));
+                    let attr = fn_node
+                        .child_by_field_name("attribute")
+                        .map(|n| node_text(n, source));
 
                     if let (Some(obj), Some(attr)) = (obj, attr) {
                         for &(expected_obj, expected_method) in BLOCKING_ATTR_CALLS {

@@ -10,7 +10,9 @@ use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 
-const ALLOC_FUNCTIONS: &[&str] = &["malloc", "calloc", "realloc", "strdup", "strndup", "asprintf"];
+const ALLOC_FUNCTIONS: &[&str] = &[
+    "malloc", "calloc", "realloc", "strdup", "strndup", "asprintf",
+];
 const FORGOTTEN_FREE_ALLOCS: &[&str] = &["strdup", "strndup", "asprintf"];
 
 fn c_lang() -> tree_sitter::Language {
@@ -40,8 +42,9 @@ impl MemoryLeakIndicatorsPipeline {
   declarator: (_) @declarator
   body: (compound_statement) @fn_body) @fn_def
 "#;
-        let fn_def_query = Query::new(&c_lang(), fn_def_query_str)
-            .with_context(|| "failed to compile function_definition query for C memory_leak_indicators")?;
+        let fn_def_query = Query::new(&c_lang(), fn_def_query_str).with_context(
+            || "failed to compile function_definition query for C memory_leak_indicators",
+        )?;
 
         let call_query_str = r#"
 (call_expression
@@ -73,11 +76,7 @@ impl MemoryLeakIndicatorsPipeline {
         let name_idx = find_capture_index(&self.call_query, "fn_name");
 
         while let Some(m) = matches.next() {
-            if let Some(cap) = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == name_idx)
-            {
+            if let Some(cap) = m.captures.iter().find(|c| c.index as usize == name_idx) {
                 let fn_name = node_text(cap.node, source);
                 if target_names.contains(&fn_name) {
                     return true;
@@ -114,12 +113,7 @@ impl MemoryLeakIndicatorsPipeline {
                 .map(|c| c.node);
 
             if let (Some(body), Some(loop_n)) = (body_node, loop_node) {
-                let has_free = self.has_call_in_range(
-                    tree,
-                    source,
-                    body.byte_range(),
-                    &["free"],
-                );
+                let has_free = self.has_call_in_range(tree, source, body.byte_range(), &["free"]);
 
                 if has_free {
                     continue;
@@ -193,12 +187,8 @@ impl MemoryLeakIndicatorsPipeline {
                 .map(|c| c.node);
 
             if let Some(body) = body_node {
-                let has_fclose = self.has_call_in_range(
-                    tree,
-                    source,
-                    body.byte_range(),
-                    &["fclose"],
-                );
+                let has_fclose =
+                    self.has_call_in_range(tree, source, body.byte_range(), &["fclose"]);
 
                 if has_fclose {
                     continue;
@@ -270,12 +260,7 @@ impl MemoryLeakIndicatorsPipeline {
                 .map(|c| c.node);
 
             if let Some(body) = body_node {
-                let has_free = self.has_call_in_range(
-                    tree,
-                    source,
-                    body.byte_range(),
-                    &["free"],
-                );
+                let has_free = self.has_call_in_range(tree, source, body.byte_range(), &["free"]);
 
                 if has_free {
                     continue;
@@ -409,8 +394,11 @@ void grow(int n) {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "alloc_in_loop"
-            && f.message.contains("realloc")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "alloc_in_loop" && f.message.contains("realloc"))
+        );
     }
 
     #[test]
@@ -485,7 +473,10 @@ void format_msg(int id) {
 }
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "alloc_without_free"
-            && f.message.contains("asprintf")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "alloc_without_free" && f.message.contains("asprintf"))
+        );
     }
 }

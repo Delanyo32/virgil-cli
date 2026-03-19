@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_method_call_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_method_call_query, extract_snippet, find_capture_index, node_text,
+};
 
 pub struct MutexMisusePipeline {
     call_query: Arc<Query>,
@@ -25,7 +27,10 @@ impl MutexMisusePipeline {
         let mut current = node.parent();
         while let Some(parent) = current {
             let kind = parent.kind();
-            if kind == "function_declaration" || kind == "method_declaration" || kind == "func_literal" {
+            if kind == "function_declaration"
+                || kind == "method_declaration"
+                || kind == "func_literal"
+            {
                 return parent.child_by_field_name("body");
             }
             current = parent.parent();
@@ -34,7 +39,10 @@ impl MutexMisusePipeline {
     }
 
     /// Extract the receiver (operand) text from a Lock/RLock call node.
-    fn lock_receiver_text<'a>(call_node: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+    fn lock_receiver_text<'a>(
+        call_node: tree_sitter::Node<'a>,
+        source: &'a [u8],
+    ) -> Option<&'a str> {
         let func_node = call_node.child_by_field_name("function")?;
         if func_node.kind() == "selector_expression" {
             let operand = func_node.child_by_field_name("operand")?;
@@ -44,18 +52,30 @@ impl MutexMisusePipeline {
     }
 
     /// Check if Unlock() (or RUnlock()) is called on the same receiver anywhere in the given body node.
-    fn has_unlock_in_scope(body: tree_sitter::Node, source: &[u8], receiver: &str, expected_unlock: &str) -> bool {
+    fn has_unlock_in_scope(
+        body: tree_sitter::Node,
+        source: &[u8],
+        receiver: &str,
+        expected_unlock: &str,
+    ) -> bool {
         Self::walk_for_unlock(body, source, receiver, expected_unlock)
     }
 
-    fn walk_for_unlock(node: tree_sitter::Node, source: &[u8], receiver: &str, expected_unlock: &str) -> bool {
+    fn walk_for_unlock(
+        node: tree_sitter::Node,
+        source: &[u8],
+        receiver: &str,
+        expected_unlock: &str,
+    ) -> bool {
         if node.kind() == "call_expression" {
             if let Some(func) = node.child_by_field_name("function") {
                 if func.kind() == "selector_expression" {
-                    let operand = func.child_by_field_name("operand")
+                    let operand = func
+                        .child_by_field_name("operand")
                         .and_then(|o| o.utf8_text(source).ok())
                         .unwrap_or("");
-                    let method = func.child_by_field_name("field")
+                    let method = func
+                        .child_by_field_name("field")
                         .and_then(|f| f.utf8_text(source).ok())
                         .unwrap_or("");
                     if operand == receiver && method == expected_unlock {
@@ -92,8 +112,16 @@ impl Pipeline for MutexMisusePipeline {
         let call_idx = find_capture_index(&self.call_query, "call");
 
         while let Some(m) = matches.next() {
-            let method_node = m.captures.iter().find(|c| c.index as usize == method_idx).map(|c| c.node);
-            let call_node = m.captures.iter().find(|c| c.index as usize == call_idx).map(|c| c.node);
+            let method_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == method_idx)
+                .map(|c| c.node);
+            let call_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == call_idx)
+                .map(|c| c.node);
 
             if let (Some(method_node), Some(call_node)) = (method_node, call_node) {
                 let method_name = node_text(method_node, source);

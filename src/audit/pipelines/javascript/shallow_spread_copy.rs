@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_spread_in_object_query, extract_snippet, find_capture_index,
-};
+use super::primitives::{compile_spread_in_object_query, extract_snippet, find_capture_index};
 
 pub struct ShallowSpreadCopyPipeline {
     spread_query: Arc<Query>,
@@ -41,10 +39,7 @@ impl Pipeline for ShallowSpreadCopyPipeline {
         let obj_idx = find_capture_index(&self.spread_query, "obj");
 
         while let Some(m) = matches.next() {
-            let target_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == target_idx);
+            let target_cap = m.captures.iter().find(|c| c.index as usize == target_idx);
             let obj_cap = m.captures.iter().find(|c| c.index as usize == obj_idx);
 
             if let (Some(target), Some(obj)) = (target_cap, obj_cap) {

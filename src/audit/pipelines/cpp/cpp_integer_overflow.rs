@@ -179,10 +179,7 @@ impl Pipeline for CppIntegerOverflowPipeline {
             let new_idx = find_capture_index(&self.new_query, "new_expr");
 
             while let Some(m) = matches.next() {
-                let new_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == new_idx);
+                let new_cap = m.captures.iter().find(|c| c.index as usize == new_idx);
 
                 if let Some(new_cap) = new_cap {
                     let text = node_text(new_cap.node, source);
@@ -198,9 +195,8 @@ impl Pipeline for CppIntegerOverflowPipeline {
                                 if inside.contains('*') {
                                     let parts: Vec<&str> =
                                         inside.split('*').map(|s| s.trim()).collect();
-                                    let all_constant = parts
-                                        .iter()
-                                        .all(|p| p.chars().all(|c| c.is_ascii_digit()));
+                                    let all_constant =
+                                        parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit()));
                                     if !all_constant {
                                         let start = new_cap.node.start_position();
                                         findings.push(AuditFinding {
@@ -229,10 +225,7 @@ impl Pipeline for CppIntegerOverflowPipeline {
             let fn_body_idx = find_capture_index(&self.fn_query, "fn_body");
 
             while let Some(m) = matches.next() {
-                let fn_body_cap = m
-                    .captures
-                    .iter()
-                    .find(|c| c.index as usize == fn_body_idx);
+                let fn_body_cap = m.captures.iter().find(|c| c.index as usize == fn_body_idx);
 
                 if let Some(fn_body_cap) = fn_body_cap {
                     Self::walk_for_signed_to_size_t(

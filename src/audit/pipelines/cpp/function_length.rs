@@ -4,10 +4,10 @@ use anyhow::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{extract_snippet, find_capture_index};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_function_lines;
-use super::primitives::{extract_snippet, find_capture_index};
 use crate::language::Language;
 
 const LINE_THRESHOLD: usize = 50;
@@ -33,7 +33,10 @@ fn extract_function_name(name_node: tree_sitter::Node, source: &[u8]) -> String 
             return child.utf8_text(source).unwrap_or("").to_string();
         }
     }
-    name_node.utf8_text(source).unwrap_or("<unknown>").to_string()
+    name_node
+        .utf8_text(source)
+        .unwrap_or("<unknown>")
+        .to_string()
 }
 
 pub struct FunctionLengthPipeline {

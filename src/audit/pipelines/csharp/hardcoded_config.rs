@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{compile_string_literal_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_string_literal_query, extract_snippet, find_capture_index, node_text,
+};
 
 const SUSPICIOUS_PATTERNS: &[(&str, &str)] = &[
     ("Server=", "connection string"),
@@ -53,7 +55,11 @@ impl Pipeline for HardcodedConfigPipeline {
         let str_lit_idx = find_capture_index(&self.string_query, "str_lit");
 
         while let Some(m) = matches.next() {
-            let str_node = m.captures.iter().find(|c| c.index as usize == str_lit_idx).map(|c| c.node);
+            let str_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == str_lit_idx)
+                .map(|c| c.node);
 
             if let Some(str_node) = str_node {
                 let text = node_text(str_node, source);
@@ -92,7 +98,9 @@ mod tests {
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Language::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Language::CSharp.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = HardcodedConfigPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "Test.cs")

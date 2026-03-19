@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, has_storage_class, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::count_top_level_definitions;
 use crate::language::Language;
-use super::primitives::{find_capture_index, has_storage_class, node_text};
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
@@ -101,7 +101,11 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                 for cap in m.captures {
                     if cap.index as usize == sym_idx {
                         // Only count top-level symbols
-                        if cap.node.parent().map_or(false, |p| p.kind() == "translation_unit") {
+                        if cap
+                            .node
+                            .parent()
+                            .map_or(false, |p| p.kind() == "translation_unit")
+                        {
                             // Not static => exported
                             if !has_storage_class(cap.node, source, "static") {
                                 exported_count += 1;
@@ -246,7 +250,11 @@ struct Connection {
 };
 "#;
         let findings = parse_and_check(src, "connection.h");
-        assert!(findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -261,7 +269,11 @@ struct Connection {
 };
 "#;
         let findings = parse_and_check(src, "connection.c");
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -273,7 +285,11 @@ struct Point {
 };
 "#;
         let findings = parse_and_check(src, "geometry.h");
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 
     #[test]
@@ -282,6 +298,10 @@ struct Point {
 struct Connection;
 "#;
         let findings = parse_and_check(src, "connection.h");
-        assert!(!findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
     }
 }

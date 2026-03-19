@@ -38,10 +38,7 @@ impl Pipeline for UnsafeIncludePipeline {
         let include_idx = find_capture_index(&self.include_query, "include_expr");
 
         while let Some(m) = matches.next() {
-            let cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == include_idx);
+            let cap = m.captures.iter().find(|c| c.index as usize == include_idx);
 
             if let Some(cap) = cap {
                 let node = cap.node;

@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
+use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
-use super::primitives::{find_capture_index, node_text};
 
 const HUB_MODULE_THRESHOLD: usize = 5;
 
@@ -102,7 +102,8 @@ impl Pipeline for CircularDependenciesPipeline {
         // Pattern: hub_module_bidirectional
         // Flag files with high fan-out (importing from many distinct packages)
         if fan_out >= HUB_MODULE_THRESHOLD {
-            let mut package_list: Vec<&str> = distinct_packages.iter().map(|s| s.as_str()).collect();
+            let mut package_list: Vec<&str> =
+                distinct_packages.iter().map(|s| s.as_str()).collect();
             package_list.sort();
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
@@ -149,7 +150,11 @@ import com.app.logging.Logger;
 import com.app.messaging.EventBus;
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -159,7 +164,11 @@ import com.app.config.AppConfig;
 import com.app.database.Pool;
 "#;
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -172,7 +181,11 @@ import com.app.config.AppConfig;
 "#;
         // Only 2 distinct packages: com.app.auth and com.app.config
         let findings = parse_and_check(src);
-        assert!(!findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]
@@ -185,7 +198,11 @@ import com.app.config.*;
 import com.app.database.*;
 "#;
         let findings = parse_and_check(src);
-        assert!(findings.iter().any(|f| f.pattern == "hub_module_bidirectional"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "hub_module_bidirectional")
+        );
     }
 
     #[test]

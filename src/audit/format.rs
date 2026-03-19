@@ -2,9 +2,99 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::cli::OutputFormat;
-use crate::query::format::format_output;
 
 use super::models::{AuditFinding, AuditSummary};
+
+/// Format a vector of serializable rows into the requested output format.
+fn format_output<T: Serialize>(
+    rows: &[T],
+    headers: &[&str],
+    format: &OutputFormat,
+) -> Result<String> {
+    match format {
+        OutputFormat::Json => Ok(serde_json::to_string_pretty(rows)?),
+        OutputFormat::Csv => {
+            let mut out = String::new();
+            out.push_str(&headers.join(","));
+            out.push('\n');
+            for row in rows {
+                let value = serde_json::to_value(row)?;
+                let cols: Vec<String> = headers
+                    .iter()
+                    .map(|h| {
+                        value
+                            .get(h)
+                            .map(|v| match v {
+                                serde_json::Value::String(s) => {
+                                    if s.contains(',') || s.contains('"') {
+                                        format!("\"{}\"", s.replace('"', "\"\""))
+                                    } else {
+                                        s.clone()
+                                    }
+                                }
+                                other => other.to_string(),
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                out.push_str(&cols.join(","));
+                out.push('\n');
+            }
+            Ok(out)
+        }
+        OutputFormat::Table => {
+            if rows.is_empty() {
+                return Ok("(no results)\n".to_string());
+            }
+            let json_rows: Vec<serde_json::Value> = rows
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+            for row in &json_rows {
+                for (i, header) in headers.iter().enumerate() {
+                    let cell = match row.get(header) {
+                        None | Some(serde_json::Value::Null) => 0,
+                        Some(serde_json::Value::String(s)) => s.len(),
+                        Some(v) => v.to_string().len(),
+                    };
+                    if cell > widths[i] {
+                        widths[i] = cell;
+                    }
+                }
+            }
+            let mut out = String::new();
+            let header_cells: Vec<String> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| format!("{:<width$}", h, width = widths[i]))
+                .collect();
+            out.push_str(&header_cells.join("  "));
+            out.push('\n');
+            let sep: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
+            out.push_str(&sep.join("  "));
+            out.push('\n');
+            for row in &json_rows {
+                let cells: Vec<String> = headers
+                    .iter()
+                    .enumerate()
+                    .map(|(i, h)| {
+                        let cell = match row.get(h) {
+                            None | Some(serde_json::Value::Null) => String::new(),
+                            Some(serde_json::Value::String(s)) => s.clone(),
+                            Some(serde_json::Value::Bool(b)) => b.to_string(),
+                            Some(v) => v.to_string(),
+                        };
+                        format!("{:<width$}", cell, width = widths[i])
+                    })
+                    .collect();
+                out.push_str(&cells.join("  "));
+                out.push('\n');
+            }
+            Ok(out)
+        }
+    }
+}
 
 pub fn format_findings(
     findings: &[AuditFinding],
@@ -68,11 +158,7 @@ pub fn format_findings(
                     .by_pipeline_pattern
                     .iter()
                     .find(|(name, _)| name == pipeline_name)
-                    .map(|(_, pats)| {
-                        pats.iter()
-                            .map(|(p, c)| format!("{p}: {c}"))
-                            .collect()
-                    })
+                    .map(|(_, pats)| pats.iter().map(|(p, c)| format!("{p}: {c}")).collect())
                     .unwrap_or_default();
                 output.push_str(&format!(
                     "  {pipeline_name}: {count} ({})\n",
@@ -84,7 +170,13 @@ pub fn format_findings(
         }
         _ => {
             let headers = &[
-                "file_path", "line", "column", "severity", "pipeline", "pattern", "message",
+                "file_path",
+                "line",
+                "column",
+                "severity",
+                "pipeline",
+                "pattern",
+                "message",
                 "snippet",
             ];
             format_output(display_findings, headers, format)
@@ -147,11 +239,7 @@ pub fn format_code_quality_summary(
                         .by_pipeline_pattern
                         .iter()
                         .find(|(n, _)| n == pipeline_name)
-                        .map(|(_, pats)| {
-                            pats.iter()
-                                .map(|(p, c)| format!("{p}: {c}"))
-                                .collect()
-                        })
+                        .map(|(_, pats)| pats.iter().map(|(p, c)| format!("{p}: {c}")).collect())
                         .unwrap_or_default();
                     out.push_str(&format!(
                         "  {pipeline_name}: {count} ({})\n",

@@ -60,10 +60,7 @@ impl Pipeline for ExceptionAcrossBoundaryPipeline {
         let throw_idx = find_capture_index(&self.throw_query, "throw_stmt");
 
         while let Some(m) = matches.next() {
-            let throw_cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == throw_idx);
+            let throw_cap = m.captures.iter().find(|c| c.index as usize == throw_idx);
 
             if let Some(throw_cap) = throw_cap {
                 if !Self::is_inside_extern_c(throw_cap.node, source) {

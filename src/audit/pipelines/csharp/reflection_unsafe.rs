@@ -7,9 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
-use super::primitives::{
-    compile_invocation_query, extract_snippet, find_capture_index, node_text,
-};
+use super::primitives::{compile_invocation_query, extract_snippet, find_capture_index, node_text};
 
 pub struct ReflectionUnsafePipeline {
     invocation_query: Arc<Query>,
@@ -56,11 +54,24 @@ impl ReflectionUnsafePipeline {
         let inv_idx = find_capture_index(&self.invocation_query, "invocation");
 
         while let Some(m) = matches.next() {
-            let fn_node = m.captures.iter().find(|c| c.index as usize == fn_idx).map(|c| c.node);
-            let args_node = m.captures.iter().find(|c| c.index as usize == args_idx).map(|c| c.node);
-            let inv_node = m.captures.iter().find(|c| c.index as usize == inv_idx).map(|c| c.node);
+            let fn_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == fn_idx)
+                .map(|c| c.node);
+            let args_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == args_idx)
+                .map(|c| c.node);
+            let inv_node = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == inv_idx)
+                .map(|c| c.node);
 
-            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node) {
+            if let (Some(fn_node), Some(args_node), Some(inv_node)) = (fn_node, args_node, inv_node)
+            {
                 let fn_text = node_text(fn_node, source);
 
                 // Type.GetType(param) — unsafe dynamic type loading
@@ -74,7 +85,9 @@ impl ReflectionUnsafePipeline {
                             severity: "error".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "unsafe_type_loading".to_string(),
-                            message: "Type.GetType() with dynamic input — validate against allowlist".to_string(),
+                            message:
+                                "Type.GetType() with dynamic input — validate against allowlist"
+                                    .to_string(),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
@@ -98,7 +111,11 @@ impl ReflectionUnsafePipeline {
                 }
 
                 // Assembly.LoadFrom(param) — unsafe assembly loading
-                if fn_text.contains("Assembly") && (fn_text.contains("LoadFrom") || fn_text.contains("LoadFile") || fn_text.contains("UnsafeLoadFrom")) {
+                if fn_text.contains("Assembly")
+                    && (fn_text.contains("LoadFrom")
+                        || fn_text.contains("LoadFile")
+                        || fn_text.contains("UnsafeLoadFrom"))
+                {
                     if !is_literal_arg(args_node, source) {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
@@ -108,7 +125,9 @@ impl ReflectionUnsafePipeline {
                             severity: "error".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "unsafe_assembly_load".to_string(),
-                            message: "Assembly loading with dynamic path — potential code execution".to_string(),
+                            message:
+                                "Assembly loading with dynamic path — potential code execution"
+                                    .to_string(),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
@@ -116,7 +135,6 @@ impl ReflectionUnsafePipeline {
             }
         }
     }
-
 }
 
 /// Check if the first argument in an argument_list is a string literal.
@@ -149,12 +167,14 @@ impl ReflectionUnsafePipeline {
         let mut in_unsafe = false;
         for (i, line) in source_str.lines().enumerate() {
             let trimmed = line.trim();
-            if trimmed.contains("unsafe") && (trimmed.contains('{') || trimmed.ends_with("unsafe")) {
+            if trimmed.contains("unsafe") && (trimmed.contains('{') || trimmed.ends_with("unsafe"))
+            {
                 in_unsafe = true;
             }
             if in_unsafe {
                 // Check for pointer arithmetic patterns
-                if trimmed.contains("->") || (trimmed.contains('*') && trimmed.contains('(') && trimmed.contains("ptr"))
+                if trimmed.contains("->")
+                    || (trimmed.contains('*') && trimmed.contains('(') && trimmed.contains("ptr"))
                     || trimmed.contains("stackalloc")
                 {
                     findings.push(AuditFinding {
@@ -164,7 +184,8 @@ impl ReflectionUnsafePipeline {
                         severity: "error".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "unsafe_pointer_arithmetic".to_string(),
-                        message: "Unsafe pointer operation — potential memory corruption".to_string(),
+                        message: "Unsafe pointer operation — potential memory corruption"
+                            .to_string(),
                         snippet: trimmed.to_string(),
                     });
                     break;

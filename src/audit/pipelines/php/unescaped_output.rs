@@ -42,10 +42,7 @@ impl Pipeline for UnescapedOutputPipeline {
         let echo_idx = find_capture_index(&self.echo_query, "echo");
 
         while let Some(m) = matches.next() {
-            let cap = m
-                .captures
-                .iter()
-                .find(|c| c.index as usize == echo_idx);
+            let cap = m.captures.iter().find(|c| c.index as usize == echo_idx);
 
             if let Some(cap) = cap {
                 let node = cap.node;

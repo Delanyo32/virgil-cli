@@ -36,30 +36,19 @@ impl MemoryLeakIndicatorsPipeline {
   arguments: (arguments) @args) @call
 "#;
         Ok(Self {
-            method_call_query: Arc::new(
-                Query::new(&ts_lang, method_call_str)
-                    .with_context(|| {
-                        "failed to compile method_call query for TS memory_leak_indicators"
-                    })?,
-            ),
-            direct_call_query: Arc::new(
-                Query::new(&ts_lang, direct_call_str)
-                    .with_context(|| {
-                        "failed to compile direct_call query for TS memory_leak_indicators"
-                    })?,
-            ),
+            method_call_query: Arc::new(Query::new(&ts_lang, method_call_str).with_context(
+                || "failed to compile method_call query for TS memory_leak_indicators",
+            )?),
+            direct_call_query: Arc::new(Query::new(&ts_lang, direct_call_str).with_context(
+                || "failed to compile direct_call query for TS memory_leak_indicators",
+            )?),
         })
     }
 
     /// Check if the file has any removeEventListener call, which suggests cleanup awareness.
-    fn file_has_remove_listener(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-    ) -> bool {
+    fn file_has_remove_listener(&self, tree: &Tree, source: &[u8]) -> bool {
         let mut cursor = QueryCursor::new();
-        let mut matches =
-            cursor.matches(&self.method_call_query, tree.root_node(), source);
+        let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
         let method_idx = find_capture_index(&self.method_call_query, "method");
 
         while let Some(m) = matches.next() {
@@ -171,8 +160,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         // Pass 1: Check method calls for addEventListener leaks, setInterval, unbounded push
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.method_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.method_call_query, tree.root_node(), source);
             let obj_idx = find_capture_index(&self.method_call_query, "obj");
             let method_idx = find_capture_index(&self.method_call_query, "method");
             let call_idx = find_capture_index(&self.method_call_query, "call");
@@ -194,9 +182,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     .find(|c| c.index as usize == call_idx)
                     .map(|c| c.node);
 
-                if let (Some(_obj), Some(method), Some(call)) =
-                    (obj_node, method_node, call_node)
-                {
+                if let (Some(_obj), Some(method), Some(call)) = (obj_node, method_node, call_node) {
                     let method_name = node_text(method, source);
 
                     // addEventListener without corresponding removeEventListener
@@ -224,11 +210,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                         let mut current = call.parent();
                         let mut in_unbounded_loop = false;
                         while let Some(parent) = current {
-                            let loop_kinds = &[
-                                "for_statement",
-                                "while_statement",
-                                "do_statement",
-                            ];
+                            let loop_kinds = &["for_statement", "while_statement", "do_statement"];
                             if loop_kinds.contains(&parent.kind()) {
                                 if !Self::loop_has_bound_check(parent, source) {
                                     in_unbounded_loop = true;
@@ -261,8 +243,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         // Pass 2: Check bare function calls for setInterval without clearInterval
         {
             let mut cursor = QueryCursor::new();
-            let mut matches =
-                cursor.matches(&self.direct_call_query, tree.root_node(), source);
+            let mut matches = cursor.matches(&self.direct_call_query, tree.root_node(), source);
             let fn_name_idx = find_capture_index(&self.direct_call_query, "fn_name");
             let call_idx = find_capture_index(&self.direct_call_query, "call");
 
@@ -321,9 +302,7 @@ mod tests {
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let lang = Language::TypeScript;
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .unwrap();
+        parser.set_language(&lang.tree_sitter_language()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MemoryLeakIndicatorsPipeline::new(lang).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.ts")
