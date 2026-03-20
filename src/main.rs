@@ -113,8 +113,8 @@ fn main() -> Result<()> {
                     };
                     (ws, entry)
                 } else {
-                    let name = name
-                        .ok_or_else(|| anyhow::anyhow!("provide a project name or --s3"))?;
+                    let name =
+                        name.ok_or_else(|| anyhow::anyhow!("provide a project name or --s3"))?;
                     let project = registry::get_project(&name)?;
                     let languages = match &project.languages {
                         Some(f) => language::parse_language_filter(f),
@@ -125,8 +125,7 @@ fn main() -> Result<()> {
                 };
 
                 let start = Instant::now();
-                let output =
-                    virgil_cli::query_engine::execute(&project, &query, max, &workspace)?;
+                let output = virgil_cli::query_engine::execute(&project, &query, max, &workspace)?;
                 let elapsed = start.elapsed();
 
                 let formatted = virgil_cli::format::format_results(
@@ -147,78 +146,15 @@ fn main() -> Result<()> {
             language,
             format,
             command,
-        } => {
-            match command {
-                Some(AuditCommand::CodeQuality {
-                    dir,
-                    s3,
-                    language,
-                    format,
-                    command,
-                }) => match command {
-                    Some(CodeQualityCommand::TechDebt {
-                        dir,
-                        s3,
-                        language: lang_filter,
-                        pipeline: pipeline_filter,
-                        format,
-                        per_page,
-                        page,
-                    }) => {
-                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit code-quality tech-debt <DIR>")?;
-                        run_tech_debt_ws(
-                            &ws,
-                            lang_filter.as_deref(),
-                            pipeline_filter.as_deref(),
-                            &format,
-                            page,
-                            per_page,
-                        )
-                    }
-                    Some(CodeQualityCommand::Complexity {
-                        dir,
-                        s3,
-                        language: lang_filter,
-                        pipeline: pipeline_filter,
-                        format,
-                        per_page,
-                        page,
-                    }) => {
-                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit code-quality complexity <DIR>")?;
-                        run_complexity_ws(
-                            &ws,
-                            lang_filter.as_deref(),
-                            pipeline_filter.as_deref(),
-                            &format,
-                            page,
-                            per_page,
-                        )
-                    }
-                    Some(CodeQualityCommand::CodeStyle {
-                        dir,
-                        s3,
-                        language: lang_filter,
-                        pipeline: pipeline_filter,
-                        format,
-                        per_page,
-                        page,
-                    }) => {
-                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit code-quality code-style <DIR>")?;
-                        run_code_style_ws(
-                            &ws,
-                            lang_filter.as_deref(),
-                            pipeline_filter.as_deref(),
-                            &format,
-                            page,
-                            per_page,
-                        )
-                    }
-                    None => {
-                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), language.as_deref(), "virgil audit code-quality <DIR>")?;
-                        run_code_quality_summary_ws(&ws, language.as_deref(), &format)
-                    }
-                },
-                Some(AuditCommand::Security {
+        } => match command {
+            Some(AuditCommand::CodeQuality {
+                dir,
+                s3,
+                language,
+                format,
+                command,
+            }) => match command {
+                Some(CodeQualityCommand::TechDebt {
                     dir,
                     s3,
                     language: lang_filter,
@@ -227,8 +163,13 @@ fn main() -> Result<()> {
                     per_page,
                     page,
                 }) => {
-                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit security <DIR>")?;
-                    run_security_ws(
+                    let ws = resolve_audit_workspace(
+                        dir.as_deref(),
+                        s3.as_deref(),
+                        lang_filter.as_deref(),
+                        "virgil audit code-quality tech-debt <DIR>",
+                    )?;
+                    run_tech_debt_ws(
                         &ws,
                         lang_filter.as_deref(),
                         pipeline_filter.as_deref(),
@@ -237,7 +178,7 @@ fn main() -> Result<()> {
                         per_page,
                     )
                 }
-                Some(AuditCommand::Scalability {
+                Some(CodeQualityCommand::Complexity {
                     dir,
                     s3,
                     language: lang_filter,
@@ -246,8 +187,13 @@ fn main() -> Result<()> {
                     per_page,
                     page,
                 }) => {
-                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit scalability <DIR>")?;
-                    run_scalability_ws(
+                    let ws = resolve_audit_workspace(
+                        dir.as_deref(),
+                        s3.as_deref(),
+                        lang_filter.as_deref(),
+                        "virgil audit code-quality complexity <DIR>",
+                    )?;
+                    run_complexity_ws(
                         &ws,
                         lang_filter.as_deref(),
                         pipeline_filter.as_deref(),
@@ -256,7 +202,7 @@ fn main() -> Result<()> {
                         per_page,
                     )
                 }
-                Some(AuditCommand::Architecture {
+                Some(CodeQualityCommand::CodeStyle {
                     dir,
                     s3,
                     language: lang_filter,
@@ -265,8 +211,13 @@ fn main() -> Result<()> {
                     per_page,
                     page,
                 }) => {
-                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit architecture <DIR>")?;
-                    run_architecture_ws(
+                    let ws = resolve_audit_workspace(
+                        dir.as_deref(),
+                        s3.as_deref(),
+                        lang_filter.as_deref(),
+                        "virgil audit code-quality code-style <DIR>",
+                    )?;
+                    run_code_style_ws(
                         &ws,
                         lang_filter.as_deref(),
                         pipeline_filter.as_deref(),
@@ -276,11 +227,97 @@ fn main() -> Result<()> {
                     )
                 }
                 None => {
-                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), language.as_deref(), "virgil audit <DIR>")?;
-                    run_full_audit_ws(&ws, language.as_deref(), &format)
+                    let ws = resolve_audit_workspace(
+                        dir.as_deref(),
+                        s3.as_deref(),
+                        language.as_deref(),
+                        "virgil audit code-quality <DIR>",
+                    )?;
+                    run_code_quality_summary_ws(&ws, language.as_deref(), &format)
                 }
+            },
+            Some(AuditCommand::Security {
+                dir,
+                s3,
+                language: lang_filter,
+                pipeline: pipeline_filter,
+                format,
+                per_page,
+                page,
+            }) => {
+                let ws = resolve_audit_workspace(
+                    dir.as_deref(),
+                    s3.as_deref(),
+                    lang_filter.as_deref(),
+                    "virgil audit security <DIR>",
+                )?;
+                run_security_ws(
+                    &ws,
+                    lang_filter.as_deref(),
+                    pipeline_filter.as_deref(),
+                    &format,
+                    page,
+                    per_page,
+                )
             }
-        }
+            Some(AuditCommand::Scalability {
+                dir,
+                s3,
+                language: lang_filter,
+                pipeline: pipeline_filter,
+                format,
+                per_page,
+                page,
+            }) => {
+                let ws = resolve_audit_workspace(
+                    dir.as_deref(),
+                    s3.as_deref(),
+                    lang_filter.as_deref(),
+                    "virgil audit scalability <DIR>",
+                )?;
+                run_scalability_ws(
+                    &ws,
+                    lang_filter.as_deref(),
+                    pipeline_filter.as_deref(),
+                    &format,
+                    page,
+                    per_page,
+                )
+            }
+            Some(AuditCommand::Architecture {
+                dir,
+                s3,
+                language: lang_filter,
+                pipeline: pipeline_filter,
+                format,
+                per_page,
+                page,
+            }) => {
+                let ws = resolve_audit_workspace(
+                    dir.as_deref(),
+                    s3.as_deref(),
+                    lang_filter.as_deref(),
+                    "virgil audit architecture <DIR>",
+                )?;
+                run_architecture_ws(
+                    &ws,
+                    lang_filter.as_deref(),
+                    pipeline_filter.as_deref(),
+                    &format,
+                    page,
+                    per_page,
+                )
+            }
+            None => {
+                let ws = resolve_audit_workspace(
+                    dir.as_deref(),
+                    s3.as_deref(),
+                    language.as_deref(),
+                    "virgil audit <DIR>",
+                )?;
+                run_full_audit_ws(&ws, language.as_deref(), &format)
+            }
+        },
     }
 }
 
@@ -300,9 +337,8 @@ fn resolve_audit_workspace(
         let loc = virgil_cli::s3::S3Location::parse(s3_uri)?;
         Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &[], Some(1_000_000))
     } else {
-        let dir = dir.ok_or_else(|| {
-            anyhow::anyhow!("Directory or --s3 required. Usage: {usage_hint}")
-        })?;
+        let dir =
+            dir.ok_or_else(|| anyhow::anyhow!("Directory or --s3 required. Usage: {usage_hint}"))?;
         let languages: Vec<Language> = if let Some(filter) = lang_filter {
             language::parse_language_filter(filter)
         } else {

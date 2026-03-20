@@ -69,9 +69,10 @@ impl Pipeline for EnumUsagePipeline {
                 // Members with values are `enum_assignment` (name + value fields)
                 if child.kind() == "enum_assignment"
                     && let Some(value_node) = child.child_by_field_name("value")
-                        && matches!(value_node.kind(), "string" | "template_string") {
-                            has_string_value = true;
-                        }
+                    && matches!(value_node.kind(), "string" | "template_string")
+                {
+                    has_string_value = true;
+                }
             }
 
             let decl_node = m.captures.first().map(|c| c.node).unwrap_or(body_node);

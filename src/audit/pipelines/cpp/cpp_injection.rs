@@ -80,22 +80,22 @@ impl Pipeline for CppInjectionPipeline {
 
                 // Pattern: popen() with non-literal command
                 if (matches_function(fn_text, "popen") || matches_function(fn_text, "_popen"))
-                    && !self.first_arg_is_string_literal(args_cap.node, source) {
-                        let start = call_cap.node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "error".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "popen_non_literal".to_string(),
-                            message:
-                                "`popen()` with non-literal command — risk of command injection"
-                                    .to_string(),
-                            snippet: extract_snippet(source, call_cap.node, 1),
-                        });
-                        continue;
-                    }
+                    && !self.first_arg_is_string_literal(args_cap.node, source)
+                {
+                    let start = call_cap.node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "error".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "popen_non_literal".to_string(),
+                        message: "`popen()` with non-literal command — risk of command injection"
+                            .to_string(),
+                        snippet: extract_snippet(source, call_cap.node, 1),
+                    });
+                    continue;
+                }
 
                 // Pattern: printf family with variable format string
                 let printf_fns = ["printf", "fprintf", "sprintf", "snprintf"];

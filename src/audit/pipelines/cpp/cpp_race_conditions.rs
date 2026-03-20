@@ -83,16 +83,16 @@ impl CppRaceConditionsPipeline {
         for child in class_body.children(&mut cursor) {
             if child.kind() == "function_definition"
                 && let Some(body) = child.child_by_field_name("body")
-                    && Self::method_modifies_field(body, source)
-                        && !Self::has_lock_guard(body, source)
-                    {
-                        let declarator = child.child_by_field_name("declarator");
-                        let method_name = declarator
-                            .map(|d| node_text(d, source))
-                            .unwrap_or("<unknown>");
+                && Self::method_modifies_field(body, source)
+                && !Self::has_lock_guard(body, source)
+            {
+                let declarator = child.child_by_field_name("declarator");
+                let method_name = declarator
+                    .map(|d| node_text(d, source))
+                    .unwrap_or("<unknown>");
 
-                        let start = child.start_position();
-                        findings.push(AuditFinding {
+                let start = child.start_position();
+                findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -104,7 +104,7 @@ impl CppRaceConditionsPipeline {
                             ),
                             snippet: extract_snippet(source, child, 3),
                         });
-                    }
+            }
         }
         findings
     }

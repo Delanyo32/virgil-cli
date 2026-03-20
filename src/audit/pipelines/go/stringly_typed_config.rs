@@ -70,20 +70,21 @@ impl StringlyTypedConfigPipeline {
                 .map(|c| c.node);
 
             if let (Some(type_node), Some(decl_node)) = (type_node, decl_node)
-                && Self::is_map_string_string(type_node, source) {
-                    let start = decl_node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "info".to_string(),
-                        pipeline: self.name().to_string(),
-                        pattern: pattern.to_string(),
-                        message: "`map[string]string` — consider a typed struct for configuration"
-                            .to_string(),
-                        snippet: extract_snippet(source, decl_node, 1),
-                    });
-                }
+                && Self::is_map_string_string(type_node, source)
+            {
+                let start = decl_node.start_position();
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line: start.row as u32 + 1,
+                    column: start.column as u32 + 1,
+                    severity: "info".to_string(),
+                    pipeline: self.name().to_string(),
+                    pattern: pattern.to_string(),
+                    message: "`map[string]string` — consider a typed struct for configuration"
+                        .to_string(),
+                    snippet: extract_snippet(source, decl_node, 1),
+                });
+            }
         }
 
         findings

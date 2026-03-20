@@ -72,9 +72,9 @@ impl Pipeline for DependencyGraphDepthPipeline {
                     if cap.index as usize == reexport_idx
                         && (cap.node.parent().is_some_and(|p| p.kind() == "program")
                             || cap.node.parent().is_none())
-                        {
-                            reexport_count += 1;
-                        }
+                    {
+                        reexport_count += 1;
+                    }
                 }
             }
         }

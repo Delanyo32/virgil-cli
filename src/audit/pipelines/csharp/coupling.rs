@@ -40,9 +40,10 @@ impl CouplingPipeline {
         }
 
         if count > IMPORT_THRESHOLD
-            && let Some(using_node) = first_using {
-                let start = using_node.start_position();
-                findings.push(AuditFinding {
+            && let Some(using_node) = first_using
+        {
+            let start = using_node.start_position();
+            findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: start.row as u32 + 1,
                     column: start.column as u32 + 1,
@@ -54,7 +55,7 @@ impl CouplingPipeline {
                     ),
                     snippet: extract_snippet(source, using_node, 3),
                 });
-            }
+        }
 
         findings
     }
@@ -93,16 +94,17 @@ fn check_params_recursive(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "method_declaration"
-            && let Some(params) = node.child_by_field_name("parameters") {
-                let param_count = count_parameters(params);
-                if param_count > PARAM_THRESHOLD {
-                    let name = node
-                        .child_by_field_name("name")
-                        .map(|n| node_text(n, source))
-                        .unwrap_or("<anonymous>");
+            && let Some(params) = node.child_by_field_name("parameters")
+        {
+            let param_count = count_parameters(params);
+            if param_count > PARAM_THRESHOLD {
+                let name = node
+                    .child_by_field_name("name")
+                    .map(|n| node_text(n, source))
+                    .unwrap_or("<anonymous>");
 
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
+                let start = node.start_position();
+                findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
@@ -114,8 +116,8 @@ fn check_params_recursive(
                         ),
                         snippet: extract_snippet(source, node, 1),
                     });
-                }
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -135,27 +137,29 @@ fn check_cohesion_recursive(
     while let Some(node) = stack.pop() {
         // Look for class_declaration -> declaration_list -> method_declaration
         if node.kind() == "class_declaration"
-            && let Some(body) = node.child_by_field_name("body") {
-                let mut cursor = body.walk();
-                for child in body.children(&mut cursor) {
-                    if child.kind() != "method_declaration" {
-                        continue;
-                    }
+            && let Some(body) = node.child_by_field_name("body")
+        {
+            let mut cursor = body.walk();
+            for child in body.children(&mut cursor) {
+                if child.kind() != "method_declaration" {
+                    continue;
+                }
 
-                    // Skip static methods
-                    if has_modifier(child, source, "static") {
-                        continue;
-                    }
+                // Skip static methods
+                if has_modifier(child, source, "static") {
+                    continue;
+                }
 
-                    if let Some(method_body) = child.child_by_field_name("body")
-                        && !body_references_identifier(method_body, source, "this") {
-                            let method_name = child
-                                .child_by_field_name("name")
-                                .map(|n| node_text(n, source))
-                                .unwrap_or("<anonymous>");
+                if let Some(method_body) = child.child_by_field_name("body")
+                    && !body_references_identifier(method_body, source, "this")
+                {
+                    let method_name = child
+                        .child_by_field_name("name")
+                        .map(|n| node_text(n, source))
+                        .unwrap_or("<anonymous>");
 
-                            let start = child.start_position();
-                            findings.push(AuditFinding {
+                    let start = child.start_position();
+                    findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -167,9 +171,9 @@ fn check_cohesion_recursive(
                                 ),
                                 snippet: extract_snippet(source, child, 1),
                             });
-                        }
                 }
             }
+        }
 
         let mut child_cursor = node.walk();
         for child in node.children(&mut child_cursor) {

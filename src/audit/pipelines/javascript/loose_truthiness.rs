@@ -59,9 +59,10 @@ impl Pipeline for LooseTruthinessPipeline {
                     // Check if it's a member_expression with property "length"
                     if inner.kind() == "member_expression"
                         && let Some(prop) = inner.child_by_field_name("property")
-                            && node_text(prop, source) == "length" {
-                                let start = if_node.node.start_position();
-                                findings.push(AuditFinding {
+                        && node_text(prop, source) == "length"
+                    {
+                        let start = if_node.node.start_position();
+                        findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -73,7 +74,7 @@ impl Pipeline for LooseTruthinessPipeline {
                                             .to_string(),
                                     snippet: extract_snippet(source, if_node.node, 1),
                                 });
-                            }
+                    }
                 }
             }
         }

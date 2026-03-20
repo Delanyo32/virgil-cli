@@ -114,9 +114,10 @@ fn is_empty_or_trivial(body_node: tree_sitter::Node) -> bool {
     }
     // If there's only one statement and it's a return, it's trivial
     if named_count == 1
-        && let Some(child) = body_node.named_child(0) {
-            return child.kind() == "return_statement";
-        }
+        && let Some(child) = body_node.named_child(0)
+    {
+        return child.kind() == "return_statement";
+    }
     false
 }
 

@@ -71,10 +71,9 @@ impl Pipeline for GodControllerPipeline {
                 let mut action_count = 0;
                 let mut body_cursor = body_node.walk();
                 for child in body_node.children(&mut body_cursor) {
-                    if child.kind() == "method_declaration"
-                        && is_public_method(child, source) {
-                            action_count += 1;
-                        }
+                    if child.kind() == "method_declaration" && is_public_method(child, source) {
+                        action_count += 1;
+                    }
                 }
 
                 if action_count > MAX_ACTIONS {

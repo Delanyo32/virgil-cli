@@ -85,11 +85,12 @@ impl JavaSsrfPipeline {
 
                 // Check if the argument is a variable (not a string literal)
                 if let Some(first_arg) = args_node.named_child(0)
-                    && first_arg.kind() != "string_literal" {
-                        let args_text = node_text(args_node, source);
-                        if args_text.contains('+') || first_arg.kind() == "identifier" {
-                            let start = creation_node.start_position();
-                            findings.push(AuditFinding {
+                    && first_arg.kind() != "string_literal"
+                {
+                    let args_text = node_text(args_node, source);
+                    if args_text.contains('+') || first_arg.kind() == "identifier" {
+                        let start = creation_node.start_position();
+                        findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -101,8 +102,8 @@ impl JavaSsrfPipeline {
                                 ),
                                 snippet: extract_snippet(source, creation_node, 1),
                             });
-                        }
                     }
+                }
             }
         }
     }
@@ -148,9 +149,10 @@ impl JavaSsrfPipeline {
 
                 // Check if the argument is a variable (not a string literal)
                 if let Some(first_arg) = args_node.named_child(0)
-                    && first_arg.kind() != "string_literal" {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
+                    && first_arg.kind() != "string_literal"
+                {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -160,7 +162,7 @@ impl JavaSsrfPipeline {
                             message: "sendRedirect() with dynamic URL — validate against allowlist to prevent open redirect".to_string(),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
-                    }
+                }
             }
         }
     }

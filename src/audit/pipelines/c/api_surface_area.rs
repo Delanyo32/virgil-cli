@@ -168,9 +168,10 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                         is_static = has_storage_class(cap.node, source, "static");
                         // Also check parent (e.g., if wrapped in a declaration or type_definition)
                         if let Some(parent) = cap.node.parent()
-                            && has_storage_class(parent, source, "static") {
-                                is_static = true;
-                            }
+                            && has_storage_class(parent, source, "static")
+                        {
+                            is_static = true;
+                        }
                     }
                 }
 

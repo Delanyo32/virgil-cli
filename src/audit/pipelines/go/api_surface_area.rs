@@ -94,13 +94,10 @@ impl Pipeline for ApiSurfaceAreaPipeline {
 
                 for cap in m.captures {
                     if cap.index as usize == def_idx
-                        && cap
-                            .node
-                            .parent()
-                            .is_some_and(|p| p.kind() == "source_file")
-                        {
-                            is_top_level = true;
-                        }
+                        && cap.node.parent().is_some_and(|p| p.kind() == "source_file")
+                    {
+                        is_top_level = true;
+                    }
                     if cap.index as usize == name_idx {
                         let text = node_text(cap.node, source);
                         if text.starts_with(|c: char| c.is_ascii_uppercase()) {

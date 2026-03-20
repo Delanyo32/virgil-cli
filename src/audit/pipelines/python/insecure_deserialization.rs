@@ -96,9 +96,11 @@ impl Pipeline for InsecureDeserializationPipeline {
                     if let Some((module, method, pattern)) = matching {
                         // Check that first arg is not a plain string literal
                         if let Some(first_arg) = args_node.named_child(0)
-                            && first_arg.kind() == "string" && !has_interpolation(first_arg) {
-                                continue;
-                            }
+                            && first_arg.kind() == "string"
+                            && !has_interpolation(first_arg)
+                        {
+                            continue;
+                        }
 
                         let start = call_node.start_position();
                         findings.push(AuditFinding {
@@ -125,9 +127,10 @@ impl Pipeline for InsecureDeserializationPipeline {
 fn has_interpolation(node: tree_sitter::Node) -> bool {
     for i in 0..node.named_child_count() {
         if let Some(child) = node.named_child(i)
-            && child.kind() == "interpolation" {
-                return true;
-            }
+            && child.kind() == "interpolation"
+        {
+            return true;
+        }
     }
     false
 }

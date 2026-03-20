@@ -27,16 +27,17 @@ impl CMemoryMismanagementPipeline {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "call_expression"
-                && let Some(func) = child.child_by_field_name("function") {
-                    let fn_name = node_text(func, source).to_string();
-                    if let Some(args) = child.child_by_field_name("arguments") {
-                        let first_arg = args
-                            .named_child(0)
-                            .map(|n| node_text(n, source).to_string())
-                            .unwrap_or_default();
-                        return Some((fn_name, first_arg));
-                    }
+                && let Some(func) = child.child_by_field_name("function")
+            {
+                let fn_name = node_text(func, source).to_string();
+                if let Some(args) = child.child_by_field_name("arguments") {
+                    let first_arg = args
+                        .named_child(0)
+                        .map(|n| node_text(n, source).to_string())
+                        .unwrap_or_default();
+                    return Some((fn_name, first_arg));
                 }
+            }
         }
         None
     }
@@ -52,16 +53,17 @@ impl CMemoryMismanagementPipeline {
 
                 if rhs.kind() == "call_expression"
                     && let Some(func) = rhs.child_by_field_name("function")
-                        && node_text(func, source) == "realloc" {
-                            let lhs_name = node_text(lhs, source).to_string();
-                            if let Some(args) = rhs.child_by_field_name("arguments") {
-                                let first_arg = args
-                                    .named_child(0)
-                                    .map(|n| node_text(n, source).to_string())
-                                    .unwrap_or_default();
-                                return Some((lhs_name, first_arg));
-                            }
-                        }
+                    && node_text(func, source) == "realloc"
+                {
+                    let lhs_name = node_text(lhs, source).to_string();
+                    if let Some(args) = rhs.child_by_field_name("arguments") {
+                        let first_arg = args
+                            .named_child(0)
+                            .map(|n| node_text(n, source).to_string())
+                            .unwrap_or_default();
+                        return Some((lhs_name, first_arg));
+                    }
+                }
             }
         }
         None
@@ -84,31 +86,33 @@ impl CMemoryMismanagementPipeline {
             // Check for free() calls and realloc assignments in expression_statement nodes
             if child.kind() == "expression_statement" {
                 if let Some((fn_name, arg)) = Self::extract_call(child, source)
-                    && fn_name == "free" {
-                        if freed_vars.contains(&arg) {
-                            // double free
-                            let start = child.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "error".to_string(),
-                                pipeline: pipeline_name.to_string(),
-                                pattern: "double_free".to_string(),
-                                message: format!("double `free()` on `{arg}` — undefined behavior"),
-                                snippet: extract_snippet(source, child, 1),
-                            });
-                        } else {
-                            freed_vars.push(arg);
-                        }
-                        continue;
+                    && fn_name == "free"
+                {
+                    if freed_vars.contains(&arg) {
+                        // double free
+                        let start = child.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "double_free".to_string(),
+                            message: format!("double `free()` on `{arg}` — undefined behavior"),
+                            snippet: extract_snippet(source, child, 1),
+                        });
+                    } else {
+                        freed_vars.push(arg);
                     }
+                    continue;
+                }
 
                 // Check for assignment p = realloc(p, n)
                 if let Some((lhs, first_arg)) = Self::extract_realloc_assign(child, source)
-                    && lhs == first_arg {
-                        let start = child.start_position();
-                        findings.push(AuditFinding {
+                    && lhs == first_arg
+                {
+                    let start = child.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -120,7 +124,7 @@ impl CMemoryMismanagementPipeline {
                             ),
                             snippet: extract_snippet(source, child, 1),
                         });
-                    }
+                }
             }
 
             // Check for use of freed variable in any subsequent statement

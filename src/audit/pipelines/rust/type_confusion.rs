@@ -39,23 +39,24 @@ impl Pipeline for TypeConfusionPipeline {
             let mut stack = vec![tree.root_node()];
             while let Some(node) = stack.pop() {
                 if node.kind() == "call_expression"
-                    && let Some(func) = node.child_by_field_name("function") {
-                        let func_text = node_text(func, source);
-                        if func_text.contains("transmute") {
-                            let start = node.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "error".to_string(),
-                                pipeline: self.name().to_string(),
-                                pattern: "transmute_call".to_string(),
-                                message: "mem::transmute bypasses type safety".to_string(),
-                                snippet: extract_snippet(source, node, 1),
-                            });
-                            continue;
-                        }
+                    && let Some(func) = node.child_by_field_name("function")
+                {
+                    let func_text = node_text(func, source);
+                    if func_text.contains("transmute") {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "transmute_call".to_string(),
+                            message: "mem::transmute bypasses type safety".to_string(),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                        continue;
                     }
+                }
                 for i in 0..node.child_count() {
                     if let Some(child) = node.child(i) {
                         stack.push(child);

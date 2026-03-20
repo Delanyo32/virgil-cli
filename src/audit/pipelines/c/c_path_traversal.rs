@@ -43,22 +43,23 @@ impl CPathTraversalPipeline {
     /// has a non-empty parameter_list.
     fn declarator_has_params(node: tree_sitter::Node, source: &[u8]) -> bool {
         if node.kind() == "function_declarator"
-            && let Some(params) = node.child_by_field_name("parameters") {
-                // parameter_list with at least one named child that is not just "void"
-                let mut cursor = params.walk();
-                let named: Vec<tree_sitter::Node> = params.named_children(&mut cursor).collect();
-                if named.is_empty() {
+            && let Some(params) = node.child_by_field_name("parameters")
+        {
+            // parameter_list with at least one named child that is not just "void"
+            let mut cursor = params.walk();
+            let named: Vec<tree_sitter::Node> = params.named_children(&mut cursor).collect();
+            if named.is_empty() {
+                return false;
+            }
+            // Check for the special case of (void) — single parameter_declaration with type "void"
+            if named.len() == 1 && named[0].kind() == "parameter_declaration" {
+                let text = node_text(named[0], source).trim().to_string();
+                if text == "void" {
                     return false;
                 }
-                // Check for the special case of (void) — single parameter_declaration with type "void"
-                if named.len() == 1 && named[0].kind() == "parameter_declaration" {
-                    let text = node_text(named[0], source).trim().to_string();
-                    if text == "void" {
-                        return false;
-                    }
-                }
-                return true;
             }
+            return true;
+        }
         // Drill into nested declarators (pointer_declarator, parenthesized_declarator, etc.)
         if let Some(inner) = node.child_by_field_name("declarator") {
             return Self::declarator_has_params(inner, source);

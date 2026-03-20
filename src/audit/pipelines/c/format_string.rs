@@ -72,9 +72,10 @@ impl Pipeline for FormatStringPipeline {
                 };
 
                 if let Some(fmt_node) = format_arg
-                    && !Self::is_safe_format_kind(fmt_node.kind()) {
-                        let start = call_cap.node.start_position();
-                        findings.push(AuditFinding {
+                    && !Self::is_safe_format_kind(fmt_node.kind())
+                {
+                    let start = call_cap.node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -86,7 +87,7 @@ impl Pipeline for FormatStringPipeline {
                             ),
                             snippet: extract_snippet(source, call_cap.node, 1),
                         });
-                    }
+                }
             }
         }
 

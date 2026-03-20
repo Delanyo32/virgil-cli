@@ -82,24 +82,25 @@ impl CIntegerOverflowPipeline {
     fn extract_param_types(fn_def: tree_sitter::Node, source: &[u8]) -> Vec<(String, String)> {
         let mut params = Vec::new();
         if let Some(declarator) = fn_def.child_by_field_name("declarator")
-            && let Some(param_list) = declarator.child_by_field_name("parameters") {
-                let mut cursor = param_list.walk();
-                for child in param_list.named_children(&mut cursor) {
-                    if child.kind() == "parameter_declaration" {
-                        let type_text = child
-                            .child_by_field_name("type")
-                            .map(|n| node_text(n, source).to_string())
-                            .unwrap_or_default();
-                        let name = child
-                            .child_by_field_name("declarator")
-                            .map(|n| Self::extract_identifier(n, source))
-                            .unwrap_or_default();
-                        if !name.is_empty() {
-                            params.push((name, type_text));
-                        }
+            && let Some(param_list) = declarator.child_by_field_name("parameters")
+        {
+            let mut cursor = param_list.walk();
+            for child in param_list.named_children(&mut cursor) {
+                if child.kind() == "parameter_declaration" {
+                    let type_text = child
+                        .child_by_field_name("type")
+                        .map(|n| node_text(n, source).to_string())
+                        .unwrap_or_default();
+                    let name = child
+                        .child_by_field_name("declarator")
+                        .map(|n| Self::extract_identifier(n, source))
+                        .unwrap_or_default();
+                    if !name.is_empty() {
+                        params.push((name, type_text));
                     }
                 }
             }
+        }
         params
     }
 
@@ -196,16 +197,17 @@ impl Pipeline for CIntegerOverflowPipeline {
                 if MEMCPY_FAMILY.contains(&fn_name) {
                     // Size is the 3rd argument (index 2)
                     if let Some(size_arg) = named_args.get(2)
-                        && size_arg.kind() == "identifier" {
-                            let arg_name = node_text(*size_arg, source);
+                        && size_arg.kind() == "identifier"
+                    {
+                        let arg_name = node_text(*size_arg, source);
 
-                            // Walk up to find enclosing function and check param type
-                            if let Some(fn_def) = Self::find_enclosing_function(call_cap.node) {
-                                let params = Self::extract_param_types(fn_def, source);
-                                for (param_name, param_type) in &params {
-                                    if param_name == arg_name && Self::is_signed_type(param_type) {
-                                        let start = call_cap.node.start_position();
-                                        findings.push(AuditFinding {
+                        // Walk up to find enclosing function and check param type
+                        if let Some(fn_def) = Self::find_enclosing_function(call_cap.node) {
+                            let params = Self::extract_param_types(fn_def, source);
+                            for (param_name, param_type) in &params {
+                                if param_name == arg_name && Self::is_signed_type(param_type) {
+                                    let start = call_cap.node.start_position();
+                                    findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
                                             line: start.row as u32 + 1,
                                             column: start.column as u32 + 1,
@@ -221,11 +223,11 @@ impl Pipeline for CIntegerOverflowPipeline {
                                                 1,
                                             ),
                                         });
-                                        break;
-                                    }
+                                    break;
                                 }
                             }
                         }
+                    }
                 }
             }
         }

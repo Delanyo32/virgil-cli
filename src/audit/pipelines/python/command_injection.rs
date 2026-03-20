@@ -58,21 +58,23 @@ impl Pipeline for CommandInjectionPipeline {
 
             if let (Some(fn_node), Some(args_node), Some(call_node)) =
                 (fn_node, args_node, call_node)
-                && fn_node.kind() == "attribute" {
-                    let obj = fn_node
-                        .child_by_field_name("object")
-                        .map(|n| node_text(n, source));
-                    let attr = fn_node
-                        .child_by_field_name("attribute")
-                        .map(|n| node_text(n, source));
+                && fn_node.kind() == "attribute"
+            {
+                let obj = fn_node
+                    .child_by_field_name("object")
+                    .map(|n| node_text(n, source));
+                let attr = fn_node
+                    .child_by_field_name("attribute")
+                    .map(|n| node_text(n, source));
 
-                    match (obj, attr) {
-                        // os.system() / os.popen() with non-literal arg
-                        (Some("os"), Some("system")) | (Some("os"), Some("popen")) => {
-                            if let Some(first_arg) = args_node.named_child(0)
-                                && first_arg.kind() != "string" {
-                                    let start = call_node.start_position();
-                                    findings.push(AuditFinding {
+                match (obj, attr) {
+                    // os.system() / os.popen() with non-literal arg
+                    (Some("os"), Some("system")) | (Some("os"), Some("popen")) => {
+                        if let Some(first_arg) = args_node.named_child(0)
+                            && first_arg.kind() != "string"
+                        {
+                            let start = call_node.start_position();
+                            findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
                                         line: start.row as u32 + 1,
                                         column: start.column as u32 + 1,
@@ -85,22 +87,21 @@ impl Pipeline for CommandInjectionPipeline {
                                         ),
                                         snippet: extract_snippet(source, call_node, 1),
                                     });
-                                }
                         }
-                        // subprocess.run/Popen/call with shell=True
-                        (
-                            Some("subprocess"),
-                            Some("run" | "Popen" | "call" | "check_output" | "check_call"),
-                        ) => {
-                            let call_text = node_text(call_node, source);
-                            if call_text.contains("shell=True")
-                                || call_text.contains("shell = True")
+                    }
+                    // subprocess.run/Popen/call with shell=True
+                    (
+                        Some("subprocess"),
+                        Some("run" | "Popen" | "call" | "check_output" | "check_call"),
+                    ) => {
+                        let call_text = node_text(call_node, source);
+                        if call_text.contains("shell=True") || call_text.contains("shell = True") {
+                            // Check if first arg is a string (not a list)
+                            if let Some(first_arg) = args_node.named_child(0)
+                                && first_arg.kind() != "list"
                             {
-                                // Check if first arg is a string (not a list)
-                                if let Some(first_arg) = args_node.named_child(0)
-                                    && first_arg.kind() != "list" {
-                                        let start = call_node.start_position();
-                                        findings.push(AuditFinding {
+                                let start = call_node.start_position();
+                                findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
                                             line: start.row as u32 + 1,
                                             column: start.column as u32 + 1,
@@ -113,12 +114,12 @@ impl Pipeline for CommandInjectionPipeline {
                                             ),
                                             snippet: extract_snippet(source, call_node, 1),
                                         });
-                                    }
                             }
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
+            }
         }
 
         findings

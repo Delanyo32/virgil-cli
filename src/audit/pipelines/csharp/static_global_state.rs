@@ -54,12 +54,12 @@ impl Pipeline for StaticGlobalStatePipeline {
 
             if let (Some(decl_node), Some(name_node)) = (decl_node, name_node)
                 && has_modifier(decl_node, source, "static")
-                    && !has_modifier(decl_node, source, "readonly")
-                    && !has_modifier(decl_node, source, "const")
-                {
-                    let field_name = node_text(name_node, source);
-                    let start = decl_node.start_position();
-                    findings.push(AuditFinding {
+                && !has_modifier(decl_node, source, "readonly")
+                && !has_modifier(decl_node, source, "const")
+            {
+                let field_name = node_text(name_node, source);
+                let start = decl_node.start_position();
+                findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
@@ -71,7 +71,7 @@ impl Pipeline for StaticGlobalStatePipeline {
                         ),
                         snippet: extract_snippet(source, decl_node, 3),
                     });
-                }
+            }
         }
 
         findings

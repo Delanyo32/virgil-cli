@@ -69,9 +69,10 @@ impl NakedInterfacePipeline {
                 .map(|c| c.node);
 
             if let (Some(type_node), Some(decl_node)) = (type_node, decl_node)
-                && Self::is_naked_interface(type_node, source) {
-                    let start = decl_node.start_position();
-                    findings.push(AuditFinding {
+                && Self::is_naked_interface(type_node, source)
+            {
+                let start = decl_node.start_position();
+                findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
@@ -81,7 +82,7 @@ impl NakedInterfacePipeline {
                         message: "empty interface (`interface{}` / `any`) loses type safety — consider a concrete interface".to_string(),
                         snippet: extract_snippet(source, decl_node, 1),
                     });
-                }
+            }
         }
 
         findings

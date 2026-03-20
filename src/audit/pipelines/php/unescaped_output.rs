@@ -79,15 +79,14 @@ fn find_unescaped_superglobal<'a>(
     while let Some(current) = stack.pop() {
         // If we encounter a function call to an escaping function, skip its subtree
         if current.kind() == "function_call_expression"
-            && let Some(name_child) = current.child_by_field_name("function") {
-                let fn_name = node_text(name_child, source);
-                if fn_name == "htmlspecialchars"
-                    || fn_name == "htmlentities"
-                    || fn_name == "strip_tags"
-                {
-                    continue; // skip this subtree
-                }
+            && let Some(name_child) = current.child_by_field_name("function")
+        {
+            let fn_name = node_text(name_child, source);
+            if fn_name == "htmlspecialchars" || fn_name == "htmlentities" || fn_name == "strip_tags"
+            {
+                continue; // skip this subtree
             }
+        }
 
         if current.kind() == "variable_name" {
             let var_name = node_text(current, source);

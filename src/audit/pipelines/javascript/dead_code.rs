@@ -108,9 +108,10 @@ impl DeadCodePipeline {
                         let mut ns_cursor = child.walk();
                         for ns_child in child.children(&mut ns_cursor) {
                             if ns_child.kind() == "identifier"
-                                && let Ok(text) = ns_child.utf8_text(source) {
-                                    names.push(text.to_string());
-                                }
+                                && let Ok(text) = ns_child.utf8_text(source)
+                            {
+                                names.push(text.to_string());
+                            }
                         }
                     }
                 }
@@ -133,9 +134,10 @@ impl DeadCodePipeline {
                         names.push(text.to_string());
                     }
                 } else if let Some(name_node) = child.child_by_field_name("name")
-                    && let Ok(text) = name_node.utf8_text(source) {
-                        names.push(text.to_string());
-                    }
+                    && let Ok(text) = name_node.utf8_text(source)
+                {
+                    names.push(text.to_string());
+                }
             }
         }
     }

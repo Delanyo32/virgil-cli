@@ -144,14 +144,15 @@ impl JavaRaceConditionsPipeline {
                     for (i, line) in source_str.lines().enumerate() {
                         let line_start = body_node.start_position().row;
                         let line_end = body_node.end_position().row;
-                        if i >= line_start && i <= line_end
+                        if i >= line_start
+                            && i <= line_end
                             && (line.contains("++") || line.contains("+="))
-                                && !line.contains("Atomic")
-                            {
-                                // Check if the variable is volatile by looking at surrounding context
-                                let trimmed = line.trim();
-                                if !trimmed.starts_with("//") && !trimmed.starts_with("*") {
-                                    findings.push(AuditFinding {
+                            && !line.contains("Atomic")
+                        {
+                            // Check if the variable is volatile by looking at surrounding context
+                            let trimmed = line.trim();
+                            if !trimmed.starts_with("//") && !trimmed.starts_with("*") {
+                                findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
                                         line: i as u32 + 1,
                                         column: 1,
@@ -161,9 +162,9 @@ impl JavaRaceConditionsPipeline {
                                         message: "Increment/add on shared field is not atomic — use AtomicInteger or synchronized".to_string(),
                                         snippet: trimmed.to_string(),
                                     });
-                                    break;
-                                }
+                                break;
                             }
+                        }
                     }
                 }
             }

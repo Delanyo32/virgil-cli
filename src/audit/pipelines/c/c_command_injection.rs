@@ -45,31 +45,32 @@ impl CCommandInjectionPipeline {
                 let mut inner_cursor = child.walk();
                 for inner in child.named_children(&mut inner_cursor) {
                     if inner.kind() == "call_expression"
-                        && let Some(func) = inner.child_by_field_name("function") {
-                            let fn_name = node_text(func, source);
-                            if fn_name == "sprintf" {
-                                // First arg to sprintf is the buffer
-                                if let Some(args) = inner.child_by_field_name("arguments") {
-                                    let mut args_cursor = args.walk();
-                                    let named_args: Vec<tree_sitter::Node> =
-                                        args.named_children(&mut args_cursor).collect();
-                                    if let Some(buf_node) = named_args.first() {
-                                        let buf_name = node_text(*buf_node, source).to_string();
-                                        sprintf_buffers.push((buf_name, child));
-                                    }
+                        && let Some(func) = inner.child_by_field_name("function")
+                    {
+                        let fn_name = node_text(func, source);
+                        if fn_name == "sprintf" {
+                            // First arg to sprintf is the buffer
+                            if let Some(args) = inner.child_by_field_name("arguments") {
+                                let mut args_cursor = args.walk();
+                                let named_args: Vec<tree_sitter::Node> =
+                                    args.named_children(&mut args_cursor).collect();
+                                if let Some(buf_node) = named_args.first() {
+                                    let buf_name = node_text(*buf_node, source).to_string();
+                                    sprintf_buffers.push((buf_name, child));
                                 }
-                            } else if fn_name == "system" {
-                                // Check if first arg matches a known sprintf buffer
-                                if let Some(args) = inner.child_by_field_name("arguments") {
-                                    let mut args_cursor = args.walk();
-                                    let named_args: Vec<tree_sitter::Node> =
-                                        args.named_children(&mut args_cursor).collect();
-                                    if let Some(arg_node) = named_args.first() {
-                                        let arg_text = node_text(*arg_node, source);
-                                        for (buf_name, _sprintf_node) in &sprintf_buffers {
-                                            if arg_text == buf_name {
-                                                let start = child.start_position();
-                                                findings.push(AuditFinding {
+                            }
+                        } else if fn_name == "system" {
+                            // Check if first arg matches a known sprintf buffer
+                            if let Some(args) = inner.child_by_field_name("arguments") {
+                                let mut args_cursor = args.walk();
+                                let named_args: Vec<tree_sitter::Node> =
+                                    args.named_children(&mut args_cursor).collect();
+                                if let Some(arg_node) = named_args.first() {
+                                    let arg_text = node_text(*arg_node, source);
+                                    for (buf_name, _sprintf_node) in &sprintf_buffers {
+                                        if arg_text == buf_name {
+                                            let start = child.start_position();
+                                            findings.push(AuditFinding {
                                                     file_path: file_path.to_string(),
                                                     line: start.row as u32 + 1,
                                                     column: start.column as u32 + 1,
@@ -81,12 +82,12 @@ impl CCommandInjectionPipeline {
                                                     ),
                                                     snippet: extract_snippet(source, child, 1),
                                                 });
-                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
                 }
             }
         }
@@ -137,16 +138,16 @@ impl Pipeline for CCommandInjectionPipeline {
 
                     if let Some(first_arg) = named_args.first()
                         && first_arg.kind() != "string_literal"
-                            && first_arg.kind() != "concatenated_string"
-                        {
-                            let pattern = if fn_name == "system" {
-                                "system_dynamic_arg"
-                            } else {
-                                "popen_dynamic_arg"
-                            };
+                        && first_arg.kind() != "concatenated_string"
+                    {
+                        let pattern = if fn_name == "system" {
+                            "system_dynamic_arg"
+                        } else {
+                            "popen_dynamic_arg"
+                        };
 
-                            let start = call_cap.node.start_position();
-                            findings.push(AuditFinding {
+                        let start = call_cap.node.start_position();
+                        findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -158,7 +159,7 @@ impl Pipeline for CCommandInjectionPipeline {
                                 ),
                                 snippet: extract_snippet(source, call_cap.node, 1),
                             });
-                        }
+                    }
                 }
             }
         }

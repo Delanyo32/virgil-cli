@@ -186,19 +186,20 @@ fn format_tree(results: &[QueryResult]) -> serde_json::Value {
             .into_iter()
             .map(|mut node| {
                 if let Some(name) = node.get("name").and_then(|n| n.as_str())
-                    && let Some(children) = children_map.get(name) {
-                        let child_nodes: Vec<serde_json::Value> = children
-                            .iter()
-                            .map(|c| {
-                                serde_json::json!({
-                                    "name": c.name,
-                                    "kind": c.kind,
-                                    "line": c.line,
-                                })
+                    && let Some(children) = children_map.get(name)
+                {
+                    let child_nodes: Vec<serde_json::Value> = children
+                        .iter()
+                        .map(|c| {
+                            serde_json::json!({
+                                "name": c.name,
+                                "kind": c.kind,
+                                "line": c.line,
                             })
-                            .collect();
-                        node["children"] = serde_json::Value::Array(child_nodes);
-                    }
+                        })
+                        .collect();
+                    node["children"] = serde_json::Value::Array(child_nodes);
+                }
                 node
             })
             .collect();

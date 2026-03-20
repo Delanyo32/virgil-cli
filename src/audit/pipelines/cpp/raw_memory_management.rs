@@ -29,29 +29,31 @@ impl RawMemoryManagementPipeline {
         // Check if the new expression is inside a smart pointer constructor or reset
         if let Some(parent) = node.parent()
             && parent.kind() == "argument_list"
-                && let Some(grandparent) = parent.parent() {
-                    // Case 1: call_expression — e.g., std::unique_ptr<int>(new int(42))
-                    if grandparent.kind() == "call_expression"
-                        && let Some(func) = grandparent.child_by_field_name("function") {
-                            let func_text = node_text(func, source);
-                            if func_text.contains("unique_ptr")
-                                || func_text.contains("shared_ptr")
-                                || func_text.ends_with("reset")
-                            {
-                                return true;
-                            }
-                        }
-                    // Case 2: init_declarator — e.g., std::unique_ptr<int> p(new int(42))
-                    // The declaration type will contain unique_ptr/shared_ptr
-                    if grandparent.kind() == "init_declarator"
-                        && let Some(declaration) = grandparent.parent() {
-                            let decl_text = node_text(declaration, source);
-                            if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr")
-                            {
-                                return true;
-                            }
-                        }
+            && let Some(grandparent) = parent.parent()
+        {
+            // Case 1: call_expression — e.g., std::unique_ptr<int>(new int(42))
+            if grandparent.kind() == "call_expression"
+                && let Some(func) = grandparent.child_by_field_name("function")
+            {
+                let func_text = node_text(func, source);
+                if func_text.contains("unique_ptr")
+                    || func_text.contains("shared_ptr")
+                    || func_text.ends_with("reset")
+                {
+                    return true;
                 }
+            }
+            // Case 2: init_declarator — e.g., std::unique_ptr<int> p(new int(42))
+            // The declaration type will contain unique_ptr/shared_ptr
+            if grandparent.kind() == "init_declarator"
+                && let Some(declaration) = grandparent.parent()
+            {
+                let decl_text = node_text(declaration, source);
+                if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr") {
+                    return true;
+                }
+            }
+        }
         false
     }
 }
@@ -97,7 +99,8 @@ impl Pipeline for RawMemoryManagementPipeline {
                         severity: "warning".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: pattern.to_string(),
-                        message: "raw `new` — use `std::make_unique` or `std::make_shared` instead".to_string(),
+                        message: "raw `new` — use `std::make_unique` or `std::make_shared` instead"
+                            .to_string(),
                         snippet: extract_snippet(source, new_cap.node, 1),
                     });
                 }

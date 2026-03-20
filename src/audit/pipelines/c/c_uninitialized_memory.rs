@@ -69,17 +69,19 @@ impl CUninitializedMemoryPipeline {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "call_expression"
-                && let Some(func) = child.child_by_field_name("function") {
-                    let fn_name = node_text(func, source);
-                    if INIT_FUNCTIONS.contains(&fn_name)
-                        && let Some(args) = child.child_by_field_name("arguments")
-                            && let Some(first_arg) = args.named_child(0) {
-                                let arg_text = node_text(first_arg, source);
-                                if arg_text == buffer_name {
-                                    return true;
-                                }
-                            }
+                && let Some(func) = child.child_by_field_name("function")
+            {
+                let fn_name = node_text(func, source);
+                if INIT_FUNCTIONS.contains(&fn_name)
+                    && let Some(args) = child.child_by_field_name("arguments")
+                    && let Some(first_arg) = args.named_child(0)
+                {
+                    let arg_text = node_text(first_arg, source);
+                    if arg_text == buffer_name {
+                        return true;
+                    }
                 }
+            }
         }
         false
     }
@@ -97,25 +99,27 @@ impl CUninitializedMemoryPipeline {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "call_expression"
-                && let Some(func) = child.child_by_field_name("function") {
-                    let fn_name = node_text(func, source);
-                    if SEND_FUNCTIONS.contains(&fn_name)
-                        && let Some(args) = child.child_by_field_name("arguments") {
-                            let mut args_cursor = args.walk();
-                            let named_args: Vec<tree_sitter::Node> =
-                                args.named_children(&mut args_cursor).collect();
-                            // For send/sendto: second arg is the buffer
-                            // For write: second arg is the buffer
-                            // For fwrite: first arg is the buffer
-                            let buf_arg_idx = if fn_name == "fwrite" { 0 } else { 1 };
-                            if let Some(arg_node) = named_args.get(buf_arg_idx) {
-                                let arg_text = node_text(*arg_node, source);
-                                if arg_text == buffer_name {
-                                    return Some(fn_name);
-                                }
-                            }
+                && let Some(func) = child.child_by_field_name("function")
+            {
+                let fn_name = node_text(func, source);
+                if SEND_FUNCTIONS.contains(&fn_name)
+                    && let Some(args) = child.child_by_field_name("arguments")
+                {
+                    let mut args_cursor = args.walk();
+                    let named_args: Vec<tree_sitter::Node> =
+                        args.named_children(&mut args_cursor).collect();
+                    // For send/sendto: second arg is the buffer
+                    // For write: second arg is the buffer
+                    // For fwrite: first arg is the buffer
+                    let buf_arg_idx = if fn_name == "fwrite" { 0 } else { 1 };
+                    if let Some(arg_node) = named_args.get(buf_arg_idx) {
+                        let arg_text = node_text(*arg_node, source);
+                        if arg_text == buffer_name {
+                            return Some(fn_name);
                         }
+                    }
                 }
+            }
         }
         None
     }

@@ -164,9 +164,10 @@ fn is_return_null(node: tree_sitter::Node) -> bool {
     // Check if the return value is null_literal
     for i in 0..node.named_child_count() {
         if let Some(child) = node.named_child(i)
-            && child.kind() == "null_literal" {
-                return true;
-            }
+            && child.kind() == "null_literal"
+        {
+            return true;
+        }
     }
     false
 }

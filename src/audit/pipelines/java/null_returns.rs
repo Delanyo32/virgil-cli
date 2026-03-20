@@ -87,9 +87,9 @@ impl Pipeline for NullReturnsPipeline {
             if let Some(m_node) = method_node
                 && (has_annotation(m_node, source, "Test")
                     || has_annotation(m_node, source, "Deprecated"))
-                {
-                    continue;
-                }
+            {
+                continue;
+            }
 
             let start = return_node.start_position();
             findings.push(AuditFinding {

@@ -75,9 +75,10 @@ impl SyncBlockingInAsyncPipeline {
                 .map(|c| c.node);
 
             if let (Some(decl), Some(body)) = (decl_node, body_node)
-                && has_modifier(decl, source, "async") {
-                    ranges.push(body.start_byte()..body.end_byte());
-                }
+                && has_modifier(decl, source, "async")
+            {
+                ranges.push(body.start_byte()..body.end_byte());
+            }
         }
 
         ranges

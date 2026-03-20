@@ -69,19 +69,20 @@ impl MutexMisusePipeline {
     ) -> bool {
         if node.kind() == "call_expression"
             && let Some(func) = node.child_by_field_name("function")
-                && func.kind() == "selector_expression" {
-                    let operand = func
-                        .child_by_field_name("operand")
-                        .and_then(|o| o.utf8_text(source).ok())
-                        .unwrap_or("");
-                    let method = func
-                        .child_by_field_name("field")
-                        .and_then(|f| f.utf8_text(source).ok())
-                        .unwrap_or("");
-                    if operand == receiver && method == expected_unlock {
-                        return true;
-                    }
-                }
+            && func.kind() == "selector_expression"
+        {
+            let operand = func
+                .child_by_field_name("operand")
+                .and_then(|o| o.utf8_text(source).ok())
+                .unwrap_or("");
+            let method = func
+                .child_by_field_name("field")
+                .and_then(|f| f.utf8_text(source).ok())
+                .unwrap_or("");
+            if operand == receiver && method == expected_unlock {
+                return true;
+            }
+        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if Self::walk_for_unlock(child, source, receiver, expected_unlock) {

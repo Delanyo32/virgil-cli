@@ -103,24 +103,24 @@ impl Pipeline for InsecureDeserializationPipeline {
                     .map(|c| c.node);
 
                 if let (Some(ctor), Some(expr)) = (ctor_node, expr_node)
-                    && node_text(ctor, source) == "Function" {
-                        let expr_text = node_text(expr, source);
-                        if expr_text.contains("JSON.parse") {
-                            let start = expr.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "error".to_string(),
-                                pipeline: self.name().to_string(),
-                                pattern: "function_from_parsed_data".to_string(),
-                                message:
-                                    "`new Function()` from parsed data — insecure deserialization"
-                                        .to_string(),
-                                snippet: extract_snippet(source, expr, 1),
-                            });
-                        }
+                    && node_text(ctor, source) == "Function"
+                {
+                    let expr_text = node_text(expr, source);
+                    if expr_text.contains("JSON.parse") {
+                        let start = expr.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "function_from_parsed_data".to_string(),
+                            message: "`new Function()` from parsed data — insecure deserialization"
+                                .to_string(),
+                            snippet: extract_snippet(source, expr, 1),
+                        });
                     }
+                }
             }
         }
 
@@ -153,15 +153,16 @@ impl Pipeline for InsecureDeserializationPipeline {
                 {
                     let method_name = node_text(method, source);
                     if method_name == "addEventListener"
-                        && let Some(first_arg) = args.named_child(0) {
-                            let event_name = node_text(first_arg, source);
-                            if event_name.contains("message") {
-                                // Check if callback contains origin check
-                                if let Some(callback) = args.named_child(1) {
-                                    let cb_text = node_text(callback, source);
-                                    if !cb_text.contains("origin") && !cb_text.contains(".source") {
-                                        let start = call.start_position();
-                                        findings.push(AuditFinding {
+                        && let Some(first_arg) = args.named_child(0)
+                    {
+                        let event_name = node_text(first_arg, source);
+                        if event_name.contains("message") {
+                            // Check if callback contains origin check
+                            if let Some(callback) = args.named_child(1) {
+                                let cb_text = node_text(callback, source);
+                                if !cb_text.contains("origin") && !cb_text.contains(".source") {
+                                    let start = call.start_position();
+                                    findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
                                             line: start.row as u32 + 1,
                                             column: start.column as u32 + 1,
@@ -171,10 +172,10 @@ impl Pipeline for InsecureDeserializationPipeline {
                                             message: "Message event listener without origin check — verify sender identity".to_string(),
                                             snippet: extract_snippet(source, call, 1),
                                         });
-                                    }
                                 }
                             }
                         }
+                    }
                 }
             }
         }

@@ -141,9 +141,10 @@ fn get_field_types(union_node: tree_sitter::Node, source: &[u8]) -> Vec<String> 
             let mut inner_cursor = child.walk();
             for field in child.children(&mut inner_cursor) {
                 if field.kind() == "field_declaration"
-                    && let Some(type_node) = field.child_by_field_name("type") {
-                        types.push(node_text(type_node, source).to_string());
-                    }
+                    && let Some(type_node) = field.child_by_field_name("type")
+                {
+                    types.push(node_text(type_node, source).to_string());
+                }
             }
         }
     }

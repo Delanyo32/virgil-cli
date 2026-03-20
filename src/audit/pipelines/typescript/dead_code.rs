@@ -212,17 +212,14 @@ fn extract_import_names_recursive(
             "identifier" => {
                 // Only if parent is import_clause (default import)
                 if let Some(parent) = node.parent()
-                    && parent.kind() == "import_clause" {
-                        let text = node.utf8_text(source).unwrap_or("");
-                        if !text.is_empty() {
-                            let pos = node.start_position();
-                            names.push((
-                                text.to_string(),
-                                pos.row as u32 + 1,
-                                pos.column as u32 + 1,
-                            ));
-                        }
+                    && parent.kind() == "import_clause"
+                {
+                    let text = node.utf8_text(source).unwrap_or("");
+                    if !text.is_empty() {
+                        let pos = node.start_position();
+                        names.push((text.to_string(), pos.row as u32 + 1, pos.column as u32 + 1));
                     }
+                }
             }
             _ => {
                 let mut cursor = node.walk();

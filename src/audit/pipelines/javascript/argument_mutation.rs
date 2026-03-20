@@ -32,9 +32,10 @@ impl ArgumentMutationPipeline {
                 // Destructured params like { a, b } or [a, b] or param with default
                 "assignment_pattern" => {
                     if let Some(left) = child.child_by_field_name("left")
-                        && left.kind() == "identifier" {
-                            names.push(node_text(left, source).to_string());
-                        }
+                        && left.kind() == "identifier"
+                    {
+                        names.push(node_text(left, source).to_string());
+                    }
                 }
                 _ => {}
             }
@@ -72,29 +73,30 @@ impl ArgumentMutationPipeline {
     ) {
         if node.kind() == "assignment_expression"
             && let Some(lhs) = node.child_by_field_name("left")
-                && lhs.kind() == "member_expression" {
-                    // Walk to root object of member chain
-                    let root = Self::root_object(lhs);
-                    if root.kind() == "identifier" {
-                        let name = node_text(root, source);
-                        if param_names.iter().any(|p| p == name) {
-                            let start = node.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "warning".to_string(),
-                                pipeline: pipeline_name.to_string(),
-                                pattern: "argument_mutation".to_string(),
-                                message: format!(
-                                    "mutating parameter `{name}` — creates hidden side effects for callers"
-                                ),
-                                snippet: extract_snippet(source, node, 1),
-                            });
-                            return; // Don't recurse into this assignment's children
-                        }
-                    }
+            && lhs.kind() == "member_expression"
+        {
+            // Walk to root object of member chain
+            let root = Self::root_object(lhs);
+            if root.kind() == "identifier" {
+                let name = node_text(root, source);
+                if param_names.iter().any(|p| p == name) {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "argument_mutation".to_string(),
+                        message: format!(
+                            "mutating parameter `{name}` — creates hidden side effects for callers"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
+                    return; // Don't recurse into this assignment's children
                 }
+            }
+        }
 
         // Don't recurse into nested functions — they have their own params
         if node.kind() == "function_declaration"

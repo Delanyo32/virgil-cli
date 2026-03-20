@@ -71,9 +71,10 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         if let Some(first_line) = std::str::from_utf8(source)
             .ok()
             .and_then(|s| s.lines().next())
-            && first_line.starts_with("// Code generated") {
-                return Vec::new();
-            }
+            && first_line.starts_with("// Code generated")
+        {
+            return Vec::new();
+        }
 
         let mut findings = Vec::new();
         let root = tree.root_node();
@@ -114,11 +115,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
             for cap in m.captures {
                 if cap.index as usize == def_idx {
                     // Only count top-level definitions
-                    if cap
-                        .node
-                        .parent()
-                        .is_some_and(|p| p.kind() == "source_file")
-                    {
+                    if cap.node.parent().is_some_and(|p| p.kind() == "source_file") {
                         is_top_level = true;
                     }
                 }

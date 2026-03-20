@@ -130,42 +130,43 @@ impl Pipeline for XssDomInjectionPipeline {
                     // insertAdjacentHTML with non-literal second arg
                     if method_name == "insertAdjacentHTML"
                         && let Some(second_arg) = args.named_child(1)
-                            && !is_safe_literal(second_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "insertAdjacentHTML_injection".to_string(),
-                                    message:
-                                        "`insertAdjacentHTML` with non-literal HTML — potential XSS"
-                                            .to_string(),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(second_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "insertAdjacentHTML_injection".to_string(),
+                            message: "`insertAdjacentHTML` with non-literal HTML — potential XSS"
+                                .to_string(),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
 
                     // document.write / document.writeln
                     if obj_name == "document"
                         && (method_name == "write" || method_name == "writeln")
                         && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "document_write_injection".to_string(),
-                                    message: format!(
-                                        "`document.{}` with non-literal content — potential XSS",
-                                        method_name
-                                    ),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(first_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "document_write_injection".to_string(),
+                            message: format!(
+                                "`document.{}` with non-literal content — potential XSS",
+                                method_name
+                            ),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
                 }
             }
         }

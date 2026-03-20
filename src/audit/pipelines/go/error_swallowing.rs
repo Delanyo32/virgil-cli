@@ -102,10 +102,11 @@ impl ErrorSwallowingPipeline {
                                 // Check for selector_expression (e.g., file.Close())
                                 if let Some(func) = child.child_by_field_name("function")
                                     && func.kind() == "selector_expression"
-                                        && let Some(field) = func.child_by_field_name("field") {
-                                            let method = node_text(field, source);
-                                            return SAFE_CLEANUP_METHODS.contains(&method);
-                                        }
+                                    && let Some(field) = func.child_by_field_name("field")
+                                {
+                                    let method = node_text(field, source);
+                                    return SAFE_CLEANUP_METHODS.contains(&method);
+                                }
                             }
                             false
                         })

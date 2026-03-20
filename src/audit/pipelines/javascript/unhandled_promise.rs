@@ -27,19 +27,21 @@ impl UnhandledPromisePipeline {
     fn is_handled(call_node: tree_sitter::Node, source: &[u8]) -> bool {
         // Check if .then() has 2+ arguments (rejection handler)
         if let Some(args) = call_node.child_by_field_name("arguments")
-            && args.named_child_count() >= 2 {
-                return true;
-            }
+            && args.named_child_count() >= 2
+        {
+            return true;
+        }
 
         // Check if .then() is the object of a .catch() or .finally() chain
         if let Some(parent) = call_node.parent()
             && parent.kind() == "member_expression"
-                && let Some(prop) = parent.child_by_field_name("property") {
-                    let prop_name = node_text(prop, source);
-                    if prop_name == "catch" || prop_name == "finally" {
-                        return true;
-                    }
-                }
+            && let Some(prop) = parent.child_by_field_name("property")
+        {
+            let prop_name = node_text(prop, source);
+            if prop_name == "catch" || prop_name == "finally" {
+                return true;
+            }
+        }
 
         false
     }

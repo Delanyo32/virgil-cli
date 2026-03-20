@@ -29,28 +29,30 @@ impl CppExceptionSafetyPipeline {
         if let Some(parent) = node.parent() {
             // Case: new expression inside argument_list
             if parent.kind() == "argument_list"
-                && let Some(grandparent) = parent.parent() {
-                    // call_expression: e.g., std::unique_ptr<int>(new int(42)) or .reset(new ...)
-                    if grandparent.kind() == "call_expression"
-                        && let Some(func) = grandparent.child_by_field_name("function") {
-                            let func_text = node_text(func, source);
-                            if func_text.contains("unique_ptr")
-                                || func_text.contains("shared_ptr")
-                                || func_text.ends_with("reset")
-                            {
-                                return true;
-                            }
-                        }
-                    // init_declarator: e.g., std::unique_ptr<int> p(new int(42))
-                    if grandparent.kind() == "init_declarator"
-                        && let Some(declaration) = grandparent.parent() {
-                            let decl_text = node_text(declaration, source);
-                            if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr")
-                            {
-                                return true;
-                            }
-                        }
+                && let Some(grandparent) = parent.parent()
+            {
+                // call_expression: e.g., std::unique_ptr<int>(new int(42)) or .reset(new ...)
+                if grandparent.kind() == "call_expression"
+                    && let Some(func) = grandparent.child_by_field_name("function")
+                {
+                    let func_text = node_text(func, source);
+                    if func_text.contains("unique_ptr")
+                        || func_text.contains("shared_ptr")
+                        || func_text.ends_with("reset")
+                    {
+                        return true;
+                    }
                 }
+                // init_declarator: e.g., std::unique_ptr<int> p(new int(42))
+                if grandparent.kind() == "init_declarator"
+                    && let Some(declaration) = grandparent.parent()
+                {
+                    let decl_text = node_text(declaration, source);
+                    if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr") {
+                        return true;
+                    }
+                }
+            }
             // Direct parent is init_declarator or declaration
             if parent.kind() == "init_declarator" || parent.kind() == "declaration" {
                 let text = node_text(parent, source);
@@ -78,16 +80,17 @@ impl CppExceptionSafetyPipeline {
         pipeline_name: &str,
     ) {
         if node.kind() == "call_expression"
-            && let Some(func) = node.child_by_field_name("function") {
-                let func_text = node_text(func, source);
-                if func_text.ends_with(".lock") || func_text.ends_with("->lock") {
-                    // Check if the function body has RAII lock guards
-                    let has_raii_lock = fn_body_text.contains("lock_guard")
-                        || fn_body_text.contains("unique_lock")
-                        || fn_body_text.contains("scoped_lock");
-                    if !has_raii_lock {
-                        let start = node.start_position();
-                        findings.push(AuditFinding {
+            && let Some(func) = node.child_by_field_name("function")
+        {
+            let func_text = node_text(func, source);
+            if func_text.ends_with(".lock") || func_text.ends_with("->lock") {
+                // Check if the function body has RAII lock guards
+                let has_raii_lock = fn_body_text.contains("lock_guard")
+                    || fn_body_text.contains("unique_lock")
+                    || fn_body_text.contains("scoped_lock");
+                if !has_raii_lock {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -97,10 +100,10 @@ impl CppExceptionSafetyPipeline {
                             message: "manual `mutex.lock()` without `lock_guard` — exception or early return will deadlock".to_string(),
                             snippet: extract_snippet(source, node, 1),
                         });
-                    }
-                    return;
                 }
+                return;
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -123,28 +126,28 @@ impl CppExceptionSafetyPipeline {
         pipeline_name: &str,
     ) {
         if node.kind() == "call_expression"
-            && let Some(func) = node.child_by_field_name("function") {
-                let func_text = node_text(func, source);
-                if func_text == "fopen" {
-                    // Check if the result is wrapped in a smart pointer
-                    let in_smart_ptr = if let Some(parent) = node.parent() {
-                        let parent_text = node_text(parent, source);
-                        if parent_text.contains("unique_ptr") || parent_text.contains("shared_ptr")
-                        {
-                            true
-                        } else if let Some(gp) = parent.parent() {
-                            let gp_text = node_text(gp, source);
-                            gp_text.contains("unique_ptr") || gp_text.contains("shared_ptr")
-                        } else {
-                            false
-                        }
+            && let Some(func) = node.child_by_field_name("function")
+        {
+            let func_text = node_text(func, source);
+            if func_text == "fopen" {
+                // Check if the result is wrapped in a smart pointer
+                let in_smart_ptr = if let Some(parent) = node.parent() {
+                    let parent_text = node_text(parent, source);
+                    if parent_text.contains("unique_ptr") || parent_text.contains("shared_ptr") {
+                        true
+                    } else if let Some(gp) = parent.parent() {
+                        let gp_text = node_text(gp, source);
+                        gp_text.contains("unique_ptr") || gp_text.contains("shared_ptr")
                     } else {
                         false
-                    };
+                    }
+                } else {
+                    false
+                };
 
-                    if !in_smart_ptr {
-                        let start = node.start_position();
-                        findings.push(AuditFinding {
+                if !in_smart_ptr {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -154,10 +157,10 @@ impl CppExceptionSafetyPipeline {
                             message: "raw `FILE*` from `fopen()` — use RAII wrapper to ensure `fclose()` on all exit paths".to_string(),
                             snippet: extract_snippet(source, node, 1),
                         });
-                    }
-                    return;
                 }
+                return;
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {

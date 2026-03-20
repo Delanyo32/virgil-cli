@@ -70,25 +70,27 @@ impl Pipeline for XxeFormatStringPipeline {
 
             if let (Some(fn_node), Some(args_node), Some(call_node)) =
                 (fn_node, args_node, call_node)
-                && fn_node.kind() == "attribute" {
-                    let obj = fn_node
-                        .child_by_field_name("object")
-                        .map(|n| node_text(n, source));
-                    let attr = fn_node
-                        .child_by_field_name("attribute")
-                        .map(|n| node_text(n, source));
+                && fn_node.kind() == "attribute"
+            {
+                let obj = fn_node
+                    .child_by_field_name("object")
+                    .map(|n| node_text(n, source));
+                let attr = fn_node
+                    .child_by_field_name("attribute")
+                    .map(|n| node_text(n, source));
 
-                    if let (Some(obj_name), Some(attr_name)) = (obj, attr) {
-                        // Check for XML parsing with untrusted data
-                        let is_xml_parse = XML_PARSE_METHODS
-                            .iter()
-                            .any(|(m, f)| *m == obj_name && *f == attr_name);
+                if let (Some(obj_name), Some(attr_name)) = (obj, attr) {
+                    // Check for XML parsing with untrusted data
+                    let is_xml_parse = XML_PARSE_METHODS
+                        .iter()
+                        .any(|(m, f)| *m == obj_name && *f == attr_name);
 
-                        if is_xml_parse
-                            && let Some(first_arg) = args_node.named_child(0)
-                                && first_arg.kind() != "string" {
-                                    let start = call_node.start_position();
-                                    findings.push(AuditFinding {
+                    if is_xml_parse
+                        && let Some(first_arg) = args_node.named_child(0)
+                        && first_arg.kind() != "string"
+                    {
+                        let start = call_node.start_position();
+                        findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
                                         line: start.row as u32 + 1,
                                         column: start.column as u32 + 1,
@@ -100,21 +102,20 @@ impl Pipeline for XxeFormatStringPipeline {
                                         ),
                                         snippet: extract_snippet(source, call_node, 1),
                                     });
-                                }
+                    }
 
-                        // Check for format string injection: variable.format(...)
-                        if attr_name == "format" {
-                            // The object should be a variable, not a string literal
+                    // Check for format string injection: variable.format(...)
+                    if attr_name == "format" {
+                        // The object should be a variable, not a string literal
+                        if fn_node.child_by_field_name("object").map(|n| n.kind()) != Some("string")
+                        {
+                            // This is variable.format(...) — only flag if the object is an identifier
+                            // (user-controlled template)
                             if fn_node.child_by_field_name("object").map(|n| n.kind())
-                                != Some("string")
+                                == Some("identifier")
                             {
-                                // This is variable.format(...) — only flag if the object is an identifier
-                                // (user-controlled template)
-                                if fn_node.child_by_field_name("object").map(|n| n.kind())
-                                    == Some("identifier")
-                                {
-                                    let start = call_node.start_position();
-                                    findings.push(AuditFinding {
+                                let start = call_node.start_position();
+                                findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
                                         line: start.row as u32 + 1,
                                         column: start.column as u32 + 1,
@@ -126,11 +127,11 @@ impl Pipeline for XxeFormatStringPipeline {
                                         ),
                                         snippet: extract_snippet(source, call_node, 1),
                                     });
-                                }
                             }
                         }
                     }
                 }
+            }
         }
 
         findings

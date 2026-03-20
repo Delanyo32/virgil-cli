@@ -29,15 +29,17 @@ impl CBufferOverflowSecurityPipeline {
     fn extract_param_names(fn_def: tree_sitter::Node, source: &[u8]) -> Vec<String> {
         let mut names = Vec::new();
         if let Some(declarator) = fn_def.child_by_field_name("declarator")
-            && let Some(params) = declarator.child_by_field_name("parameters") {
-                let mut cursor = params.walk();
-                for child in params.named_children(&mut cursor) {
-                    if child.kind() == "parameter_declaration"
-                        && let Some(decl) = child.child_by_field_name("declarator") {
-                            Self::collect_identifiers(decl, source, &mut names);
-                        }
+            && let Some(params) = declarator.child_by_field_name("parameters")
+        {
+            let mut cursor = params.walk();
+            for child in params.named_children(&mut cursor) {
+                if child.kind() == "parameter_declaration"
+                    && let Some(decl) = child.child_by_field_name("declarator")
+                {
+                    Self::collect_identifiers(decl, source, &mut names);
                 }
             }
+        }
         names
     }
 
@@ -155,13 +157,13 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                 if MEMCPY_FAMILY.contains(&fn_name) {
                     // Size is the 3rd argument (index 2) for memcpy/memmove/strncpy/memset
                     if let Some(size_arg) = named_args.get(2)
-                        && !Self::is_safe_size_arg(*size_arg, source) {
-                            let size_text = node_text(*size_arg, source);
+                        && !Self::is_safe_size_arg(*size_arg, source)
+                    {
+                        let size_text = node_text(*size_arg, source);
 
-                            // Check if size arg references a function parameter
-                            let is_param = if let Some(fn_def) =
-                                Self::find_enclosing_function(call_cap.node)
-                            {
+                        // Check if size arg references a function parameter
+                        let is_param =
+                            if let Some(fn_def) = Self::find_enclosing_function(call_cap.node) {
                                 let params = Self::extract_param_names(fn_def, source);
                                 params.iter().any(|p| size_text.contains(p))
                             } else {
@@ -169,9 +171,9 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                                 size_arg.kind() == "identifier"
                             };
 
-                            if is_param || size_arg.kind() == "identifier" {
-                                let start = call_cap.node.start_position();
-                                findings.push(AuditFinding {
+                        if is_param || size_arg.kind() == "identifier" {
+                            let start = call_cap.node.start_position();
+                            findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -183,8 +185,8 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                                     ),
                                     snippet: extract_snippet(source, call_cap.node, 1),
                                 });
-                            }
                         }
+                    }
                 }
 
                 // Pattern: scanf_no_width
@@ -194,11 +196,12 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                     let fmt_arg_idx = if fn_name == "scanf" { 0 } else { 1 };
 
                     if let Some(fmt_arg) = named_args.get(fmt_arg_idx)
-                        && fmt_arg.kind() == "string_literal" {
-                            let fmt_text = node_text(*fmt_arg, source);
-                            if Self::has_bare_percent_s(fmt_text) {
-                                let start = call_cap.node.start_position();
-                                findings.push(AuditFinding {
+                        && fmt_arg.kind() == "string_literal"
+                    {
+                        let fmt_text = node_text(*fmt_arg, source);
+                        if Self::has_bare_percent_s(fmt_text) {
+                            let start = call_cap.node.start_position();
+                            findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -210,8 +213,8 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                                     ),
                                     snippet: extract_snippet(source, call_cap.node, 1),
                                 });
-                            }
                         }
+                    }
                 }
             }
         }

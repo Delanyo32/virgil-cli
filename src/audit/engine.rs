@@ -135,10 +135,7 @@ impl AuditEngine {
                         let mut ts_parser = match parser::create_parser(lang) {
                             Ok(p) => p,
                             Err(e) => {
-                                eprintln!(
-                                    "Warning: failed to create parser for {}: {e}",
-                                    rel_path
-                                );
+                                eprintln!("Warning: failed to create parser for {}: {e}", rel_path);
                                 return None;
                             }
                         };

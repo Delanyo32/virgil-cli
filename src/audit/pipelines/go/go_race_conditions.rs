@@ -77,9 +77,10 @@ impl Pipeline for GoRaceConditionsPipeline {
                     .map(|c| c.node);
 
                 if let (Some(body), Some(stmt)) = (body_node, stmt_node)
-                    && Self::contains_go_statement(body) {
-                        let start = stmt.start_position();
-                        findings.push(AuditFinding {
+                    && Self::contains_go_statement(body)
+                {
+                    let start = stmt.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -89,7 +90,7 @@ impl Pipeline for GoRaceConditionsPipeline {
                             message: "goroutine spawned inside for loop — loop variable may be captured by reference".to_string(),
                             snippet: extract_snippet(source, stmt, 3),
                         });
-                    }
+                }
             }
         }
 
@@ -114,9 +115,10 @@ impl Pipeline for GoRaceConditionsPipeline {
                     .map(|c| c.node);
 
                 if let (Some(expr), Some(stmt)) = (expr_node, stmt_node)
-                    && Self::contains_bracket_access(expr, source) {
-                        let start = stmt.start_position();
-                        findings.push(AuditFinding {
+                    && Self::contains_bracket_access(expr, source)
+                {
+                    let start = stmt.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -126,7 +128,7 @@ impl Pipeline for GoRaceConditionsPipeline {
                             message: "goroutine body contains map/slice index access — concurrent map access without synchronization causes data race".to_string(),
                             snippet: extract_snippet(source, stmt, 3),
                         });
-                    }
+                }
             }
         }
 

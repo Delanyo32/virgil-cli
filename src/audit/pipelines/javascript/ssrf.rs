@@ -68,20 +68,20 @@ impl Pipeline for SsrfPipeline {
                     let fn_name = node_text(fn_n, source);
                     if fn_name == "fetch"
                         && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "ssrf_fetch".to_string(),
-                                    message: "`fetch()` with dynamic URL — potential SSRF"
-                                        .to_string(),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(first_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "ssrf_fetch".to_string(),
+                            message: "`fetch()` with dynamic URL — potential SSRF".to_string(),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
                 }
             }
         }
@@ -132,39 +132,43 @@ impl Pipeline for SsrfPipeline {
 
                     if is_http_call
                         && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "ssrf_http_request".to_string(),
-                                    message: format!(
-                                        "`{}.{}()` with dynamic URL — potential SSRF",
-                                        obj_name, method_name
-                                    ),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(first_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "ssrf_http_request".to_string(),
+                            message: format!(
+                                "`{}.{}()` with dynamic URL — potential SSRF",
+                                obj_name, method_name
+                            ),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
 
                     // res.redirect with dynamic arg
-                    if obj_name == "res" && method_name == "redirect"
+                    if obj_name == "res"
+                        && method_name == "redirect"
                         && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "open_redirect".to_string(),
-                                    message: "`res.redirect()` with dynamic URL — potential open redirect".to_string(),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(first_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "open_redirect".to_string(),
+                            message: "`res.redirect()` with dynamic URL — potential open redirect"
+                                .to_string(),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
                 }
             }
         }

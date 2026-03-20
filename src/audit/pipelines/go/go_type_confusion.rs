@@ -36,19 +36,20 @@ impl GoTypeConfusionPipeline {
             };
 
             if let Some(decl) = decl_node
-                && decl.kind() == "short_var_declaration" {
-                    // Check if the LHS has 2 identifiers
-                    if let Some(lhs) = decl.child_by_field_name("left") {
-                        let mut count = 0;
-                        let mut child_cursor = lhs.walk();
-                        for child in lhs.children(&mut child_cursor) {
-                            if child.is_named() {
-                                count += 1;
-                            }
+                && decl.kind() == "short_var_declaration"
+            {
+                // Check if the LHS has 2 identifiers
+                if let Some(lhs) = decl.child_by_field_name("left") {
+                    let mut count = 0;
+                    let mut child_cursor = lhs.walk();
+                    for child in lhs.children(&mut child_cursor) {
+                        if child.is_named() {
+                            count += 1;
                         }
-                        return count >= 2;
                     }
+                    return count >= 2;
                 }
+            }
         }
         false
     }

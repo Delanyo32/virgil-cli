@@ -100,10 +100,11 @@ impl Pipeline for RedosResourceExhaustionPipeline {
 
                 if let (Some(ctor), Some(args), Some(expr)) = (ctor_node, args_node, expr_node)
                     && node_text(ctor, source) == "RegExp"
-                        && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = expr.start_position();
-                                findings.push(AuditFinding {
+                    && let Some(first_arg) = args.named_child(0)
+                    && !is_safe_literal(first_arg, source)
+                {
+                    let start = expr.start_position();
+                    findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -113,7 +114,7 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                                     message: "`new RegExp()` with dynamic pattern — potential ReDoS if user-controlled".to_string(),
                                     snippet: extract_snippet(source, expr, 1),
                                 });
-                            }
+                }
             }
         }
 
@@ -157,19 +158,20 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                     // req.on('data', callback) pattern
                     if method_name == "on"
                         && (obj_name == "req" || obj_name == "request" || obj_name == "socket")
-                        && let Some(first_arg) = args.named_child(0) {
-                            let arg_text = node_text(first_arg, source);
-                            if arg_text.contains("data") {
-                                // Check if callback body contains length check
-                                if let Some(callback) = args.named_child(1) {
-                                    let cb_text = node_text(callback, source);
-                                    if !cb_text.contains(".length")
-                                        && !cb_text.contains("maxSize")
-                                        && !cb_text.contains("MAX_SIZE")
-                                        && !cb_text.contains("limit")
-                                    {
-                                        let start = call.start_position();
-                                        findings.push(AuditFinding {
+                        && let Some(first_arg) = args.named_child(0)
+                    {
+                        let arg_text = node_text(first_arg, source);
+                        if arg_text.contains("data") {
+                            // Check if callback body contains length check
+                            if let Some(callback) = args.named_child(1) {
+                                let cb_text = node_text(callback, source);
+                                if !cb_text.contains(".length")
+                                    && !cb_text.contains("maxSize")
+                                    && !cb_text.contains("MAX_SIZE")
+                                    && !cb_text.contains("limit")
+                                {
+                                    let start = call.start_position();
+                                    findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
                                             line: start.row as u32 + 1,
                                             column: start.column as u32 + 1,
@@ -179,10 +181,10 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                                             message: "Data event handler without size limit — potential memory exhaustion".to_string(),
                                             snippet: extract_snippet(source, call, 1),
                                         });
-                                    }
                                 }
                             }
                         }
+                    }
                 }
             }
         }

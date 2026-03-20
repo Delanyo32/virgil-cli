@@ -52,10 +52,11 @@ impl Pipeline for MutableDefaultArgsPipeline {
                 let value_node = node.child_by_field_name("value");
 
                 if let Some(value) = value_node
-                    && MUTABLE_KINDS.contains(&value.kind()) {
-                        let start = node.start_position();
-                        let param_text = node_text(node, source);
-                        findings.push(AuditFinding {
+                    && MUTABLE_KINDS.contains(&value.kind())
+                {
+                    let start = node.start_position();
+                    let param_text = node_text(node, source);
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -67,7 +68,7 @@ impl Pipeline for MutableDefaultArgsPipeline {
                             ),
                             snippet: extract_snippet(source, node, 1),
                         });
-                    }
+                }
             }
         }
 

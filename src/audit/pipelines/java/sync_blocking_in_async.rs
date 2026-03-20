@@ -66,19 +66,20 @@ fn is_inside_completable_future(node: tree_sitter::Node, source: &[u8]) -> bool 
             // Check if the lambda is an argument to a CompletableFuture method
             if let Some(arg_list) = p.parent()
                 && arg_list.kind() == "argument_list"
-                    && let Some(invocation) = arg_list.parent()
-                        && invocation.kind() == "method_invocation" {
-                            let inv_text = node_text(invocation, source);
-                            if inv_text.contains("CompletableFuture")
-                                || inv_text.contains("supplyAsync")
-                                || inv_text.contains("runAsync")
-                                || inv_text.contains("thenApply")
-                                || inv_text.contains("thenCompose")
-                                || inv_text.contains("thenAccept")
-                            {
-                                return true;
-                            }
-                        }
+                && let Some(invocation) = arg_list.parent()
+                && invocation.kind() == "method_invocation"
+            {
+                let inv_text = node_text(invocation, source);
+                if inv_text.contains("CompletableFuture")
+                    || inv_text.contains("supplyAsync")
+                    || inv_text.contains("runAsync")
+                    || inv_text.contains("thenApply")
+                    || inv_text.contains("thenCompose")
+                    || inv_text.contains("thenAccept")
+                {
+                    return true;
+                }
+            }
         }
         if p.kind() == "method_declaration" || p.kind() == "class_declaration" {
             break;
@@ -151,18 +152,19 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
 
                     // Thread.sleep() detection
                     if method_name == "sleep"
-                        && let Some(obj) = object_node {
-                            let obj_text = node_text(obj, source);
-                            if obj_text == "Thread" {
-                                let in_async = is_inside_completable_future(inv_node, source)
-                                    || is_inside_async_method(
-                                        inv_node,
-                                        source,
-                                        &self.method_decl_query,
-                                    );
-                                if in_async {
-                                    let start = inv_node.start_position();
-                                    findings.push(AuditFinding {
+                        && let Some(obj) = object_node
+                    {
+                        let obj_text = node_text(obj, source);
+                        if obj_text == "Thread" {
+                            let in_async = is_inside_completable_future(inv_node, source)
+                                || is_inside_async_method(
+                                    inv_node,
+                                    source,
+                                    &self.method_decl_query,
+                                );
+                            if in_async {
+                                let start = inv_node.start_position();
+                                findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
                                         line: start.row as u32 + 1,
                                         column: start.column as u32 + 1,
@@ -172,9 +174,9 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                                         message: "Thread.sleep() in async context — blocks the thread pool, use async delay instead".to_string(),
                                         snippet: extract_snippet(source, inv_node, 2),
                                     });
-                                }
                             }
                         }
+                    }
 
                     // .get() on Future without timeout (blocking call)
                     if method_name == "get"
@@ -186,12 +188,12 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                                     == find_capture_index(&self.method_invocation_query, "args")
                             })
                             .map(|c| c.node)
-                        {
-                            let args_text = node_text(args_node, source);
-                            // .get() with no arguments = blocking without timeout
-                            if args_text.trim() == "()" {
-                                let start = inv_node.start_position();
-                                findings.push(AuditFinding {
+                    {
+                        let args_text = node_text(args_node, source);
+                        // .get() with no arguments = blocking without timeout
+                        if args_text.trim() == "()" {
+                            let start = inv_node.start_position();
+                            findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -201,8 +203,8 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                                     message: ".get() on Future without timeout — blocks indefinitely, use .get(timeout, unit) or .join()".to_string(),
                                     snippet: extract_snippet(source, inv_node, 2),
                                 });
-                            }
                         }
+                    }
                 }
             }
         }
@@ -224,19 +226,21 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                 if let Some(sync_node) = sync_node
                     && (is_inside_completable_future(sync_node, source)
                         || is_inside_async_method(sync_node, source, &self.method_decl_query))
-                    {
-                        let start = sync_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "synchronized_in_async".to_string(),
-                            message: "synchronized block in async context — can cause thread pool starvation".to_string(),
-                            snippet: extract_snippet(source, sync_node, 3),
-                        });
-                    }
+                {
+                    let start = sync_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "synchronized_in_async".to_string(),
+                        message:
+                            "synchronized block in async context — can cause thread pool starvation"
+                                .to_string(),
+                        snippet: extract_snippet(source, sync_node, 3),
+                    });
+                }
             }
         }
 

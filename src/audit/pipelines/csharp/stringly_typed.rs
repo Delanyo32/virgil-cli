@@ -221,9 +221,10 @@ fn get_field_type<'a>(field_decl: tree_sitter::Node<'a>, source: &'a [u8]) -> Op
     let mut cursor = field_decl.walk();
     for child in field_decl.children(&mut cursor) {
         if child.kind() == "variable_declaration"
-            && let Some(type_node) = child.child_by_field_name("type") {
-                return Some(node_text(type_node, source));
-            }
+            && let Some(type_node) = child.child_by_field_name("type")
+        {
+            return Some(node_text(type_node, source));
+        }
     }
     None
 }

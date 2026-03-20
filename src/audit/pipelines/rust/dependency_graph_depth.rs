@@ -68,14 +68,11 @@ impl Pipeline for DependencyGraphDepthPipeline {
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     if cap.index as usize == pub_use_idx
-                        && (cap
-                            .node
-                            .parent()
-                            .is_some_and(|p| p.kind() == "source_file")
+                        && (cap.node.parent().is_some_and(|p| p.kind() == "source_file")
                             || cap.node.parent().is_none())
-                        {
-                            pub_use_count += 1;
-                        }
+                    {
+                        pub_use_count += 1;
+                    }
                 }
             }
         }

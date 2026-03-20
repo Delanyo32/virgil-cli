@@ -124,9 +124,10 @@ fn count_instanceof_chain(if_node: tree_sitter::Node, _source: &[u8]) -> (usize,
 
         // Check condition for instanceof
         if let Some(condition) = node.child_by_field_name("condition")
-            && contains_instanceof(condition) {
-                count += 1;
-            }
+            && contains_instanceof(condition)
+        {
+            count += 1;
+        }
 
         // Follow the else-if chain via "alternative" field
         current = node.child_by_field_name("alternative").and_then(|alt| {

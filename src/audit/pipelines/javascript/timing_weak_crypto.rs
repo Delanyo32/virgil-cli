@@ -55,9 +55,10 @@ fn get_operator<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
     // In tree-sitter JS, binary_expression children: [left, operator, right]
     // The operator is child(1) (unnamed)
     if node.child_count() >= 3
-        && let Some(op) = node.child(1) {
-            return node_text(op, source);
-        }
+        && let Some(op) = node.child(1)
+    {
+        return node_text(op, source);
+    }
     ""
 }
 
@@ -168,13 +169,13 @@ impl Pipeline for TimingWeakCryptoPipeline {
                         // Check if the result is assigned to a security-related variable
                         if let Some(parent) = call.parent()
                             && let Some(gp) = parent.parent()
-                                && (gp.kind() == "variable_declarator"
-                                    || gp.kind() == "assignment_expression")
-                                {
-                                    let gp_text = node_text(gp, source);
-                                    if is_security_name(gp_text) {
-                                        let start = call.start_position();
-                                        findings.push(AuditFinding {
+                            && (gp.kind() == "variable_declarator"
+                                || gp.kind() == "assignment_expression")
+                        {
+                            let gp_text = node_text(gp, source);
+                            if is_security_name(gp_text) {
+                                let start = call.start_position();
+                                findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
                                             line: start.row as u32 + 1,
                                             column: start.column as u32 + 1,
@@ -184,50 +185,52 @@ impl Pipeline for TimingWeakCryptoPipeline {
                                             message: "`Math.random()` for security value — use crypto.randomBytes() instead".to_string(),
                                             snippet: extract_snippet(source, gp, 1),
                                         });
-                                    }
-                                }
+                            }
+                        }
                     }
 
                     // createHash('md5') / createHash('sha1')
                     if method_name == "createHash"
-                        && let Some(first_arg) = args.named_child(0) {
-                            let algo = node_text(first_arg, source);
-                            if algo.contains("md5") || algo.contains("sha1") {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "weak_hash_algorithm".to_string(),
-                                    message: format!(
-                                        "Weak hash algorithm {} — use SHA-256 or stronger",
-                                        algo.trim_matches(|c| c == '\'' || c == '"')
-                                    ),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && let Some(first_arg) = args.named_child(0)
+                    {
+                        let algo = node_text(first_arg, source);
+                        if algo.contains("md5") || algo.contains("sha1") {
+                            let start = call.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "warning".to_string(),
+                                pipeline: self.name().to_string(),
+                                pattern: "weak_hash_algorithm".to_string(),
+                                message: format!(
+                                    "Weak hash algorithm {} — use SHA-256 or stronger",
+                                    algo.trim_matches(|c| c == '\'' || c == '"')
+                                ),
+                                snippet: extract_snippet(source, call, 1),
+                            });
                         }
+                    }
 
                     // createCipheriv with ECB mode or literal/zero IV
                     if method_name == "createCipheriv"
-                        && let Some(first_arg) = args.named_child(0) {
-                            let algo = node_text(first_arg, source);
-                            if algo.contains("ecb") {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "insecure_cipher_mode".to_string(),
-                                    message: "ECB cipher mode — use CBC or GCM instead".to_string(),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && let Some(first_arg) = args.named_child(0)
+                    {
+                        let algo = node_text(first_arg, source);
+                        if algo.contains("ecb") {
+                            let start = call.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "warning".to_string(),
+                                pipeline: self.name().to_string(),
+                                pattern: "insecure_cipher_mode".to_string(),
+                                message: "ECB cipher mode — use CBC or GCM instead".to_string(),
+                                snippet: extract_snippet(source, call, 1),
+                            });
                         }
+                    }
                 }
             }
         }

@@ -73,10 +73,9 @@ impl Pipeline for CSharpSsrfPipeline {
 
                 // HttpClient.GetAsync(param), etc.
                 let is_http = HTTP_METHODS.iter().any(|m| fn_text.contains(m));
-                if is_http
-                    && !is_literal_arg(args_node, source) {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
+                if is_http && !is_literal_arg(args_node, source) {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -88,31 +87,37 @@ impl Pipeline for CSharpSsrfPipeline {
                             ),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
-                    }
+                }
 
                 // WebRequest.Create(param)
-                if fn_text.contains("WebRequest") && fn_text.contains("Create")
-                    && !is_literal_arg(args_node, source) {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "error".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "ssrf_dynamic_url".to_string(),
-                            message: "WebRequest.Create() with dynamic URL — validate host to prevent SSRF".to_string(),
-                            snippet: extract_snippet(source, inv_node, 1),
-                        });
-                    }
+                if fn_text.contains("WebRequest")
+                    && fn_text.contains("Create")
+                    && !is_literal_arg(args_node, source)
+                {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "error".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "ssrf_dynamic_url".to_string(),
+                        message:
+                            "WebRequest.Create() with dynamic URL — validate host to prevent SSRF"
+                                .to_string(),
+                        snippet: extract_snippet(source, inv_node, 1),
+                    });
+                }
 
                 // Redirect(param) without UriKind.Relative
-                if fn_text.contains("Redirect") && !fn_text.contains("Permanent")
-                    && !is_literal_arg(args_node, source) {
-                        let args_text = node_text(args_node, source);
-                        if !args_text.contains("Relative") {
-                            let start = inv_node.start_position();
-                            findings.push(AuditFinding {
+                if fn_text.contains("Redirect")
+                    && !fn_text.contains("Permanent")
+                    && !is_literal_arg(args_node, source)
+                {
+                    let args_text = node_text(args_node, source);
+                    if !args_text.contains("Relative") {
+                        let start = inv_node.start_position();
+                        findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -122,8 +127,8 @@ impl Pipeline for CSharpSsrfPipeline {
                                 message: "Redirect() with dynamic URL — validate against allowlist to prevent open redirect".to_string(),
                                 snippet: extract_snippet(source, inv_node, 1),
                             });
-                        }
                     }
+                }
             }
         }
 

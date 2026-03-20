@@ -127,16 +127,17 @@ impl CppMemoryMismanagementPipeline {
             if child.kind() == "init_declarator" {
                 // Check if the value (right side of =) is a call_expression
                 if let Some(value) = child.child_by_field_name("value")
-                    && value.kind() == "call_expression" {
-                        let call_text = node_text(value, source);
-                        // Heuristic: temporary string construction
-                        if call_text.contains("string")
-                            || call_text.contains("c_str")
-                            || call_text.contains("data")
-                        {
-                            return true;
-                        }
+                    && value.kind() == "call_expression"
+                {
+                    let call_text = node_text(value, source);
+                    // Heuristic: temporary string construction
+                    if call_text.contains("string")
+                        || call_text.contains("c_str")
+                        || call_text.contains("data")
+                    {
+                        return true;
                     }
+                }
                 // Also check children for call_expression patterns
                 let value_text = node_text(child, source);
                 if value_text.contains("std::string(")

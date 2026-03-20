@@ -67,9 +67,9 @@ async fn build_client() -> aws_sdk_s3::Client {
         .region(aws_config::Region::new(region));
 
     if let (Some(ak), Some(sk)) = (access_key, secret_key) {
-        config_loader = config_loader.credentials_provider(
-            aws_sdk_s3::config::Credentials::new(ak, sk, None, None, "env"),
-        );
+        config_loader = config_loader.credentials_provider(aws_sdk_s3::config::Credentials::new(
+            ak, sk, None, None, "env",
+        ));
     }
 
     let sdk_config = config_loader.load().await;
@@ -77,9 +77,7 @@ async fn build_client() -> aws_sdk_s3::Client {
     let mut s3_config = aws_sdk_s3::config::Builder::from(&sdk_config);
 
     if let Some(ep) = endpoint {
-        s3_config = s3_config
-            .endpoint_url(&ep)
-            .force_path_style(true);
+        s3_config = s3_config.endpoint_url(&ep).force_path_style(true);
     }
 
     aws_sdk_s3::Client::from_conf(s3_config.build())
@@ -177,9 +175,10 @@ pub fn list_objects(
 
                 // Check exclude patterns
                 if let Some(ref excludes) = exclude_set
-                    && excludes.is_match(relative) {
-                        continue;
-                    }
+                    && excludes.is_match(relative)
+                {
+                    continue;
+                }
 
                 keys.push(relative.to_string());
             }
@@ -242,9 +241,10 @@ pub fn download_objects(
                         let size = output.content_length().unwrap_or(0) as u64;
 
                         if let Some(max_size) = max_file_size
-                            && size > max_size {
-                                return None;
-                            }
+                            && size > max_size
+                        {
+                            return None;
+                        }
 
                         match output.body.collect().await {
                             Ok(bytes) => {

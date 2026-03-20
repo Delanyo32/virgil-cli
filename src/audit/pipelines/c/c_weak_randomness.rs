@@ -37,9 +37,10 @@ fn find_enclosing_function_name(node: tree_sitter::Node, source: &[u8]) -> Optio
     let mut current = node.parent();
     while let Some(p) = current {
         if p.kind() == "function_definition"
-            && let Some(decl) = p.child_by_field_name("declarator") {
-                return find_identifier_in_declarator(decl, source);
-            }
+            && let Some(decl) = p.child_by_field_name("declarator")
+        {
+            return find_identifier_in_declarator(decl, source);
+        }
         current = p.parent();
     }
     None
@@ -86,9 +87,10 @@ impl Pipeline for CWeakRandomnessPipeline {
                 // Pattern: rand()/random() in security-sensitive function
                 if WEAK_RAND_FUNCTIONS.contains(&fn_name)
                     && let Some(enclosing_fn) = find_enclosing_function_name(call_node, source)
-                        && contains_security_keyword(&enclosing_fn) {
-                            let start = call_node.start_position();
-                            findings.push(AuditFinding {
+                    && contains_security_keyword(&enclosing_fn)
+                {
+                    let start = call_node.start_position();
+                    findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -100,7 +102,7 @@ impl Pipeline for CWeakRandomnessPipeline {
                                 ),
                                 snippet: extract_snippet(source, call_node, 1),
                             });
-                        }
+                }
 
                 // Pattern: srand(time(NULL))
                 if fn_name == "srand" {

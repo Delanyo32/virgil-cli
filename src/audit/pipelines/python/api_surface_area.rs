@@ -212,9 +212,10 @@ fn count_public_init_attrs(class_body: tree_sitter::Node, source: &[u8]) -> usiz
             if let Some(name_node) = func.child_by_field_name("name") {
                 let name = name_node.utf8_text(source).unwrap_or("");
                 if name == "__init__"
-                    && let Some(body) = func.child_by_field_name("body") {
-                        count += count_public_self_attrs_in_body(body, source);
-                    }
+                    && let Some(body) = func.child_by_field_name("body")
+                {
+                    count += count_public_self_attrs_in_body(body, source);
+                }
             }
         }
     }
@@ -244,18 +245,22 @@ fn count_self_attrs_recursive(
             for inner in child.children(&mut inner_cursor) {
                 if inner.kind() == "assignment"
                     && let Some(left) = inner.child_by_field_name("left")
-                        && left.kind() == "attribute" {
-                            // Check object is "self"
-                            if let Some(obj) = left.child_by_field_name("object")
-                                && obj.utf8_text(source).unwrap_or("") == "self"
-                                    && let Some(attr) = left.child_by_field_name("attribute") {
-                                        let attr_name = attr.utf8_text(source).unwrap_or("");
-                                        if !attr_name.starts_with('_') && !attr_name.is_empty()
-                                            && seen.insert(attr_name.to_string()) {
-                                                *count += 1;
-                                            }
-                                    }
+                    && left.kind() == "attribute"
+                {
+                    // Check object is "self"
+                    if let Some(obj) = left.child_by_field_name("object")
+                        && obj.utf8_text(source).unwrap_or("") == "self"
+                        && let Some(attr) = left.child_by_field_name("attribute")
+                    {
+                        let attr_name = attr.utf8_text(source).unwrap_or("");
+                        if !attr_name.starts_with('_')
+                            && !attr_name.is_empty()
+                            && seen.insert(attr_name.to_string())
+                        {
+                            *count += 1;
                         }
+                    }
+                }
             }
         }
         // Recurse into if/else blocks within __init__ that may also set attributes

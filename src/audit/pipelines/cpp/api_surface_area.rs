@@ -156,9 +156,10 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                 }
 
                 if let Some(body) = body_node
-                    && let Some(field_name) = find_public_data_member(body, source) {
-                        reported_classes.insert(class_name.to_string());
-                        findings.push(AuditFinding {
+                    && let Some(field_name) = find_public_data_member(body, source)
+                {
+                    reported_classes.insert(class_name.to_string());
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: class_line,
                             column: 1,
@@ -171,7 +172,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                             ),
                             snippet: String::new(),
                         });
-                    }
+                }
             }
         }
 

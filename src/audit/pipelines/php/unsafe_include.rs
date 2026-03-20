@@ -79,9 +79,10 @@ fn is_static_include(node: tree_sitter::Node) -> bool {
             if child.kind() == "parenthesized_expression" {
                 for j in 0..child.named_child_count() {
                     if let Some(inner) = child.named_child(j)
-                        && inner.kind() == "string" {
-                            return true;
-                        }
+                        && inner.kind() == "string"
+                    {
+                        return true;
+                    }
                 }
             }
         }

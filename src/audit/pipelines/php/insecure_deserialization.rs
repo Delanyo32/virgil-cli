@@ -105,9 +105,10 @@ impl Pipeline for InsecureDeserializationPipeline {
                         }
                     });
                     if let Some(expr) = first_expr
-                        && (expr.kind() == "string" || expr.kind() == "encapsed_string") {
-                            continue;
-                        }
+                        && (expr.kind() == "string" || expr.kind() == "encapsed_string")
+                    {
+                        continue;
+                    }
 
                     let start = call_node.start_position();
                     findings.push(AuditFinding {

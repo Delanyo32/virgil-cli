@@ -120,16 +120,19 @@ fn is_return_null(node: tree_sitter::Node) -> bool {
     }
     for i in 0..node.named_child_count() {
         if let Some(child) = node.named_child(i)
-            && child.kind() == "null_literal" {
-                return true;
-            }
+            && child.kind() == "null_literal"
+        {
+            return true;
+        }
     }
     false
 }
 
 fn get_catch_declaration(catch_node: tree_sitter::Node) -> Option<tree_sitter::Node> {
     let mut cursor = catch_node.walk();
-    catch_node.children(&mut cursor).find(|&child| child.kind() == "catch_declaration")
+    catch_node
+        .children(&mut cursor)
+        .find(|&child| child.kind() == "catch_declaration")
 }
 
 fn get_catch_type_text<'a>(declaration: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {

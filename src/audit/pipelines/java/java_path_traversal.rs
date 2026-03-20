@@ -154,10 +154,11 @@ impl JavaPathTraversalPipeline {
                     let mut has_non_literal = false;
                     for i in 0..args_node.named_child_count() {
                         if let Some(child) = args_node.named_child(i)
-                            && child.kind() != "string_literal" {
-                                has_non_literal = true;
-                                break;
-                            }
+                            && child.kind() != "string_literal"
+                        {
+                            has_non_literal = true;
+                            break;
+                        }
                     }
                     has_non_literal
                 };

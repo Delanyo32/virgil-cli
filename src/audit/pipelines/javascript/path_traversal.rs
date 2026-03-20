@@ -130,22 +130,23 @@ impl Pipeline for PathTraversalPipeline {
                         "readFile" | "readFileSync" | "writeFile" | "writeFileSync"
                     )
                     && let Some(first_arg) = args.named_child(0)
-                        && !is_safe_literal(first_arg, source) {
-                            let start = call.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "warning".to_string(),
-                                pipeline: self.name().to_string(),
-                                pattern: "unvalidated_fs_read".to_string(),
-                                message: format!(
-                                    "`fs.{}()` with dynamic path — potential path traversal",
-                                    method_name
-                                ),
-                                snippet: extract_snippet(source, call, 1),
-                            });
-                        }
+                    && !is_safe_literal(first_arg, source)
+                {
+                    let start = call.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "unvalidated_fs_read".to_string(),
+                        message: format!(
+                            "`fs.{}()` with dynamic path — potential path traversal",
+                            method_name
+                        ),
+                        snippet: extract_snippet(source, call, 1),
+                    });
+                }
             }
         }
 

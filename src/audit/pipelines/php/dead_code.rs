@@ -95,65 +95,66 @@ fn collect_unused_private_methods(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "class_declaration"
-            && let Some(body) = node.child_by_field_name("body") {
-                let mut body_cursor = body.walk();
-                for child in body.named_children(&mut body_cursor) {
-                    if child.kind() != "method_declaration" {
+            && let Some(body) = node.child_by_field_name("body")
+        {
+            let mut body_cursor = body.walk();
+            for child in body.named_children(&mut body_cursor) {
+                if child.kind() != "method_declaration" {
+                    continue;
+                }
+
+                // Check for visibility_modifier child with text "private"
+                let is_private = has_visibility(child, source, "private");
+                if !is_private {
+                    continue;
+                }
+
+                let name = match child.child_by_field_name("name") {
+                    Some(n) => node_text(n, source),
+                    None => continue,
+                };
+
+                if name.is_empty() || name == "__construct" || name == "__destruct" {
+                    continue;
+                }
+
+                // Check if the name appears in identifiers elsewhere
+                // The all_identifiers set collects "name" kind nodes, which includes
+                // method names in call sites like $this->methodName()
+                // We need to count usages excluding the declaration itself
+                let name_node = child.child_by_field_name("name").unwrap();
+                let usage_count = count_name_usages(
+                    node, // Search within the class
+                    source,
+                    name,
+                    name_node.id(),
+                );
+
+                if usage_count == 0 {
+                    // Additionally check if the method name appears in any string
+                    // literal in the class body (covers `call_user_func('methodName')`
+                    // and similar dynamic dispatch patterns).
+                    let referenced_in_string = string_contains_name(body, source, name);
+                    if referenced_in_string {
                         continue;
                     }
 
-                    // Check for visibility_modifier child with text "private"
-                    let is_private = has_visibility(child, source, "private");
-                    if !is_private {
-                        continue;
-                    }
-
-                    let name = match child.child_by_field_name("name") {
-                        Some(n) => node_text(n, source),
-                        None => continue,
-                    };
-
-                    if name.is_empty() || name == "__construct" || name == "__destruct" {
-                        continue;
-                    }
-
-                    // Check if the name appears in identifiers elsewhere
-                    // The all_identifiers set collects "name" kind nodes, which includes
-                    // method names in call sites like $this->methodName()
-                    // We need to count usages excluding the declaration itself
-                    let name_node = child.child_by_field_name("name").unwrap();
-                    let usage_count = count_name_usages(
-                        node, // Search within the class
-                        source,
-                        name,
-                        name_node.id(),
-                    );
-
-                    if usage_count == 0 {
-                        // Additionally check if the method name appears in any string
-                        // literal in the class body (covers `call_user_func('methodName')`
-                        // and similar dynamic dispatch patterns).
-                        let referenced_in_string = string_contains_name(body, source, name);
-                        if referenced_in_string {
-                            continue;
-                        }
-
-                        let start = child.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: pipeline_name.to_string(),
-                            pattern: "unused_private_method".to_string(),
-                            message: format!(
-                                "private method `{name}` appears unused within this class"
-                            ),
-                            snippet: extract_snippet(source, child, 1),
-                        });
-                    }
+                    let start = child.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: pipeline_name.to_string(),
+                        pattern: "unused_private_method".to_string(),
+                        message: format!(
+                            "private method `{name}` appears unused within this class"
+                        ),
+                        snippet: extract_snippet(source, child, 1),
+                    });
                 }
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -183,9 +184,10 @@ fn string_contains_name(root: tree_sitter::Node, source: &[u8], target_name: &st
         let kind = node.kind();
         if (kind == "string" || kind == "encapsed_string")
             && let Ok(text) = node.utf8_text(source)
-                && text.contains(target_name) {
-                    return true;
-                }
+            && text.contains(target_name)
+        {
+            return true;
+        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -204,10 +206,12 @@ fn count_name_usages(
     let mut count = 0;
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "name" && node.id() != exclude_id
-            && node_text(node, source) == target_name {
-                count += 1;
-            }
+        if node.kind() == "name"
+            && node.id() != exclude_id
+            && node_text(node, source) == target_name
+        {
+            count += 1;
+        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -236,13 +240,14 @@ fn collect_non_import_identifiers(
         }
 
         if (kind == "name" || kind == "qualified_name")
-            && let Ok(text) = node.utf8_text(source) {
-                ids.insert(text.to_string());
-                // Also insert the last segment for qualified names
-                if let Some(last) = text.rsplit('\\').next() {
-                    ids.insert(last.to_string());
-                }
+            && let Ok(text) = node.utf8_text(source)
+        {
+            ids.insert(text.to_string());
+            // Also insert the last segment for qualified names
+            if let Some(last) = text.rsplit('\\').next() {
+                ids.insert(last.to_string());
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {

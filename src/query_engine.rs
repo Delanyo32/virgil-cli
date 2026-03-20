@@ -165,15 +165,17 @@ pub fn execute(
             for sym in &all_symbols {
                 // find filter
                 if let Some(ref kinds) = find_kinds
-                    && !kinds.contains(&sym.kind) {
-                        continue;
-                    }
+                    && !kinds.contains(&sym.kind)
+                {
+                    continue;
+                }
 
                 // name filter
                 if let Some(ref matcher) = name_matcher
-                    && !matcher.matches(&sym.name) {
-                        continue;
-                    }
+                    && !matcher.matches(&sym.name)
+                {
+                    continue;
+                }
 
                 // visibility filter
                 if let Some(vis) = visibility {
@@ -191,13 +193,15 @@ pub fn execute(
                 if let Some(lr) = lines_filter {
                     let line_count = sym.end_line.saturating_sub(sym.start_line) + 1;
                     if let Some(min) = lr.min
-                        && line_count < min {
-                            continue;
-                        }
+                        && line_count < min
+                    {
+                        continue;
+                    }
                     if let Some(max) = lr.max
-                        && line_count > max {
-                            continue;
-                        }
+                        && line_count > max
+                    {
+                        continue;
+                    }
                 }
 
                 // inside filter
@@ -217,9 +221,10 @@ pub fn execute(
 
                 // has filter
                 if let Some(hf) = has_filter
-                    && !check_has_filter(hf, sym, &comments) {
-                        continue;
-                    }
+                    && !check_has_filter(hf, sym, &comments)
+                {
+                    continue;
+                }
 
                 // Extract signature
                 let signature = signature::extract_signature(&source, sym.start_line, lang);
@@ -276,8 +281,7 @@ pub fn execute(
     // Call graph traversal if requested
     if let Some(ref direction) = query.calls {
         let depth = query.depth.unwrap_or(1).min(5);
-        let call_results =
-            call_graph::traverse_call_graph(workspace, &results, direction, depth)?;
+        let call_results = call_graph::traverse_call_graph(workspace, &results, direction, depth)?;
         results = call_results;
     }
 

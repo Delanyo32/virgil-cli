@@ -82,19 +82,20 @@ impl Pipeline for DependencyGraphDepthPipeline {
                     let clean = path_text.trim_matches('"');
                     let depth = count_path_depth(clean, "/");
                     if depth >= DEEP_IMPORT_DEPTH_THRESHOLD
-                        && let Some(pn) = path_node {
-                            let pos = pn.start_position();
-                            let snippet = dir_node
-                                .map(|n| extract_snippet(source, n, 1))
-                                .unwrap_or_default();
-                            deep_includes.push((
-                                clean.to_string(),
-                                depth,
-                                pos.row as u32 + 1,
-                                pos.column as u32 + 1,
-                                snippet,
-                            ));
-                        }
+                        && let Some(pn) = path_node
+                    {
+                        let pos = pn.start_position();
+                        let snippet = dir_node
+                            .map(|n| extract_snippet(source, n, 1))
+                            .unwrap_or_default();
+                        deep_includes.push((
+                            clean.to_string(),
+                            depth,
+                            pos.row as u32 + 1,
+                            pos.column as u32 + 1,
+                            snippet,
+                        ));
+                    }
                 }
             }
         }

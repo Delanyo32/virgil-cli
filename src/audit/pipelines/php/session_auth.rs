@@ -83,11 +83,12 @@ impl Pipeline for SessionAuthPipeline {
                     // Check if the argument is a call to a weak random function
                     // Pattern: md5(uniqid()), sha1(rand()), etc.
                     if first_arg.kind() == "function_call_expression"
-                        && let Some(inner_fn) = first_arg.child_by_field_name("function") {
-                            let inner_name = node_text(inner_fn, source);
-                            if WEAK_RANDOM_FUNCTIONS.contains(&inner_name) {
-                                let start = call_node.start_position();
-                                findings.push(AuditFinding {
+                        && let Some(inner_fn) = first_arg.child_by_field_name("function")
+                    {
+                        let inner_name = node_text(inner_fn, source);
+                        if WEAK_RANDOM_FUNCTIONS.contains(&inner_name) {
+                            let start = call_node.start_position();
+                            findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -99,9 +100,9 @@ impl Pipeline for SessionAuthPipeline {
                                     ),
                                     snippet: extract_snippet(source, call_node, 1),
                                 });
-                                continue;
-                            }
+                            continue;
                         }
+                    }
 
                     // Check for password hashing pattern: md5($password) / sha1($password)
                     // Heuristic: argument variable name contains "pass" or "pw"

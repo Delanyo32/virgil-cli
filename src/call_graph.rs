@@ -71,9 +71,10 @@ fn collect_calls_in_range(
     }
 
     if call_types.contains(&node.kind())
-        && let Some(name) = extract_callee_name(node, source, language) {
-            out.push(name);
-        }
+        && let Some(name) = extract_callee_name(node, source, language)
+    {
+        out.push(name);
+    }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -142,9 +143,10 @@ pub fn traverse_call_graph(
     let mut sym_queries_map = HashMap::new();
     for rel_path in workspace.files() {
         if let Some(lang) = workspace.file_language(rel_path)
-            && let std::collections::hash_map::Entry::Vacant(e) = sym_queries_map.entry(lang) {
-                e.insert(languages::compile_symbol_query(lang)?);
-            }
+            && let std::collections::hash_map::Entry::Vacant(e) = sym_queries_map.entry(lang)
+        {
+            e.insert(languages::compile_symbol_query(lang)?);
+        }
     }
     let sym_queries = Arc::new(sym_queries_map);
 
@@ -216,51 +218,50 @@ pub fn traverse_call_graph(
                         && let Some(sym) = symbols
                             .iter()
                             .find(|s| s.name == name && s.start_line == line)
-                        {
-                            let callees = find_callees_in_source(source, sym, *lang);
-                            for callee_name in callees {
-                                // Resolve callee to actual symbols
-                                if let Some(targets) = symbols_by_name.get(callee_name.as_str()) {
-                                    for (target_file, target_sym) in targets {
-                                        let key = (target_sym.name.clone(), target_sym.start_line);
-                                        if visited.insert(key) {
-                                            let sig =
-                                                source_by_file.get(target_file).and_then(|s| {
-                                                    signature::extract_signature(
-                                                        s,
-                                                        target_sym.start_line,
-                                                        *lang_by_file
-                                                            .get(target_file)
-                                                            .unwrap_or(&Language::TypeScript),
-                                                    )
-                                                });
-
-                                            results.push(QueryResult {
-                                                name: target_sym.name.clone(),
-                                                kind: target_sym.kind.to_string(),
-                                                file: target_file.to_string(),
-                                                line: target_sym.start_line,
-                                                end_line: target_sym.end_line,
-                                                column: target_sym.start_column,
-                                                exported: target_sym.is_exported,
-                                                signature: sig,
-                                                docstring: None,
-                                                body: None,
-                                                preview: None,
-                                                parent: None,
-                                            });
-
-                                            queue.push_back((
-                                                target_sym.name.clone(),
-                                                target_file.to_string(),
+                    {
+                        let callees = find_callees_in_source(source, sym, *lang);
+                        for callee_name in callees {
+                            // Resolve callee to actual symbols
+                            if let Some(targets) = symbols_by_name.get(callee_name.as_str()) {
+                                for (target_file, target_sym) in targets {
+                                    let key = (target_sym.name.clone(), target_sym.start_line);
+                                    if visited.insert(key) {
+                                        let sig = source_by_file.get(target_file).and_then(|s| {
+                                            signature::extract_signature(
+                                                s,
                                                 target_sym.start_line,
-                                                depth + 1,
-                                            ));
-                                        }
+                                                *lang_by_file
+                                                    .get(target_file)
+                                                    .unwrap_or(&Language::TypeScript),
+                                            )
+                                        });
+
+                                        results.push(QueryResult {
+                                            name: target_sym.name.clone(),
+                                            kind: target_sym.kind.to_string(),
+                                            file: target_file.to_string(),
+                                            line: target_sym.start_line,
+                                            end_line: target_sym.end_line,
+                                            column: target_sym.start_column,
+                                            exported: target_sym.is_exported,
+                                            signature: sig,
+                                            docstring: None,
+                                            body: None,
+                                            preview: None,
+                                            parent: None,
+                                        });
+
+                                        queue.push_back((
+                                            target_sym.name.clone(),
+                                            target_file.to_string(),
+                                            target_sym.start_line,
+                                            depth + 1,
+                                        ));
                                     }
                                 }
                             }
                         }
+                    }
                 }
             }
             "up" => {
@@ -274,33 +275,32 @@ pub fn traverse_call_graph(
                         }
 
                         let callees = find_callees_in_source(source_ref, sym, *lang);
-                        if callees.iter().any(|c| c == &name)
-                            && visited.insert(key) {
-                                let sig =
-                                    signature::extract_signature(source_ref, sym.start_line, *lang);
+                        if callees.iter().any(|c| c == &name) && visited.insert(key) {
+                            let sig =
+                                signature::extract_signature(source_ref, sym.start_line, *lang);
 
-                                results.push(QueryResult {
-                                    name: sym.name.clone(),
-                                    kind: sym.kind.to_string(),
-                                    file: file_path.clone(),
-                                    line: sym.start_line,
-                                    end_line: sym.end_line,
-                                    column: sym.start_column,
-                                    exported: sym.is_exported,
-                                    signature: sig,
-                                    docstring: None,
-                                    body: None,
-                                    preview: None,
-                                    parent: None,
-                                });
+                            results.push(QueryResult {
+                                name: sym.name.clone(),
+                                kind: sym.kind.to_string(),
+                                file: file_path.clone(),
+                                line: sym.start_line,
+                                end_line: sym.end_line,
+                                column: sym.start_column,
+                                exported: sym.is_exported,
+                                signature: sig,
+                                docstring: None,
+                                body: None,
+                                preview: None,
+                                parent: None,
+                            });
 
-                                queue.push_back((
-                                    sym.name.clone(),
-                                    file_path.clone(),
-                                    sym.start_line,
-                                    depth + 1,
-                                ));
-                            }
+                            queue.push_back((
+                                sym.name.clone(),
+                                file_path.clone(),
+                                sym.start_line,
+                                depth + 1,
+                            ));
+                        }
                     }
                 }
             }
@@ -310,55 +310,53 @@ pub fn traverse_call_graph(
                 if let (Some(source), Some(lang)) = (
                     source_by_file.get(file.as_str()),
                     lang_by_file.get(file.as_str()),
-                )
-                    && let Some(symbols) = symbols_by_file.get(file.as_str())
-                        && let Some(sym) = symbols
-                            .iter()
-                            .find(|s| s.name == name && s.start_line == line)
-                        {
-                            let callees = find_callees_in_source(source, sym, *lang);
-                            for callee_name in callees {
-                                if let Some(targets) = symbols_by_name.get(callee_name.as_str()) {
-                                    for (target_file, target_sym) in targets {
-                                        let key = (target_sym.name.clone(), target_sym.start_line);
-                                        if visited.insert(key) {
-                                            let sig =
-                                                source_by_file.get(target_file).and_then(|s| {
-                                                    signature::extract_signature(
-                                                        s,
-                                                        target_sym.start_line,
-                                                        *lang_by_file
-                                                            .get(target_file)
-                                                            .unwrap_or(&Language::TypeScript),
-                                                    )
-                                                });
+                ) && let Some(symbols) = symbols_by_file.get(file.as_str())
+                    && let Some(sym) = symbols
+                        .iter()
+                        .find(|s| s.name == name && s.start_line == line)
+                {
+                    let callees = find_callees_in_source(source, sym, *lang);
+                    for callee_name in callees {
+                        if let Some(targets) = symbols_by_name.get(callee_name.as_str()) {
+                            for (target_file, target_sym) in targets {
+                                let key = (target_sym.name.clone(), target_sym.start_line);
+                                if visited.insert(key) {
+                                    let sig = source_by_file.get(target_file).and_then(|s| {
+                                        signature::extract_signature(
+                                            s,
+                                            target_sym.start_line,
+                                            *lang_by_file
+                                                .get(target_file)
+                                                .unwrap_or(&Language::TypeScript),
+                                        )
+                                    });
 
-                                            results.push(QueryResult {
-                                                name: target_sym.name.clone(),
-                                                kind: target_sym.kind.to_string(),
-                                                file: target_file.to_string(),
-                                                line: target_sym.start_line,
-                                                end_line: target_sym.end_line,
-                                                column: target_sym.start_column,
-                                                exported: target_sym.is_exported,
-                                                signature: sig,
-                                                docstring: None,
-                                                body: None,
-                                                preview: None,
-                                                parent: None,
-                                            });
+                                    results.push(QueryResult {
+                                        name: target_sym.name.clone(),
+                                        kind: target_sym.kind.to_string(),
+                                        file: target_file.to_string(),
+                                        line: target_sym.start_line,
+                                        end_line: target_sym.end_line,
+                                        column: target_sym.start_column,
+                                        exported: target_sym.is_exported,
+                                        signature: sig,
+                                        docstring: None,
+                                        body: None,
+                                        preview: None,
+                                        parent: None,
+                                    });
 
-                                            queue.push_back((
-                                                target_sym.name.clone(),
-                                                target_file.to_string(),
-                                                target_sym.start_line,
-                                                depth + 1,
-                                            ));
-                                        }
-                                    }
+                                    queue.push_back((
+                                        target_sym.name.clone(),
+                                        target_file.to_string(),
+                                        target_sym.start_line,
+                                        depth + 1,
+                                    ));
                                 }
                             }
                         }
+                    }
+                }
 
                 // Up
                 for (file_path, source, symbols, lang) in &file_data {
@@ -370,33 +368,32 @@ pub fn traverse_call_graph(
                         }
 
                         let callees = find_callees_in_source(source_ref, sym, *lang);
-                        if callees.iter().any(|c| c == &name)
-                            && visited.insert(key) {
-                                let sig =
-                                    signature::extract_signature(source_ref, sym.start_line, *lang);
+                        if callees.iter().any(|c| c == &name) && visited.insert(key) {
+                            let sig =
+                                signature::extract_signature(source_ref, sym.start_line, *lang);
 
-                                results.push(QueryResult {
-                                    name: sym.name.clone(),
-                                    kind: sym.kind.to_string(),
-                                    file: file_path.clone(),
-                                    line: sym.start_line,
-                                    end_line: sym.end_line,
-                                    column: sym.start_column,
-                                    exported: sym.is_exported,
-                                    signature: sig,
-                                    docstring: None,
-                                    body: None,
-                                    preview: None,
-                                    parent: None,
-                                });
+                            results.push(QueryResult {
+                                name: sym.name.clone(),
+                                kind: sym.kind.to_string(),
+                                file: file_path.clone(),
+                                line: sym.start_line,
+                                end_line: sym.end_line,
+                                column: sym.start_column,
+                                exported: sym.is_exported,
+                                signature: sig,
+                                docstring: None,
+                                body: None,
+                                preview: None,
+                                parent: None,
+                            });
 
-                                queue.push_back((
-                                    sym.name.clone(),
-                                    file_path.clone(),
-                                    sym.start_line,
-                                    depth + 1,
-                                ));
-                            }
+                            queue.push_back((
+                                sym.name.clone(),
+                                file_path.clone(),
+                                sym.start_line,
+                                depth + 1,
+                            ));
+                        }
                     }
                 }
             }

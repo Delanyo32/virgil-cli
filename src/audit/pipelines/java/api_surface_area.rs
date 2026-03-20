@@ -158,18 +158,18 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                 for member in body.children(&mut field_cursor) {
                     if member.kind() == "field_declaration"
                         && has_modifier(member, source, "public")
-                            && !has_modifier(member, source, "final")
-                        {
-                            // Extract field name
-                            let mut inner_cursor = member.walk();
-                            for child in member.children(&mut inner_cursor) {
-                                if child.kind() == "variable_declarator"
-                                    && let Some(name_node) = child.child_by_field_name("name") {
-                                        leaky_field_names
-                                            .push(node_text(name_node, source).to_string());
-                                    }
+                        && !has_modifier(member, source, "final")
+                    {
+                        // Extract field name
+                        let mut inner_cursor = member.walk();
+                        for child in member.children(&mut inner_cursor) {
+                            if child.kind() == "variable_declarator"
+                                && let Some(name_node) = child.child_by_field_name("name")
+                            {
+                                leaky_field_names.push(node_text(name_node, source).to_string());
                             }
                         }
+                    }
                 }
 
                 if !leaky_field_names.is_empty() {

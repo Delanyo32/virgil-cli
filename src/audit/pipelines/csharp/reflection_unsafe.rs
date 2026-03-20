@@ -75,28 +75,31 @@ impl ReflectionUnsafePipeline {
                 let fn_text = node_text(fn_node, source);
 
                 // Type.GetType(param) — unsafe dynamic type loading
-                if fn_text.contains("Type") && fn_text.contains("GetType")
-                    && !is_literal_arg(args_node, source) {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "error".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "unsafe_type_loading".to_string(),
-                            message:
-                                "Type.GetType() with dynamic input — validate against allowlist"
-                                    .to_string(),
-                            snippet: extract_snippet(source, inv_node, 1),
-                        });
-                    }
+                if fn_text.contains("Type")
+                    && fn_text.contains("GetType")
+                    && !is_literal_arg(args_node, source)
+                {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "error".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "unsafe_type_loading".to_string(),
+                        message: "Type.GetType() with dynamic input — validate against allowlist"
+                            .to_string(),
+                        snippet: extract_snippet(source, inv_node, 1),
+                    });
+                }
 
                 // Activator.CreateInstance with Type.GetType nearby
-                if fn_text.contains("Activator") && fn_text.contains("CreateInstance")
-                    && !is_literal_arg(args_node, source) {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
+                if fn_text.contains("Activator")
+                    && fn_text.contains("CreateInstance")
+                    && !is_literal_arg(args_node, source)
+                {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -106,28 +109,28 @@ impl ReflectionUnsafePipeline {
                             message: "Activator.CreateInstance() with dynamic type — validate against allowlist".to_string(),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
-                    }
+                }
 
                 // Assembly.LoadFrom(param) — unsafe assembly loading
                 if fn_text.contains("Assembly")
                     && (fn_text.contains("LoadFrom")
                         || fn_text.contains("LoadFile")
                         || fn_text.contains("UnsafeLoadFrom"))
-                    && !is_literal_arg(args_node, source) {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "error".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "unsafe_assembly_load".to_string(),
-                            message:
-                                "Assembly loading with dynamic path — potential code execution"
-                                    .to_string(),
-                            snippet: extract_snippet(source, inv_node, 1),
-                        });
-                    }
+                    && !is_literal_arg(args_node, source)
+                {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "error".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "unsafe_assembly_load".to_string(),
+                        message: "Assembly loading with dynamic path — potential code execution"
+                            .to_string(),
+                        snippet: extract_snippet(source, inv_node, 1),
+                    });
+                }
             }
         }
     }

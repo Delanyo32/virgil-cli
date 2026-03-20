@@ -150,9 +150,10 @@ fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut Ha
             || kind == "field_identifier"
             || kind == "type_identifier"
             || kind == "property_identifier")
-            && let Ok(text) = node.utf8_text(source) {
-                ids.insert(text.to_string());
-            }
+            && let Ok(text) = node.utf8_text(source)
+        {
+            ids.insert(text.to_string());
+        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

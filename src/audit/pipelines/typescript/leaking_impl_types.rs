@@ -100,9 +100,10 @@ impl Pipeline for LeakingImplTypesPipeline {
 
 fn is_exported(node: tree_sitter::Node) -> bool {
     if let Some(parent) = node.parent()
-        && parent.kind() == "export_statement" {
-            return true;
-        }
+        && parent.kind() == "export_statement"
+    {
+        return true;
+    }
     false
 }
 

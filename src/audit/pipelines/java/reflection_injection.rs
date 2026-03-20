@@ -71,21 +71,24 @@ impl Pipeline for ReflectionInjectionPipeline {
                 let method_name = node_text(method_node, source);
 
                 // Class.forName(param) — unsafe dynamic class loading
-                if obj_name == "Class" && method_name == "forName"
+                if obj_name == "Class"
+                    && method_name == "forName"
                     && let Some(first_arg) = args_node.named_child(0)
-                        && first_arg.kind() != "string_literal" {
-                            let start = inv_node.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "error".to_string(),
-                                pipeline: self.name().to_string(),
-                                pattern: "unsafe_class_loading".to_string(),
-                                message: "Class.forName() with dynamic input — validate against allowlist".to_string(),
-                                snippet: extract_snippet(source, inv_node, 1),
-                            });
-                        }
+                    && first_arg.kind() != "string_literal"
+                {
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "error".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "unsafe_class_loading".to_string(),
+                        message: "Class.forName() with dynamic input — validate against allowlist"
+                            .to_string(),
+                        snippet: extract_snippet(source, inv_node, 1),
+                    });
+                }
 
                 // method.invoke() — unsafe reflective method invocation
                 if method_name == "invoke" {
@@ -112,19 +115,22 @@ impl Pipeline for ReflectionInjectionPipeline {
                         || inv_text.contains("Engine")
                         || inv_text.contains("script"))
                         && let Some(first_arg) = args_node.named_child(0)
-                            && first_arg.kind() != "string_literal" {
-                                let start = inv_node.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "error".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "script_eval_injection".to_string(),
-                                    message: "ScriptEngine.eval() with dynamic input — potential code execution".to_string(),
-                                    snippet: extract_snippet(source, inv_node, 1),
-                                });
-                            }
+                        && first_arg.kind() != "string_literal"
+                    {
+                        let start = inv_node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "script_eval_injection".to_string(),
+                            message:
+                                "ScriptEngine.eval() with dynamic input — potential code execution"
+                                    .to_string(),
+                            snippet: extract_snippet(source, inv_node, 1),
+                        });
+                    }
                 }
 
                 // InitialContext.lookup(param) — JNDI injection
@@ -132,19 +138,22 @@ impl Pipeline for ReflectionInjectionPipeline {
                     let inv_text = node_text(inv_node, source);
                     if (inv_text.contains("Context") || inv_text.contains("ctx"))
                         && let Some(first_arg) = args_node.named_child(0)
-                            && first_arg.kind() != "string_literal" {
-                                let start = inv_node.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "error".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "jndi_injection".to_string(),
-                                    message: "JNDI lookup() with dynamic input — potential remote code execution".to_string(),
-                                    snippet: extract_snippet(source, inv_node, 1),
-                                });
-                            }
+                        && first_arg.kind() != "string_literal"
+                    {
+                        let start = inv_node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "jndi_injection".to_string(),
+                            message:
+                                "JNDI lookup() with dynamic input — potential remote code execution"
+                                    .to_string(),
+                            snippet: extract_snippet(source, inv_node, 1),
+                        });
+                    }
                 }
             }
         }

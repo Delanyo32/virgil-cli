@@ -109,9 +109,10 @@ impl Pipeline for ApiSurfaceAreaPipeline {
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     if cap.index as usize == export_idx
-                        && cap.node.parent().is_some_and(|p| p.kind() == "program") {
-                            exported_count += 1;
-                        }
+                        && cap.node.parent().is_some_and(|p| p.kind() == "program")
+                    {
+                        exported_count += 1;
+                    }
                 }
             }
         }

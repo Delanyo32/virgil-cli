@@ -84,22 +84,21 @@ impl Pipeline for StringlyTypedPipeline {
                     }
                 }
 
-                if has_string
-                    && let Some(ident) = suspicious_identifier {
-                        let start = node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "stringly_typed_comparison".to_string(),
-                            message: format!(
-                                "string comparison on `{ident}` — consider using an enum instead"
-                            ),
-                            snippet: extract_snippet(source, node, 1),
-                        });
-                    }
+                if has_string && let Some(ident) = suspicious_identifier {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "stringly_typed_comparison".to_string(),
+                        message: format!(
+                            "string comparison on `{ident}` — consider using an enum instead"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
+                }
             }
         }
 

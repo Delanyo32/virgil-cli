@@ -106,18 +106,19 @@ fn check_params_recursive(
         let kind = node.kind();
 
         if (kind == "function_declaration" || kind == "method_declaration")
-            && let Some(params) = node.child_by_field_name("parameters") {
-                let param_count = count_parameters(params);
-                if param_count > PARAM_THRESHOLD {
-                    let name = node
-                        .child_by_field_name("name")
-                        .map(|n| node_text(n, source))
-                        .unwrap_or("<anonymous>");
+            && let Some(params) = node.child_by_field_name("parameters")
+        {
+            let param_count = count_parameters(params);
+            if param_count > PARAM_THRESHOLD {
+                let name = node
+                    .child_by_field_name("name")
+                    .map(|n| node_text(n, source))
+                    .unwrap_or("<anonymous>");
 
-                    // Skip constructor functions (Go convention: New*)
-                    if !name.starts_with("New") {
-                        let start = node.start_position();
-                        findings.push(AuditFinding {
+                // Skip constructor functions (Go convention: New*)
+                if !name.starts_with("New") {
+                    let start = node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -129,9 +130,9 @@ fn check_params_recursive(
                             ),
                             snippet: extract_snippet(source, node, 1),
                         });
-                    }
                 }
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -165,14 +166,15 @@ fn check_cohesion_recursive(
 
                         if !receiver_name.is_empty()
                             && let Some(body) = node.child_by_field_name("body")
-                                && !body_references_identifier(body, source, receiver_name) {
-                                    let method_name = node
-                                        .child_by_field_name("name")
-                                        .map(|n| node_text(n, source))
-                                        .unwrap_or("<anonymous>");
+                            && !body_references_identifier(body, source, receiver_name)
+                        {
+                            let method_name = node
+                                .child_by_field_name("name")
+                                .map(|n| node_text(n, source))
+                                .unwrap_or("<anonymous>");
 
-                                    let start = node.start_position();
-                                    findings.push(AuditFinding {
+                            let start = node.start_position();
+                            findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
                                         line: start.row as u32 + 1,
                                         column: start.column as u32 + 1,
@@ -184,7 +186,7 @@ fn check_cohesion_recursive(
                                         ),
                                         snippet: extract_snippet(source, node, 1),
                                     });
-                                }
+                        }
                     }
                 }
             }

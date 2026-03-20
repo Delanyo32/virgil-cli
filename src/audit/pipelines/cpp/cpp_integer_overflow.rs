@@ -34,47 +34,49 @@ impl CppIntegerOverflowPipeline {
     ) {
         // Check for static_cast<size_t>(...) or static_cast<std::size_t>(...)
         if node.kind() == "call_expression"
-            && let Some(func) = node.child_by_field_name("function") {
-                let func_text = node_text(func, source);
-                if func_text.contains("static_cast<size_t>")
-                    || func_text.contains("static_cast<std::size_t>")
-                {
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "signed_to_size_t".to_string(),
-                        message: "signed-to-`size_t` cast — negative values wrap to large positive"
-                            .to_string(),
-                        snippet: extract_snippet(source, node, 1),
-                    });
-                    return;
-                }
+            && let Some(func) = node.child_by_field_name("function")
+        {
+            let func_text = node_text(func, source);
+            if func_text.contains("static_cast<size_t>")
+                || func_text.contains("static_cast<std::size_t>")
+            {
+                let start = node.start_position();
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line: start.row as u32 + 1,
+                    column: start.column as u32 + 1,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "signed_to_size_t".to_string(),
+                    message: "signed-to-`size_t` cast — negative values wrap to large positive"
+                        .to_string(),
+                    snippet: extract_snippet(source, node, 1),
+                });
+                return;
             }
+        }
 
         // Check for C-style cast: (size_t)expr
         if node.kind() == "cast_expression"
-            && let Some(type_node) = node.child_by_field_name("type") {
-                let type_text = node_text(type_node, source);
-                if type_text.contains("size_t") {
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
-                        file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
-                        pipeline: pipeline_name.to_string(),
-                        pattern: "signed_to_size_t".to_string(),
-                        message: "signed-to-`size_t` cast — negative values wrap to large positive"
-                            .to_string(),
-                        snippet: extract_snippet(source, node, 1),
-                    });
-                    return;
-                }
+            && let Some(type_node) = node.child_by_field_name("type")
+        {
+            let type_text = node_text(type_node, source);
+            if type_text.contains("size_t") {
+                let start = node.start_position();
+                findings.push(AuditFinding {
+                    file_path: file_path.to_string(),
+                    line: start.row as u32 + 1,
+                    column: start.column as u32 + 1,
+                    severity: "warning".to_string(),
+                    pipeline: pipeline_name.to_string(),
+                    pattern: "signed_to_size_t".to_string(),
+                    message: "signed-to-`size_t` cast — negative values wrap to large positive"
+                        .to_string(),
+                    snippet: extract_snippet(source, node, 1),
+                });
+                return;
             }
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -93,61 +95,64 @@ impl CppIntegerOverflowPipeline {
             // Check for "-" operator
             let full_text = node_text(node, source);
             if let Some(left) = node.child_by_field_name("left")
-                && let Some(right) = node.child_by_field_name("right") {
-                    // Find the operator by checking children between left and right
-                    let mut has_minus = false;
-                    let mut cursor = node.walk();
-                    for child in node.children(&mut cursor) {
-                        if child.kind() == "-" || node_text(child, source) == "-" {
-                            has_minus = true;
-                            break;
-                        }
-                    }
-                    if !has_minus && !full_text.contains(" - ") {
-                        // Not a subtraction
-                    } else if has_minus || full_text.contains(" - ") {
-                        // Check if both operands are identifiers with size-related names
-                        let left_text = node_text(left, source);
-                        let right_text = node_text(right, source);
-                        let size_names = [
-                            "size", "len", "length", "count", "offset", "pos", "idx", "index",
-                            "capacity", "num",
-                        ];
-                        let left_is_size = left.kind() == "identifier"
-                            && size_names.iter().any(|n| {
-                                left_text == *n
-                                    || left_text.ends_with("_size")
-                                    || left_text.ends_with("_len")
-                                    || left_text.ends_with("_count")
-                                    || left_text.ends_with("_offset")
-                                    || left_text.ends_with("_pos")
-                            });
-                        let right_is_size = right.kind() == "identifier"
-                            && size_names.iter().any(|n| {
-                                right_text == *n
-                                    || right_text.ends_with("_size")
-                                    || right_text.ends_with("_len")
-                                    || right_text.ends_with("_count")
-                                    || right_text.ends_with("_offset")
-                                    || right_text.ends_with("_pos")
-                            });
-
-                        if left_is_size && right_is_size {
-                            let start = node.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "warning".to_string(),
-                                pipeline: pipeline_name.to_string(),
-                                pattern: "size_t_subtraction".to_string(),
-                                message: "`size_t` subtraction may underflow — check `a >= b` before `a - b`".to_string(),
-                                snippet: extract_snippet(source, node, 1),
-                            });
-                            return; // don't recurse into this node
-                        }
+                && let Some(right) = node.child_by_field_name("right")
+            {
+                // Find the operator by checking children between left and right
+                let mut has_minus = false;
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "-" || node_text(child, source) == "-" {
+                        has_minus = true;
+                        break;
                     }
                 }
+                if !has_minus && !full_text.contains(" - ") {
+                    // Not a subtraction
+                } else if has_minus || full_text.contains(" - ") {
+                    // Check if both operands are identifiers with size-related names
+                    let left_text = node_text(left, source);
+                    let right_text = node_text(right, source);
+                    let size_names = [
+                        "size", "len", "length", "count", "offset", "pos", "idx", "index",
+                        "capacity", "num",
+                    ];
+                    let left_is_size = left.kind() == "identifier"
+                        && size_names.iter().any(|n| {
+                            left_text == *n
+                                || left_text.ends_with("_size")
+                                || left_text.ends_with("_len")
+                                || left_text.ends_with("_count")
+                                || left_text.ends_with("_offset")
+                                || left_text.ends_with("_pos")
+                        });
+                    let right_is_size = right.kind() == "identifier"
+                        && size_names.iter().any(|n| {
+                            right_text == *n
+                                || right_text.ends_with("_size")
+                                || right_text.ends_with("_len")
+                                || right_text.ends_with("_count")
+                                || right_text.ends_with("_offset")
+                                || right_text.ends_with("_pos")
+                        });
+
+                    if left_is_size && right_is_size {
+                        let start = node.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "warning".to_string(),
+                            pipeline: pipeline_name.to_string(),
+                            pattern: "size_t_subtraction".to_string(),
+                            message:
+                                "`size_t` subtraction may underflow — check `a >= b` before `a - b`"
+                                    .to_string(),
+                            snippet: extract_snippet(source, node, 1),
+                        });
+                        return; // don't recurse into this node
+                    }
+                }
+            }
         }
 
         let mut cursor = node.walk();
@@ -186,17 +191,18 @@ impl Pipeline for CppIntegerOverflowPipeline {
                         // Verify neither operand of the multiply is a constant
                         // Extract the part inside brackets
                         if let Some(bracket_start) = text.find('[')
-                            && let Some(bracket_end) = text.find(']') {
-                                let inside = &text[bracket_start + 1..bracket_end];
-                                // Check that there's a * and the operands aren't pure numeric constants
-                                if inside.contains('*') {
-                                    let parts: Vec<&str> =
-                                        inside.split('*').map(|s| s.trim()).collect();
-                                    let all_constant =
-                                        parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit()));
-                                    if !all_constant {
-                                        let start = new_cap.node.start_position();
-                                        findings.push(AuditFinding {
+                            && let Some(bracket_end) = text.find(']')
+                        {
+                            let inside = &text[bracket_start + 1..bracket_end];
+                            // Check that there's a * and the operands aren't pure numeric constants
+                            if inside.contains('*') {
+                                let parts: Vec<&str> =
+                                    inside.split('*').map(|s| s.trim()).collect();
+                                let all_constant =
+                                    parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit()));
+                                if !all_constant {
+                                    let start = new_cap.node.start_position();
+                                    findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
                                             line: start.row as u32 + 1,
                                             column: start.column as u32 + 1,
@@ -206,9 +212,9 @@ impl Pipeline for CppIntegerOverflowPipeline {
                                             message: "`new T[a*b]` with unchecked multiplication — potential integer overflow leading to undersized allocation".to_string(),
                                             snippet: extract_snippet(source, new_cap.node, 1),
                                         });
-                                    }
                                 }
                             }
+                        }
                     }
                 }
             }

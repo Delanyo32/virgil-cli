@@ -73,9 +73,10 @@ impl Pipeline for InitAbusePipeline {
                 .map(|c| c.node);
 
             if let (Some(name_node), Some(body_node)) = (name_node, body_node)
-                && node_text(name_node, source) == "init" {
-                    init_body_ranges.push(body_node.range());
-                }
+                && node_text(name_node, source) == "init"
+            {
+                init_body_ranges.push(body_node.range());
+            }
         }
 
         if init_body_ranges.is_empty() {

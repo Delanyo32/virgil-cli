@@ -46,19 +46,20 @@ impl SyncBlockingInAsyncPipeline {
         // Check selector_expression calls (pkg.Method)
         if node.kind() == "call_expression"
             && let Some(func) = node.child_by_field_name("function")
-                && func.kind() == "selector_expression"
-                    && let Some(operand) = func.child_by_field_name("operand")
-                        && let Some(field) = func.child_by_field_name("field") {
-                            let pkg_name = node_text(operand, source);
-                            let method_name = node_text(field, source);
+            && func.kind() == "selector_expression"
+            && let Some(operand) = func.child_by_field_name("operand")
+            && let Some(field) = func.child_by_field_name("field")
+        {
+            let pkg_name = node_text(operand, source);
+            let method_name = node_text(field, source);
 
-                            for (pkg, method) in BLOCKING_CALLS {
-                                if pkg_name == *pkg && method_name == *method {
-                                    findings.push((node, format!("{pkg_name}.{method_name}")));
-                                    break;
-                                }
-                            }
-                        }
+            for (pkg, method) in BLOCKING_CALLS {
+                if pkg_name == *pkg && method_name == *method {
+                    findings.push((node, format!("{pkg_name}.{method_name}")));
+                    break;
+                }
+            }
+        }
 
         // Check for bare channel receive without select (<-ch)
         if node.kind() == "unary_expression" {

@@ -116,11 +116,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
             for cap in m.captures {
                 if cap.index as usize == def_idx {
                     // Only count top-level exports
-                    if cap
-                        .node
-                        .parent()
-                        .is_some_and(|p| p.kind() == "source_file")
-                    {
+                    if cap.node.parent().is_some_and(|p| p.kind() == "source_file") {
                         exported_count += 1;
                     }
                 }

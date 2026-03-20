@@ -70,19 +70,20 @@ fn check_parameter_overload(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "function_item"
-            && let Some(params) = node.child_by_field_name("parameters") {
-                let param_count = count_parameters(params);
-                if param_count > PARAMETER_OVERLOAD_THRESHOLD {
-                    let fn_name = node
-                        .child_by_field_name("name")
-                        .and_then(|n| n.utf8_text(source).ok())
-                        .unwrap_or("<anonymous>");
-                    // Skip constructors (Rust convention: `new`)
-                    if fn_name == "new" {
-                        continue;
-                    }
-                    let start = node.start_position();
-                    findings.push(AuditFinding {
+            && let Some(params) = node.child_by_field_name("parameters")
+        {
+            let param_count = count_parameters(params);
+            if param_count > PARAMETER_OVERLOAD_THRESHOLD {
+                let fn_name = node
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .unwrap_or("<anonymous>");
+                // Skip constructors (Rust convention: `new`)
+                if fn_name == "new" {
+                    continue;
+                }
+                let start = node.start_position();
+                findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
@@ -94,8 +95,8 @@ fn check_parameter_overload(
                         ),
                         snippet: extract_snippet(source, node, 3),
                     });
-                }
             }
+        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -114,15 +115,16 @@ fn check_low_cohesion(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "impl_item"
-            && let Some(decl_list) = node.child_by_field_name("body") {
-                let mut cursor = decl_list.walk();
-                for child in decl_list.named_children(&mut cursor) {
-                    if child.kind() == "function_item" {
-                        check_method_cohesion(child, source, file_path, pipeline_name, findings);
-                    }
+            && let Some(decl_list) = node.child_by_field_name("body")
+        {
+            let mut cursor = decl_list.walk();
+            for child in decl_list.named_children(&mut cursor) {
+                if child.kind() == "function_item" {
+                    check_method_cohesion(child, source, file_path, pipeline_name, findings);
                 }
             }
-            // Don't recurse into nested items from here; we handle them below.
+        }
+        // Don't recurse into nested items from here; we handle them below.
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

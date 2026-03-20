@@ -46,10 +46,11 @@ impl GoMagicNumbersPipeline {
         // Skip if this is an index expression
         if let Some(parent) = node.parent()
             && parent.kind() == "index_expression"
-                && let Some(index_child) = parent.named_child(1)
-                    && index_child.id() == node.id() {
-                        return true;
-                    }
+            && let Some(index_child) = parent.named_child(1)
+            && index_child.id() == node.id()
+        {
+            return true;
+        }
 
         false
     }

@@ -123,9 +123,10 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                     if cap.index as usize == def_idx {
                         // Only count top-level declarations (direct children of program)
                         if cap.node.parent().is_some_and(|p| p.kind() == "program")
-                            && has_modifier(cap.node, source, "public") {
-                                exported_count += 1;
-                            }
+                            && has_modifier(cap.node, source, "public")
+                        {
+                            exported_count += 1;
+                        }
                     }
                 }
             }
@@ -137,21 +138,23 @@ impl Pipeline for ModuleSizeDistributionPipeline {
             let mut walk_cursor = root.walk();
             for child in root.children(&mut walk_cursor) {
                 if JAVA_TOP_LEVEL_KINDS.contains(&child.kind())
-                    && let Some(body) = child.child_by_field_name("body") {
-                        let mut body_cursor = body.walk();
-                        for member in body.children(&mut body_cursor) {
-                            let kind = member.kind();
-                            if (kind == "method_declaration"
-                                || kind == "field_declaration"
-                                || kind == "constructor_declaration"
-                                || kind == "class_declaration"
-                                || kind == "interface_declaration"
-                                || kind == "enum_declaration")
-                                && has_modifier(member, source, "public") {
-                                    public_member_count += 1;
-                                }
+                    && let Some(body) = child.child_by_field_name("body")
+                {
+                    let mut body_cursor = body.walk();
+                    for member in body.children(&mut body_cursor) {
+                        let kind = member.kind();
+                        if (kind == "method_declaration"
+                            || kind == "field_declaration"
+                            || kind == "constructor_declaration"
+                            || kind == "class_declaration"
+                            || kind == "interface_declaration"
+                            || kind == "enum_declaration")
+                            && has_modifier(member, source, "public")
+                        {
+                            public_member_count += 1;
                         }
                     }
+                }
             }
         }
 

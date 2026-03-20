@@ -60,9 +60,10 @@ impl Pipeline for SyncOverAsyncPipeline {
                     .map(|c| c.node);
 
                 if let (Some(name_node), Some(access_node)) = (name_node, access_node)
-                    && node_text(name_node, source) == "Result" {
-                        let start = access_node.start_position();
-                        findings.push(AuditFinding {
+                    && node_text(name_node, source) == "Result"
+                {
+                    let start = access_node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -72,7 +73,7 @@ impl Pipeline for SyncOverAsyncPipeline {
                             message: "accessing `.Result` blocks the calling thread \u{2014} use `await` instead".to_string(),
                             snippet: extract_snippet(source, access_node, 3),
                         });
-                    }
+                }
             }
         }
 
@@ -147,11 +148,11 @@ impl Pipeline for SyncOverAsyncPipeline {
                 if let (Some(type_node), Some(name_node), Some(decl_node)) =
                     (type_node, name_node, decl_node)
                     && has_modifier(decl_node, source, "async")
-                        && node_text(type_node, source) == "void"
-                    {
-                        let method_name = node_text(name_node, source);
-                        let start = decl_node.start_position();
-                        findings.push(AuditFinding {
+                    && node_text(type_node, source) == "void"
+                {
+                    let method_name = node_text(name_node, source);
+                    let start = decl_node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -163,7 +164,7 @@ impl Pipeline for SyncOverAsyncPipeline {
                             ),
                             snippet: extract_snippet(source, decl_node, 3),
                         });
-                    }
+                }
             }
         }
 

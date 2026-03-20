@@ -221,26 +221,28 @@ impl MemoryLeakIndicatorsPipeline {
         while let Some(current) = stack.pop() {
             if current.kind() == "assignment_expression"
                 && let Some(left) = current.child_by_field_name("left")
-                    && left.kind() == "subscript_expression" {
-                        // Check if this is an append: $arr[] = ... (no index specified)
-                        // In tree-sitter-php, $arr[] has subscript_expression with
-                        // only the object child and no index child
-                        let text = node_text(left, source);
-                        if text.ends_with("[]") {
-                            let start = current.start_position();
-                            findings.push(AuditFinding {
-                                file_path: file_path.to_string(),
-                                line: start.row as u32 + 1,
-                                column: start.column as u32 + 1,
-                                severity: "warning".to_string(),
-                                pipeline: self.name().to_string(),
-                                pattern: "array_growth_in_loop".to_string(),
-                                message: "Array append (`$arr[] = ...`) inside a loop — array may grow unbounded"
-                                    .to_string(),
-                                snippet: extract_snippet(source, loop_node, 5),
-                            });
-                        }
-                    }
+                && left.kind() == "subscript_expression"
+            {
+                // Check if this is an append: $arr[] = ... (no index specified)
+                // In tree-sitter-php, $arr[] has subscript_expression with
+                // only the object child and no index child
+                let text = node_text(left, source);
+                if text.ends_with("[]") {
+                    let start = current.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "array_growth_in_loop".to_string(),
+                        message:
+                            "Array append (`$arr[] = ...`) inside a loop — array may grow unbounded"
+                                .to_string(),
+                        snippet: extract_snippet(source, loop_node, 5),
+                    });
+                }
+            }
 
             for i in 0..current.named_child_count() {
                 if let Some(child) = current.named_child(i) {

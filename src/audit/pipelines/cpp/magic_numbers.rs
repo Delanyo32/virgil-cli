@@ -49,18 +49,20 @@ impl CppMagicNumbersPipeline {
 
             // Exempt: declaration with const qualifier or constexpr
             if kind == "declaration"
-                && (has_type_qualifier(parent, source, "const") || has_constexpr(parent, source)) {
-                    return true;
-                }
+                && (has_type_qualifier(parent, source, "const") || has_constexpr(parent, source))
+            {
+                return true;
+            }
 
             current = parent.parent();
         }
 
         // Skip if inside subscript_argument_list (array indexing)
         if let Some(parent) = node.parent()
-            && parent.kind() == "subscript_argument_list" {
-                return true;
-            }
+            && parent.kind() == "subscript_argument_list"
+        {
+            return true;
+        }
 
         false
     }

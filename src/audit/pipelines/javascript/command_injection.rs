@@ -70,22 +70,23 @@ impl Pipeline for CommandInjectionPipeline {
 
                     if matches!(method_name, "exec" | "execSync" | "execFileSync")
                         && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "error".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "exec_command_injection".to_string(),
-                                    message: format!(
-                                        "`{}()` with dynamic argument — command injection risk",
-                                        method_name
-                                    ),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(first_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "exec_command_injection".to_string(),
+                            message: format!(
+                                "`{}()` with dynamic argument — command injection risk",
+                                method_name
+                            ),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
 
                     // spawn with shell: true
                     if method_name == "spawn" {
@@ -138,22 +139,23 @@ impl Pipeline for CommandInjectionPipeline {
                     let fn_name = node_text(fn_n, source);
                     if matches!(fn_name, "exec" | "execSync")
                         && let Some(first_arg) = args.named_child(0)
-                            && !is_safe_literal(first_arg, source) {
-                                let start = call.start_position();
-                                findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "error".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "exec_command_injection".to_string(),
-                                    message: format!(
-                                        "`{}()` with dynamic argument — command injection risk",
-                                        fn_name
-                                    ),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
-                            }
+                        && !is_safe_literal(first_arg, source)
+                    {
+                        let start = call.start_position();
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: start.row as u32 + 1,
+                            column: start.column as u32 + 1,
+                            severity: "error".to_string(),
+                            pipeline: self.name().to_string(),
+                            pattern: "exec_command_injection".to_string(),
+                            message: format!(
+                                "`{}()` with dynamic argument — command injection risk",
+                                fn_name
+                            ),
+                            snippet: extract_snippet(source, call, 1),
+                        });
+                    }
                 }
             }
         }

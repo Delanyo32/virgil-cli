@@ -205,18 +205,19 @@ fn is_property_readonly(m: &tree_sitter::QueryMatch, _source: &[u8]) -> bool {
     for cap in m.captures {
         if cap.node.kind() == "visibility_modifier"
             && let Some(parent) = cap.node.parent()
-                && parent.kind() == "property_declaration" {
-                    let mut cursor = parent.walk();
-                    for child in parent.children(&mut cursor) {
-                        if child.kind() == "readonly_modifier" {
-                            return true;
-                        }
-                        // Also check for the "readonly" keyword in text
-                        if child.kind() == "readonly" {
-                            return true;
-                        }
-                    }
+            && parent.kind() == "property_declaration"
+        {
+            let mut cursor = parent.walk();
+            for child in parent.children(&mut cursor) {
+                if child.kind() == "readonly_modifier" {
+                    return true;
                 }
+                // Also check for the "readonly" keyword in text
+                if child.kind() == "readonly" {
+                    return true;
+                }
+            }
+        }
     }
     false
 }

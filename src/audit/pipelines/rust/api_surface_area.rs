@@ -92,13 +92,10 @@ impl Pipeline for ApiSurfaceAreaPipeline {
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     if cap.index as usize == pub_sym_idx
-                        && cap
-                            .node
-                            .parent()
-                            .is_some_and(|p| p.kind() == "source_file")
-                        {
-                            exported_count += 1;
-                        }
+                        && cap.node.parent().is_some_and(|p| p.kind() == "source_file")
+                    {
+                        exported_count += 1;
+                    }
                 }
             }
         }

@@ -102,26 +102,27 @@ fn collect_function_hashes(
     hash_map: &mut HashMap<u64, Vec<(String, u32, u32)>>,
 ) {
     if node.kind() == "function_definition"
-        && let Some(body) = node.child_by_field_name("body") {
-            let body_lines = body
-                .end_position()
-                .row
-                .saturating_sub(body.start_position().row)
-                + 1;
-            if body_lines >= min_lines {
-                let name = node
-                    .child_by_field_name("declarator")
-                    .and_then(|d| find_identifier_in_declarator(d, source))
-                    .unwrap_or_else(|| "<anonymous>".to_string());
-                let hash = hash_block_normalized(body, source);
-                let pos = node.start_position();
-                hash_map.entry(hash).or_default().push((
-                    name,
-                    pos.row as u32 + 1,
-                    pos.column as u32 + 1,
-                ));
-            }
+        && let Some(body) = node.child_by_field_name("body")
+    {
+        let body_lines = body
+            .end_position()
+            .row
+            .saturating_sub(body.start_position().row)
+            + 1;
+        if body_lines >= min_lines {
+            let name = node
+                .child_by_field_name("declarator")
+                .and_then(|d| find_identifier_in_declarator(d, source))
+                .unwrap_or_else(|| "<anonymous>".to_string());
+            let hash = hash_block_normalized(body, source);
+            let pos = node.start_position();
+            hash_map.entry(hash).or_default().push((
+                name,
+                pos.row as u32 + 1,
+                pos.column as u32 + 1,
+            ));
         }
+    }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

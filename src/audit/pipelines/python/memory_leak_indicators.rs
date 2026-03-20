@@ -98,10 +98,12 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
 
                 if let (Some(fn_node), Some(call_node)) = (fn_node, call_node) {
                     // Check for open() not inside `with`
-                    if fn_node.kind() == "identifier" && node_text(fn_node, source) == "open"
-                        && !Self::is_inside_with_statement(call_node) {
-                            let start = call_node.start_position();
-                            findings.push(AuditFinding {
+                    if fn_node.kind() == "identifier"
+                        && node_text(fn_node, source) == "open"
+                        && !Self::is_inside_with_statement(call_node)
+                    {
+                        let start = call_node.start_position();
+                        findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -111,17 +113,17 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                                 message: "`open()` called without a `with` statement — file handle may not be closed".to_string(),
                                 snippet: extract_snippet(source, call_node, 1),
                             });
-                        }
+                    }
 
                     // Check for .append()/.extend()/.insert()/.add() inside loops
                     if fn_node.kind() == "attribute"
-                        && let Some(attr) = fn_node.child_by_field_name("attribute") {
-                            let method_name = node_text(attr, source);
-                            if GROWTH_METHODS.contains(&method_name)
-                                && Self::is_inside_loop(call_node)
-                            {
-                                let start = call_node.start_position();
-                                findings.push(AuditFinding {
+                        && let Some(attr) = fn_node.child_by_field_name("attribute")
+                    {
+                        let method_name = node_text(attr, source);
+                        if GROWTH_METHODS.contains(&method_name) && Self::is_inside_loop(call_node)
+                        {
+                            let start = call_node.start_position();
+                            findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
                                     line: start.row as u32 + 1,
                                     column: start.column as u32 + 1,
@@ -133,8 +135,8 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                                     ),
                                     snippet: extract_snippet(source, call_node, 1),
                                 });
-                            }
                         }
+                    }
                 }
             }
         }
@@ -160,9 +162,10 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     .map(|c| c.node);
 
                 if let (Some(name_node), Some(def_node)) = (name_node, def_node)
-                    && node_text(name_node, source) == "__del__" {
-                        let start = def_node.start_position();
-                        findings.push(AuditFinding {
+                    && node_text(name_node, source) == "__del__"
+                {
+                    let start = def_node.start_position();
+                    findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
@@ -172,7 +175,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                             message: "`__del__` method defined — often indicates manual resource management; prefer context managers".to_string(),
                             snippet: extract_snippet(source, def_node, 2),
                         });
-                    }
+                }
             }
         }
 

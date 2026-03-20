@@ -214,9 +214,10 @@ pub fn is_safe_literal(node: tree_sitter::Node, _source: &[u8]) -> bool {
             // Safe only if no template substitutions
             for i in 0..node.named_child_count() {
                 if let Some(child) = node.named_child(i)
-                    && child.kind() == "template_substitution" {
-                        return false;
-                    }
+                    && child.kind() == "template_substitution"
+                {
+                    return false;
+                }
             }
             true
         }

@@ -55,10 +55,11 @@ impl CMagicNumbersPipeline {
         // Skip if in subscript/index expression
         if let Some(parent) = node.parent()
             && parent.kind() == "subscript_expression"
-                && let Some(index_child) = parent.child_by_field_name("index")
-                    && index_child.id() == node.id() {
-                        return true;
-                    }
+            && let Some(index_child) = parent.child_by_field_name("index")
+            && index_child.id() == node.id()
+        {
+            return true;
+        }
 
         false
     }
