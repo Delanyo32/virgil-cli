@@ -345,7 +345,7 @@ class Foo {
             .iter()
             .filter(|f| f.pattern == "unused_import")
             .collect();
-        assert!(unused.len() >= 1, "should detect at least 1 unused import");
+        assert!(!unused.is_empty(), "should detect at least 1 unused import");
         assert!(unused.iter().any(|f| f.message.contains("Generic")));
     }
 

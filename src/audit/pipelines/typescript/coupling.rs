@@ -288,7 +288,7 @@ class Utils {
             .filter(|f| f.pattern == "low_cohesion")
             .collect();
         // Both methods don't use `this`
-        assert!(low.len() >= 1);
+        assert!(!low.is_empty());
         assert_eq!(low[0].severity, "info");
     }
 

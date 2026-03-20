@@ -338,7 +338,7 @@ items.forEach(async (item: Item) => {
     await db.collection('items').findOne({ id: item.id });
 });";
         let findings = parse_and_check(src);
-        assert!(findings.len() >= 1);
+        assert!(!findings.is_empty());
     }
 
     #[test]
