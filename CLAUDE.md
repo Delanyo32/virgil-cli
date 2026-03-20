@@ -1,92 +1,161 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases into structured Parquet files and queries them with DuckDB.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand and queries them with a composable JSON query language. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying and auditing remote codebases directly via `--s3 s3://bucket/prefix`.
 
 ## Build & Run
 
 ```bash
 cargo build
-cargo run -- parse <DIR> [--output <dir>] [--language ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php]
-cargo run -- search <QUERY> [--data-dir <dir>] [--kind <kind>] [--exported]
-cargo run -- query <SQL> [--data-dir <dir>] [--format table|json|csv]
-
-# S3 mode (reads credentials from env vars)
-cargo run -- --env parse <S3_PREFIX> [--output <s3_prefix>]
-cargo run -- --env search <QUERY> [--data-dir <s3_prefix>]
+cargo run -- projects create myapp --path ./src [--lang ts,tsx,js,jsx] [--exclude "vendor/**"]
+cargo run -- projects list
+cargo run -- projects delete myapp
+cargo run -- projects query myapp --q '{"find": "function", "name": "handle*"}' [--out outline|snippet|full|tree|locations|summary] [--pretty] [--max 100]
+cargo run -- projects query myapp --file query.json
+# S3/R2 (no registration needed)
+cargo run -- projects query --s3 s3://bucket/prefix --q '{"find": "function"}' [--lang rs] [--out summary] [--pretty]
+cargo run -- audit --s3 s3://bucket/prefix [--language rs]
 ```
-
-Use `uv run --with pyarrow --with pandas` to run Python scripts for inspecting parquet output.
 
 ## Subcommands
 
+All commands are nested under `virgil projects`:
+
 | Command | Description |
 |---------|-------------|
-| `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
-| `search` | Search for symbols by name (fuzzy match) |
-| `outline` | Show all symbols in a file |
-| `files` | List parsed files |
-| `read` | Read source file content with optional line ranges |
-| `query` | Execute raw SQL against parquet files |
-| `deps` | Show what a file imports (dependencies) |
-| `dependents` | Show what files import a given file (reverse dependencies) |
-| `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters (`--module`, `--kind`, `--file`, `--type-only`, `--external`, `--internal`) |
-| `comments` | List comments with filters (`--file`, `--kind`, `--documented`, `--symbol`) |
+| `projects create` | Register a project for querying (scans files, saves to `~/.virgil-cli/projects.json`) |
+| `projects list` | List registered projects with file counts |
+| `projects delete` | Remove a registered project |
+| `projects query` | Query a project using inline JSON (`--q`), a file (`--file`), or stdin |
+| `projects query --s3` | Query an S3/R2 codebase directly (no registration needed) |
+
+Audit commands are under `virgil audit`:
+
+| Command | Description |
+|---------|-------------|
+| `audit <DIR>` | Run all audit categories |
+| `audit code-quality <DIR>` | All code quality checks (summary) |
+| `audit code-quality tech-debt <DIR>` | Tech debt patterns (`--pipeline`: panic_detection) |
+| `audit code-quality complexity <DIR>` | Complexity metrics (`--pipeline`: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio) |
+| `audit code-quality code-style <DIR>` | Code style issues (`--pipeline`: dead_code, duplicate_code, coupling) |
+| `audit security <DIR>` | Security vulnerabilities (injection, unsafe memory, race conditions) |
+| `audit scalability <DIR>` | Scalability issues (`--pipeline`: n_plus_one_queries, sync_blocking_in_async, memory_leak_indicators) |
+| `audit architecture <DIR>` | Architecture analysis (`--pipeline`: module_size_distribution, circular_dependencies, dependency_graph_depth, api_surface_area) |
+
+Common audit options: `--s3` (S3 URI, replaces `<DIR>`), `--language` (comma-separated), `--pipeline` (comma-separated), `--format` (table|json|csv), `--per-page` (default 20), `--page` (default 1).
+
+## JSON Query Language
+
+Queries are JSON objects with composable filters:
+
+```json
+{
+  "files": "src/api/**",
+  "files_exclude": ["**/test/**"],
+  "find": "function",
+  "name": "handle*",
+  "visibility": "exported",
+  "inside": "AuthService",
+  "has": "@deprecated",
+  "lines": {"min": 10, "max": 100},
+  "body": true,
+  "preview": 5,
+  "calls": "down",
+  "depth": 2
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `files` | string or [strings] | Glob pattern(s) to filter files |
+| `files_exclude` | [strings] | Glob pattern(s) to exclude files |
+| `find` | string or [strings] | Symbol kind(s): function, method, class, type, enum, struct, trait, variable, constant, property, namespace, module, macro, union, arrow_function, constructor, import, any |
+| `name` | string or {contains, regex} | Name filter: glob string, `{"contains": "auth"}`, or `{"regex": "^get[A-Z]"}` |
+| `visibility` | string | Filter by visibility: exported, public, private, protected, internal |
+| `inside` | string | Only symbols inside a parent with this name |
+| `has` | string, [strings], or {not: string} | Filter by associated comment/decorator text; `{"not": "docstring"}` for inverse |
+| `lines` | {min, max} | Filter by line count |
+| `body` | bool | Include full source body in results |
+| `preview` | number | Number of preview lines to include |
+| `calls` | string | Call graph traversal: "down" (callees), "up" (callers), "both" |
+| `depth` | number | Call graph depth (default 1, max 5) |
+| `format` | string | Override output format from within query JSON |
+| `read` | string | File path to read (returns content instead of symbols). Combine with `lines` for range |
+
+## Output Formats
+
+`--out` flag controls result format (all output is JSON):
+
+| Format | Content |
+|--------|---------|
+| `outline` | name, kind, file, line, signature (default) |
+| `snippet` | outline + preview lines + docstring |
+| `full` | outline + full body |
+| `tree` | hierarchical: file -> class -> methods |
+| `locations` | `file:line` only |
+| `summary` | counts by kind and file |
+
+Wrapping structure:
+```json
+{
+  "project": "myapp",
+  "query_ms": 42,
+  "files_parsed": 8,
+  "total": 3,
+  "results": [ ... ]
+}
+```
 
 ## Project Structure
 
 ```
 src/
-├── main.rs            # CLI entry, pipeline orchestration, rayon parallelism
-├── cli.rs             # Clap subcommand definitions (12 subcommands + OutputFormat/FileSortField enums)
+├── main.rs            # CLI entry, dispatch to registry/query/audit
+├── cli.rs             # Clap subcommand definitions (Create/List/Delete/Query + audit commands)
+├── registry.rs        # Project CRUD: ~/.virgil-cli/projects.json (atomic write via .tmp + rename)
+├── query_lang.rs      # JSON query schema deserialization (TsQuery, filters, serde untagged enums)
+├── query_engine.rs    # On-demand parse + filter pipeline (rayon parallel, per-file symbol extraction)
+├── format.rs          # Query output formatting (outline/snippet/full/tree/locations/summary)
+├── signature.rs       # One-line signature extraction from AST nodes
+├── call_graph.rs      # Call graph traversal (BFS, find callees/callers via tree-sitter call expressions)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
+├── file_source.rs     # FileSource trait + MemoryFileSource (in-memory, Arc<str> zero-copy)
 ├── language.rs        # Language enum, extension mapping, parser selection
+├── lib.rs             # Public API: re-exports all modules
 ├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
-├── parser.rs          # Tree-sitter parsing, file metadata collection (parse_file + parse_content for S3)
-├── output.rs          # Arrow schemas + parquet writing (local + S3 variants)
-├── s3.rs              # S3 configuration (S3Config), client (S3Client), file listing/download/upload
+├── parser.rs          # Tree-sitter parsing, file metadata collection
+├── s3.rs              # S3/R2 client: URI parsing, object listing, concurrent download
+├── workspace.rs       # Workspace: discover + load files into memory (rayon parallel), S3 loading
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
-│   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction (symbols + imports + comments)
-│   ├── c_lang.rs      # C tree-sitter queries and extraction (symbols + #include imports + comments)
-│   ├── cpp.rs         # C++ tree-sitter queries and extraction (extends C with classes, namespaces)
-│   ├── csharp.rs      # C# tree-sitter queries and extraction (classes, interfaces, using directives)
-│   ├── rust_lang.rs   # Rust tree-sitter queries and extraction (functions, structs, traits, use imports)
-│   ├── python.rs      # Python tree-sitter queries and extraction (functions, classes, imports, docstrings)
-│   ├── go.rs          # Go tree-sitter queries and extraction (functions, methods, structs, interfaces)
-│   ├── java.rs        # Java tree-sitter queries and extraction (classes, interfaces, enums, records, imports)
-│   └── php.rs         # PHP tree-sitter queries and extraction (classes, traits, namespaces, use/require imports)
-└── query/
-    ├── mod.rs         # Module re-exports
-    ├── db.rs          # QueryEngine: DuckDB connection, view registration (local + S3 via httpfs)
-    ├── format.rs      # Output formatting (table/json/csv)
-    ├── search.rs      # Fuzzy symbol search
-    ├── overview.rs    # Codebase overview (languages, top symbols, directories, dependency summary)
-    ├── outline.rs     # File symbol outline
-    ├── files.rs       # File listing with filters
-    ├── read.rs        # Source file reading with line ranges (local + S3)
-    ├── deps.rs        # File dependency listing (what does this file import?)
-    ├── dependents.rs  # Reverse dependency lookup (what files import this file?)
-    ├── callers.rs     # Find which files import a specific symbol
-    ├── imports.rs     # Import listing with filters
-    └── comments.rs    # Comment listing with filters
+│   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction
+│   ├── c_lang.rs      # C tree-sitter queries and extraction
+│   ├── cpp.rs         # C++ tree-sitter queries and extraction
+│   ├── csharp.rs      # C# tree-sitter queries and extraction
+│   ├── rust_lang.rs   # Rust tree-sitter queries and extraction
+│   ├── python.rs      # Python tree-sitter queries and extraction
+│   ├── go.rs          # Go tree-sitter queries and extraction
+│   ├── java.rs        # Java tree-sitter queries and extraction
+│   └── php.rs         # PHP tree-sitter queries and extraction
+└── audit/             # Static analysis pipelines (unchanged)
 ```
 
 ## Architecture
 
-- **Parsing**: tree-sitter with S-expression queries. `tree-sitter-typescript` for .ts/.tsx/.jsx, `tree-sitter-javascript` for .js, `tree-sitter-c` for .c/.h, `tree-sitter-cpp` for .cpp/.cc/.cxx/.hpp/.hxx/.hh, `tree-sitter-c-sharp` for .cs, `tree-sitter-rust` for .rs, `tree-sitter-python` for .py/.pyi, `tree-sitter-go` for .go, `tree-sitter-java` for .java, `tree-sitter-php` (LANGUAGE_PHP) for .php.
-- **Language modules**: All tree-sitter queries and extraction logic for a language family live in one file (`languages/typescript.rs`). The `languages/mod.rs` dispatches based on `Language` enum. Adding a new language = add a new file, update the dispatch.
+- **On-demand parsing**: No pre-indexing or database. Every query discovers files, parses them with tree-sitter in parallel (rayon), applies filters, and returns results. Scoped by `files` glob to avoid parsing the entire project when unnecessary.
+- **Project registry**: `~/.virgil-cli/projects.json` stores project name, path, language filter, and file count stats. Atomic writes via `.tmp` + rename.
+- **Parsing**: tree-sitter with S-expression queries. Language-specific modules in `src/languages/`.
+- **Language modules**: All tree-sitter queries and extraction logic for a language family live in one file. The `languages/mod.rs` dispatches based on `Language` enum.
 - **File discovery**: `ignore` crate — respects .gitignore, skips node_modules/dist/build automatically.
 - **Parallelism**: rayon. `Parser` is not Send — create per rayon task. `Query` objects are Arc-shared.
 - **tree-sitter 0.25**: `QueryMatches` uses `streaming_iterator::StreamingIterator`, not `std::iter::Iterator`. Iterate with `while let Some(m) = matches.next()`.
-- **Output**: Four parquet files — `files.parquet` (file metadata), `symbols.parquet` (extracted symbols), `imports.parquet` (extracted imports), `comments.parquet` (extracted comments).
-- **Querying**: DuckDB in-memory connection. `QueryEngine::new()` registers parquet files as views (`files`, `symbols`, conditionally `imports`, conditionally `comments`) so all SQL uses plain table names. The `imports` and `comments` views are backward-compatible — only registered if their parquet files exist.
-- **Output formats**: `OutputFormat` enum (table/json/csv) shared across all query subcommands. Formatting logic in `query/format.rs`.
-- **S3 storage**: `--env` global flag enables S3 mode. `rust-s3` crate with `sync-native-tls` feature (no async runtime). `S3Config::from_env()` reads credentials. `S3Client` wraps `s3::Bucket` with `list`/`get_object`/`put_object`/`head_object` sync methods. DuckDB's `httpfs` extension reads S3 parquet natively via `CREATE SECRET` + `s3://` URLs.
-- **S3 parse pipeline**: `run_parse_s3()` lists files from S3 prefix, downloads each in parallel (rayon), parses via `parse_content()`, writes parquet to S3 via in-memory `Cursor<Vec<u8>>`. Each rayon task creates its own `S3Client` (mirrors `Parser` per-task pattern).
-- **S3 query pipeline**: `QueryEngine::new_s3()` installs httpfs, creates S3 secret, registers views pointing to `s3://bucket/prefix/*.parquet`. Optional views (imports, comments, errors) swallow creation errors if parquet doesn't exist.
-- **View existence check**: `has_imports()`/`has_comments()`/`has_errors()` query `information_schema.tables` instead of filesystem — works for both local and S3 modes.
+- **Query pipeline**: `query_engine::execute()` follows the same rayon pattern as `AuditEngine::run()` — discover files, pre-compile queries into `HashMap<Language, Arc<Query>>`, `par_iter` with per-task Parser, filter per-file, flatten + sort + limit.
+- **Name matching**: glob (via `globset`), substring (`contains`), or regex (`regex` crate).
+- **Call graph**: Name-based resolution (heuristic, no type info). BFS traversal up to configurable depth. Per-language call expression node types. "down" = callees within symbol subtree, "up" = scan all files for callers.
+- **Signature extraction**: Takes source text from symbol start line to first `{`, trims. Multi-line support (up to 5 lines). Python stops at `:`.
+- **Output formats**: All JSON. `QueryOutputFormat` enum (outline/snippet/full/tree/locations/summary). `--pretty` controls indentation.
+- **In-memory workspace**: `Workspace::load()` reads all project files into memory via rayon, stored as `Arc<str>`. Query engine and audit engine operate on workspace, not disk.
+- **FileSource trait**: Pluggable file source (`file_source.rs`). `MemoryFileSource` backed by HashMap.
+- **S3 support**: `--s3 s3://bucket/prefix` on query and audit commands. Downloads files from S3-compatible storage (AWS S3, Cloudflare R2, MinIO) into `MemoryFileSource`. No project registration needed. Uses `aws-sdk-s3` with custom endpoint support. Credentials via `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_ENDPOINT` env vars (falls back to `AWS_*` equivalents and standard AWS credential chain). Concurrent downloads with 64-semaphore bounded parallelism. Region defaults to "auto" for R2 compatibility.
 
 ## Supported Languages
 
@@ -110,12 +179,9 @@ line, block, doc
 - Arrow functions: detected via variable declarator value child node kind
 - Destructured variables: skipped (name child is not an identifier)
 - Parse errors: warn + skip file, continue processing
-- DuckDB views: parquet files registered as `files`, `symbols`, and `imports` views at connection time — no raw `read_parquet()` paths in queries
 - Import `kind` is a free-form String (not an enum) so new languages can define their own kinds without modifying a central type
-- `imports` view registered conditionally for backward compatibility with data dirs that predate import support
-- `is_external` classification: internal = starts with `.` or `#` (relative paths, Node.js subpath imports); external = everything else (bare specifiers, scoped packages, builtins). Computed at parse time and stored in parquet. Old parquet files without this column get it synthesized via SQL in the view registration.
+- `is_external` classification: internal = starts with `.` or `#` (relative paths, Node.js subpath imports); external = everything else (bare specifiers, scoped packages, builtins).
 - Comment classification: `/**` → "doc", `/*` → "block", `//` → "line". Associated symbol detected via `next_named_sibling()` of comment node, drilling through `export_statement` and `variable_declarator` as needed.
-- `comments` view registered conditionally for backward compatibility with data dirs that predate comment support.
 - C export detection: `static` storage class = not exported, everything else = exported (external linkage). Macros/types always exported.
 - C/C++ imports: `#include <header>` → external, `#include "header"` → internal. Kind = "include".
 - C# export detection: `public`/`internal` modifier = exported, `private`/`protected` = not exported. Namespaces always exported. Default = not exported (conservative).
@@ -141,8 +207,17 @@ line, block, doc
 - PHP export detection: top-level functions/classes/interfaces/traits/enums/namespaces = always exported. Methods/properties/constants: `visibility_modifier` checked — `public` = exported, `private`/`protected` = not. Default = exported (PHP's default is public).
 - PHP imports: `use` statements (kind = "use", always external). `require`/`include` (kind = "require"/"include", starts with `.` = internal, else external). Grouped use (`use App\Models\{User, Post}`) expanded to individual imports.
 - PHP property names: `$` prefix stripped from variable names for clean symbol output.
-- S3 `--env` flag: global clap flag. Reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_ENDPOINT` (required), `S3_REGION` (optional, default `us-east-1`). Path args reinterpreted as S3 key prefixes.
-- S3 output refactor: `output.rs` uses shared `build_*_batch()` functions returning `(Arc<Schema>, RecordBatch)`. Local writers use `write_batch_to_file()`, S3 writers use `write_batch_to_bytes()` + `client.put_file()`.
-- S3 unsupported files: uses `S3File.size` from listing, sets `line_count = 0` (avoids downloading non-parsed files).
-- S3 `parse_content()`: parses source already in memory (from S3 download). Extracts name/extension from the key string. `parse_file()` remains unchanged for local mode.
-- S3 DuckDB: `httpfs` extension bundled with DuckDB 1.4. `CREATE SECRET` with `URL_STYLE 'path'` for S3-compatible endpoints (MinIO, Cloudflare R2, etc.). Endpoint scheme (`https://`/`http://`) is stripped before passing to DuckDB — httpfs prepends the scheme itself.
+- Call graph: name-based resolution is heuristic — no type info. Documented as best-effort. BFS with configurable depth (max 5). Per-language call expression node types.
+- `find: "function"` matches both `Function` and `ArrowFunction` kinds. `find: "constructor"` matches `Method` kind (post-filter by name: "constructor", "__init__", "__construct", "new").
+- `inside` filter: containment check via line range comparison against all symbols in the same file.
+- `has` filter: cross-references with comment extraction. `{"not": "docstring"}` = inverse match for symbols without doc comments.
+- Audit `architecture` category: 6th audit category with 4 pipelines (`module_size_distribution`, `circular_dependencies`, `dependency_graph_depth`, `api_surface_area`) and 9 patterns across all 11 supported languages. Uses per-file proxy approach for circular dependency detection (fan-out counting) since the `Pipeline::check()` trait operates on single files. True cross-file cycle detection deferred to future engine-level pass.
+- Architecture thresholds: oversized_module >= 30 symbols OR >= 1000 lines (warning), monolithic_export_surface >= 20 exported symbols (info), anemic_module == 1 symbol excl. entry files (info), hub_module_bidirectional >= 5 intra-project imports (info), barrel_file_reexport >= 5 re-exports (warning), deep_import_chain >= 4 path depth (info), excessive_public_api >= 10 symbols AND > 80% exported (info), leaky_abstraction_boundary = exported types with public fields (warning).
+- Workspace loads files upfront — trades memory for I/O speed. All file reads during query/audit come from in-memory `Arc<str>`.
+- `read` query field bypasses symbol extraction, returns file content directly. Combine with `lines` for range reads.
+- `lib.rs` re-exports all modules for library use (allows `use virgil_cli::query_engine` etc.).
+- S3 does NOT use the project registry. `--s3` bypasses `projects create` entirely — files are downloaded into memory and used directly.
+- S3 workspace root is a synthetic `s3://bucket/prefix` path. `execute_read()` disk fallback is guarded by `root.exists()` to avoid filesystem access on S3 workspaces.
+- S3 credentials: `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_ENDPOINT` env vars checked first, then `AWS_*` equivalents, then standard AWS credential chain.
+- S3 `--s3` flag conflicts with positional `name`/`dir` args via `#[arg(conflicts_with)]`.
+- S3 query constructs a minimal `ProjectEntry` with dummy values so `query_engine::execute()` can reuse the same code path.

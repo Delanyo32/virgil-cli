@@ -32,7 +32,7 @@ Every codebase exploration follows three phases:
 ### Phase 1 — Parse
 
 ```bash
-virgil parse <PROJECT_DIR> --output <DATA_DIR>
+virgil projects parse <PROJECT_DIR> --output <DATA_DIR>
 ```
 
 This produces five Parquet files in `<DATA_DIR>`: `files.parquet`, `symbols.parquet`, `imports.parquet`, `comments.parquet`, `errors.parquet`.
@@ -42,7 +42,7 @@ Parse once, query many times. Re-parse only when source changes.
 ### Phase 2 — Orient
 
 ```bash
-virgil overview --data-dir <DATA_DIR> --format json
+virgil projects overview --data-dir <DATA_DIR> --format json
 ```
 
 Overview gives you: language breakdown, top symbols by usage, directory structure, hub files (most imported), dependency summary, and barrel file detection.
@@ -52,10 +52,10 @@ Overview gives you: language breakdown, top symbols by usage, directory structur
 Use targeted commands to investigate specifics:
 
 ```bash
-virgil search <QUERY> --data-dir <DATA_DIR> --format json
-virgil outline <FILE> --data-dir <DATA_DIR> --format json
-virgil deps <FILE> --data-dir <DATA_DIR> --format json
-virgil callers <SYMBOL> --data-dir <DATA_DIR> --format json
+virgil projects search <QUERY> --data-dir <DATA_DIR> --format json
+virgil projects outline <FILE> --data-dir <DATA_DIR> --format json
+virgil projects deps <FILE> --data-dir <DATA_DIR> --format json
+virgil projects callers <SYMBOL> --data-dir <DATA_DIR> --format json
 ```
 
 ## Output Format
@@ -95,7 +95,7 @@ Full flag-by-flag docs: see `references/command-reference.md`
 
 ## Parquet Table Schemas
 
-Five tables are available for SQL queries via `virgil query`:
+Five tables are available for SQL queries via `virgil projects query`:
 
 ### files
 
@@ -200,7 +200,7 @@ Full playbooks: see `references/strategies.md`
 For questions that built-in commands can't answer, use raw DuckDB SQL:
 
 ```bash
-virgil query "SELECT kind, COUNT(*) as cnt FROM symbols GROUP BY kind ORDER BY cnt DESC" --data-dir <DATA_DIR> --format json
+virgil projects query "SELECT kind, COUNT(*) as cnt FROM symbols GROUP BY kind ORDER BY cnt DESC" --data-dir <DATA_DIR> --format json
 ```
 
 Available tables: `files`, `symbols`, `imports`, `comments`, `errors`.

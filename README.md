@@ -1,6 +1,6 @@
 # virgil-cli
 
-A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases into structured Parquet files and queries the results with DuckDB. Built with [tree-sitter](https://tree-sitter.github.io/) for accurate parsing, [Apache Arrow](https://arrow.apache.org/) for efficient columnar output, and [DuckDB](https://duckdb.org/) for SQL-powered querying.
+A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/) and queries them via a composable JSON query language. Includes static analysis auditing across 4 categories. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying and auditing remote codebases directly.
 
 ## Installation
 
@@ -28,379 +28,318 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 
 ### What the skill provides
 
-- **Core workflow**: Parse → Overview → Drill-down exploration pattern
+- **Core workflow**: Register → Query → Drill-down exploration pattern
 - **6 strategic playbooks**: Architecture understanding, symbol tracing, onboarding, bug investigation, dependency mapping, API surface mapping
-- **Full command reference**: Flag-by-flag docs for all 13 commands
-- **30+ SQL recipes**: Reusable DuckDB queries for file, symbol, dependency, and comment analysis
+- **Full command reference**: 4 project commands + audit commands
+- **Note**: Skill reference files (`.agents/skills/virgil/`) still reference old architecture — separate update needed
 
 ## Usage
 
+Two top-level command groups:
+
 ```bash
-virgil <COMMAND> [OPTIONS]
+virgil projects <COMMAND>
+virgil audit [CATEGORY] <DIR|--s3 URI> [OPTIONS]
 ```
 
-### Global Options
+## Projects
 
-| Option | Description |
-|--------|-------------|
-| `--env` | Use S3 storage — reads credentials from environment variables (see [S3 Storage](#s3-storage)) |
-
-### Subcommands
+All project commands are nested under `virgil projects`:
 
 | Command | Description |
 |---------|-------------|
-| `parse` | Parse a codebase and output parquet files |
-| `overview` | Show codebase overview (language breakdown, top symbols, directories, dependency summary) |
-| `search` | Search for symbols by name (fuzzy match) |
-| `outline` | Show all symbols in a file |
-| `files` | List parsed files |
-| `read` | Read source file content |
-| `query` | Execute raw SQL against parquet files |
-| `deps` | Show what a file imports (dependencies) |
-| `dependents` | Show what files import a given file (reverse dependencies) |
-| `callers` | Find which files import a specific symbol |
-| `imports` | List all imports with filters |
-| `comments` | List comments with filters |
+| `create` | Register a project for querying (scans files, saves to `~/.virgil-cli/projects.json`) |
+| `list` | List registered projects with file counts |
+| `delete` | Remove a registered project |
+| `query` | Query a project using inline JSON (`--q`), a file (`--file`), or stdin |
 
-### `parse`
+### `projects create`
 
 ```bash
-virgil parse <DIR> [OPTIONS]
+virgil projects create <NAME> [OPTIONS]
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `<DIR>` | Root directory to parse | required |
-| `-o`, `--output` | Output directory for parquet files | `.` |
-| `-l`, `--language` | Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rs,py,pyi,go,java,php) | all supported |
+| `<NAME>` | Project name | required |
+| `-p`, `--path` | Root directory of the project | `.` |
+| `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
+| `-l`, `--lang` | Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php) | all supported |
 
-### `overview`
+### `projects list`
 
 ```bash
-virgil overview [OPTIONS]
+virgil projects list
 ```
+
+No arguments. Lists all registered projects with file counts.
+
+### `projects delete`
+
+```bash
+virgil projects delete <NAME>
+```
+
+| Option | Description |
+|--------|-------------|
+| `<NAME>` | Project name to delete |
+
+### `projects query`
+
+```bash
+# Query a registered project
+virgil projects query <NAME> [OPTIONS]
+
+# Query an S3/R2 codebase directly (no registration needed)
+virgil projects query --s3 s3://bucket/prefix [OPTIONS]
+```
+
+Pass a query via `--q` (inline JSON), `--file` (path to JSON file), or pipe JSON to stdin.
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
+| `<NAME>` | Project name (not needed with `--s3`) | — |
+| `--s3` | S3 URI — query codebase directly from S3/R2 | — |
+| `-l`, `--lang` | Comma-separated language filter (used with `--s3`) | all supported |
+| `-e`, `--exclude` | Glob patterns to exclude (used with `--s3`, repeatable) | none |
+| `-q`, `--q` | Inline JSON query | — |
+| `-f`, `--file` | Path to a JSON query file | — |
+| `-o`, `--out` | Output format (outline, snippet, full, tree, locations, summary) | `outline` |
+| `--pretty` | Pretty-print JSON output | false |
+| `-m`, `--max` | Maximum number of results | `100` |
+
+## JSON Query Language
+
+Queries are JSON objects with composable filters:
+
+```json
+{
+  "files": "src/api/**",
+  "files_exclude": ["**/test/**"],
+  "find": "function",
+  "name": "handle*",
+  "visibility": "exported",
+  "inside": "AuthService",
+  "has": "@deprecated",
+  "lines": {"min": 10, "max": 100},
+  "body": true,
+  "preview": 5,
+  "calls": "down",
+  "depth": 2,
+  "format": "full",
+  "read": "src/main.rs"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `files` | string or [strings] | Glob pattern(s) to filter files |
+| `files_exclude` | [strings] | Glob pattern(s) to exclude files |
+| `find` | string or [strings] | Symbol kind(s): function, method, class, type, enum, struct, trait, variable, constant, property, namespace, module, macro, union, arrow_function, constructor, import, any |
+| `name` | string or {contains, regex} | Name filter: glob string, `{"contains": "auth"}`, or `{"regex": "^get[A-Z]"}` |
+| `visibility` | string | Filter by visibility: exported, public, private, protected, internal |
+| `inside` | string | Only symbols inside a parent with this name |
+| `has` | string, [strings], or {not: string} | Filter by associated comment/decorator text; `{"not": "docstring"}` for inverse |
+| `lines` | {min, max} | Filter by line count |
+| `body` | bool | Include full source body in results |
+| `preview` | number | Number of preview lines to include |
+| `calls` | string | Call graph traversal: "down" (callees), "up" (callers), "both" |
+| `depth` | number | Call graph depth (default 1, max 5) |
+| `format` | string | Override output format from within query JSON |
+| `read` | string | File path to read (returns content instead of symbols). Combine with `lines` for a specific range |
+
+## Query Output Formats
+
+`--out` flag controls result format (all output is JSON):
+
+| Format | Content |
+|--------|---------|
+| `outline` | name, kind, file, line, signature (default) |
+| `snippet` | outline + preview lines + docstring |
+| `full` | outline + full body |
+| `tree` | hierarchical: file -> class -> methods |
+| `locations` | `file:line` only |
+| `summary` | counts by kind and file |
+
+Wrapping structure:
+
+```json
+{
+  "project": "myapp",
+  "query_ms": 42,
+  "files_parsed": 8,
+  "total": 3,
+  "results": [ ... ]
+}
+```
+
+## Audit
+
+Static analysis and tech debt detection. All audit commands are nested under `virgil audit`:
+
+```bash
+# Local directory
+virgil audit <DIR>                         # Run all audit categories
+virgil audit code-quality <DIR>            # All code quality checks
+virgil audit code-quality tech-debt <DIR>  # Tech debt patterns
+virgil audit code-quality complexity <DIR> # Complexity metrics
+virgil audit code-quality code-style <DIR> # Code style issues
+virgil audit security <DIR>               # Security vulnerabilities
+virgil audit scalability <DIR>            # Scalability issues
+virgil audit architecture <DIR>           # Architecture analysis
+
+# S3/R2 (no registration needed)
+virgil audit --s3 s3://bucket/prefix
+virgil audit security --s3 s3://bucket/prefix --language rs
+```
+
+### Common Options
+
+All audit subcommands support:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--s3` | S3 URI — audit codebase directly from S3/R2 (replaces `<DIR>`) | — |
+| `-l`, `--language` | Comma-separated language filter | all supported |
+| `--pipeline` | Comma-separated pipeline filter | all pipelines |
 | `--format` | Output format (table, json, csv) | `table` |
+| `--per-page` | Findings per page | `20` |
+| `--page` | Page number (1-indexed) | `1` |
 
-### `search`
+### `audit code-quality tech-debt`
 
-```bash
-virgil search <QUERY> [OPTIONS]
-```
+Detect tech debt patterns in source code.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<QUERY>` | Search query (fuzzy match) | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--kind` | Filter by symbol kind | all |
-| `--exported` | Only show exported symbols | false |
-| `--limit` | Maximum results to return | `20` |
-| `--offset` | Number of results to skip | `0` |
-| `--format` | Output format (table, json, csv) | `table` |
+Pipelines: `panic_detection`
 
-### `outline`
+### `audit code-quality complexity`
 
-```bash
-virgil outline <FILE_PATH> [OPTIONS]
-```
+Measure code complexity metrics.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to get outline for | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
+Pipelines: `cyclomatic_complexity`, `function_length`, `cognitive_complexity`, `comment_to_code_ratio`
 
-### `files`
+### `audit code-quality code-style`
 
-```bash
-virgil files [OPTIONS]
-```
+Detect code style issues.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--language` | Filter by language | all |
-| `--directory` | Filter by directory prefix | none |
-| `--limit` | Maximum results to return | `100` |
-| `--offset` | Number of results to skip | `0` |
-| `--sort` | Sort by field (path, lines, size, imports, dependents) | `path` |
-| `--format` | Output format (table, json, csv) | `table` |
+Pipelines: `dead_code`, `duplicate_code`, `coupling`
 
-### `read`
+### `audit security`
+
+Security vulnerability detection.
+
+Pipelines: injection, unsafe memory, race conditions
+
+### `audit scalability`
+
+Scalability analysis.
+
+Pipelines: `n_plus_one_queries`, `sync_blocking_in_async`, `memory_leak_indicators`
+
+### `audit architecture`
+
+Architecture analysis.
+
+Pipelines: `module_size_distribution`, `circular_dependencies`, `dependency_graph_depth`, `api_surface_area`
+
+## Examples
 
 ```bash
-virgil read <FILE_PATH> [OPTIONS]
-```
+# Register a project
+virgil projects create myapp --path ./src
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to read (relative, as stored in parquet) | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--root` | Root directory of the source project | `.` |
-| `--start-line` | Start line (1-indexed) | beginning |
-| `--end-line` | End line (1-indexed, inclusive) | end of file |
+# Register with language filter and exclusions
+virgil projects create myapp --path ./src --lang ts,tsx,js,jsx --exclude "vendor/**"
 
-### `query`
+# List registered projects
+virgil projects list
 
-```bash
-virgil query <SQL> [OPTIONS]
-```
+# Find all exported functions
+virgil projects query myapp --q '{"find": "function", "visibility": "exported"}'
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<SQL>` | SQL query to execute | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
+# Search by name pattern with preview
+virgil projects query myapp --q '{"name": "handle*", "preview": 5}' --pretty
 
-### `deps`
+# Methods inside a specific class
+virgil projects query myapp --q '{"find": "method", "inside": "AuthService"}'
 
-```bash
-virgil deps <FILE_PATH> [OPTIONS]
-```
+# Large functions (50+ lines) in a directory
+virgil projects query myapp --q '{"files": "src/api/**", "find": "function", "lines": {"min": 50}}'
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to show dependencies for | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
+# Functions missing docstrings
+virgil projects query myapp --q '{"find": "function", "has": {"not": "docstring"}}'
 
-### `dependents`
+# Name regex — all getters
+virgil projects query myapp --q '{"name": {"regex": "^get[A-Z]"}}'
 
-```bash
-virgil dependents <FILE_PATH> [OPTIONS]
-```
+# Call graph — what does authenticate() call?
+virgil projects query myapp --q '{"name": "authenticate", "calls": "down", "depth": 2}'
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<FILE_PATH>` | File path to find dependents for | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--format` | Output format (table, json, csv) | `table` |
+# Summary of an entire project
+virgil projects query myapp --q '{}' --out summary --pretty
 
-### `callers`
-
-```bash
-virgil callers <SYMBOL_NAME> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<SYMBOL_NAME>` | Symbol name to search for (fuzzy match) | required |
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--limit` | Maximum results to return | `50` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `imports`
-
-```bash
-virgil imports [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--module` | Filter by module specifier (fuzzy match) | none |
-| `--kind` | Filter by import kind (static, dynamic, require, re_export, include, using, use, import, from) | all |
-| `--file` | Filter by source file prefix | none |
-| `--type-only` | Only show type-only imports | false |
-| `--external` | Only show external (library) imports | false |
-| `--internal` | Only show internal (user code) imports | false |
-| `--limit` | Maximum results to return | `50` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### `comments`
-
-```bash
-virgil comments [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--data-dir` | Directory containing parquet files | `.` |
-| `--file` | Filter by file path prefix | none |
-| `--kind` | Filter by comment kind (line, block, doc) | all |
-| `--documented` | Only show comments associated with a symbol | false |
-| `--symbol` | Filter by associated symbol name (fuzzy match) | none |
-| `--limit` | Maximum results to return | `50` |
-| `--format` | Output format (table, json, csv) | `table` |
-
-### Examples
-
-```bash
-# Parse an entire project
-virgil parse ./my-app
-
-# Output to a specific directory
-virgil parse ./my-app --output ./data
-
-# Only parse TypeScript files
-virgil parse ./my-app --language ts,tsx
-
-# Parse a C/C++ project
-virgil parse ./my-lib --language c,h,cpp,hpp
-
-# Parse a C# project
-virgil parse ./my-project --language cs
-
-# Parse a Java project
-virgil parse ./my-project --language java
-
-# Parse a PHP project
-virgil parse ./my-project --language php
-
-# Show codebase overview
-virgil overview --data-dir ./data
-
-# Search for symbols matching "handleClick"
-virgil search handleClick --data-dir ./data
-
-# Search for exported functions only
-virgil search handler --kind function --exported --data-dir ./data
-
-# Show all symbols in a specific file
-virgil outline src/components/App.tsx --data-dir ./data
-
-# List all TypeScript files
-virgil files --language typescript --data-dir ./data
-
-# List files in a specific directory
-virgil files --directory src/components --data-dir ./data
-
-# Read a source file
-virgil read src/index.ts --data-dir ./data --root ./my-app
+# Read a file
+virgil projects query myapp --q '{"read": "src/main.rs"}' --pretty
 
 # Read specific lines from a file
-virgil read src/index.ts --start-line 10 --end-line 50 --data-dir ./data --root ./my-app
+virgil projects query myapp --q '{"read": "src/main.rs", "lines": {"min": 10, "max": 25}}'
 
-# Show what a file imports
-virgil deps src/app.ts --data-dir ./data
+# File:line locations only
+virgil projects query myapp --q '{"find": "class"}' --out locations
 
-# Show what files import a given module
-virgil dependents src/utils/api.ts --data-dir ./data
+# Query from a file
+virgil projects query myapp --file query.json
 
-# Find which files import a specific symbol
-virgil callers useState --data-dir ./data
+# Run all audit categories
+virgil audit ./src
 
-# List all imports from a specific module
-virgil imports --module react --data-dir ./data
+# Run security audit with JSON output
+virgil audit security ./src --format json
 
-# List re-exports only
-virgil imports --kind re_export --data-dir ./data
+# Run complexity analysis filtered to Rust
+virgil audit code-quality complexity ./src --language rs
 
-# List only external (library) imports
-virgil imports --external --data-dir ./data
+# Run a specific architecture pipeline
+virgil audit architecture ./src --pipeline circular_dependencies
 
-# List only internal (user code) imports
-virgil imports --internal --data-dir ./data
+# Delete a project
+virgil projects delete myapp
 
-# List C/C++ #include directives
-virgil imports --kind include --data-dir ./data
+# --- S3 / Cloudflare R2 ---
 
-# List C# using directives
-virgil imports --kind using --data-dir ./data
+# Query an S3 codebase directly (no project registration)
+virgil projects query --s3 s3://bucket/my-repo --q '{"find": "function"}' --out summary --pretty
 
-# List Java imports
-virgil imports --kind import --file .java --data-dir ./data
+# Query with language filter
+virgil projects query --s3 s3://bucket/my-repo --q '{}' --out summary --lang rs
 
-# List PHP use statements
-virgil imports --kind use --file .php --data-dir ./data
+# Audit an S3 codebase
+virgil audit --s3 s3://bucket/my-repo --language rs
 
-# Sort files by number of dependents
-virgil files --sort dependents --data-dir ./data
-
-# List all doc comments
-virgil comments --kind doc --data-dir ./data
-
-# List comments associated with symbols (documentation)
-virgil comments --documented --data-dir ./data
-
-# Find comments mentioning a specific symbol
-virgil comments --symbol handleClick --data-dir ./data
-
-# List comments in a specific file
-virgil comments --file src/utils --data-dir ./data
-
-# Run a raw SQL query (tables: files, symbols, imports, comments)
-virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
-
-# Get output as JSON
-virgil search handleClick --data-dir ./data --format json
+# Security audit on S3 codebase
+virgil audit security --s3 s3://bucket/my-repo --language rs
 ```
 
-## Output Formats
+## S3 Configuration
 
-Most subcommands support three output formats via `--format`:
+S3 support works with AWS S3, Cloudflare R2, MinIO, and any S3-compatible storage. Configure via environment variables:
 
-| Format | Description |
-|--------|-------------|
-| `table` | Human-readable table (default) |
-| `json` | JSON for programmatic use |
-| `csv` | CSV for spreadsheets and pipelines |
+| Variable | Fallback | Description |
+|----------|----------|-------------|
+| `S3_ENDPOINT` | `AWS_ENDPOINT_URL` | Custom endpoint URL (required for R2/MinIO) |
+| `S3_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | Access key |
+| `S3_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | Secret key |
+| `AWS_REGION` | `auto` | AWS region (defaults to `auto` for R2) |
 
-## Output
+Standard AWS credential chain (env vars, `~/.aws/credentials`, IAM roles) is also supported.
 
-Four Parquet files are generated:
+Example `.env` for Cloudflare R2:
 
-### files.parquet
-
-| Column | Type | Description |
-|--------|------|-------------|
-| path | Utf8 | Relative path from project root |
-| name | Utf8 | File name |
-| extension | Utf8 | Extension without dot |
-| language | Utf8 | typescript / tsx / javascript / jsx / c / cpp / csharp / rust / python / go / java / php |
-| size_bytes | UInt64 | File size in bytes |
-| line_count | UInt64 | Number of lines |
-
-### symbols.parquet
-
-| Column | Type | Description |
-|--------|------|-------------|
-| name | Utf8 | Symbol name |
-| kind | Utf8 | Symbol kind (see below) |
-| file_path | Utf8 | Relative file path |
-| start_line | UInt32 | 0-based start line |
-| start_column | UInt32 | 0-based start column |
-| end_line | UInt32 | 0-based end line |
-| end_column | UInt32 | 0-based end column |
-| is_exported | Boolean | Whether the symbol is exported |
-
-### imports.parquet
-
-| Column | Type | Description |
-|--------|------|-------------|
-| source_file | Utf8 | File containing the import |
-| module_specifier | Utf8 | Import path (e.g., `react`, `./utils/api`) |
-| imported_name | Utf8 | Imported symbol name (or `*` for namespace imports) |
-| local_name | Utf8 | Local binding name |
-| kind | Utf8 | Import kind (static, dynamic, require, re_export, include, using, use, import, from) |
-| is_type_only | Boolean | Whether the import is type-only |
-| line | UInt32 | Line number of the import |
-| is_external | Boolean | Whether the import is from an external library (true) or user code (false) |
-
-### comments.parquet
-
-| Column | Type | Description |
-|--------|------|-------------|
-| file_path | Utf8 | Relative file path |
-| text | Utf8 | Raw comment text including delimiters |
-| kind | Utf8 | Comment kind (line, block, doc) |
-| start_line | UInt32 | 0-based start line |
-| start_column | UInt32 | 0-based start column |
-| end_line | UInt32 | 0-based end line |
-| end_column | UInt32 | 0-based end column |
-| associated_symbol | Utf8 (nullable) | Name of the symbol this comment documents |
-| associated_symbol_kind | Utf8 (nullable) | Kind of the associated symbol |
-
-### Symbol Kinds
-
-`function`, `class`, `method`, `variable`, `interface`, `type_alias`, `enum`, `arrow_function`, `struct`, `union`, `namespace`, `macro`, `property`, `typedef`, `trait`, `constant`, `module`
-
-### Comment Kinds
-
-`line` (`//`), `block` (`/* */`), `doc` (`/** */`)
+```bash
+S3_ACCESS_KEY_ID=your_access_key
+S3_SECRET_ACCESS_KEY=your_secret_key
+S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+```
 
 ## Supported Languages
 
@@ -425,64 +364,15 @@ Four Parquet files are generated:
 - **Fast** — parallel file processing with rayon
 - **Accurate** — tree-sitter parsing (same parsers used by editors like Neovim and Zed)
 - **Gitignore-aware** — automatically skips `node_modules`, `dist`, `build`, and anything in `.gitignore`
+- **On-demand parsing** — no pre-indexing or database, projects are parsed at query time
+- **JSON query language** — composable filters for symbols, files, visibility, call graphs, and more
+- **Call graph** — name-based callee/caller traversal with configurable depth
 - **Export detection** — tracks whether symbols are exported (ES exports, C linkage, C#/Java access modifiers, Rust visibility, Go capitalization, Python underscore convention, PHP visibility)
-- **Arrow function support** — distinguishes arrow functions from regular variables
-- **Import tracking** — full import graph with kind, type-only, re-export detection, and external/internal classification
-- **DuckDB-powered querying** — run raw SQL against parsed parquet data
-- **Fuzzy symbol search** — find symbols by approximate name match, ranked by usage count
-- **Dependency navigation** — explore imports, dependents, and callers across the codebase
-- **Rich overview** — hub files, popular symbols, import kind distribution, barrel file detection
-- **File reading with line ranges** — read source files or specific line ranges directly from the CLI
-- **Comment tracking** — extracts comments with classification (line/block/doc) and automatic symbol association
-- **Multiple output formats** — table, JSON, and CSV output for all query commands
-- **S3 storage** — parse codebases from S3, write parquet output to S3, and query parquet files stored in S3
-
-## S3 Storage
-
-All commands support reading from and writing to S3-compatible storage (AWS S3, MinIO, Cloudflare R2, etc.) via the `--env` global flag. When `--env` is set, path arguments (`dir`, `--output`, `--data-dir`, `--root`) are reinterpreted as S3 key prefixes.
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `S3_ACCESS_KEY_ID` | Yes | S3 access key ID |
-| `S3_SECRET_ACCESS_KEY` | Yes | S3 secret access key |
-| `S3_BUCKET_NAME` | Yes | S3 bucket name |
-| `S3_ENDPOINT` | Yes | S3 endpoint URL (e.g., `https://s3.amazonaws.com`, `http://localhost:9000` for MinIO, or `https://<account_id>.r2.cloudflarestorage.com` for Cloudflare R2) |
-| `S3_REGION` | No | S3 region (default: `us-east-1`) |
-
-### S3 Examples
-
-```bash
-# Parse files from S3 and write parquet to S3
-virgil parse my-prefix/src --output parsed --env
-
-# Query parquet files stored in S3
-virgil search "main" --data-dir parsed --env
-virgil overview --data-dir parsed --env
-
-# Read a source file from S3
-virgil read src/main.ts --root my-prefix/src --env
-
-# Run raw SQL against S3-hosted parquet
-virgil query "SELECT * FROM symbols LIMIT 10" --data-dir parsed --env
-```
-
-## Inspecting Output
-
-```python
-import pyarrow.parquet as pq
-
-files = pq.read_table("files.parquet").to_pandas()
-symbols = pq.read_table("symbols.parquet").to_pandas()
-imports = pq.read_table("imports.parquet").to_pandas()
-comments = pq.read_table("comments.parquet").to_pandas()
-
-print(files)
-print(symbols)
-print(imports)
-print(comments)
-```
+- **Static analysis** — 4 audit categories (code quality, security, scalability, architecture) with multiple pipelines
+- **File reading** — read source files or specific line ranges via the `read` query field
+- **Multiple output formats** — outline, snippet, full, tree, locations, summary (all JSON)
+- **In-memory workspace** — files loaded upfront for fast repeated queries
+- **S3 support** — query and audit codebases directly from AWS S3, Cloudflare R2, MinIO, or any S3-compatible storage
 
 ## License
 

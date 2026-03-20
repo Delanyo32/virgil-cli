@@ -7,7 +7,7 @@ Complete flag-by-flag documentation for all 13 virgil commands.
 Parse a codebase and output Parquet files.
 
 ```bash
-virgil parse <DIR> [OPTIONS]
+virgil projects parse <DIR> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -23,9 +23,9 @@ virgil parse <DIR> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil parse ./my-app --output ./data
-virgil parse ./my-app --language ts,tsx
-virgil parse ./my-lib --language c,h,cpp,hpp
+virgil projects parse ./my-app --output ./data
+virgil projects parse ./my-app --language ts,tsx
+virgil projects parse ./my-lib --language c,h,cpp,hpp
 ```
 
 ## overview
@@ -33,7 +33,7 @@ virgil parse ./my-lib --language c,h,cpp,hpp
 Show codebase overview: language breakdown, top symbols, directory structure, hub files, dependency summary.
 
 ```bash
-virgil overview [OPTIONS]
+virgil projects overview [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -45,8 +45,8 @@ virgil overview [OPTIONS]
 **Examples:**
 
 ```bash
-virgil overview --data-dir ./data --format json
-virgil overview --depth 5
+virgil projects overview --data-dir ./data --format json
+virgil projects overview --depth 5
 ```
 
 ## search
@@ -54,7 +54,7 @@ virgil overview --depth 5
 Search for symbols by name using fuzzy matching, ranked by usage count.
 
 ```bash
-virgil search <QUERY> [OPTIONS]
+virgil projects search <QUERY> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -74,9 +74,9 @@ virgil search <QUERY> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil search handleClick --data-dir ./data --format json
-virgil search handler --kind function --exported
-virgil search User --kind class --limit 10
+virgil projects search handleClick --data-dir ./data --format json
+virgil projects search handler --kind function --exported
+virgil projects search User --kind class --limit 10
 ```
 
 ## outline
@@ -84,7 +84,7 @@ virgil search User --kind class --limit 10
 Show all symbols in a specific file, ordered by position.
 
 ```bash
-virgil outline <FILE_PATH> [OPTIONS]
+virgil projects outline <FILE_PATH> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -98,8 +98,8 @@ virgil outline <FILE_PATH> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil outline src/components/App.tsx --data-dir ./data --format json
-virgil outline src/main.rs
+virgil projects outline src/components/App.tsx --data-dir ./data --format json
+virgil projects outline src/main.rs
 ```
 
 ## files
@@ -107,7 +107,7 @@ virgil outline src/main.rs
 List parsed files with filters and sorting.
 
 ```bash
-virgil files [OPTIONS]
+virgil projects files [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -127,9 +127,9 @@ virgil files [OPTIONS]
 **Examples:**
 
 ```bash
-virgil files --language typescript --data-dir ./data --format json
-virgil files --directory src/components --sort dependents
-virgil files --sort lines --limit 20
+virgil projects files --language typescript --data-dir ./data --format json
+virgil projects files --directory src/components --sort dependents
+virgil projects files --sort lines --limit 20
 ```
 
 ## read
@@ -137,7 +137,7 @@ virgil files --sort lines --limit 20
 Read source file content, optionally with line ranges. Resolves the relative path stored in Parquet against the source root.
 
 ```bash
-virgil read <FILE_PATH> [OPTIONS]
+virgil projects read <FILE_PATH> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -151,8 +151,8 @@ virgil read <FILE_PATH> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil read src/index.ts --data-dir ./data --root ./my-app
-virgil read src/index.ts --start-line 10 --end-line 50 --root ./my-app
+virgil projects read src/index.ts --data-dir ./data --root ./my-app
+virgil projects read src/index.ts --start-line 10 --end-line 50 --root ./my-app
 ```
 
 ## query
@@ -160,7 +160,7 @@ virgil read src/index.ts --start-line 10 --end-line 50 --root ./my-app
 Execute raw DuckDB SQL against the Parquet files. Available tables: `files`, `symbols`, `imports`, `comments`, `errors`.
 
 ```bash
-virgil query <SQL> [OPTIONS]
+virgil projects query <SQL> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -172,8 +172,8 @@ virgil query <SQL> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
-virgil query "SELECT COUNT(*) FROM files" --format json
+virgil projects query "SELECT name, kind FROM symbols WHERE is_exported = true" --data-dir ./data
+virgil projects query "SELECT COUNT(*) FROM files" --format json
 ```
 
 ## deps
@@ -181,7 +181,7 @@ virgil query "SELECT COUNT(*) FROM files" --format json
 Show what a file imports (its dependencies).
 
 ```bash
-virgil deps <FILE_PATH> [OPTIONS]
+virgil projects deps <FILE_PATH> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -195,8 +195,8 @@ virgil deps <FILE_PATH> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil deps src/app.ts --data-dir ./data --format json
-virgil deps src/main.rs
+virgil projects deps src/app.ts --data-dir ./data --format json
+virgil projects deps src/main.rs
 ```
 
 ## dependents
@@ -204,7 +204,7 @@ virgil deps src/main.rs
 Show what files import a given file (reverse dependencies).
 
 ```bash
-virgil dependents <FILE_PATH> [OPTIONS]
+virgil projects dependents <FILE_PATH> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -218,8 +218,8 @@ virgil dependents <FILE_PATH> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil dependents src/utils/api.ts --data-dir ./data --format json
-virgil dependents src/lib.rs
+virgil projects dependents src/utils/api.ts --data-dir ./data --format json
+virgil projects dependents src/lib.rs
 ```
 
 ## callers
@@ -227,7 +227,7 @@ virgil dependents src/lib.rs
 Find which files import a specific symbol (fuzzy match on symbol name).
 
 ```bash
-virgil callers <SYMBOL_NAME> [OPTIONS]
+virgil projects callers <SYMBOL_NAME> [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -242,8 +242,8 @@ virgil callers <SYMBOL_NAME> [OPTIONS]
 **Examples:**
 
 ```bash
-virgil callers useState --data-dir ./data --format json
-virgil callers handleClick --limit 100
+virgil projects callers useState --data-dir ./data --format json
+virgil projects callers handleClick --limit 100
 ```
 
 ## imports
@@ -251,7 +251,7 @@ virgil callers handleClick --limit 100
 List all imports with filters for module, kind, file, type-only, and external/internal classification.
 
 ```bash
-virgil imports [OPTIONS]
+virgil projects imports [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -273,12 +273,12 @@ virgil imports [OPTIONS]
 **Examples:**
 
 ```bash
-virgil imports --module react --data-dir ./data --format json
-virgil imports --kind re_export
-virgil imports --external --file src/
-virgil imports --kind include  # C/C++ #include
-virgil imports --kind using    # C# using
-virgil imports --kind use --file .php  # PHP use
+virgil projects imports --module react --data-dir ./data --format json
+virgil projects imports --kind re_export
+virgil projects imports --external --file src/
+virgil projects imports --kind include  # C/C++ #include
+virgil projects imports --kind using    # C# using
+virgil projects imports --kind use --file .php  # PHP use
 ```
 
 ## errors
@@ -286,7 +286,7 @@ virgil imports --kind use --file .php  # PHP use
 List parse errors with optional filters for error type and language.
 
 ```bash
-virgil errors [OPTIONS]
+virgil projects errors [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -304,9 +304,9 @@ virgil errors [OPTIONS]
 **Examples:**
 
 ```bash
-virgil errors --data-dir ./data --format json
-virgil errors --error-type parse_failure
-virgil errors --language typescript --limit 10
+virgil projects errors --data-dir ./data --format json
+virgil projects errors --error-type parse_failure
+virgil projects errors --language typescript --limit 10
 ```
 
 ## comments
@@ -314,7 +314,7 @@ virgil errors --language typescript --limit 10
 List comments with filters for file, kind, documented symbols, and symbol name.
 
 ```bash
-virgil comments [OPTIONS]
+virgil projects comments [OPTIONS]
 ```
 
 | Flag | Type | Default | Description |
@@ -334,8 +334,8 @@ virgil comments [OPTIONS]
 **Examples:**
 
 ```bash
-virgil comments --kind doc --data-dir ./data --format json
-virgil comments --documented
-virgil comments --symbol handleClick
-virgil comments --file src/utils
+virgil projects comments --kind doc --data-dir ./data --format json
+virgil projects comments --documented
+virgil projects comments --symbol handleClick
+virgil projects comments --file src/utils
 ```
