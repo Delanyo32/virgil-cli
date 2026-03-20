@@ -4,6 +4,20 @@ A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/P
 
 ## Installation
 
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.sh | sh
+```
+
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.ps1 | iex
+```
+
+### From source (requires Rust)
+
 ```bash
 cargo install --path .
 ```
