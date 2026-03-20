@@ -11,5 +11,6 @@ pub mod parser;
 pub mod query_engine;
 pub mod query_lang;
 pub mod registry;
+pub mod s3;
 pub mod signature;
 pub mod workspace;

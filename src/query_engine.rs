@@ -306,10 +306,15 @@ fn execute_read(
         .read_file(file_path)
         .or_else(|| {
             // Fallback: read from disk for files not in workspace (e.g., non-language files)
-            let full_path = workspace.root().join(file_path);
-            std::fs::read_to_string(&full_path)
-                .ok()
-                .map(|s| Arc::from(s.as_str()))
+            // Skip for S3 workspaces where root is a synthetic path
+            let root = workspace.root();
+            if root.exists() {
+                std::fs::read_to_string(root.join(file_path))
+                    .ok()
+                    .map(|s| Arc::from(s.as_str()))
+            } else {
+                None
+            }
         })
         .ok_or_else(|| anyhow::anyhow!("file not found: {file_path}"))?;
 

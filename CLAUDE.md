@@ -1,6 +1,6 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand and queries them with a composable JSON query language. No database, no pre-indexing — projects are registered by name and parsed at query time.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand and queries them with a composable JSON query language. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying and auditing remote codebases directly via `--s3 s3://bucket/prefix`.
 
 ## Build & Run
 
@@ -11,6 +11,9 @@ cargo run -- projects list
 cargo run -- projects delete myapp
 cargo run -- projects query myapp --q '{"find": "function", "name": "handle*"}' [--out outline|snippet|full|tree|locations|summary] [--pretty] [--max 100]
 cargo run -- projects query myapp --file query.json
+# S3/R2 (no registration needed)
+cargo run -- projects query --s3 s3://bucket/prefix --q '{"find": "function"}' [--lang rs] [--out summary] [--pretty]
+cargo run -- audit --s3 s3://bucket/prefix [--language rs]
 ```
 
 ## Subcommands
@@ -23,8 +26,22 @@ All commands are nested under `virgil projects`:
 | `projects list` | List registered projects with file counts |
 | `projects delete` | Remove a registered project |
 | `projects query` | Query a project using inline JSON (`--q`), a file (`--file`), or stdin |
+| `projects query --s3` | Query an S3/R2 codebase directly (no registration needed) |
 
-Audit commands remain under `virgil audit` (unchanged).
+Audit commands are under `virgil audit`:
+
+| Command | Description |
+|---------|-------------|
+| `audit <DIR>` | Run all audit categories |
+| `audit code-quality <DIR>` | All code quality checks (summary) |
+| `audit code-quality tech-debt <DIR>` | Tech debt patterns (`--pipeline`: panic_detection) |
+| `audit code-quality complexity <DIR>` | Complexity metrics (`--pipeline`: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio) |
+| `audit code-quality code-style <DIR>` | Code style issues (`--pipeline`: dead_code, duplicate_code, coupling) |
+| `audit security <DIR>` | Security vulnerabilities (injection, unsafe memory, race conditions) |
+| `audit scalability <DIR>` | Scalability issues (`--pipeline`: n_plus_one_queries, sync_blocking_in_async, memory_leak_indicators) |
+| `audit architecture <DIR>` | Architecture analysis (`--pipeline`: module_size_distribution, circular_dependencies, dependency_graph_depth, api_surface_area) |
+
+Common audit options: `--s3` (S3 URI, replaces `<DIR>`), `--language` (comma-separated), `--pipeline` (comma-separated), `--format` (table|json|csv), `--per-page` (default 20), `--page` (default 1).
 
 ## JSON Query Language
 
@@ -61,6 +78,8 @@ Queries are JSON objects with composable filters:
 | `preview` | number | Number of preview lines to include |
 | `calls` | string | Call graph traversal: "down" (callees), "up" (callers), "both" |
 | `depth` | number | Call graph depth (default 1, max 5) |
+| `format` | string | Override output format from within query JSON |
+| `read` | string | File path to read (returns content instead of symbols). Combine with `lines` for range |
 
 ## Output Formats
 
@@ -99,9 +118,13 @@ src/
 ├── signature.rs       # One-line signature extraction from AST nodes
 ├── call_graph.rs      # Call graph traversal (BFS, find callees/callers via tree-sitter call expressions)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
+├── file_source.rs     # FileSource trait + MemoryFileSource (in-memory, Arc<str> zero-copy)
 ├── language.rs        # Language enum, extension mapping, parser selection
+├── lib.rs             # Public API: re-exports all modules
 ├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
 ├── parser.rs          # Tree-sitter parsing, file metadata collection
+├── s3.rs              # S3/R2 client: URI parsing, object listing, concurrent download
+├── workspace.rs       # Workspace: discover + load files into memory (rayon parallel), S3 loading
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
 │   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction
@@ -130,6 +153,9 @@ src/
 - **Call graph**: Name-based resolution (heuristic, no type info). BFS traversal up to configurable depth. Per-language call expression node types. "down" = callees within symbol subtree, "up" = scan all files for callers.
 - **Signature extraction**: Takes source text from symbol start line to first `{`, trims. Multi-line support (up to 5 lines). Python stops at `:`.
 - **Output formats**: All JSON. `QueryOutputFormat` enum (outline/snippet/full/tree/locations/summary). `--pretty` controls indentation.
+- **In-memory workspace**: `Workspace::load()` reads all project files into memory via rayon, stored as `Arc<str>`. Query engine and audit engine operate on workspace, not disk.
+- **FileSource trait**: Pluggable file source (`file_source.rs`). `MemoryFileSource` backed by HashMap.
+- **S3 support**: `--s3 s3://bucket/prefix` on query and audit commands. Downloads files from S3-compatible storage (AWS S3, Cloudflare R2, MinIO) into `MemoryFileSource`. No project registration needed. Uses `aws-sdk-s3` with custom endpoint support. Credentials via `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_ENDPOINT` env vars (falls back to `AWS_*` equivalents and standard AWS credential chain). Concurrent downloads with 64-semaphore bounded parallelism. Region defaults to "auto" for R2 compatibility.
 
 ## Supported Languages
 
@@ -187,3 +213,11 @@ line, block, doc
 - `has` filter: cross-references with comment extraction. `{"not": "docstring"}` = inverse match for symbols without doc comments.
 - Audit `architecture` category: 6th audit category with 4 pipelines (`module_size_distribution`, `circular_dependencies`, `dependency_graph_depth`, `api_surface_area`) and 9 patterns across all 11 supported languages. Uses per-file proxy approach for circular dependency detection (fan-out counting) since the `Pipeline::check()` trait operates on single files. True cross-file cycle detection deferred to future engine-level pass.
 - Architecture thresholds: oversized_module >= 30 symbols OR >= 1000 lines (warning), monolithic_export_surface >= 20 exported symbols (info), anemic_module == 1 symbol excl. entry files (info), hub_module_bidirectional >= 5 intra-project imports (info), barrel_file_reexport >= 5 re-exports (warning), deep_import_chain >= 4 path depth (info), excessive_public_api >= 10 symbols AND > 80% exported (info), leaky_abstraction_boundary = exported types with public fields (warning).
+- Workspace loads files upfront — trades memory for I/O speed. All file reads during query/audit come from in-memory `Arc<str>`.
+- `read` query field bypasses symbol extraction, returns file content directly. Combine with `lines` for range reads.
+- `lib.rs` re-exports all modules for library use (allows `use virgil_cli::query_engine` etc.).
+- S3 does NOT use the project registry. `--s3` bypasses `projects create` entirely — files are downloaded into memory and used directly.
+- S3 workspace root is a synthetic `s3://bucket/prefix` path. `execute_read()` disk fallback is guarded by `root.exists()` to avoid filesystem access on S3 workspaces.
+- S3 credentials: `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_ENDPOINT` env vars checked first, then `AWS_*` equivalents, then standard AWS credential chain.
+- S3 `--s3` flag conflicts with positional `name`/`dir` args via `#[arg(conflicts_with)]`.
+- S3 query constructs a minimal `ProjectEntry` with dummy values so `query_engine::execute()` can reuse the same code path.

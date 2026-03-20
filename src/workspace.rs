@@ -76,6 +76,48 @@ impl Workspace {
         })
     }
 
+    /// Load files from S3 into memory, return ready-to-use workspace.
+    pub fn load_from_s3(
+        bucket: &str,
+        prefix: &str,
+        languages: &[Language],
+        exclude: &[String],
+        max_file_size: Option<u64>,
+    ) -> Result<Self> {
+        let location = crate::s3::S3Location {
+            bucket: bucket.to_string(),
+            prefix: prefix.to_string(),
+        };
+
+        eprintln!("Listing objects in s3://{bucket}/{prefix}...");
+        let keys = crate::s3::list_objects(&location, languages, exclude)?;
+        eprintln!("Found {} files, downloading...", keys.len());
+
+        let (file_map, size_map) = crate::s3::download_objects(&location, &keys, max_file_size)?;
+        eprintln!("Downloaded {} files into memory", file_map.len());
+
+        // Build language map from extensions
+        let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(file_map.len());
+        for key in file_map.keys() {
+            if let Some(ext) = std::path::Path::new(key).extension().and_then(|e| e.to_str()) {
+                if let Some(lang) = Language::from_extension(ext) {
+                    lang_map.insert(key.clone(), lang);
+                }
+            }
+        }
+
+        let source = Box::new(MemoryFileSource::new(file_map, size_map));
+
+        // Use a synthetic root path for S3 workspaces
+        let root = PathBuf::from(format!("s3://{bucket}/{prefix}"));
+
+        Ok(Self {
+            root,
+            source,
+            languages: lang_map,
+        })
+    }
+
     /// Read file content by relative path.
     pub fn read_file(&self, relative_path: &str) -> Option<Arc<str>> {
         self.source.read_file(relative_path)

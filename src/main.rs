@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -58,13 +59,15 @@ fn main() -> Result<()> {
 
             ProjectCommand::Query {
                 name,
+                s3,
+                lang,
+                exclude,
                 q,
                 file,
                 out,
                 pretty,
                 max,
             } => {
-                let project = registry::get_project(&name)?;
                 let query_json = match (q, file) {
                     (Some(inline), _) => inline,
                     (None, Some(path)) => std::fs::read_to_string(&path)
@@ -86,11 +89,40 @@ fn main() -> Result<()> {
                 let query: virgil_cli::query_lang::TsQuery = serde_json::from_str(&query_json)
                     .map_err(|e| anyhow::anyhow!("invalid query JSON: {e}"))?;
 
-                let languages = match &project.languages {
-                    Some(f) => language::parse_language_filter(f),
-                    None => Language::all().to_vec(),
+                let (workspace, project) = if let Some(s3_uri) = s3 {
+                    let languages = match &lang {
+                        Some(f) => language::parse_language_filter(f),
+                        None => Language::all().to_vec(),
+                    };
+                    let loc = virgil_cli::s3::S3Location::parse(&s3_uri)?;
+                    let ws = Workspace::load_from_s3(
+                        &loc.bucket,
+                        &loc.prefix,
+                        &languages,
+                        &exclude,
+                        None,
+                    )?;
+                    let entry = registry::ProjectEntry {
+                        name: s3_uri.clone(),
+                        path: std::path::PathBuf::from(&s3_uri),
+                        exclude,
+                        languages: lang,
+                        file_count: ws.file_count(),
+                        language_breakdown: HashMap::new(),
+                        created_at: chrono::Utc::now(),
+                    };
+                    (ws, entry)
+                } else {
+                    let name = name
+                        .ok_or_else(|| anyhow::anyhow!("provide a project name or --s3"))?;
+                    let project = registry::get_project(&name)?;
+                    let languages = match &project.languages {
+                        Some(f) => language::parse_language_filter(f),
+                        None => Language::all().to_vec(),
+                    };
+                    let ws = Workspace::load(&project.path, &languages, None)?;
+                    (ws, project)
                 };
-                let workspace = Workspace::load(&project.path, &languages, None)?;
 
                 let start = Instant::now();
                 let output =
@@ -111,6 +143,7 @@ fn main() -> Result<()> {
 
         Command::Audit {
             dir,
+            s3,
             language,
             format,
             command,
@@ -118,115 +151,164 @@ fn main() -> Result<()> {
             match command {
                 Some(AuditCommand::CodeQuality {
                     dir,
+                    s3,
                     language,
                     format,
                     command,
                 }) => match command {
                     Some(CodeQualityCommand::TechDebt {
                         dir,
+                        s3,
                         language: lang_filter,
                         pipeline: pipeline_filter,
                         format,
                         per_page,
                         page,
-                    }) => run_tech_debt(
-                        &dir,
-                        lang_filter.as_deref(),
-                        pipeline_filter.as_deref(),
-                        &format,
-                        page,
-                        per_page,
-                    ),
+                    }) => {
+                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit code-quality tech-debt <DIR>")?;
+                        run_tech_debt_ws(
+                            &ws,
+                            lang_filter.as_deref(),
+                            pipeline_filter.as_deref(),
+                            &format,
+                            page,
+                            per_page,
+                        )
+                    }
                     Some(CodeQualityCommand::Complexity {
                         dir,
+                        s3,
                         language: lang_filter,
                         pipeline: pipeline_filter,
                         format,
                         per_page,
                         page,
-                    }) => run_complexity(
-                        &dir,
-                        lang_filter.as_deref(),
-                        pipeline_filter.as_deref(),
-                        &format,
-                        page,
-                        per_page,
-                    ),
+                    }) => {
+                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit code-quality complexity <DIR>")?;
+                        run_complexity_ws(
+                            &ws,
+                            lang_filter.as_deref(),
+                            pipeline_filter.as_deref(),
+                            &format,
+                            page,
+                            per_page,
+                        )
+                    }
                     Some(CodeQualityCommand::CodeStyle {
                         dir,
+                        s3,
                         language: lang_filter,
                         pipeline: pipeline_filter,
                         format,
                         per_page,
                         page,
-                    }) => run_code_style(
-                        &dir,
-                        lang_filter.as_deref(),
-                        pipeline_filter.as_deref(),
-                        &format,
-                        page,
-                        per_page,
-                    ),
+                    }) => {
+                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit code-quality code-style <DIR>")?;
+                        run_code_style_ws(
+                            &ws,
+                            lang_filter.as_deref(),
+                            pipeline_filter.as_deref(),
+                            &format,
+                            page,
+                            per_page,
+                        )
+                    }
                     None => {
-                        let dir = dir.ok_or_else(|| anyhow::anyhow!(
-                        "Directory argument required. Usage: virgil audit code-quality <DIR>"
-                    ))?;
-                        run_code_quality_summary(&dir, language.as_deref(), &format)
+                        let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), language.as_deref(), "virgil audit code-quality <DIR>")?;
+                        run_code_quality_summary_ws(&ws, language.as_deref(), &format)
                     }
                 },
                 Some(AuditCommand::Security {
                     dir,
+                    s3,
                     language: lang_filter,
                     pipeline: pipeline_filter,
                     format,
                     per_page,
                     page,
-                }) => run_security(
-                    &dir,
-                    lang_filter.as_deref(),
-                    pipeline_filter.as_deref(),
-                    &format,
-                    page,
-                    per_page,
-                ),
+                }) => {
+                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit security <DIR>")?;
+                    run_security_ws(
+                        &ws,
+                        lang_filter.as_deref(),
+                        pipeline_filter.as_deref(),
+                        &format,
+                        page,
+                        per_page,
+                    )
+                }
                 Some(AuditCommand::Scalability {
                     dir,
+                    s3,
                     language: lang_filter,
                     pipeline: pipeline_filter,
                     format,
                     per_page,
                     page,
-                }) => run_scalability(
-                    &dir,
-                    lang_filter.as_deref(),
-                    pipeline_filter.as_deref(),
-                    &format,
-                    page,
-                    per_page,
-                ),
+                }) => {
+                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit scalability <DIR>")?;
+                    run_scalability_ws(
+                        &ws,
+                        lang_filter.as_deref(),
+                        pipeline_filter.as_deref(),
+                        &format,
+                        page,
+                        per_page,
+                    )
+                }
                 Some(AuditCommand::Architecture {
                     dir,
+                    s3,
                     language: lang_filter,
                     pipeline: pipeline_filter,
                     format,
                     per_page,
                     page,
-                }) => run_architecture(
-                    &dir,
-                    lang_filter.as_deref(),
-                    pipeline_filter.as_deref(),
-                    &format,
-                    page,
-                    per_page,
-                ),
+                }) => {
+                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), lang_filter.as_deref(), "virgil audit architecture <DIR>")?;
+                    run_architecture_ws(
+                        &ws,
+                        lang_filter.as_deref(),
+                        pipeline_filter.as_deref(),
+                        &format,
+                        page,
+                        per_page,
+                    )
+                }
                 None => {
-                    let dir = dir.ok_or_else(|| {
-                        anyhow::anyhow!("Directory argument required. Usage: virgil audit <DIR>")
-                    })?;
-                    run_full_audit(&dir, language.as_deref(), &format)
+                    let ws = resolve_audit_workspace(dir.as_deref(), s3.as_deref(), language.as_deref(), "virgil audit <DIR>")?;
+                    run_full_audit_ws(&ws, language.as_deref(), &format)
                 }
             }
         }
+    }
+}
+
+/// Resolve a workspace from either a local directory or S3 URI.
+fn resolve_audit_workspace(
+    dir: Option<&std::path::Path>,
+    s3: Option<&str>,
+    lang_filter: Option<&str>,
+    usage_hint: &str,
+) -> Result<Workspace> {
+    if let Some(s3_uri) = s3 {
+        let languages: Vec<Language> = if let Some(filter) = lang_filter {
+            language::parse_language_filter(filter)
+        } else {
+            Language::all().to_vec()
+        };
+        let loc = virgil_cli::s3::S3Location::parse(s3_uri)?;
+        Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &[], Some(1_000_000))
+    } else {
+        let dir = dir.ok_or_else(|| {
+            anyhow::anyhow!("Directory or --s3 required. Usage: {usage_hint}")
+        })?;
+        let languages: Vec<Language> = if let Some(filter) = lang_filter {
+            language::parse_language_filter(filter)
+        } else {
+            Language::all().to_vec()
+        };
+        Workspace::load(dir, &languages, Some(1_000_000))
     }
 }
 
@@ -243,8 +325,8 @@ fn create_audit_progress_bar() -> indicatif::ProgressBar {
     pb
 }
 
-fn run_tech_debt(
-    dir: &std::path::Path,
+fn run_tech_debt_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
@@ -256,8 +338,6 @@ fn run_tech_debt(
     } else {
         audit::pipeline::supported_audit_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -271,7 +351,7 @@ fn run_tech_debt(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(&workspace)?;
+    let (findings, summary) = engine.run(workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -282,8 +362,8 @@ fn run_tech_debt(
     Ok(())
 }
 
-fn run_complexity(
-    dir: &std::path::Path,
+fn run_complexity_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
@@ -295,8 +375,6 @@ fn run_complexity(
     } else {
         audit::pipeline::supported_complexity_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -312,7 +390,7 @@ fn run_complexity(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(&workspace)?;
+    let (findings, summary) = engine.run(workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -323,8 +401,8 @@ fn run_complexity(
     Ok(())
 }
 
-fn run_code_style(
-    dir: &std::path::Path,
+fn run_code_style_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
@@ -336,8 +414,6 @@ fn run_code_style(
     } else {
         audit::pipeline::supported_code_style_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -353,7 +429,7 @@ fn run_code_style(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(&workspace)?;
+    let (findings, summary) = engine.run(workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -364,8 +440,8 @@ fn run_code_style(
     Ok(())
 }
 
-fn run_security(
-    dir: &std::path::Path,
+fn run_security_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
@@ -377,8 +453,6 @@ fn run_security(
     } else {
         audit::pipeline::supported_security_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -394,7 +468,7 @@ fn run_security(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(&workspace)?;
+    let (findings, summary) = engine.run(workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -405,8 +479,8 @@ fn run_security(
     Ok(())
 }
 
-fn run_scalability(
-    dir: &std::path::Path,
+fn run_scalability_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
@@ -418,8 +492,6 @@ fn run_scalability(
     } else {
         audit::pipeline::supported_scalability_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -435,7 +507,7 @@ fn run_scalability(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(&workspace)?;
+    let (findings, summary) = engine.run(workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -446,8 +518,8 @@ fn run_scalability(
     Ok(())
 }
 
-fn run_architecture(
-    dir: &std::path::Path,
+fn run_architecture_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     pipeline_filter: Option<&str>,
     format: &OutputFormat,
@@ -459,8 +531,6 @@ fn run_architecture(
     } else {
         audit::pipeline::supported_architecture_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -476,7 +546,7 @@ fn run_architecture(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(&workspace)?;
+    let (findings, summary) = engine.run(workspace)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -487,8 +557,8 @@ fn run_architecture(
     Ok(())
 }
 
-fn run_code_quality_summary(
-    dir: &std::path::Path,
+fn run_code_quality_summary_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     format: &OutputFormat,
 ) -> Result<()> {
@@ -497,8 +567,6 @@ fn run_code_quality_summary(
     } else {
         audit::pipeline::supported_audit_languages()
     };
-
-    let workspace = Workspace::load(dir, &languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -514,7 +582,7 @@ fn run_code_quality_summary(
     let td_engine = audit::engine::AuditEngine::new()
         .languages(languages.clone())
         .progress_bar(file_pb);
-    let (_td_findings, td_summary) = td_engine.run(&workspace)?;
+    let (_td_findings, td_summary) = td_engine.run(workspace)?;
     overall.inc(1);
 
     overall.set_message("Auditing: Complexity");
@@ -528,7 +596,7 @@ fn run_code_quality_summary(
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
         .progress_bar(file_pb);
-    let (_cx_findings, cx_summary) = cx_engine.run(&workspace)?;
+    let (_cx_findings, cx_summary) = cx_engine.run(workspace)?;
     overall.inc(1);
 
     overall.set_message("Auditing: Code Style");
@@ -541,7 +609,7 @@ fn run_code_quality_summary(
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
         .progress_bar(file_pb);
-    let (_cs_findings, cs_summary) = cs_engine.run(&workspace)?;
+    let (_cs_findings, cs_summary) = cs_engine.run(workspace)?;
     overall.inc(1);
 
     overall.finish_and_clear();
@@ -560,19 +628,16 @@ fn run_code_quality_summary(
     Ok(())
 }
 
-fn run_full_audit(
-    dir: &std::path::Path,
+fn run_full_audit_ws(
+    workspace: &Workspace,
     lang_filter: Option<&str>,
     format: &OutputFormat,
 ) -> Result<()> {
-    // Load workspace once with all languages, share across all 6 categories
     let all_languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
     } else {
         Language::all().to_vec()
     };
-
-    let workspace = Workspace::load(dir, &all_languages, Some(1_000_000))?;
 
     let start = Instant::now();
 
@@ -594,7 +659,7 @@ fn run_full_audit(
     let (_, td_summary) = audit::engine::AuditEngine::new()
         .languages(td_languages)
         .progress_bar(file_pb)
-        .run(&workspace)?;
+        .run(workspace)?;
     overall.inc(1);
 
     // Complexity
@@ -609,7 +674,7 @@ fn run_full_audit(
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
         .progress_bar(file_pb)
-        .run(&workspace)?;
+        .run(workspace)?;
     overall.inc(1);
 
     // Code Style
@@ -624,7 +689,7 @@ fn run_full_audit(
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
         .progress_bar(file_pb)
-        .run(&workspace)?;
+        .run(workspace)?;
     overall.inc(1);
 
     // Security
@@ -639,7 +704,7 @@ fn run_full_audit(
         .languages(sec_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Security)
         .progress_bar(file_pb)
-        .run(&workspace)?;
+        .run(workspace)?;
     overall.inc(1);
 
     // Scalability
@@ -654,7 +719,7 @@ fn run_full_audit(
         .languages(scl_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Scalability)
         .progress_bar(file_pb)
-        .run(&workspace)?;
+        .run(workspace)?;
     overall.inc(1);
 
     // Architecture
@@ -669,7 +734,7 @@ fn run_full_audit(
         .languages(arch_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture)
         .progress_bar(file_pb)
-        .run(&workspace)?;
+        .run(workspace)?;
     overall.inc(1);
 
     overall.finish_and_clear();

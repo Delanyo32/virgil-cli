@@ -25,6 +25,10 @@ pub enum Command {
         /// Root directory to analyze (runs all audits)
         dir: Option<PathBuf>,
 
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
+
         /// Comma-separated language filter
         #[arg(short, long)]
         language: Option<String>,
@@ -123,8 +127,21 @@ pub enum ProjectCommand {
     ///   virgil projects query myapp --q '{"find": "class"}' --out locations
     #[command(verbatim_doc_comment)]
     Query {
-        /// Project name
-        name: String,
+        /// Project name (not needed with --s3)
+        #[arg(conflicts_with = "s3")]
+        name: Option<String>,
+
+        /// S3 URI — reads codebase directly from S3, bypasses project registry
+        #[arg(long)]
+        s3: Option<String>,
+
+        /// Comma-separated language filter (used with --s3)
+        #[arg(short, long)]
+        lang: Option<String>,
+
+        /// Glob patterns to exclude (used with --s3, repeatable)
+        #[arg(short, long)]
+        exclude: Vec<String>,
 
         /// Inline JSON query
         #[arg(short, long)]
@@ -176,6 +193,10 @@ pub enum AuditCommand {
         /// Root directory to analyze (runs all code quality checks)
         dir: Option<PathBuf>,
 
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
+
         /// Comma-separated language filter
         #[arg(short, long)]
         language: Option<String>,
@@ -191,7 +212,11 @@ pub enum AuditCommand {
     /// Security vulnerability detection (unsafe memory, injection, race conditions)
     Security {
         /// Root directory to analyze
-        dir: PathBuf,
+        dir: Option<PathBuf>,
+
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
 
         /// Comma-separated language filter (currently: rs, go)
         #[arg(short, long)]
@@ -217,7 +242,11 @@ pub enum AuditCommand {
     /// Scalability analysis (N+1 queries, sync blocking in async, memory leaks)
     Scalability {
         /// Root directory to analyze
-        dir: PathBuf,
+        dir: Option<PathBuf>,
+
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
 
         /// Comma-separated language filter
         #[arg(short, long)]
@@ -243,7 +272,11 @@ pub enum AuditCommand {
     /// Architecture analysis (module size, circular deps, dependency depth, API surface)
     Architecture {
         /// Root directory to analyze
-        dir: PathBuf,
+        dir: Option<PathBuf>,
+
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
 
         /// Comma-separated language filter
         #[arg(short, long)]
@@ -272,7 +305,11 @@ pub enum CodeQualityCommand {
     /// Detect tech debt patterns in source code
     TechDebt {
         /// Root directory to analyze
-        dir: PathBuf,
+        dir: Option<PathBuf>,
+
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
 
         /// Comma-separated language filter (currently: rs, go, py)
         #[arg(short, long)]
@@ -298,7 +335,11 @@ pub enum CodeQualityCommand {
     /// Measure code complexity metrics (cyclomatic, cognitive, function length, comment ratio)
     Complexity {
         /// Root directory to analyze
-        dir: PathBuf,
+        dir: Option<PathBuf>,
+
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
 
         /// Comma-separated language filter
         #[arg(short, long)]
@@ -324,7 +365,11 @@ pub enum CodeQualityCommand {
     /// Detect code style issues (dead code, duplication, coupling)
     CodeStyle {
         /// Root directory to analyze
-        dir: PathBuf,
+        dir: Option<PathBuf>,
+
+        /// S3 URI — reads codebase directly from S3
+        #[arg(long, conflicts_with = "dir")]
+        s3: Option<String>,
 
         /// Comma-separated language filter
         #[arg(short, long)]
