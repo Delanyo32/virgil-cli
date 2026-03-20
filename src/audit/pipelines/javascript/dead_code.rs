@@ -107,11 +107,10 @@ impl DeadCodePipeline {
                         // fallback: look for identifier child
                         let mut ns_cursor = child.walk();
                         for ns_child in child.children(&mut ns_cursor) {
-                            if ns_child.kind() == "identifier" {
-                                if let Ok(text) = ns_child.utf8_text(source) {
+                            if ns_child.kind() == "identifier"
+                                && let Ok(text) = ns_child.utf8_text(source) {
                                     names.push(text.to_string());
                                 }
-                            }
                         }
                     }
                 }
@@ -133,11 +132,10 @@ impl DeadCodePipeline {
                     if let Ok(text) = alias.utf8_text(source) {
                         names.push(text.to_string());
                     }
-                } else if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(text) = name_node.utf8_text(source) {
+                } else if let Some(name_node) = child.child_by_field_name("name")
+                    && let Ok(text) = name_node.utf8_text(source) {
                         names.push(text.to_string());
                     }
-                }
             }
         }
     }
@@ -185,7 +183,7 @@ impl DeadCodePipeline {
     /// flag subsequent statements as unreachable.
     fn check_unreachable_code(
         root: tree_sitter::Node,
-        source: &[u8],
+        _source: &[u8],
         file_path: &str,
         findings: &mut Vec<AuditFinding>,
     ) {

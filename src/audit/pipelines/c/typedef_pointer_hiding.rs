@@ -39,11 +39,10 @@ impl TypedefPointerHidingPipeline {
             if child.kind() == "function_declarator" {
                 return true;
             }
-            if child.kind() == "parenthesized_declarator" {
-                if Self::contains_function_declarator(child) {
+            if child.kind() == "parenthesized_declarator"
+                && Self::contains_function_declarator(child) {
                     return true;
                 }
-            }
         }
         false
     }

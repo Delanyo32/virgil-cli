@@ -69,13 +69,12 @@ impl Pipeline for DependencyGraphDepthPipeline {
             let mut matches = cursor.matches(&self.reexport_query, root, source);
             while let Some(m) = matches.next() {
                 for cap in m.captures {
-                    if cap.index as usize == reexport_idx {
-                        if cap.node.parent().map_or(false, |p| p.kind() == "program")
-                            || cap.node.parent().is_none()
+                    if cap.index as usize == reexport_idx
+                        && (cap.node.parent().is_some_and(|p| p.kind() == "program")
+                            || cap.node.parent().is_none())
                         {
                             reexport_count += 1;
                         }
-                    }
                 }
             }
         }

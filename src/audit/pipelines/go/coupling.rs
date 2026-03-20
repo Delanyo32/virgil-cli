@@ -105,8 +105,8 @@ fn check_params_recursive(
     while let Some(node) = stack.pop() {
         let kind = node.kind();
 
-        if kind == "function_declaration" || kind == "method_declaration" {
-            if let Some(params) = node.child_by_field_name("parameters") {
+        if (kind == "function_declaration" || kind == "method_declaration")
+            && let Some(params) = node.child_by_field_name("parameters") {
                 let param_count = count_parameters(params);
                 if param_count > PARAM_THRESHOLD {
                     let name = node
@@ -132,7 +132,6 @@ fn check_params_recursive(
                     }
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -164,9 +163,9 @@ fn check_cohesion_recursive(
                     if let Some(name_node) = param.child_by_field_name("name") {
                         let receiver_name = node_text(name_node, source);
 
-                        if !receiver_name.is_empty() {
-                            if let Some(body) = node.child_by_field_name("body") {
-                                if !body_references_identifier(body, source, receiver_name) {
+                        if !receiver_name.is_empty()
+                            && let Some(body) = node.child_by_field_name("body")
+                                && !body_references_identifier(body, source, receiver_name) {
                                     let method_name = node
                                         .child_by_field_name("name")
                                         .map(|n| node_text(n, source))
@@ -186,8 +185,6 @@ fn check_cohesion_recursive(
                                         snippet: extract_snippet(source, node, 1),
                                     });
                                 }
-                            }
-                        }
                     }
                 }
             }

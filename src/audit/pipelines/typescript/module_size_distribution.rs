@@ -132,7 +132,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                     if is_reexport_statement(cap.node) {
                         continue;
                     }
-                    if cap.node.parent().map_or(true, |p| p.kind() == "program") {
+                    if cap.node.parent().is_none_or(|p| p.kind() == "program") {
                         exported_count += 1;
                     }
                 } else if cap.index as usize == specifier_idx {

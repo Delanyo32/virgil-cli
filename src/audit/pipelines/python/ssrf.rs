@@ -101,11 +101,10 @@ impl Pipeline for SsrfPipeline {
                 }
 
                 // Check if first arg is a plain string literal (safe) or dynamic (potential SSRF)
-                if let Some(first_arg) = args_node.named_child(0) {
-                    if first_arg.kind() == "string" && !has_interpolation(first_arg) {
+                if let Some(first_arg) = args_node.named_child(0)
+                    && first_arg.kind() == "string" && !has_interpolation(first_arg) {
                         continue;
                     }
-                }
 
                 let start = call_node.start_position();
                 findings.push(AuditFinding {
@@ -127,11 +126,10 @@ impl Pipeline for SsrfPipeline {
 
 fn has_interpolation(node: tree_sitter::Node) -> bool {
     for i in 0..node.named_child_count() {
-        if let Some(child) = node.named_child(i) {
-            if child.kind() == "interpolation" {
+        if let Some(child) = node.named_child(i)
+            && child.kind() == "interpolation" {
                 return true;
             }
-        }
     }
     false
 }

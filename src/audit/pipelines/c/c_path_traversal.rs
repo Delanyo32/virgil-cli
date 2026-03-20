@@ -42,8 +42,8 @@ impl CPathTraversalPipeline {
     /// Recursively check if a declarator (possibly nested via function_declarator/pointer_declarator)
     /// has a non-empty parameter_list.
     fn declarator_has_params(node: tree_sitter::Node, source: &[u8]) -> bool {
-        if node.kind() == "function_declarator" {
-            if let Some(params) = node.child_by_field_name("parameters") {
+        if node.kind() == "function_declarator"
+            && let Some(params) = node.child_by_field_name("parameters") {
                 // parameter_list with at least one named child that is not just "void"
                 let mut cursor = params.walk();
                 let named: Vec<tree_sitter::Node> = params.named_children(&mut cursor).collect();
@@ -59,7 +59,6 @@ impl CPathTraversalPipeline {
                 }
                 return true;
             }
-        }
         // Drill into nested declarators (pointer_declarator, parenthesized_declarator, etc.)
         if let Some(inner) = node.child_by_field_name("declarator") {
             return Self::declarator_has_params(inner, source);

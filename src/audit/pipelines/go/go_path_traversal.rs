@@ -118,8 +118,8 @@ impl Pipeline for GoPathTraversalPipeline {
 
                 if pkg_name == "filepath" && method_name == "Join" {
                     // Check if we're in a function with parameters
-                    if let Some(fn_body) = self.enclosing_function_body(call) {
-                        if self.function_has_params(fn_body, source) {
+                    if let Some(fn_body) = self.enclosing_function_body(call)
+                        && self.function_has_params(fn_body, source) {
                             let start = call.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
@@ -132,16 +132,15 @@ impl Pipeline for GoPathTraversalPipeline {
                                 snippet: extract_snippet(source, call, 1),
                             });
                         }
-                    }
                 } else if pkg_name == "os"
                     && (method_name == "Open"
                         || method_name == "Create"
                         || method_name == "OpenFile")
                 {
                     // Flag if arguments are not all literals (i.e., contain variables)
-                    if !Self::call_has_only_literals(call, source) {
-                        if let Some(fn_body) = self.enclosing_function_body(call) {
-                            if self.function_has_params(fn_body, source) {
+                    if !Self::call_has_only_literals(call, source)
+                        && let Some(fn_body) = self.enclosing_function_body(call)
+                            && self.function_has_params(fn_body, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -156,8 +155,6 @@ impl Pipeline for GoPathTraversalPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }

@@ -26,11 +26,10 @@ impl ContextNotPropagatedPipeline {
     fn enclosing_function_name(node: tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut current = node.parent();
         while let Some(parent) = current {
-            if parent.kind() == "function_declaration" {
-                if let Some(name_node) = parent.child_by_field_name("name") {
+            if parent.kind() == "function_declaration"
+                && let Some(name_node) = parent.child_by_field_name("name") {
                     return Some(node_text(name_node, source).to_string());
                 }
-            }
             current = parent.parent();
         }
         None

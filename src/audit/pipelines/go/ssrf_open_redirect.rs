@@ -29,7 +29,7 @@ impl SsrfOpenRedirectPipeline {
             if child.kind() == "argument_list" {
                 // Get the first named child (first argument)
                 let mut arg_cursor = child.walk();
-                for arg in child.named_children(&mut arg_cursor) {
+                if let Some(arg) = child.named_children(&mut arg_cursor).next() {
                     // Check if it's a string literal (interpreted_string_literal or raw_string_literal)
                     return arg.kind() == "interpreted_string_literal"
                         || arg.kind() == "raw_string_literal";

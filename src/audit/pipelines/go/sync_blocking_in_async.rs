@@ -44,11 +44,11 @@ impl SyncBlockingInAsyncPipeline {
         findings: &mut Vec<(tree_sitter::Node<'a>, String)>,
     ) {
         // Check selector_expression calls (pkg.Method)
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
-                if func.kind() == "selector_expression" {
-                    if let Some(operand) = func.child_by_field_name("operand") {
-                        if let Some(field) = func.child_by_field_name("field") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function")
+                && func.kind() == "selector_expression"
+                    && let Some(operand) = func.child_by_field_name("operand")
+                        && let Some(field) = func.child_by_field_name("field") {
                             let pkg_name = node_text(operand, source);
                             let method_name = node_text(field, source);
 
@@ -59,10 +59,6 @@ impl SyncBlockingInAsyncPipeline {
                                 }
                             }
                         }
-                    }
-                }
-            }
-        }
 
         // Check for bare channel receive without select (<-ch)
         if node.kind() == "unary_expression" {

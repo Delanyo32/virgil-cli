@@ -38,6 +38,7 @@ impl NakedInterfacePipeline {
         false
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_with_query(
         &self,
         tree: &Tree,
@@ -67,8 +68,8 @@ impl NakedInterfacePipeline {
                 .find(|c| c.index as usize == decl_idx)
                 .map(|c| c.node);
 
-            if let (Some(type_node), Some(decl_node)) = (type_node, decl_node) {
-                if Self::is_naked_interface(type_node, source) {
+            if let (Some(type_node), Some(decl_node)) = (type_node, decl_node)
+                && Self::is_naked_interface(type_node, source) {
                     let start = decl_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
@@ -81,7 +82,6 @@ impl NakedInterfacePipeline {
                         snippet: extract_snippet(source, decl_node, 1),
                     });
                 }
-            }
         }
 
         findings

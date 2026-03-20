@@ -95,14 +95,13 @@ impl Pipeline for MissingCancellationTokenPipeline {
 fn has_cancellation_token_param(params_node: tree_sitter::Node, source: &[u8]) -> bool {
     let mut cursor = params_node.walk();
     for child in params_node.children(&mut cursor) {
-        if child.kind() == "parameter" {
-            if let Some(type_node) = child.child_by_field_name("type") {
+        if child.kind() == "parameter"
+            && let Some(type_node) = child.child_by_field_name("type") {
                 let type_text = node_text(type_node, source);
                 if type_text == "CancellationToken" {
                     return true;
                 }
             }
-        }
     }
     false
 }

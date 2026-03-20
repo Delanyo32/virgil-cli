@@ -141,13 +141,13 @@ fn is_inside_loop(node: tree_sitter::Node) -> bool {
     false
 }
 
-fn contains_string_literal(node: tree_sitter::Node, source: &[u8]) -> bool {
+fn contains_string_literal(node: tree_sitter::Node, _source: &[u8]) -> bool {
     if node.kind() == "string_literal" {
         return true;
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if contains_string_literal(child, source) {
+        if contains_string_literal(child, _source) {
             return true;
         }
     }

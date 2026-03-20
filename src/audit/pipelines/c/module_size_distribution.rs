@@ -141,7 +141,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                     if cap
                         .node
                         .parent()
-                        .map_or(false, |p| p.kind() == "translation_unit")
+                        .is_some_and(|p| p.kind() == "translation_unit")
                     {
                         // Not static => exported
                         if !has_storage_class(cap.node, source, "static") {

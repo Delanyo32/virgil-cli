@@ -76,11 +76,10 @@ impl Pipeline for TypeDuplicationPipeline {
             let mut fields = HashSet::new();
             let mut body_cursor = body_node.walk();
             for child in body_node.named_children(&mut body_cursor) {
-                if child.kind() == "property_signature" {
-                    if let Some(name_node) = child.child_by_field_name("name") {
+                if child.kind() == "property_signature"
+                    && let Some(name_node) = child.child_by_field_name("name") {
                         fields.insert(node_text(name_node, source).to_string());
                     }
-                }
             }
 
             interfaces.push(InterfaceInfo {

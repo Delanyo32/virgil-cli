@@ -73,8 +73,8 @@ impl Pipeline for CSharpSsrfPipeline {
 
                 // HttpClient.GetAsync(param), etc.
                 let is_http = HTTP_METHODS.iter().any(|m| fn_text.contains(m));
-                if is_http {
-                    if !is_literal_arg(args_node, source) {
+                if is_http
+                    && !is_literal_arg(args_node, source) {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -89,11 +89,10 @@ impl Pipeline for CSharpSsrfPipeline {
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
-                }
 
                 // WebRequest.Create(param)
-                if fn_text.contains("WebRequest") && fn_text.contains("Create") {
-                    if !is_literal_arg(args_node, source) {
+                if fn_text.contains("WebRequest") && fn_text.contains("Create")
+                    && !is_literal_arg(args_node, source) {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -106,11 +105,10 @@ impl Pipeline for CSharpSsrfPipeline {
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
-                }
 
                 // Redirect(param) without UriKind.Relative
-                if fn_text.contains("Redirect") && !fn_text.contains("Permanent") {
-                    if !is_literal_arg(args_node, source) {
+                if fn_text.contains("Redirect") && !fn_text.contains("Permanent")
+                    && !is_literal_arg(args_node, source) {
                         let args_text = node_text(args_node, source);
                         if !args_text.contains("Relative") {
                             let start = inv_node.start_position();
@@ -126,7 +124,6 @@ impl Pipeline for CSharpSsrfPipeline {
                             });
                         }
                     }
-                }
             }
         }
 

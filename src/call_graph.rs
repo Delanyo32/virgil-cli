@@ -70,11 +70,10 @@ fn collect_calls_in_range(
         return;
     }
 
-    if call_types.contains(&node.kind()) {
-        if let Some(name) = extract_callee_name(node, source, language) {
+    if call_types.contains(&node.kind())
+        && let Some(name) = extract_callee_name(node, source, language) {
             out.push(name);
         }
-    }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -142,11 +141,10 @@ pub fn traverse_call_graph(
     // Pre-compile queries for loaded languages
     let mut sym_queries_map = HashMap::new();
     for rel_path in workspace.files() {
-        if let Some(lang) = workspace.file_language(rel_path) {
-            if !sym_queries_map.contains_key(&lang) {
-                sym_queries_map.insert(lang, languages::compile_symbol_query(lang)?);
+        if let Some(lang) = workspace.file_language(rel_path)
+            && let std::collections::hash_map::Entry::Vacant(e) = sym_queries_map.entry(lang) {
+                e.insert(languages::compile_symbol_query(lang)?);
             }
-        }
     }
     let sym_queries = Arc::new(sym_queries_map);
 
@@ -214,8 +212,8 @@ pub fn traverse_call_graph(
                     lang_by_file.get(file.as_str()),
                 ) {
                     // Find the symbol in the file
-                    if let Some(symbols) = symbols_by_file.get(file.as_str()) {
-                        if let Some(sym) = symbols
+                    if let Some(symbols) = symbols_by_file.get(file.as_str())
+                        && let Some(sym) = symbols
                             .iter()
                             .find(|s| s.name == name && s.start_line == line)
                         {
@@ -263,7 +261,6 @@ pub fn traverse_call_graph(
                                 }
                             }
                         }
-                    }
                 }
             }
             "up" => {
@@ -277,8 +274,8 @@ pub fn traverse_call_graph(
                         }
 
                         let callees = find_callees_in_source(source_ref, sym, *lang);
-                        if callees.iter().any(|c| c == &name) {
-                            if visited.insert(key) {
+                        if callees.iter().any(|c| c == &name)
+                            && visited.insert(key) {
                                 let sig =
                                     signature::extract_signature(source_ref, sym.start_line, *lang);
 
@@ -304,7 +301,6 @@ pub fn traverse_call_graph(
                                     depth + 1,
                                 ));
                             }
-                        }
                     }
                 }
             }
@@ -314,9 +310,9 @@ pub fn traverse_call_graph(
                 if let (Some(source), Some(lang)) = (
                     source_by_file.get(file.as_str()),
                     lang_by_file.get(file.as_str()),
-                ) {
-                    if let Some(symbols) = symbols_by_file.get(file.as_str()) {
-                        if let Some(sym) = symbols
+                )
+                    && let Some(symbols) = symbols_by_file.get(file.as_str())
+                        && let Some(sym) = symbols
                             .iter()
                             .find(|s| s.name == name && s.start_line == line)
                         {
@@ -363,8 +359,6 @@ pub fn traverse_call_graph(
                                 }
                             }
                         }
-                    }
-                }
 
                 // Up
                 for (file_path, source, symbols, lang) in &file_data {
@@ -376,8 +370,8 @@ pub fn traverse_call_graph(
                         }
 
                         let callees = find_callees_in_source(source_ref, sym, *lang);
-                        if callees.iter().any(|c| c == &name) {
-                            if visited.insert(key) {
+                        if callees.iter().any(|c| c == &name)
+                            && visited.insert(key) {
                                 let sig =
                                     signature::extract_signature(source_ref, sym.start_line, *lang);
 
@@ -403,7 +397,6 @@ pub fn traverse_call_graph(
                                     depth + 1,
                                 ));
                             }
-                        }
                     }
                 }
             }

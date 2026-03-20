@@ -51,14 +51,14 @@ impl CppRaceConditionsPipeline {
             || Self::has_simple_assignment(body, source)
     }
 
-    fn has_simple_assignment(node: tree_sitter::Node, source: &[u8]) -> bool {
+    fn has_simple_assignment(node: tree_sitter::Node, _source: &[u8]) -> bool {
         // Walk looking for assignment_expression nodes
         if node.kind() == "assignment_expression" {
             return true;
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if Self::has_simple_assignment(child, source) {
+            if Self::has_simple_assignment(child, _source) {
                 return true;
             }
         }
@@ -81,9 +81,9 @@ impl CppRaceConditionsPipeline {
         // Walk class body for function definitions (methods)
         let mut cursor = class_body.walk();
         for child in class_body.children(&mut cursor) {
-            if child.kind() == "function_definition" {
-                if let Some(body) = child.child_by_field_name("body") {
-                    if Self::method_modifies_field(body, source)
+            if child.kind() == "function_definition"
+                && let Some(body) = child.child_by_field_name("body")
+                    && Self::method_modifies_field(body, source)
                         && !Self::has_lock_guard(body, source)
                     {
                         let declarator = child.child_by_field_name("declarator");
@@ -105,8 +105,6 @@ impl CppRaceConditionsPipeline {
                             snippet: extract_snippet(source, child, 3),
                         });
                     }
-                }
-            }
         }
         findings
     }

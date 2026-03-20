@@ -58,8 +58,8 @@ impl Pipeline for UnsafeMemoryPipeline {
                 {
                     let mut stack = vec![body];
                     while let Some(node) = stack.pop() {
-                        if node.kind() == "call_expression" {
-                            if let Some(func) = node.child_by_field_name("function") {
+                        if node.kind() == "call_expression"
+                            && let Some(func) = node.child_by_field_name("function") {
                                 let func_text = node_text(func, source);
                                 if func_text.contains("transmute") {
                                     let start = node.start_position();
@@ -79,7 +79,6 @@ impl Pipeline for UnsafeMemoryPipeline {
                                     continue;
                                 }
                             }
-                        }
                         for i in 0..node.child_count() {
                             if let Some(child) = node.child(i) {
                                 stack.push(child);
@@ -127,13 +126,13 @@ impl Pipeline for UnsafeMemoryPipeline {
                             let method_name = node_text(name_node, source);
                             if matches!(method_name, "offset" | "add" | "sub") {
                                 // For .add() and .sub(), verify receiver looks like a pointer
-                                if matches!(method_name, "add" | "sub") {
-                                    if let Some(call) = call_node {
+                                if matches!(method_name, "add" | "sub")
+                                    && let Some(call) = call_node {
                                         // The call_expression has a function field which is a
                                         // field_expression; the object of that field_expression
                                         // is the receiver.
-                                        if let Some(func) = call.child_by_field_name("function") {
-                                            if let Some(obj) = func.child_by_field_name("value") {
+                                        if let Some(func) = call.child_by_field_name("function")
+                                            && let Some(obj) = func.child_by_field_name("value") {
                                                 let receiver_text = node_text(obj, source);
                                                 // Skip if receiver matches non-pointer patterns
                                                 if NON_POINTER_PATTERNS
@@ -143,9 +142,7 @@ impl Pipeline for UnsafeMemoryPipeline {
                                                     continue;
                                                 }
                                             }
-                                        }
                                     }
-                                }
 
                                 let start = name_node.start_position();
                                 findings.push(AuditFinding {
@@ -173,9 +170,9 @@ impl Pipeline for UnsafeMemoryPipeline {
                     if body_text.contains('*') {
                         let mut stack = vec![body];
                         while let Some(node) = stack.pop() {
-                            if node.kind() == "unary_expression" {
-                                if let Some(op) = node.child(0) {
-                                    if node_text(op, source) == "*" {
+                            if node.kind() == "unary_expression"
+                                && let Some(op) = node.child(0)
+                                    && node_text(op, source) == "*" {
                                         let start = node.start_position();
                                         findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
@@ -189,8 +186,6 @@ impl Pipeline for UnsafeMemoryPipeline {
                                             snippet: extract_snippet(source, block, 3),
                                         });
                                     }
-                                }
-                            }
                             for i in 0..node.child_count() {
                                 if let Some(child) = node.child(i) {
                                     stack.push(child);

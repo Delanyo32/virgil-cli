@@ -101,8 +101,7 @@ fn has_dynamic_cast_nearby(node: tree_sitter::Node, source: &[u8]) -> bool {
         };
 
         let mut cursor = parent.walk();
-        let mut sibling_idx = 0;
-        for child in parent.children(&mut cursor) {
+        for (sibling_idx, child) in parent.children(&mut cursor).enumerate() {
             if sibling_idx >= node_idx {
                 break;
             }
@@ -112,7 +111,6 @@ fn has_dynamic_cast_nearby(node: tree_sitter::Node, source: &[u8]) -> bool {
                     return true;
                 }
             }
-            sibling_idx += 1;
         }
     }
     false
@@ -142,11 +140,10 @@ fn get_field_types(union_node: tree_sitter::Node, source: &[u8]) -> Vec<String> 
         if child.kind() == "field_declaration_list" {
             let mut inner_cursor = child.walk();
             for field in child.children(&mut inner_cursor) {
-                if field.kind() == "field_declaration" {
-                    if let Some(type_node) = field.child_by_field_name("type") {
+                if field.kind() == "field_declaration"
+                    && let Some(type_node) = field.child_by_field_name("type") {
                         types.push(node_text(type_node, source).to_string());
                     }
-                }
             }
         }
     }

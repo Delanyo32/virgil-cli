@@ -66,9 +66,9 @@ impl Pipeline for SsrfPipeline {
 
                 if let (Some(fn_n), Some(args), Some(call)) = (fn_node, args_node, call_node) {
                     let fn_name = node_text(fn_n, source);
-                    if fn_name == "fetch" {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                    if fn_name == "fetch"
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -82,8 +82,6 @@ impl Pipeline for SsrfPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }
@@ -132,9 +130,9 @@ impl Pipeline for SsrfPipeline {
                             "get" | "post" | "put" | "delete" | "request" | "patch"
                         );
 
-                    if is_http_call {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                    if is_http_call
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -150,13 +148,11 @@ impl Pipeline for SsrfPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
 
                     // res.redirect with dynamic arg
-                    if obj_name == "res" && method_name == "redirect" {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                    if obj_name == "res" && method_name == "redirect"
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -169,8 +165,6 @@ impl Pipeline for SsrfPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }

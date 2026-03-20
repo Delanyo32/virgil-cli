@@ -95,7 +95,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                         let is_top_level = cap
                             .node
                             .parent()
-                            .map_or(false, |p| p.kind() == "translation_unit");
+                            .is_some_and(|p| p.kind() == "translation_unit");
                         if is_top_level && !has_storage_class(cap.node, source, "static") {
                             exported_count += 1;
                         }
@@ -155,8 +155,8 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                     continue;
                 }
 
-                if let Some(body) = body_node {
-                    if let Some(field_name) = find_public_data_member(body, source) {
+                if let Some(body) = body_node
+                    && let Some(field_name) = find_public_data_member(body, source) {
                         reported_classes.insert(class_name.to_string());
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -172,7 +172,6 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                             snippet: String::new(),
                         });
                     }
-                }
             }
         }
 

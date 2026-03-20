@@ -78,9 +78,7 @@ impl Pipeline for MutexOverusePipeline {
                     let (severity, message) = if full_text.contains("Mutex<bool>") {
                         (
                             "warning",
-                            format!(
-                                "`Arc<Mutex<bool>>` — use `AtomicBool` instead for better performance"
-                            ),
+                            "`Arc<Mutex<bool>>` — use `AtomicBool` instead for better performance".to_string(),
                         )
                     } else if full_text.contains("Mutex<usize>")
                         || full_text.contains("Mutex<u64>")

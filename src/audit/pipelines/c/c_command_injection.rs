@@ -44,8 +44,8 @@ impl CCommandInjectionPipeline {
                 // Look for call_expression inside
                 let mut inner_cursor = child.walk();
                 for inner in child.named_children(&mut inner_cursor) {
-                    if inner.kind() == "call_expression" {
-                        if let Some(func) = inner.child_by_field_name("function") {
+                    if inner.kind() == "call_expression"
+                        && let Some(func) = inner.child_by_field_name("function") {
                             let fn_name = node_text(func, source);
                             if fn_name == "sprintf" {
                                 // First arg to sprintf is the buffer
@@ -87,7 +87,6 @@ impl CCommandInjectionPipeline {
                                 }
                             }
                         }
-                    }
                 }
             }
         }
@@ -136,8 +135,8 @@ impl Pipeline for CCommandInjectionPipeline {
                     let named_args: Vec<tree_sitter::Node> =
                         args_node.named_children(&mut walker).collect();
 
-                    if let Some(first_arg) = named_args.first() {
-                        if first_arg.kind() != "string_literal"
+                    if let Some(first_arg) = named_args.first()
+                        && first_arg.kind() != "string_literal"
                             && first_arg.kind() != "concatenated_string"
                         {
                             let pattern = if fn_name == "system" {
@@ -160,7 +159,6 @@ impl Pipeline for CCommandInjectionPipeline {
                                 snippet: extract_snippet(source, call_cap.node, 1),
                             });
                         }
-                    }
                 }
             }
         }

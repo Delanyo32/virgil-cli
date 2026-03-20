@@ -47,17 +47,15 @@ impl NoOptionalChainingPipeline {
                 return true;
             }
             // Check parent — optional_chain_expression wraps member_expression
-            if let Some(parent) = current.parent() {
-                if parent.kind() == "optional_chain_expression" {
+            if let Some(parent) = current.parent()
+                && parent.kind() == "optional_chain_expression" {
                     return true;
                 }
-            }
-            if let Some(obj) = current.child_by_field_name("object") {
-                if obj.kind() == "member_expression" || obj.kind() == "optional_chain_expression" {
+            if let Some(obj) = current.child_by_field_name("object")
+                && (obj.kind() == "member_expression" || obj.kind() == "optional_chain_expression") {
                     current = obj;
                     continue;
                 }
-            }
             break;
         }
         false
@@ -87,11 +85,10 @@ impl Pipeline for NoOptionalChainingPipeline {
                 let node = cap.node;
 
                 // Only flag outermost expression (skip if parent is also member_expression)
-                if let Some(parent) = node.parent() {
-                    if parent.kind() == "member_expression" {
+                if let Some(parent) = node.parent()
+                    && parent.kind() == "member_expression" {
                         continue;
                     }
-                }
 
                 let depth = Self::chain_depth(node);
                 if depth < DEPTH_THRESHOLD {

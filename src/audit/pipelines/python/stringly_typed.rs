@@ -84,8 +84,8 @@ impl Pipeline for StringlyTypedPipeline {
                     }
                 }
 
-                if has_string {
-                    if let Some(ident) = suspicious_identifier {
+                if has_string
+                    && let Some(ident) = suspicious_identifier {
                         let start = node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -100,7 +100,6 @@ impl Pipeline for StringlyTypedPipeline {
                             snippet: extract_snippet(source, node, 1),
                         });
                     }
-                }
             }
         }
 

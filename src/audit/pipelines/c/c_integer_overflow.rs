@@ -81,8 +81,8 @@ impl CIntegerOverflowPipeline {
     /// Extract parameter names and their type text from a function_definition.
     fn extract_param_types(fn_def: tree_sitter::Node, source: &[u8]) -> Vec<(String, String)> {
         let mut params = Vec::new();
-        if let Some(declarator) = fn_def.child_by_field_name("declarator") {
-            if let Some(param_list) = declarator.child_by_field_name("parameters") {
+        if let Some(declarator) = fn_def.child_by_field_name("declarator")
+            && let Some(param_list) = declarator.child_by_field_name("parameters") {
                 let mut cursor = param_list.walk();
                 for child in param_list.named_children(&mut cursor) {
                     if child.kind() == "parameter_declaration" {
@@ -100,7 +100,6 @@ impl CIntegerOverflowPipeline {
                     }
                 }
             }
-        }
         params
     }
 
@@ -196,8 +195,8 @@ impl Pipeline for CIntegerOverflowPipeline {
                 // Pattern: memcpy_signed_size
                 if MEMCPY_FAMILY.contains(&fn_name) {
                     // Size is the 3rd argument (index 2)
-                    if let Some(size_arg) = named_args.get(2) {
-                        if size_arg.kind() == "identifier" {
+                    if let Some(size_arg) = named_args.get(2)
+                        && size_arg.kind() == "identifier" {
                             let arg_name = node_text(*size_arg, source);
 
                             // Walk up to find enclosing function and check param type
@@ -227,7 +226,6 @@ impl Pipeline for CIntegerOverflowPipeline {
                                 }
                             }
                         }
-                    }
                 }
             }
         }

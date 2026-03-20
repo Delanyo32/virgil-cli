@@ -51,8 +51,8 @@ impl Pipeline for MutableDefaultArgsPipeline {
                 // and for typed_default_parameter it's also named "value"
                 let value_node = node.child_by_field_name("value");
 
-                if let Some(value) = value_node {
-                    if MUTABLE_KINDS.contains(&value.kind()) {
+                if let Some(value) = value_node
+                    && MUTABLE_KINDS.contains(&value.kind()) {
                         let start = node.start_position();
                         let param_text = node_text(node, source);
                         findings.push(AuditFinding {
@@ -68,7 +68,6 @@ impl Pipeline for MutableDefaultArgsPipeline {
                             snippet: extract_snippet(source, node, 1),
                         });
                     }
-                }
             }
         }
 

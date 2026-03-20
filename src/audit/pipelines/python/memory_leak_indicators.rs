@@ -98,8 +98,8 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
 
                 if let (Some(fn_node), Some(call_node)) = (fn_node, call_node) {
                     // Check for open() not inside `with`
-                    if fn_node.kind() == "identifier" && node_text(fn_node, source) == "open" {
-                        if !Self::is_inside_with_statement(call_node) {
+                    if fn_node.kind() == "identifier" && node_text(fn_node, source) == "open"
+                        && !Self::is_inside_with_statement(call_node) {
                             let start = call_node.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
@@ -112,11 +112,10 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                                 snippet: extract_snippet(source, call_node, 1),
                             });
                         }
-                    }
 
                     // Check for .append()/.extend()/.insert()/.add() inside loops
-                    if fn_node.kind() == "attribute" {
-                        if let Some(attr) = fn_node.child_by_field_name("attribute") {
+                    if fn_node.kind() == "attribute"
+                        && let Some(attr) = fn_node.child_by_field_name("attribute") {
                             let method_name = node_text(attr, source);
                             if GROWTH_METHODS.contains(&method_name)
                                 && Self::is_inside_loop(call_node)
@@ -136,7 +135,6 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                                 });
                             }
                         }
-                    }
                 }
             }
         }
@@ -161,8 +159,8 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     .find(|c| c.index as usize == method_def_idx)
                     .map(|c| c.node);
 
-                if let (Some(name_node), Some(def_node)) = (name_node, def_node) {
-                    if node_text(name_node, source) == "__del__" {
+                if let (Some(name_node), Some(def_node)) = (name_node, def_node)
+                    && node_text(name_node, source) == "__del__" {
                         let start = def_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -175,7 +173,6 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                             snippet: extract_snippet(source, def_node, 2),
                         });
                     }
-                }
             }
         }
 

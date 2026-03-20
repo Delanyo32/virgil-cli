@@ -21,7 +21,7 @@ const AMBIGUOUS_DB_METHODS: &[&str] = &[
     "Get", "Find", "First", "Where", "Select", "Create", "Update", "Delete", "Save",
 ];
 
-const DB_RECEIVER_PATTERNS: &[&str] =
+const _DB_RECEIVER_PATTERNS: &[&str] =
     &["db", "conn", "tx", "repo", "session", "orm", "gorm", "ent"];
 
 const NON_DB_RECEIVER_PATTERNS: &[&str] = &["map", "cache", "list", "slice", "arr", "iter"];

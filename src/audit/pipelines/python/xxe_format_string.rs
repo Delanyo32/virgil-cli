@@ -70,8 +70,7 @@ impl Pipeline for XxeFormatStringPipeline {
 
             if let (Some(fn_node), Some(args_node), Some(call_node)) =
                 (fn_node, args_node, call_node)
-            {
-                if fn_node.kind() == "attribute" {
+                && fn_node.kind() == "attribute" {
                     let obj = fn_node
                         .child_by_field_name("object")
                         .map(|n| node_text(n, source));
@@ -85,9 +84,9 @@ impl Pipeline for XxeFormatStringPipeline {
                             .iter()
                             .any(|(m, f)| *m == obj_name && *f == attr_name);
 
-                        if is_xml_parse {
-                            if let Some(first_arg) = args_node.named_child(0) {
-                                if first_arg.kind() != "string" {
+                        if is_xml_parse
+                            && let Some(first_arg) = args_node.named_child(0)
+                                && first_arg.kind() != "string" {
                                     let start = call_node.start_position();
                                     findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
@@ -102,8 +101,6 @@ impl Pipeline for XxeFormatStringPipeline {
                                         snippet: extract_snippet(source, call_node, 1),
                                     });
                                 }
-                            }
-                        }
 
                         // Check for format string injection: variable.format(...)
                         if attr_name == "format" {
@@ -134,7 +131,6 @@ impl Pipeline for XxeFormatStringPipeline {
                         }
                     }
                 }
-            }
         }
 
         findings

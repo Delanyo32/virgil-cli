@@ -70,9 +70,9 @@ impl Pipeline for CodeInjectionPipeline {
                     let fn_name = node_text(fn_n, source);
 
                     // eval(x) where x is not a string literal
-                    if fn_name == "eval" {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                    if fn_name == "eval"
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -86,14 +86,11 @@ impl Pipeline for CodeInjectionPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
 
                     // setTimeout/setInterval with string first arg (not a function)
                     if (fn_name == "setTimeout" || fn_name == "setInterval")
                         && args.named_child_count() >= 2
-                    {
-                        if let Some(first_arg) = args.named_child(0) {
+                        && let Some(first_arg) = args.named_child(0) {
                             let kind = first_arg.kind();
                             // Flag if first arg is a string (acts like eval)
                             if kind == "string" || kind == "template_string" {
@@ -113,7 +110,6 @@ impl Pipeline for CodeInjectionPipeline {
                                 });
                             }
                         }
-                    }
                 }
             }
         }
@@ -143,13 +139,13 @@ impl Pipeline for CodeInjectionPipeline {
                     .find(|c| c.index as usize == expr_idx)
                     .map(|c| c.node);
 
-                if let (Some(ctor), Some(args), Some(expr)) = (ctor_node, args_node, expr_node) {
-                    if node_text(ctor, source) == "Function" {
+                if let (Some(ctor), Some(args), Some(expr)) = (ctor_node, args_node, expr_node)
+                    && node_text(ctor, source) == "Function" {
                         // Last arg is the function body — flag if not a literal
                         let arg_count = args.named_child_count();
-                        if arg_count > 0 {
-                            if let Some(last_arg) = args.named_child(arg_count - 1) {
-                                if !is_safe_literal(last_arg, source) {
+                        if arg_count > 0
+                            && let Some(last_arg) = args.named_child(arg_count - 1)
+                                && !is_safe_literal(last_arg, source) {
                                     let start = expr.start_position();
                                     findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
@@ -164,10 +160,7 @@ impl Pipeline for CodeInjectionPipeline {
                                         snippet: extract_snippet(source, expr, 1),
                                     });
                                 }
-                            }
-                        }
                     }
-                }
             }
         }
 
@@ -212,9 +205,8 @@ impl Pipeline for CodeInjectionPipeline {
                         && (method_name == "runInNewContext"
                             || method_name == "runInContext"
                             || method_name == "runInThisContext")
-                    {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -230,8 +222,6 @@ impl Pipeline for CodeInjectionPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }

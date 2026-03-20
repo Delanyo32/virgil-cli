@@ -219,9 +219,9 @@ impl MemoryLeakIndicatorsPipeline {
     ) {
         let mut stack = vec![body];
         while let Some(current) = stack.pop() {
-            if current.kind() == "assignment_expression" {
-                if let Some(left) = current.child_by_field_name("left") {
-                    if left.kind() == "subscript_expression" {
+            if current.kind() == "assignment_expression"
+                && let Some(left) = current.child_by_field_name("left")
+                    && left.kind() == "subscript_expression" {
                         // Check if this is an append: $arr[] = ... (no index specified)
                         // In tree-sitter-php, $arr[] has subscript_expression with
                         // only the object child and no index child
@@ -241,8 +241,6 @@ impl MemoryLeakIndicatorsPipeline {
                             });
                         }
                     }
-                }
-            }
 
             for i in 0..current.named_child_count() {
                 if let Some(child) = current.named_child(i) {

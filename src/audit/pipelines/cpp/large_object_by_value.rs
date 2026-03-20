@@ -95,13 +95,12 @@ impl Pipeline for LargeObjectByValuePipeline {
                 }
 
                 // Skip if passed by reference or pointer
-                if let Some(declarator) = declarator_cap {
-                    if is_reference_declarator(declarator.node)
-                        || is_pointer_declarator(declarator.node)
+                if let Some(declarator) = declarator_cap
+                    && (is_reference_declarator(declarator.node)
+                        || is_pointer_declarator(declarator.node))
                     {
                         continue;
                     }
-                }
 
                 // Also check if the type itself contains & (e.g., `const std::string&`)
                 let full_text = node_text(decl_cap.node, source);

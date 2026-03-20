@@ -31,11 +31,10 @@ impl ArgumentMutationPipeline {
                 }
                 // Destructured params like { a, b } or [a, b] or param with default
                 "assignment_pattern" => {
-                    if let Some(left) = child.child_by_field_name("left") {
-                        if left.kind() == "identifier" {
+                    if let Some(left) = child.child_by_field_name("left")
+                        && left.kind() == "identifier" {
                             names.push(node_text(left, source).to_string());
                         }
-                    }
                 }
                 _ => {}
             }
@@ -71,9 +70,9 @@ impl ArgumentMutationPipeline {
         pipeline_name: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        if node.kind() == "assignment_expression" {
-            if let Some(lhs) = node.child_by_field_name("left") {
-                if lhs.kind() == "member_expression" {
+        if node.kind() == "assignment_expression"
+            && let Some(lhs) = node.child_by_field_name("left")
+                && lhs.kind() == "member_expression" {
                     // Walk to root object of member chain
                     let root = Self::root_object(lhs);
                     if root.kind() == "identifier" {
@@ -96,8 +95,6 @@ impl ArgumentMutationPipeline {
                         }
                     }
                 }
-            }
-        }
 
         // Don't recurse into nested functions — they have their own params
         if node.kind() == "function_declaration"

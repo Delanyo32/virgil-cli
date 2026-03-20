@@ -143,8 +143,8 @@ fn has_modifier_text(node: tree_sitter::Node, source: &[u8], modifier_text: &str
 }
 
 /// Collect names of static collection fields
-fn collect_static_collection_fields<'a>(
-    tree: &'a Tree,
+fn collect_static_collection_fields(
+    tree: &Tree,
     source: &[u8],
     static_field_query: &Query,
 ) -> HashSet<String> {

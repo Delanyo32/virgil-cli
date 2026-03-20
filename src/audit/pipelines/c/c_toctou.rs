@@ -41,8 +41,8 @@ impl CToctouPipeline {
         source: &[u8],
         calls: &mut Vec<(String, String, tree_sitter::Node<'a>)>,
     ) {
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function") {
                 let fn_name = node_text(func, source).to_string();
                 if let Some(args) = node.child_by_field_name("arguments") {
                     let first_arg = {
@@ -55,7 +55,6 @@ impl CToctouPipeline {
                     calls.push((fn_name, first_arg, node));
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {

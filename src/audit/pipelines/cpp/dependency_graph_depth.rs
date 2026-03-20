@@ -81,8 +81,8 @@ impl Pipeline for DependencyGraphDepthPipeline {
                     // Check depth of include path (strip quotes)
                     let clean = path_text.trim_matches('"');
                     let depth = count_path_depth(clean, "/");
-                    if depth >= DEEP_IMPORT_DEPTH_THRESHOLD {
-                        if let Some(pn) = path_node {
+                    if depth >= DEEP_IMPORT_DEPTH_THRESHOLD
+                        && let Some(pn) = path_node {
                             let pos = pn.start_position();
                             let snippet = dir_node
                                 .map(|n| extract_snippet(source, n, 1))
@@ -95,7 +95,6 @@ impl Pipeline for DependencyGraphDepthPipeline {
                                 snippet,
                             ));
                         }
-                    }
                 }
             }
         }

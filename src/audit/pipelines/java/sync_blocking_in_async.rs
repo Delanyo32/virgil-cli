@@ -64,10 +64,10 @@ fn is_inside_completable_future(node: tree_sitter::Node, source: &[u8]) -> bool 
     while let Some(p) = parent {
         if p.kind() == "lambda_expression" {
             // Check if the lambda is an argument to a CompletableFuture method
-            if let Some(arg_list) = p.parent() {
-                if arg_list.kind() == "argument_list" {
-                    if let Some(invocation) = arg_list.parent() {
-                        if invocation.kind() == "method_invocation" {
+            if let Some(arg_list) = p.parent()
+                && arg_list.kind() == "argument_list"
+                    && let Some(invocation) = arg_list.parent()
+                        && invocation.kind() == "method_invocation" {
                             let inv_text = node_text(invocation, source);
                             if inv_text.contains("CompletableFuture")
                                 || inv_text.contains("supplyAsync")
@@ -79,9 +79,6 @@ fn is_inside_completable_future(node: tree_sitter::Node, source: &[u8]) -> bool 
                                 return true;
                             }
                         }
-                    }
-                }
-            }
         }
         if p.kind() == "method_declaration" || p.kind() == "class_declaration" {
             break;
@@ -153,8 +150,8 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                     let method_name = node_text(method_node, source);
 
                     // Thread.sleep() detection
-                    if method_name == "sleep" {
-                        if let Some(obj) = object_node {
+                    if method_name == "sleep"
+                        && let Some(obj) = object_node {
                             let obj_text = node_text(obj, source);
                             if obj_text == "Thread" {
                                 let in_async = is_inside_completable_future(inv_node, source)
@@ -178,11 +175,10 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                                 }
                             }
                         }
-                    }
 
                     // .get() on Future without timeout (blocking call)
-                    if method_name == "get" {
-                        if let Some(args_node) = m
+                    if method_name == "get"
+                        && let Some(args_node) = m
                             .captures
                             .iter()
                             .find(|c| {
@@ -207,7 +203,6 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                                 });
                             }
                         }
-                    }
                 }
             }
         }
@@ -226,9 +221,9 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                     .find(|c| c.index as usize == sync_idx)
                     .map(|c| c.node);
 
-                if let Some(sync_node) = sync_node {
-                    if is_inside_completable_future(sync_node, source)
-                        || is_inside_async_method(sync_node, source, &self.method_decl_query)
+                if let Some(sync_node) = sync_node
+                    && (is_inside_completable_future(sync_node, source)
+                        || is_inside_async_method(sync_node, source, &self.method_decl_query))
                     {
                         let start = sync_node.start_position();
                         findings.push(AuditFinding {
@@ -242,7 +237,6 @@ impl Pipeline for SyncBlockingInAsyncPipeline {
                             snippet: extract_snippet(source, sync_node, 3),
                         });
                     }
-                }
             }
         }
 

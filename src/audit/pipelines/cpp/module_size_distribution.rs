@@ -109,7 +109,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                     let is_top_level = cap
                         .node
                         .parent()
-                        .map_or(false, |p| p.kind() == "translation_unit");
+                        .is_some_and(|p| p.kind() == "translation_unit");
                     if is_top_level && !has_storage_class(cap.node, source, "static") {
                         exported_count += 1;
                     }

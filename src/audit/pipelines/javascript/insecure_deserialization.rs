@@ -102,8 +102,8 @@ impl Pipeline for InsecureDeserializationPipeline {
                     .find(|c| c.index as usize == expr_idx)
                     .map(|c| c.node);
 
-                if let (Some(ctor), Some(expr)) = (ctor_node, expr_node) {
-                    if node_text(ctor, source) == "Function" {
+                if let (Some(ctor), Some(expr)) = (ctor_node, expr_node)
+                    && node_text(ctor, source) == "Function" {
                         let expr_text = node_text(expr, source);
                         if expr_text.contains("JSON.parse") {
                             let start = expr.start_position();
@@ -121,7 +121,6 @@ impl Pipeline for InsecureDeserializationPipeline {
                             });
                         }
                     }
-                }
             }
         }
 
@@ -153,8 +152,8 @@ impl Pipeline for InsecureDeserializationPipeline {
                 if let (Some(method), Some(args), Some(call)) = (method_node, args_node, call_node)
                 {
                     let method_name = node_text(method, source);
-                    if method_name == "addEventListener" {
-                        if let Some(first_arg) = args.named_child(0) {
+                    if method_name == "addEventListener"
+                        && let Some(first_arg) = args.named_child(0) {
                             let event_name = node_text(first_arg, source);
                             if event_name.contains("message") {
                                 // Check if callback contains origin check
@@ -176,7 +175,6 @@ impl Pipeline for InsecureDeserializationPipeline {
                                 }
                             }
                         }
-                    }
                 }
             }
         }

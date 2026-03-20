@@ -119,7 +119,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                     if cap
                         .node
                         .parent()
-                        .map_or(false, |p| p.kind() == "source_file")
+                        .is_some_and(|p| p.kind() == "source_file")
                     {
                         exported_count += 1;
                     }

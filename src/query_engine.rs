@@ -164,18 +164,16 @@ pub fn execute(
 
             for sym in &all_symbols {
                 // find filter
-                if let Some(ref kinds) = find_kinds {
-                    if !kinds.contains(&sym.kind) {
+                if let Some(ref kinds) = find_kinds
+                    && !kinds.contains(&sym.kind) {
                         continue;
                     }
-                }
 
                 // name filter
-                if let Some(ref matcher) = name_matcher {
-                    if !matcher.matches(&sym.name) {
+                if let Some(ref matcher) = name_matcher
+                    && !matcher.matches(&sym.name) {
                         continue;
                     }
-                }
 
                 // visibility filter
                 if let Some(vis) = visibility {
@@ -192,16 +190,14 @@ pub fn execute(
                 // lines filter
                 if let Some(lr) = lines_filter {
                     let line_count = sym.end_line.saturating_sub(sym.start_line) + 1;
-                    if let Some(min) = lr.min {
-                        if line_count < min {
+                    if let Some(min) = lr.min
+                        && line_count < min {
                             continue;
                         }
-                    }
-                    if let Some(max) = lr.max {
-                        if line_count > max {
+                    if let Some(max) = lr.max
+                        && line_count > max {
                             continue;
                         }
-                    }
                 }
 
                 // inside filter
@@ -220,11 +216,10 @@ pub fn execute(
                 }
 
                 // has filter
-                if let Some(hf) = has_filter {
-                    if !check_has_filter(hf, sym, &comments) {
+                if let Some(hf) = has_filter
+                    && !check_has_filter(hf, sym, &comments) {
                         continue;
                     }
-                }
 
                 // Extract signature
                 let signature = signature::extract_signature(&source, sym.start_line, lang);

@@ -28,11 +28,11 @@ impl CppExceptionSafetyPipeline {
     fn is_smart_ptr_context(node: tree_sitter::Node, source: &[u8]) -> bool {
         if let Some(parent) = node.parent() {
             // Case: new expression inside argument_list
-            if parent.kind() == "argument_list" {
-                if let Some(grandparent) = parent.parent() {
+            if parent.kind() == "argument_list"
+                && let Some(grandparent) = parent.parent() {
                     // call_expression: e.g., std::unique_ptr<int>(new int(42)) or .reset(new ...)
-                    if grandparent.kind() == "call_expression" {
-                        if let Some(func) = grandparent.child_by_field_name("function") {
+                    if grandparent.kind() == "call_expression"
+                        && let Some(func) = grandparent.child_by_field_name("function") {
                             let func_text = node_text(func, source);
                             if func_text.contains("unique_ptr")
                                 || func_text.contains("shared_ptr")
@@ -41,19 +41,16 @@ impl CppExceptionSafetyPipeline {
                                 return true;
                             }
                         }
-                    }
                     // init_declarator: e.g., std::unique_ptr<int> p(new int(42))
-                    if grandparent.kind() == "init_declarator" {
-                        if let Some(declaration) = grandparent.parent() {
+                    if grandparent.kind() == "init_declarator"
+                        && let Some(declaration) = grandparent.parent() {
                             let decl_text = node_text(declaration, source);
                             if decl_text.contains("unique_ptr") || decl_text.contains("shared_ptr")
                             {
                                 return true;
                             }
                         }
-                    }
                 }
-            }
             // Direct parent is init_declarator or declaration
             if parent.kind() == "init_declarator" || parent.kind() == "declaration" {
                 let text = node_text(parent, source);
@@ -80,8 +77,8 @@ impl CppExceptionSafetyPipeline {
         file_path: &str,
         pipeline_name: &str,
     ) {
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function") {
                 let func_text = node_text(func, source);
                 if func_text.ends_with(".lock") || func_text.ends_with("->lock") {
                     // Check if the function body has RAII lock guards
@@ -104,7 +101,6 @@ impl CppExceptionSafetyPipeline {
                     return;
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -126,8 +122,8 @@ impl CppExceptionSafetyPipeline {
         file_path: &str,
         pipeline_name: &str,
     ) {
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function") {
                 let func_text = node_text(func, source);
                 if func_text == "fopen" {
                     // Check if the result is wrapped in a smart pointer
@@ -162,7 +158,6 @@ impl CppExceptionSafetyPipeline {
                     return;
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {

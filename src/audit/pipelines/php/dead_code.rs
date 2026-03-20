@@ -94,8 +94,8 @@ fn collect_unused_private_methods(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "class_declaration" {
-            if let Some(body) = node.child_by_field_name("body") {
+        if node.kind() == "class_declaration"
+            && let Some(body) = node.child_by_field_name("body") {
                 let mut body_cursor = body.walk();
                 for child in body.named_children(&mut body_cursor) {
                     if child.kind() != "method_declaration" {
@@ -154,7 +154,6 @@ fn collect_unused_private_methods(
                     }
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -182,13 +181,11 @@ fn string_contains_name(root: tree_sitter::Node, source: &[u8], target_name: &st
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();
-        if kind == "string" || kind == "encapsed_string" {
-            if let Ok(text) = node.utf8_text(source) {
-                if text.contains(target_name) {
+        if (kind == "string" || kind == "encapsed_string")
+            && let Ok(text) = node.utf8_text(source)
+                && text.contains(target_name) {
                     return true;
                 }
-            }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -207,11 +204,10 @@ fn count_name_usages(
     let mut count = 0;
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "name" && node.id() != exclude_id {
-            if node_text(node, source) == target_name {
+        if node.kind() == "name" && node.id() != exclude_id
+            && node_text(node, source) == target_name {
                 count += 1;
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -239,15 +235,14 @@ fn collect_non_import_identifiers(
             continue;
         }
 
-        if kind == "name" || kind == "qualified_name" {
-            if let Ok(text) = node.utf8_text(source) {
+        if (kind == "name" || kind == "qualified_name")
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
                 // Also insert the last segment for qualified names
                 if let Some(last) = text.rsplit('\\').next() {
                     ids.insert(last.to_string());
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {

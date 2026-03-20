@@ -95,8 +95,8 @@ fn check_params_recursive(
             // function_definition -> declarator: function_declarator -> parameters: parameter_list
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let func_declarator = find_function_declarator(declarator);
-                if let Some(func_decl) = func_declarator {
-                    if let Some(params) = func_decl.child_by_field_name("parameters") {
+                if let Some(func_decl) = func_declarator
+                    && let Some(params) = func_decl.child_by_field_name("parameters") {
                         let param_count = count_parameters(params);
                         if param_count > PARAM_THRESHOLD {
                             let name = find_identifier_in_declarator(declarator, source)
@@ -117,7 +117,6 @@ fn check_params_recursive(
                             });
                         }
                     }
-                }
             }
         }
 
@@ -139,12 +138,7 @@ fn find_function_declarator(node: tree_sitter::Node) -> Option<tree_sitter::Node
     }
     // Also check children for qualified_identifier wrapping function_declarator
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "function_declarator" {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut cursor).find(|&child| child.kind() == "function_declarator")
 }
 
 /// Walk tree to find methods inside class bodies and check if they reference `this`.
@@ -159,8 +153,8 @@ fn check_cohesion_recursive(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "class_specifier" {
-            if let Some(body) = node.child_by_field_name("body") {
+        if node.kind() == "class_specifier"
+            && let Some(body) = node.child_by_field_name("body") {
                 // body is a field_declaration_list
                 let mut cursor = body.walk();
                 for child in body.children(&mut cursor) {
@@ -173,7 +167,6 @@ fn check_cohesion_recursive(
                 }
             }
             // Continue to push children to find nested classes
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -190,8 +183,8 @@ fn check_method_cohesion(
     pipeline_name: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if let Some(body) = method_node.child_by_field_name("body") {
-        if !body_references_identifier(body, source, "this") {
+    if let Some(body) = method_node.child_by_field_name("body")
+        && !body_references_identifier(body, source, "this") {
             let name = method_node
                 .child_by_field_name("declarator")
                 .and_then(|d| find_identifier_in_declarator(d, source))
@@ -211,7 +204,6 @@ fn check_method_cohesion(
                 snippet: extract_snippet(source, method_node, 1),
             });
         }
-    }
 }
 
 impl Pipeline for CouplingPipeline {

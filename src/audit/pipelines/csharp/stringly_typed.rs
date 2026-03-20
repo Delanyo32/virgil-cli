@@ -220,11 +220,10 @@ fn is_suspicious_name(name: &str) -> bool {
 fn get_field_type<'a>(field_decl: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
     let mut cursor = field_decl.walk();
     for child in field_decl.children(&mut cursor) {
-        if child.kind() == "variable_declaration" {
-            if let Some(type_node) = child.child_by_field_name("type") {
+        if child.kind() == "variable_declaration"
+            && let Some(type_node) = child.child_by_field_name("type") {
                 return Some(node_text(type_node, source));
             }
-        }
     }
     None
 }

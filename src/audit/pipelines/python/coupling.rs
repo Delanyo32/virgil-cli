@@ -90,32 +90,29 @@ fn count_python_parameters(params_node: tree_sitter::Node, source: &[u8]) -> usi
             }
         }
         // For typed_parameter, check the name
-        if kind == "typed_parameter" {
-            if let Some(name_node) = child.child_by_field_name("name") {
+        if kind == "typed_parameter"
+            && let Some(name_node) = child.child_by_field_name("name") {
                 let name = node_text(name_node, source);
                 if name == "self" || name == "cls" {
                     continue;
                 }
             }
-        }
         // For default_parameter, check the name
-        if kind == "default_parameter" {
-            if let Some(name_node) = child.child_by_field_name("name") {
+        if kind == "default_parameter"
+            && let Some(name_node) = child.child_by_field_name("name") {
                 let name = node_text(name_node, source);
                 if name == "self" || name == "cls" {
                     continue;
                 }
             }
-        }
         // For typed_default_parameter, check the name
-        if kind == "typed_default_parameter" {
-            if let Some(name_node) = child.child_by_field_name("name") {
+        if kind == "typed_default_parameter"
+            && let Some(name_node) = child.child_by_field_name("name") {
                 let name = node_text(name_node, source);
                 if name == "self" || name == "cls" {
                     continue;
                 }
             }
-        }
         count += 1;
     }
     count
@@ -132,11 +129,10 @@ fn has_self_parameter(params_node: tree_sitter::Node, source: &[u8]) -> bool {
                 }
             }
             "typed_parameter" => {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if node_text(name_node, source) == "self" {
+                if let Some(name_node) = child.child_by_field_name("name")
+                    && node_text(name_node, source) == "self" {
                         return true;
                     }
-                }
             }
             _ => {}
         }
@@ -154,12 +150,12 @@ fn collect_parameter_overloads(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_definition" {
-            if let Some(name_node) = node.child_by_field_name("name") {
+        if node.kind() == "function_definition"
+            && let Some(name_node) = node.child_by_field_name("name") {
                 let fn_name = node_text(name_node, source);
                 // Skip __init__ constructors — they often need many parameters
-                if fn_name != "__init__" {
-                    if let Some(params_node) = node.child_by_field_name("parameters") {
+                if fn_name != "__init__"
+                    && let Some(params_node) = node.child_by_field_name("parameters") {
                         let param_count = count_python_parameters(params_node, source);
                         if param_count > PARAMETER_OVERLOAD_THRESHOLD {
                             let start = node.start_position();
@@ -179,9 +175,7 @@ fn collect_parameter_overloads(
                             });
                         }
                     }
-                }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -279,12 +273,7 @@ fn collect_low_cohesion_methods(
 /// Find the inner function_definition inside a decorated_definition.
 fn find_inner_function(decorated: tree_sitter::Node) -> Option<tree_sitter::Node> {
     let mut cursor = decorated.walk();
-    for child in decorated.children(&mut cursor) {
-        if child.kind() == "function_definition" {
-            return Some(child);
-        }
-    }
-    None
+    decorated.children(&mut cursor).find(|&child| child.kind() == "function_definition")
 }
 
 /// Check if a function body is trivial (just `pass` or `...`).
@@ -297,13 +286,11 @@ fn is_trivial_body(body: tree_sitter::Node, _source: &[u8]) -> bool {
         if kind == "pass_statement" {
             return true;
         }
-        if kind == "expression_statement" {
-            if let Some(expr) = child.named_child(0) {
-                if expr.kind() == "ellipsis" {
+        if kind == "expression_statement"
+            && let Some(expr) = child.named_child(0)
+                && expr.kind() == "ellipsis" {
                     return true;
                 }
-            }
-        }
     }
     false
 }

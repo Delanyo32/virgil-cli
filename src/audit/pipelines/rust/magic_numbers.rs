@@ -47,16 +47,14 @@ impl MagicNumbersPipeline {
         }
 
         // Skip if this is an index expression (arr[0])
-        if let Some(parent) = node.parent() {
-            if parent.kind() == "index_expression" {
+        if let Some(parent) = node.parent()
+            && parent.kind() == "index_expression" {
                 // Check if this literal is the index (second child)
-                if let Some(index_child) = parent.named_child(1) {
-                    if index_child.id() == node.id() {
+                if let Some(index_child) = parent.named_child(1)
+                    && index_child.id() == node.id() {
                         return true;
                     }
-                }
             }
-        }
 
         false
     }

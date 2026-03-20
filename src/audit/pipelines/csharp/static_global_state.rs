@@ -52,8 +52,8 @@ impl Pipeline for StaticGlobalStatePipeline {
                 .find(|c| c.index as usize == field_name_idx)
                 .map(|c| c.node);
 
-            if let (Some(decl_node), Some(name_node)) = (decl_node, name_node) {
-                if has_modifier(decl_node, source, "static")
+            if let (Some(decl_node), Some(name_node)) = (decl_node, name_node)
+                && has_modifier(decl_node, source, "static")
                     && !has_modifier(decl_node, source, "readonly")
                     && !has_modifier(decl_node, source, "const")
                 {
@@ -72,7 +72,6 @@ impl Pipeline for StaticGlobalStatePipeline {
                         snippet: extract_snippet(source, decl_node, 3),
                     });
                 }
-            }
         }
 
         findings

@@ -18,8 +18,8 @@ pub fn extract_signature(source: &str, start_line: u32, language: Language) -> O
     // Some declarations span multiple lines before the body opens.
     // Collect lines until we find `{` or run out of a reasonable window.
     let mut sig = String::new();
-    for i in idx..std::cmp::min(idx + 5, lines.len()) {
-        let line = lines[i].trim();
+    for line in lines.iter().take(std::cmp::min(idx + 5, lines.len())).skip(idx) {
+        let line = line.trim();
         if let Some(pos) = line.find('{') {
             let before_brace = line[..pos].trim();
             if !before_brace.is_empty() {
@@ -36,14 +36,10 @@ pub fn extract_signature(source: &str, start_line: u32, language: Language) -> O
         sig.push_str(line);
 
         // Python/Go: stop at `:` for Python, stop at first line for Go if no `{`
-        match language {
-            Language::Python => {
-                if line.ends_with(':') {
-                    break;
-                }
+        if language == Language::Python
+            && line.ends_with(':') {
+                break;
             }
-            _ => {}
-        }
     }
 
     // Fallback: just use the first line if sig is empty

@@ -152,13 +152,11 @@ fn is_wrapped_creation(creation_node: tree_sitter::Node) -> bool {
             return true;
         }
         // Parent is argument_list whose parent is object_creation_expression
-        if parent.kind() == "argument_list" {
-            if let Some(grandparent) = parent.parent() {
-                if grandparent.kind() == "object_creation_expression" {
+        if parent.kind() == "argument_list"
+            && let Some(grandparent) = parent.parent()
+                && grandparent.kind() == "object_creation_expression" {
                     return true;
                 }
-            }
-        }
     }
     false
 }

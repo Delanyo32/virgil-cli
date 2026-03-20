@@ -54,11 +54,10 @@ fn is_security_name(name: &str) -> bool {
 fn get_operator<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
     // In tree-sitter JS, binary_expression children: [left, operator, right]
     // The operator is child(1) (unnamed)
-    if node.child_count() >= 3 {
-        if let Some(op) = node.child(1) {
+    if node.child_count() >= 3
+        && let Some(op) = node.child(1) {
             return node_text(op, source);
         }
-    }
     ""
 }
 
@@ -167,10 +166,10 @@ impl Pipeline for TimingWeakCryptoPipeline {
                     // Math.random() in security context
                     if obj_name == "Math" && method_name == "random" {
                         // Check if the result is assigned to a security-related variable
-                        if let Some(parent) = call.parent() {
-                            if let Some(gp) = parent.parent() {
-                                if gp.kind() == "variable_declarator"
-                                    || gp.kind() == "assignment_expression"
+                        if let Some(parent) = call.parent()
+                            && let Some(gp) = parent.parent()
+                                && (gp.kind() == "variable_declarator"
+                                    || gp.kind() == "assignment_expression")
                                 {
                                     let gp_text = node_text(gp, source);
                                     if is_security_name(gp_text) {
@@ -187,13 +186,11 @@ impl Pipeline for TimingWeakCryptoPipeline {
                                         });
                                     }
                                 }
-                            }
-                        }
                     }
 
                     // createHash('md5') / createHash('sha1')
-                    if method_name == "createHash" {
-                        if let Some(first_arg) = args.named_child(0) {
+                    if method_name == "createHash"
+                        && let Some(first_arg) = args.named_child(0) {
                             let algo = node_text(first_arg, source);
                             if algo.contains("md5") || algo.contains("sha1") {
                                 let start = call.start_position();
@@ -212,11 +209,10 @@ impl Pipeline for TimingWeakCryptoPipeline {
                                 });
                             }
                         }
-                    }
 
                     // createCipheriv with ECB mode or literal/zero IV
-                    if method_name == "createCipheriv" {
-                        if let Some(first_arg) = args.named_child(0) {
+                    if method_name == "createCipheriv"
+                        && let Some(first_arg) = args.named_child(0) {
                             let algo = node_text(first_arg, source);
                             if algo.contains("ecb") {
                                 let start = call.start_position();
@@ -232,7 +228,6 @@ impl Pipeline for TimingWeakCryptoPipeline {
                                 });
                             }
                         }
-                    }
                 }
             }
         }

@@ -86,7 +86,7 @@ impl Pipeline for NullReferenceRiskPipeline {
                             // Only report on the outermost (deepest) chain
                             if access_node
                                 .parent()
-                                .map_or(true, |p| p.kind() != "member_access_expression")
+                                .is_none_or(|p| p.kind() != "member_access_expression")
                             {
                                 let start = access_node.start_position();
                                 findings.push(AuditFinding {

@@ -58,11 +58,10 @@ impl MemoryLeakIndicatorsPipeline {
                 .find(|c| c.index as usize == method_idx)
                 .map(|c| c.node);
 
-            if let Some(method) = method_node {
-                if node_text(method, source) == "removeEventListener" {
+            if let Some(method) = method_node
+                && node_text(method, source) == "removeEventListener" {
                     return true;
                 }
-            }
         }
         false
     }
@@ -81,26 +80,19 @@ impl MemoryLeakIndicatorsPipeline {
                 return true;
             }
             // Check for array method callback
-            if parent.kind() == "arrow_function" || parent.kind() == "function_expression" {
-                if let Some(args_node) = parent.parent() {
-                    if args_node.kind() == "arguments" {
-                        if let Some(call_node) = args_node.parent() {
-                            if call_node.kind() == "call_expression" {
-                                if let Some(func) = call_node.child_by_field_name("function") {
-                                    if func.kind() == "member_expression" {
-                                        if let Some(prop) = func.child_by_field_name("property") {
+            if (parent.kind() == "arrow_function" || parent.kind() == "function_expression")
+                && let Some(args_node) = parent.parent()
+                    && args_node.kind() == "arguments"
+                        && let Some(call_node) = args_node.parent()
+                            && call_node.kind() == "call_expression"
+                                && let Some(func) = call_node.child_by_field_name("function")
+                                    && func.kind() == "member_expression"
+                                        && let Some(prop) = func.child_by_field_name("property") {
                                             let method_name = node_text(prop, source);
                                             if ARRAY_LOOP_METHODS.contains(&method_name) {
                                                 return true;
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             current = parent.parent();
         }
         false
@@ -115,11 +107,10 @@ impl MemoryLeakIndicatorsPipeline {
             return true;
         }
         // Traditional for with a clear bound
-        if node.kind() == "for_statement" {
-            if text.contains(".length") {
+        if node.kind() == "for_statement"
+            && text.contains(".length") {
                 return true;
             }
-        }
         // Check for break/return inside body
         Self::walk_for_bound_check(node, source)
     }

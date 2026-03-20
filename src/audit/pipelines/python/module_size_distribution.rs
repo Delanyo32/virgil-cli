@@ -129,7 +129,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                 for cap in m.captures {
                     if cap.index as usize == def_idx {
                         // Check if this is a direct child of the module (top-level)
-                        is_top_level = cap.node.parent().map_or(false, |p| p.kind() == "module");
+                        is_top_level = cap.node.parent().is_some_and(|p| p.kind() == "module");
                     }
                     if cap.index as usize == name_idx {
                         let name = node_text(cap.node, source);

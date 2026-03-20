@@ -203,9 +203,9 @@ impl Pipeline for ApiSurfaceAreaPipeline {
 fn is_property_readonly(m: &tree_sitter::QueryMatch, _source: &[u8]) -> bool {
     // Find the property_declaration node by looking at the vis modifier's parent
     for cap in m.captures {
-        if cap.node.kind() == "visibility_modifier" {
-            if let Some(parent) = cap.node.parent() {
-                if parent.kind() == "property_declaration" {
+        if cap.node.kind() == "visibility_modifier"
+            && let Some(parent) = cap.node.parent()
+                && parent.kind() == "property_declaration" {
                     let mut cursor = parent.walk();
                     for child in parent.children(&mut cursor) {
                         if child.kind() == "readonly_modifier" {
@@ -217,8 +217,6 @@ fn is_property_readonly(m: &tree_sitter::QueryMatch, _source: &[u8]) -> bool {
                         }
                     }
                 }
-            }
-        }
     }
     false
 }

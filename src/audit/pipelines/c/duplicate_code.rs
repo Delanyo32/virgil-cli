@@ -101,8 +101,8 @@ fn collect_function_hashes(
     min_lines: usize,
     hash_map: &mut HashMap<u64, Vec<(String, u32, u32)>>,
 ) {
-    if node.kind() == "function_definition" {
-        if let Some(body) = node.child_by_field_name("body") {
+    if node.kind() == "function_definition"
+        && let Some(body) = node.child_by_field_name("body") {
             let body_lines = body
                 .end_position()
                 .row
@@ -122,7 +122,6 @@ fn collect_function_hashes(
                 ));
             }
         }
-    }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

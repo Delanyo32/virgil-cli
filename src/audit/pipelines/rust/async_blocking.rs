@@ -167,13 +167,11 @@ impl Pipeline for AsyncBlockingPipeline {
                     {
                         // Fix: .join(",") on strings/iterators takes arguments;
                         // thread JoinHandle::join() takes NO arguments. Skip if has args.
-                        if method == "join" {
-                            if let Some(args) = call_cap.node.child_by_field_name("arguments") {
-                                if args.named_child_count() > 0 {
+                        if method == "join"
+                            && let Some(args) = call_cap.node.child_by_field_name("arguments")
+                                && args.named_child_count() > 0 {
                                     continue;
                                 }
-                            }
-                        }
                         // Skip calls inside spawn_blocking/block_in_place closures
                         if crate::audit::pipelines::helpers::is_inside_spawn_blocking(
                             call_cap.node,

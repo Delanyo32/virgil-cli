@@ -41,37 +41,28 @@ impl UncheckedMallocPipeline {
         results: &mut Vec<(tree_sitter::Node<'a>, String)>,
     ) {
         // Look for declarations like: type *p = malloc(...);
-        if node.kind() == "declaration" {
-            if let Some(declarator) = node.child_by_field_name("declarator") {
-                if declarator.kind() == "init_declarator" {
-                    if let Some(value) = declarator.child_by_field_name("value") {
-                        if Self::is_alloc_call(value, source) {
-                            if let Some(decl) = declarator.child_by_field_name("declarator") {
-                                if let Some(var_name) = find_identifier_in_declarator(decl, source)
+        if node.kind() == "declaration"
+            && let Some(declarator) = node.child_by_field_name("declarator")
+                && declarator.kind() == "init_declarator"
+                    && let Some(value) = declarator.child_by_field_name("value")
+                        && Self::is_alloc_call(value, source)
+                            && let Some(decl) = declarator.child_by_field_name("declarator")
+                                && let Some(var_name) = find_identifier_in_declarator(decl, source)
                                 {
                                     results.push((node, var_name));
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // Also check assignment expressions: p = malloc(...);
         if node.kind() == "expression_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                if child.kind() == "assignment_expression" {
-                    if let Some(right) = child.child_by_field_name("right") {
-                        if Self::is_alloc_call(right, source) {
-                            if let Some(left) = child.child_by_field_name("left") {
+                if child.kind() == "assignment_expression"
+                    && let Some(right) = child.child_by_field_name("right")
+                        && Self::is_alloc_call(right, source)
+                            && let Some(left) = child.child_by_field_name("left") {
                                 let var_name = node_text(left, source).to_string();
                                 results.push((node, var_name));
                             }
-                        }
-                    }
-                }
             }
         }
 
@@ -85,18 +76,16 @@ impl UncheckedMallocPipeline {
     }
 
     fn is_alloc_call(node: tree_sitter::Node, source: &[u8]) -> bool {
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function") {
                 let fn_name = node_text(func, source);
                 return ALLOC_FUNCTIONS.contains(&fn_name);
             }
-        }
         // Handle cast expressions: (type *)malloc(...)
-        if node.kind() == "cast_expression" {
-            if let Some(value) = node.child_by_field_name("value") {
+        if node.kind() == "cast_expression"
+            && let Some(value) = node.child_by_field_name("value") {
                 return Self::is_alloc_call(value, source);
             }
-        }
         false
     }
 

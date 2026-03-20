@@ -176,11 +176,10 @@ pub fn list_objects(
                 }
 
                 // Check exclude patterns
-                if let Some(ref excludes) = exclude_set {
-                    if excludes.is_match(relative) {
+                if let Some(ref excludes) = exclude_set
+                    && excludes.is_match(relative) {
                         continue;
                     }
-                }
 
                 keys.push(relative.to_string());
             }
@@ -198,6 +197,7 @@ pub fn list_objects(
 
 /// Download objects concurrently, returning file contents and sizes.
 /// Skips non-UTF-8 files with a warning.
+#[allow(clippy::type_complexity)]
 pub fn download_objects(
     location: &S3Location,
     keys: &[String],
@@ -241,11 +241,10 @@ pub fn download_objects(
                     Ok(output) => {
                         let size = output.content_length().unwrap_or(0) as u64;
 
-                        if let Some(max_size) = max_file_size {
-                            if size > max_size {
+                        if let Some(max_size) = max_file_size
+                            && size > max_size {
                                 return None;
                             }
-                        }
 
                         match output.body.collect().await {
                             Ok(bytes) => {

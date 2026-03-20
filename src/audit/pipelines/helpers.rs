@@ -39,21 +39,19 @@ pub fn compute_cyclomatic(body: Node, config: &ControlFlowConfig, source: &[u8])
         }
 
         // Ternary expressions
-        if let Some(ternary) = config.ternary_kind {
-            if kind == ternary {
+        if let Some(ternary) = config.ternary_kind
+            && kind == ternary {
                 complexity += 1;
             }
-        }
 
         // Logical operators in binary expressions
-        if kind == config.binary_expression_kind {
-            if let Some(op_node) = node.child_by_field_name("operator") {
+        if kind == config.binary_expression_kind
+            && let Some(op_node) = node.child_by_field_name("operator") {
                 let op_text = op_node.utf8_text(source).unwrap_or("");
                 if config.logical_operators.contains(&op_text) {
                     complexity += 1;
                 }
             }
-        }
     });
 
     complexity
@@ -79,7 +77,7 @@ pub fn compute_cognitive(body: Node, config: &ControlFlowConfig, source: &[u8]) 
             (1 + nesting, nesting + 1)
         } else if config.flat_increments.contains(&kind) {
             (1, nesting)
-        } else if config.ternary_kind.map_or(false, |t| t == kind) {
+        } else if config.ternary_kind == Some(kind) {
             (1 + nesting, nesting + 1)
         } else if kind == config.binary_expression_kind {
             if let Some(op_node) = node.child_by_field_name("operator") {
@@ -273,13 +271,11 @@ fn is_return_like(node: Node, return_kinds: &[&str]) -> bool {
         return true;
     }
     // Check for expression_statement or similar wrappers containing a return-like node
-    if kind == "expression_statement" || kind == "labeled_statement" {
-        if let Some(first_named) = node.named_child(0) {
-            if return_kinds.contains(&first_named.kind()) {
+    if (kind == "expression_statement" || kind == "labeled_statement")
+        && let Some(first_named) = node.named_child(0)
+            && return_kinds.contains(&first_named.kind()) {
                 return true;
             }
-        }
-    }
     false
 }
 
@@ -334,13 +330,11 @@ pub fn count_all_identifier_occurrences(root: Node, source: &[u8]) -> HashMap<St
     let mut stack = vec![root];
     while let Some(current) = stack.pop() {
         let kind = current.kind();
-        if kind == "identifier" || kind == "field_identifier" {
-            if let Ok(text) = current.utf8_text(source) {
-                if !text.is_empty() {
+        if (kind == "identifier" || kind == "field_identifier")
+            && let Ok(text) = current.utf8_text(source)
+                && !text.is_empty() {
                     *counts.entry(text.to_string()).or_insert(0) += 1;
                 }
-            }
-        }
         let mut cursor = current.walk();
         for child in current.children(&mut cursor) {
             stack.push(child);
@@ -366,11 +360,10 @@ pub fn collect_identifiers(root: Node, source: &[u8]) -> HashSet<String> {
                 | "self"
                 | "this"
                 | "variable_name"
-        ) {
-            if let Ok(text) = node.utf8_text(source) {
+        )
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -419,8 +412,8 @@ fn collect_functions_iterative(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if func_kinds.contains(&node.kind()) {
-            if let Some(body) = node.child_by_field_name(body_field) {
+        if func_kinds.contains(&node.kind())
+            && let Some(body) = node.child_by_field_name(body_field) {
                 let body_lines = body
                     .end_position()
                     .row
@@ -440,7 +433,6 @@ fn collect_functions_iterative(
                     ));
                 }
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -583,7 +575,7 @@ pub fn is_entry_file(file_path: &str, exclusions: &[&str]) -> bool {
         .file_name()
         .and_then(|f| f.to_str())
         .unwrap_or("");
-    exclusions.iter().any(|excl| file_name == *excl)
+    exclusions.contains(&file_name)
 }
 
 /// Check if a method body contains member access via a specific pattern (e.g., "self." in Python, "this." in Java).
@@ -596,13 +588,11 @@ pub fn body_has_member_access(
 ) -> bool {
     let mut stack = vec![body];
     while let Some(node) = stack.pop() {
-        if node.kind() == access_kind {
-            if let Some(obj) = node.child_by_field_name("object") {
-                if obj.utf8_text(source).unwrap_or("") == object_text {
+        if node.kind() == access_kind
+            && let Some(obj) = node.child_by_field_name("object")
+                && obj.utf8_text(source).unwrap_or("") == object_text {
                     return true;
                 }
-            }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -682,30 +672,27 @@ pub fn is_test_context_rust(node: Node, source: &[u8]) -> bool {
         let kind = n.kind();
         if kind == "function_item" {
             // Check if this function has a #[test] attribute
-            if let Some(prev) = n.prev_named_sibling() {
-                if prev.kind() == "attribute_item" {
+            if let Some(prev) = n.prev_named_sibling()
+                && prev.kind() == "attribute_item" {
                     let attr_text = prev.utf8_text(source).unwrap_or("");
                     if attr_text.contains("test") {
                         return true;
                     }
                 }
-            }
         }
         if kind == "mod_item" {
             // Check for mod tests or #[cfg(test)]
-            if let Some(name) = n.child_by_field_name("name") {
-                if name.utf8_text(source).unwrap_or("") == "tests" {
+            if let Some(name) = n.child_by_field_name("name")
+                && name.utf8_text(source).unwrap_or("") == "tests" {
                     return true;
                 }
-            }
-            if let Some(prev) = n.prev_named_sibling() {
-                if prev.kind() == "attribute_item" {
+            if let Some(prev) = n.prev_named_sibling()
+                && prev.kind() == "attribute_item" {
                     let attr_text = prev.utf8_text(source).unwrap_or("");
                     if attr_text.contains("cfg(test)") {
                         return true;
                     }
                 }
-            }
         }
         current = n.parent();
     }
@@ -806,11 +793,10 @@ pub fn is_trait_impl(impl_node: Node, source: &[u8]) -> bool {
 pub fn is_main_function_rust(node: Node, source: &[u8]) -> bool {
     let mut current = Some(node);
     while let Some(n) = current {
-        if n.kind() == "function_item" {
-            if let Some(name) = n.child_by_field_name("name") {
+        if n.kind() == "function_item"
+            && let Some(name) = n.child_by_field_name("name") {
                 return name.utf8_text(source).unwrap_or("") == "main";
             }
-        }
         current = n.parent();
     }
     false
@@ -819,12 +805,11 @@ pub fn is_main_function_rust(node: Node, source: &[u8]) -> bool {
 /// Check if a Rust method call has a chained .lock() in its receiver.
 pub fn receiver_has_lock(call_node: Node, source: &[u8]) -> bool {
     // call_expression > field_expression > value (the receiver chain)
-    if let Some(field_expr) = call_node.child_by_field_name("function") {
-        if let Some(value) = field_expr.child_by_field_name("value") {
+    if let Some(field_expr) = call_node.child_by_field_name("function")
+        && let Some(value) = field_expr.child_by_field_name("value") {
             let receiver_text = value.utf8_text(source).unwrap_or("");
             return receiver_text.contains(".lock()");
         }
-    }
     false
 }
 
@@ -837,14 +822,13 @@ pub fn is_test_context_go(node: Node, source: &[u8], file_path: &str) -> bool {
     }
     let mut current = Some(node);
     while let Some(n) = current {
-        if n.kind() == "function_declaration" {
-            if let Some(name) = n.child_by_field_name("name") {
+        if n.kind() == "function_declaration"
+            && let Some(name) = n.child_by_field_name("name") {
                 let name_text = name.utf8_text(source).unwrap_or("");
                 if name_text.starts_with("Test") || name_text.starts_with("Benchmark") {
                     return true;
                 }
             }
-        }
         current = n.parent();
     }
     false
@@ -854,14 +838,13 @@ pub fn is_test_context_go(node: Node, source: &[u8], file_path: &str) -> bool {
 pub fn is_init_or_main_go(node: Node, source: &[u8]) -> bool {
     let mut current = Some(node);
     while let Some(n) = current {
-        if n.kind() == "function_declaration" {
-            if let Some(name) = n.child_by_field_name("name") {
+        if n.kind() == "function_declaration"
+            && let Some(name) = n.child_by_field_name("name") {
                 let name_text = name.utf8_text(source).unwrap_or("");
                 if name_text == "init" || name_text == "main" {
                     return true;
                 }
             }
-        }
         current = n.parent();
     }
     false
@@ -871,14 +854,13 @@ pub fn is_init_or_main_go(node: Node, source: &[u8]) -> bool {
 pub fn is_go_constructor(node: Node, source: &[u8]) -> bool {
     let mut current = Some(node);
     while let Some(n) = current {
-        if n.kind() == "function_declaration" {
-            if let Some(name) = n.child_by_field_name("name") {
+        if n.kind() == "function_declaration"
+            && let Some(name) = n.child_by_field_name("name") {
                 let name_text = name.utf8_text(source).unwrap_or("");
                 if name_text.starts_with("New") || name_text.starts_with("Init") {
                     return true;
                 }
             }
-        }
         current = n.parent();
     }
     false
@@ -959,7 +941,7 @@ pub fn is_test_context_js(node: Node, source: &[u8]) -> bool {
             // Check if the callee is one of the test framework functions
             if let Some(func) = p.child_by_field_name("function") {
                 let func_text = func.utf8_text(source).unwrap_or("");
-                if test_callee_names.iter().any(|n| func_text == *n) {
+                if test_callee_names.contains(&func_text) {
                     return true;
                 }
             }
@@ -1020,10 +1002,10 @@ pub fn extract_receiver_text<'a>(call_node: Node<'a>, source: &'a [u8]) -> &'a s
         return obj.utf8_text(source).unwrap_or("");
     }
     // Rust/Go/JS/TS: call_expression > function: (field_expression|member_expression)
-    if let Some(func) = call_node.child_by_field_name("function") {
-        if func.kind() == "field_expression"
+    if let Some(func) = call_node.child_by_field_name("function")
+        && (func.kind() == "field_expression"
             || func.kind() == "member_expression"
-            || func.kind() == "attribute"
+            || func.kind() == "attribute")
         {
             if let Some(obj) = func.child_by_field_name("object") {
                 return obj.utf8_text(source).unwrap_or("");
@@ -1032,7 +1014,6 @@ pub fn extract_receiver_text<'a>(call_node: Node<'a>, source: &'a [u8]) -> &'a s
                 return val.utf8_text(source).unwrap_or("");
             }
         }
-    }
     ""
 }
 

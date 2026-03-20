@@ -39,11 +39,10 @@ impl CppBufferOverflowPipeline {
         if node.kind() == "parameter_list" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                if child.kind() == "parameter_declaration" {
-                    if let Some(declarator) = child.child_by_field_name("declarator") {
+                if child.kind() == "parameter_declaration"
+                    && let Some(declarator) = child.child_by_field_name("declarator") {
                         Self::extract_identifier(declarator, source, names);
                     }
-                }
             }
             return;
         }
@@ -93,11 +92,11 @@ impl CppBufferOverflowPipeline {
             let container_node = node.named_child(0);
             let arg_list = node.named_child(1);
 
-            if let (Some(container_node), Some(arg_list)) = (container_node, arg_list) {
-                if arg_list.kind() == "subscript_argument_list" {
+            if let (Some(container_node), Some(arg_list)) = (container_node, arg_list)
+                && arg_list.kind() == "subscript_argument_list" {
                     // Find the index identifier inside the subscript_argument_list
-                    if let Some(index_node) = arg_list.named_child(0) {
-                        if index_node.kind() == "identifier" {
+                    if let Some(index_node) = arg_list.named_child(0)
+                        && index_node.kind() == "identifier" {
                             let index_text = node_text(index_node, source);
                             if param_names.contains(&index_text.to_string()) {
                                 let container = node_text(container_node, source);
@@ -116,9 +115,7 @@ impl CppBufferOverflowPipeline {
                                 });
                             }
                         }
-                    }
                 }
-            }
             return; // don't recurse into subscript children
         }
         let mut cursor = node.walk();

@@ -89,10 +89,10 @@ impl WeakCryptographyPipeline {
                 let args_text = node_text(args_node, source);
 
                 // MessageDigest.getInstance("MD5") or ("SHA-1")
-                if obj_name == "MessageDigest" && method_name == "getInstance" {
-                    if args_text.contains("\"MD5\"")
+                if obj_name == "MessageDigest" && method_name == "getInstance"
+                    && (args_text.contains("\"MD5\"")
                         || args_text.contains("\"SHA-1\"")
-                        || args_text.contains("\"SHA1\"")
+                        || args_text.contains("\"SHA1\""))
                     {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
@@ -102,17 +102,14 @@ impl WeakCryptographyPipeline {
                             severity: "error".to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "weak_hash_algorithm".to_string(),
-                            message: format!(
-                                "MessageDigest.getInstance() uses a weak hash algorithm — use SHA-256 or stronger"
-                            ),
+                            message: "MessageDigest.getInstance() uses a weak hash algorithm — use SHA-256 or stronger".to_string(),
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
-                }
 
                 // Cipher.getInstance("AES/ECB/...")
-                if obj_name == "Cipher" && method_name == "getInstance" {
-                    if args_text.contains("ECB") {
+                if obj_name == "Cipher" && method_name == "getInstance"
+                    && args_text.contains("ECB") {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -126,7 +123,6 @@ impl WeakCryptographyPipeline {
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
-                }
 
                 // String.equals on hash/token comparison (timing attack)
                 if method_name == "equals" {

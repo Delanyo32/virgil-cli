@@ -76,8 +76,8 @@ impl Pipeline for GoRaceConditionsPipeline {
                     .find(|c| c.index as usize == for_stmt_idx)
                     .map(|c| c.node);
 
-                if let (Some(body), Some(stmt)) = (body_node, stmt_node) {
-                    if Self::contains_go_statement(body) {
+                if let (Some(body), Some(stmt)) = (body_node, stmt_node)
+                    && Self::contains_go_statement(body) {
                         let start = stmt.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -90,7 +90,6 @@ impl Pipeline for GoRaceConditionsPipeline {
                             snippet: extract_snippet(source, stmt, 3),
                         });
                     }
-                }
             }
         }
 
@@ -114,8 +113,8 @@ impl Pipeline for GoRaceConditionsPipeline {
                     .find(|c| c.index as usize == go_stmt_idx)
                     .map(|c| c.node);
 
-                if let (Some(expr), Some(stmt)) = (expr_node, stmt_node) {
-                    if Self::contains_bracket_access(expr, source) {
+                if let (Some(expr), Some(stmt)) = (expr_node, stmt_node)
+                    && Self::contains_bracket_access(expr, source) {
                         let start = stmt.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -128,7 +127,6 @@ impl Pipeline for GoRaceConditionsPipeline {
                             snippet: extract_snippet(source, stmt, 3),
                         });
                     }
-                }
             }
         }
 

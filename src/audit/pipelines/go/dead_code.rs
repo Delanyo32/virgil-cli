@@ -146,15 +146,13 @@ fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut Ha
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();
-        if kind == "identifier"
+        if (kind == "identifier"
             || kind == "field_identifier"
             || kind == "type_identifier"
-            || kind == "property_identifier"
-        {
-            if let Ok(text) = node.utf8_text(source) {
+            || kind == "property_identifier")
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

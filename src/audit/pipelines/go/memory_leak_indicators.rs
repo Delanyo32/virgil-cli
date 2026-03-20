@@ -46,14 +46,12 @@ impl MemoryLeakIndicatorsPipeline {
         results: &mut Vec<tree_sitter::Node<'a>>,
     ) {
         // Look for append() calls: call_expression where function is "append"
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
-                if node_text(func, source) == "append" {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function")
+                && node_text(func, source) == "append" {
                     results.push(node);
                     return;
                 }
-            }
-        }
         let mut child_cursor = node.walk();
         for child in node.children(&mut child_cursor) {
             Self::find_unbounded_appends_in_body(child, source, results);

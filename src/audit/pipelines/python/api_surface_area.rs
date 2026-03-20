@@ -94,7 +94,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
 
                 for cap in m.captures {
                     if cap.index as usize == sym_idx {
-                        is_top_level = cap.node.parent().map_or(false, |p| p.kind() == "module");
+                        is_top_level = cap.node.parent().is_some_and(|p| p.kind() == "module");
                     }
                     if cap.index as usize == name_idx {
                         let name = node_text(cap.node, source);
@@ -211,11 +211,10 @@ fn count_public_init_attrs(class_body: tree_sitter::Node, source: &[u8]) -> usiz
             // Check if this is __init__
             if let Some(name_node) = func.child_by_field_name("name") {
                 let name = name_node.utf8_text(source).unwrap_or("");
-                if name == "__init__" {
-                    if let Some(body) = func.child_by_field_name("body") {
+                if name == "__init__"
+                    && let Some(body) = func.child_by_field_name("body") {
                         count += count_public_self_attrs_in_body(body, source);
                     }
-                }
             }
         }
     }
@@ -243,25 +242,20 @@ fn count_self_attrs_recursive(
             // Look for assignment: self.attr = ...
             let mut inner_cursor = child.walk();
             for inner in child.children(&mut inner_cursor) {
-                if inner.kind() == "assignment" {
-                    if let Some(left) = inner.child_by_field_name("left") {
-                        if left.kind() == "attribute" {
+                if inner.kind() == "assignment"
+                    && let Some(left) = inner.child_by_field_name("left")
+                        && left.kind() == "attribute" {
                             // Check object is "self"
-                            if let Some(obj) = left.child_by_field_name("object") {
-                                if obj.utf8_text(source).unwrap_or("") == "self" {
-                                    if let Some(attr) = left.child_by_field_name("attribute") {
+                            if let Some(obj) = left.child_by_field_name("object")
+                                && obj.utf8_text(source).unwrap_or("") == "self"
+                                    && let Some(attr) = left.child_by_field_name("attribute") {
                                         let attr_name = attr.utf8_text(source).unwrap_or("");
-                                        if !attr_name.starts_with('_') && !attr_name.is_empty() {
-                                            if seen.insert(attr_name.to_string()) {
+                                        if !attr_name.starts_with('_') && !attr_name.is_empty()
+                                            && seen.insert(attr_name.to_string()) {
                                                 *count += 1;
                                             }
-                                        }
                                     }
-                                }
-                            }
                         }
-                    }
-                }
             }
         }
         // Recurse into if/else blocks within __init__ that may also set attributes

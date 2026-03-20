@@ -71,9 +71,9 @@ impl Pipeline for ReflectionInjectionPipeline {
                 let method_name = node_text(method_node, source);
 
                 // Class.forName(param) — unsafe dynamic class loading
-                if obj_name == "Class" && method_name == "forName" {
-                    if let Some(first_arg) = args_node.named_child(0) {
-                        if first_arg.kind() != "string_literal" {
+                if obj_name == "Class" && method_name == "forName"
+                    && let Some(first_arg) = args_node.named_child(0)
+                        && first_arg.kind() != "string_literal" {
                             let start = inv_node.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
@@ -86,8 +86,6 @@ impl Pipeline for ReflectionInjectionPipeline {
                                 snippet: extract_snippet(source, inv_node, 1),
                             });
                         }
-                    }
-                }
 
                 // method.invoke() — unsafe reflective method invocation
                 if method_name == "invoke" {
@@ -110,12 +108,11 @@ impl Pipeline for ReflectionInjectionPipeline {
                 // ScriptEngine.eval(param) — script injection
                 if method_name == "eval" {
                     let inv_text = node_text(inv_node, source);
-                    if inv_text.contains("engine")
+                    if (inv_text.contains("engine")
                         || inv_text.contains("Engine")
-                        || inv_text.contains("script")
-                    {
-                        if let Some(first_arg) = args_node.named_child(0) {
-                            if first_arg.kind() != "string_literal" {
+                        || inv_text.contains("script"))
+                        && let Some(first_arg) = args_node.named_child(0)
+                            && first_arg.kind() != "string_literal" {
                                 let start = inv_node.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -128,16 +125,14 @@ impl Pipeline for ReflectionInjectionPipeline {
                                     snippet: extract_snippet(source, inv_node, 1),
                                 });
                             }
-                        }
-                    }
                 }
 
                 // InitialContext.lookup(param) — JNDI injection
                 if method_name == "lookup" {
                     let inv_text = node_text(inv_node, source);
-                    if inv_text.contains("Context") || inv_text.contains("ctx") {
-                        if let Some(first_arg) = args_node.named_child(0) {
-                            if first_arg.kind() != "string_literal" {
+                    if (inv_text.contains("Context") || inv_text.contains("ctx"))
+                        && let Some(first_arg) = args_node.named_child(0)
+                            && first_arg.kind() != "string_literal" {
                                 let start = inv_node.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -150,8 +145,6 @@ impl Pipeline for ReflectionInjectionPipeline {
                                     snippet: extract_snippet(source, inv_node, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }

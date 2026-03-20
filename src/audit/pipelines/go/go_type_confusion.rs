@@ -35,8 +35,8 @@ impl GoTypeConfusionPipeline {
                 Some(parent)
             };
 
-            if let Some(decl) = decl_node {
-                if decl.kind() == "short_var_declaration" {
+            if let Some(decl) = decl_node
+                && decl.kind() == "short_var_declaration" {
                     // Check if the LHS has 2 identifiers
                     if let Some(lhs) = decl.child_by_field_name("left") {
                         let mut count = 0;
@@ -49,7 +49,6 @@ impl GoTypeConfusionPipeline {
                         return count >= 2;
                     }
                 }
-            }
         }
         false
     }

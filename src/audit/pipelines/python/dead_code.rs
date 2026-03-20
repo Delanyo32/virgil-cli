@@ -166,11 +166,10 @@ impl DeadCodePipeline {
                     let mut inner_cursor = child.walk();
                     for import_child in child.named_children(&mut inner_cursor) {
                         // Skip the module name node
-                        if let Some(mn) = module_name_node {
-                            if import_child.id() == mn.id() {
+                        if let Some(mn) = module_name_node
+                            && import_child.id() == mn.id() {
                                 continue;
                             }
-                        }
                         match import_child.kind() {
                             "dotted_name" => {
                                 // This is an imported name like `from os import path`
@@ -284,9 +283,9 @@ fn is_in_all_list(root: tree_sitter::Node, source: &[u8], name: &str) -> bool {
             // Look for assignment: __all__ = [...]
             let mut inner_cursor = child.walk();
             for inner in child.children(&mut inner_cursor) {
-                if inner.kind() == "assignment" {
-                    if let Some(lhs) = inner.child_by_field_name("left") {
-                        if lhs.kind() == "identifier" {
+                if inner.kind() == "assignment"
+                    && let Some(lhs) = inner.child_by_field_name("left")
+                        && lhs.kind() == "identifier" {
                             let lhs_text = node_text(lhs, source);
                             if lhs_text == "__all__" {
                                 // Check if the function name appears in the right side text
@@ -301,8 +300,6 @@ fn is_in_all_list(root: tree_sitter::Node, source: &[u8], name: &str) -> bool {
                                 }
                             }
                         }
-                    }
-                }
             }
         }
     }
@@ -317,35 +314,27 @@ fn has_decorator(node: tree_sitter::Node) -> bool {
         return true;
     }
     // If it's a function_definition whose parent is decorated_definition
-    if node.kind() == "function_definition" {
-        if let Some(parent) = node.parent() {
-            if parent.kind() == "decorated_definition" {
+    if node.kind() == "function_definition"
+        && let Some(parent) = node.parent()
+            && parent.kind() == "decorated_definition" {
                 return true;
             }
-        }
-    }
     false
 }
 
 /// Find the inner function_definition inside a decorated_definition.
 fn find_inner_function(decorated: tree_sitter::Node) -> Option<tree_sitter::Node> {
     let mut cursor = decorated.walk();
-    for child in decorated.children(&mut cursor) {
-        if child.kind() == "function_definition" {
-            return Some(child);
-        }
-    }
-    None
+    decorated.children(&mut cursor).find(|&child| child.kind() == "function_definition")
 }
 
 fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut HashSet<String>) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "identifier" {
-            if let Ok(text) = node.utf8_text(source) {
+        if node.kind() == "identifier"
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

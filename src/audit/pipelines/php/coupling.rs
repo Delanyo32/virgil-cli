@@ -62,8 +62,8 @@ impl CouplingPipeline {
             }
         }
 
-        if count > IMPORT_THRESHOLD {
-            if let Some(import_node) = first_import_node {
+        if count > IMPORT_THRESHOLD
+            && let Some(import_node) = first_import_node {
                 let start = import_node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
@@ -78,7 +78,6 @@ impl CouplingPipeline {
                     snippet: extract_snippet(source, import_node, 3),
                 });
             }
-        }
 
         findings
     }
@@ -118,8 +117,8 @@ fn check_params_recursive(
     while let Some(node) = stack.pop() {
         let kind = node.kind();
 
-        if kind == "function_definition" || kind == "method_declaration" {
-            if let Some(params) = node.child_by_field_name("parameters") {
+        if (kind == "function_definition" || kind == "method_declaration")
+            && let Some(params) = node.child_by_field_name("parameters") {
                 let param_count = count_parameters(params);
                 if param_count > PARAM_THRESHOLD {
                     let name = node
@@ -142,7 +141,6 @@ fn check_params_recursive(
                     });
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -160,8 +158,8 @@ fn check_cohesion_recursive(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "class_declaration" {
-            if let Some(body) = node.child_by_field_name("body") {
+        if node.kind() == "class_declaration"
+            && let Some(body) = node.child_by_field_name("body") {
                 let mut body_cursor = body.walk();
                 for child in body.named_children(&mut body_cursor) {
                     if child.kind() != "method_declaration" {
@@ -202,7 +200,6 @@ fn check_cohesion_recursive(
                     }
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -226,11 +223,10 @@ fn has_static_modifier(method: tree_sitter::Node) -> bool {
 fn body_references_this(root: tree_sitter::Node, source: &[u8]) -> bool {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "variable_name" {
-            if node.utf8_text(source).unwrap_or("") == "$this" {
+        if node.kind() == "variable_name"
+            && node.utf8_text(source).unwrap_or("") == "$this" {
                 return true;
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

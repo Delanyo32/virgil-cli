@@ -144,8 +144,8 @@ impl JavaRaceConditionsPipeline {
                     for (i, line) in source_str.lines().enumerate() {
                         let line_start = body_node.start_position().row;
                         let line_end = body_node.end_position().row;
-                        if i >= line_start && i <= line_end {
-                            if (line.contains("++") || line.contains("+="))
+                        if i >= line_start && i <= line_end
+                            && (line.contains("++") || line.contains("+="))
                                 && !line.contains("Atomic")
                             {
                                 // Check if the variable is volatile by looking at surrounding context
@@ -164,7 +164,6 @@ impl JavaRaceConditionsPipeline {
                                     break;
                                 }
                             }
-                        }
                     }
                 }
             }

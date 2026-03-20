@@ -335,7 +335,7 @@ impl MemoryLeakIndicatorsPipeline {
                         let dtor_pattern = format!("~{class_name}");
                         if let Some(dtor_pos) = body_text.find(&dtor_pattern) {
                             let before = &body_text[..dtor_pos];
-                            before.rfind("virtual").map_or(false, |vpos| {
+                            before.rfind("virtual").is_some_and(|vpos| {
                                 // Make sure there's no semicolon between virtual and ~
                                 !before[vpos..].contains(';')
                             })

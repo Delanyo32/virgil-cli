@@ -82,15 +82,12 @@ fn collect_static_functions<'a>(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_definition" {
-            if has_storage_class(node, source, "static") {
-                if let Some(declarator) = node.child_by_field_name("declarator") {
-                    if let Some(name) = find_identifier_in_declarator(declarator, source) {
+        if node.kind() == "function_definition"
+            && has_storage_class(node, source, "static")
+                && let Some(declarator) = node.child_by_field_name("declarator")
+                    && let Some(name) = find_identifier_in_declarator(declarator, source) {
                         out.push((name, node));
                     }
-                }
-            }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

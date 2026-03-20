@@ -26,8 +26,8 @@ impl CMemoryMismanagementPipeline {
     fn extract_call(node: tree_sitter::Node, source: &[u8]) -> Option<(String, String)> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "call_expression" {
-                if let Some(func) = child.child_by_field_name("function") {
+            if child.kind() == "call_expression"
+                && let Some(func) = child.child_by_field_name("function") {
                     let fn_name = node_text(func, source).to_string();
                     if let Some(args) = child.child_by_field_name("arguments") {
                         let first_arg = args
@@ -37,7 +37,6 @@ impl CMemoryMismanagementPipeline {
                         return Some((fn_name, first_arg));
                     }
                 }
-            }
         }
         None
     }
@@ -51,9 +50,9 @@ impl CMemoryMismanagementPipeline {
                 let lhs = child.child_by_field_name("left")?;
                 let rhs = child.child_by_field_name("right")?;
 
-                if rhs.kind() == "call_expression" {
-                    if let Some(func) = rhs.child_by_field_name("function") {
-                        if node_text(func, source) == "realloc" {
+                if rhs.kind() == "call_expression"
+                    && let Some(func) = rhs.child_by_field_name("function")
+                        && node_text(func, source) == "realloc" {
                             let lhs_name = node_text(lhs, source).to_string();
                             if let Some(args) = rhs.child_by_field_name("arguments") {
                                 let first_arg = args
@@ -63,8 +62,6 @@ impl CMemoryMismanagementPipeline {
                                 return Some((lhs_name, first_arg));
                             }
                         }
-                    }
-                }
             }
         }
         None
@@ -86,8 +83,8 @@ impl CMemoryMismanagementPipeline {
 
             // Check for free() calls and realloc assignments in expression_statement nodes
             if child.kind() == "expression_statement" {
-                if let Some((fn_name, arg)) = Self::extract_call(child, source) {
-                    if fn_name == "free" {
+                if let Some((fn_name, arg)) = Self::extract_call(child, source)
+                    && fn_name == "free" {
                         if freed_vars.contains(&arg) {
                             // double free
                             let start = child.start_position();
@@ -106,11 +103,10 @@ impl CMemoryMismanagementPipeline {
                         }
                         continue;
                     }
-                }
 
                 // Check for assignment p = realloc(p, n)
-                if let Some((lhs, first_arg)) = Self::extract_realloc_assign(child, source) {
-                    if lhs == first_arg {
+                if let Some((lhs, first_arg)) = Self::extract_realloc_assign(child, source)
+                    && lhs == first_arg {
                         let start = child.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -125,7 +121,6 @@ impl CMemoryMismanagementPipeline {
                             snippet: extract_snippet(source, child, 1),
                         });
                     }
-                }
             }
 
             // Check for use of freed variable in any subsequent statement

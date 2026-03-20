@@ -33,8 +33,8 @@ impl CppIntegerOverflowPipeline {
         pipeline_name: &str,
     ) {
         // Check for static_cast<size_t>(...) or static_cast<std::size_t>(...)
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function") {
                 let func_text = node_text(func, source);
                 if func_text.contains("static_cast<size_t>")
                     || func_text.contains("static_cast<std::size_t>")
@@ -54,11 +54,10 @@ impl CppIntegerOverflowPipeline {
                     return;
                 }
             }
-        }
 
         // Check for C-style cast: (size_t)expr
-        if node.kind() == "cast_expression" {
-            if let Some(type_node) = node.child_by_field_name("type") {
+        if node.kind() == "cast_expression"
+            && let Some(type_node) = node.child_by_field_name("type") {
                 let type_text = node_text(type_node, source);
                 if type_text.contains("size_t") {
                     let start = node.start_position();
@@ -76,7 +75,6 @@ impl CppIntegerOverflowPipeline {
                     return;
                 }
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -94,8 +92,8 @@ impl CppIntegerOverflowPipeline {
         if node.kind() == "binary_expression" {
             // Check for "-" operator
             let full_text = node_text(node, source);
-            if let Some(left) = node.child_by_field_name("left") {
-                if let Some(right) = node.child_by_field_name("right") {
+            if let Some(left) = node.child_by_field_name("left")
+                && let Some(right) = node.child_by_field_name("right") {
                     // Find the operator by checking children between left and right
                     let mut has_minus = false;
                     let mut cursor = node.walk();
@@ -150,7 +148,6 @@ impl CppIntegerOverflowPipeline {
                         }
                     }
                 }
-            }
         }
 
         let mut cursor = node.walk();
@@ -188,8 +185,8 @@ impl Pipeline for CppIntegerOverflowPipeline {
                     if text.contains('[') && text.contains('*') {
                         // Verify neither operand of the multiply is a constant
                         // Extract the part inside brackets
-                        if let Some(bracket_start) = text.find('[') {
-                            if let Some(bracket_end) = text.find(']') {
+                        if let Some(bracket_start) = text.find('[')
+                            && let Some(bracket_end) = text.find(']') {
                                 let inside = &text[bracket_start + 1..bracket_end];
                                 // Check that there's a * and the operands aren't pure numeric constants
                                 if inside.contains('*') {
@@ -212,7 +209,6 @@ impl Pipeline for CppIntegerOverflowPipeline {
                                     }
                                 }
                             }
-                        }
                     }
                 }
             }

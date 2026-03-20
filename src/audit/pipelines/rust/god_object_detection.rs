@@ -69,11 +69,10 @@ impl Pipeline for GodObjectDetectionPipeline {
                     }
                     current = c.parent();
                 }
-                if let Some(c) = current {
-                    if c.kind() == "impl_item" && is_trait_impl(c, source) {
+                if let Some(c) = current
+                    && c.kind() == "impl_item" && is_trait_impl(c, source) {
                         continue;
                     }
-                }
             }
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),

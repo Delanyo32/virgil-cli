@@ -77,24 +77,20 @@ impl Pipeline for MissingTraitAbstractionPipeline {
                 let skip = {
                     let mut node = param_cap.node;
                     let mut should_skip = false;
-                    loop {
-                        if let Some(parent) = node.parent() {
-                            if parent.kind() == "function_item" {
-                                if let Some(name_node) = parent.child_by_field_name("name") {
-                                    let fn_name = name_node.utf8_text(source).unwrap_or("");
-                                    if fn_name == "main"
-                                        || fn_name == "new"
-                                        || fn_name.starts_with("open")
-                                    {
-                                        should_skip = true;
-                                    }
+                    while let Some(parent) = node.parent() {
+                        if parent.kind() == "function_item" {
+                            if let Some(name_node) = parent.child_by_field_name("name") {
+                                let fn_name = name_node.utf8_text(source).unwrap_or("");
+                                if fn_name == "main"
+                                    || fn_name == "new"
+                                    || fn_name.starts_with("open")
+                                {
+                                    should_skip = true;
                                 }
-                                break;
                             }
-                            node = parent;
-                        } else {
                             break;
                         }
+                        node = parent;
                     }
                     should_skip
                 };

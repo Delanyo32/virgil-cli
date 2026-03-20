@@ -128,9 +128,9 @@ impl Pipeline for XssDomInjectionPipeline {
                     let obj_name = node_text(obj, source);
 
                     // insertAdjacentHTML with non-literal second arg
-                    if method_name == "insertAdjacentHTML" {
-                        if let Some(second_arg) = args.named_child(1) {
-                            if !is_safe_literal(second_arg, source) {
+                    if method_name == "insertAdjacentHTML"
+                        && let Some(second_arg) = args.named_child(1)
+                            && !is_safe_literal(second_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -145,15 +145,12 @@ impl Pipeline for XssDomInjectionPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
 
                     // document.write / document.writeln
                     if obj_name == "document"
                         && (method_name == "write" || method_name == "writeln")
-                    {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -169,8 +166,6 @@ impl Pipeline for XssDomInjectionPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }

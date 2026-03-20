@@ -38,8 +38,8 @@ impl Pipeline for TypeConfusionPipeline {
         {
             let mut stack = vec![tree.root_node()];
             while let Some(node) = stack.pop() {
-                if node.kind() == "call_expression" {
-                    if let Some(func) = node.child_by_field_name("function") {
+                if node.kind() == "call_expression"
+                    && let Some(func) = node.child_by_field_name("function") {
                         let func_text = node_text(func, source);
                         if func_text.contains("transmute") {
                             let start = node.start_position();
@@ -56,7 +56,6 @@ impl Pipeline for TypeConfusionPipeline {
                             continue;
                         }
                     }
-                }
                 for i in 0..node.child_count() {
                     if let Some(child) = node.child(i) {
                         stack.push(child);

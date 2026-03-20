@@ -16,11 +16,10 @@ fn csharp_lang() -> tree_sitter::Language {
 pub fn has_modifier(node: tree_sitter::Node, source: &[u8], modifier_text: &str) -> bool {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "modifier" {
-            if child.utf8_text(source).unwrap_or("") == modifier_text {
+        if child.kind() == "modifier"
+            && child.utf8_text(source).unwrap_or("") == modifier_text {
                 return true;
             }
-        }
     }
     false
 }

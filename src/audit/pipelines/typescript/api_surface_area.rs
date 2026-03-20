@@ -103,7 +103,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                 for cap in m.captures {
                     if cap.index as usize == export_idx {
                         // Only count top-level exports
-                        if cap.node.parent().map_or(true, |p| p.kind() == "program") {
+                        if cap.node.parent().is_none_or(|p| p.kind() == "program") {
                             exported_count += 1;
                         }
                     }

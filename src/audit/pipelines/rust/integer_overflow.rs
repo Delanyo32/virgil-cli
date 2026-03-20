@@ -84,15 +84,14 @@ impl Pipeline for IntegerOverflowPipeline {
                         // Find the operator by iterating non-named children
                         let mut op_text = None;
                         for i in 0..expr.child_count() {
-                            if let Some(child) = expr.child(i) {
-                                if !child.is_named() {
+                            if let Some(child) = expr.child(i)
+                                && !child.is_named() {
                                     let text = node_text(child, source);
                                     if text == "*" || text == "+" {
                                         op_text = Some(text);
                                         break;
                                     }
                                 }
-                            }
                         }
 
                         if let Some(op) = op_text {

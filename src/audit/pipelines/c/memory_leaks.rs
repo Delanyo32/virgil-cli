@@ -45,31 +45,23 @@ impl MemoryLeaksPipeline {
         returned_vars: &mut Vec<String>,
     ) {
         // Check for allocation in declarations
-        if node.kind() == "declaration" {
-            if let Some(declarator) = node.child_by_field_name("declarator") {
-                if declarator.kind() == "init_declarator" {
-                    if let Some(value) = declarator.child_by_field_name("value") {
-                        if Self::is_alloc_call(value, source) {
-                            if let Some(decl) = declarator.child_by_field_name("declarator") {
-                                if let Some(var_name) = find_identifier_in_declarator(decl, source)
+        if node.kind() == "declaration"
+            && let Some(declarator) = node.child_by_field_name("declarator")
+                && declarator.kind() == "init_declarator"
+                    && let Some(value) = declarator.child_by_field_name("value")
+                        && Self::is_alloc_call(value, source)
+                            && let Some(decl) = declarator.child_by_field_name("declarator")
+                                && let Some(var_name) = find_identifier_in_declarator(decl, source)
                                 {
                                     allocs.push((node, var_name));
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // Check for free() calls
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
-                if node_text(func, source) == "free" {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function")
+                && node_text(func, source) == "free" {
                     *has_free = true;
                 }
-            }
-        }
 
         // Check for return statements
         if node.kind() == "return_statement" {
@@ -88,17 +80,15 @@ impl MemoryLeaksPipeline {
     }
 
     fn is_alloc_call(node: tree_sitter::Node, source: &[u8]) -> bool {
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function") {
                 let fn_name = node_text(func, source);
                 return ALLOC_FUNCTIONS.contains(&fn_name);
             }
-        }
-        if node.kind() == "cast_expression" {
-            if let Some(value) = node.child_by_field_name("value") {
+        if node.kind() == "cast_expression"
+            && let Some(value) = node.child_by_field_name("value") {
                 return Self::is_alloc_call(value, source);
             }
-        }
         false
     }
 }

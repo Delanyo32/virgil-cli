@@ -72,7 +72,7 @@ impl Pipeline for DependencyGraphDepthPipeline {
                 for cap in m.captures {
                     if cap.index as usize == reexport_idx {
                         // Only count top-level re-exports
-                        if cap.node.parent().map_or(true, |p| p.kind() == "program") {
+                        if cap.node.parent().is_none_or(|p| p.kind() == "program") {
                             reexport_count += 1;
                         }
                     }

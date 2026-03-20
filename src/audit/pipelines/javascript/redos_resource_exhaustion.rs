@@ -98,10 +98,10 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                     .find(|c| c.index as usize == expr_idx)
                     .map(|c| c.node);
 
-                if let (Some(ctor), Some(args), Some(expr)) = (ctor_node, args_node, expr_node) {
-                    if node_text(ctor, source) == "RegExp" {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                if let (Some(ctor), Some(args), Some(expr)) = (ctor_node, args_node, expr_node)
+                    && node_text(ctor, source) == "RegExp"
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = expr.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -114,9 +114,6 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                                     snippet: extract_snippet(source, expr, 1),
                                 });
                             }
-                        }
-                    }
-                }
             }
         }
 
@@ -160,8 +157,7 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                     // req.on('data', callback) pattern
                     if method_name == "on"
                         && (obj_name == "req" || obj_name == "request" || obj_name == "socket")
-                    {
-                        if let Some(first_arg) = args.named_child(0) {
+                        && let Some(first_arg) = args.named_child(0) {
                             let arg_text = node_text(first_arg, source);
                             if arg_text.contains("data") {
                                 // Check if callback body contains length check
@@ -187,7 +183,6 @@ impl Pipeline for RedosResourceExhaustionPipeline {
                                 }
                             }
                         }
-                    }
                 }
             }
         }

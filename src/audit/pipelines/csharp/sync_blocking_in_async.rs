@@ -74,11 +74,10 @@ impl SyncBlockingInAsyncPipeline {
                 .find(|c| c.index as usize == body_idx)
                 .map(|c| c.node);
 
-            if let (Some(decl), Some(body)) = (decl_node, body_node) {
-                if has_modifier(decl, source, "async") {
+            if let (Some(decl), Some(body)) = (decl_node, body_node)
+                && has_modifier(decl, source, "async") {
                     ranges.push(body.start_byte()..body.end_byte());
                 }
-            }
         }
 
         ranges

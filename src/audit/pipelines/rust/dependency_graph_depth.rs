@@ -67,16 +67,15 @@ impl Pipeline for DependencyGraphDepthPipeline {
             let mut matches = cursor.matches(&self.pub_use_query, root, source);
             while let Some(m) = matches.next() {
                 for cap in m.captures {
-                    if cap.index as usize == pub_use_idx {
-                        if cap
+                    if cap.index as usize == pub_use_idx
+                        && (cap
                             .node
                             .parent()
-                            .map_or(false, |p| p.kind() == "source_file")
-                            || cap.node.parent().is_none()
+                            .is_some_and(|p| p.kind() == "source_file")
+                            || cap.node.parent().is_none())
                         {
                             pub_use_count += 1;
                         }
-                    }
                 }
             }
         }

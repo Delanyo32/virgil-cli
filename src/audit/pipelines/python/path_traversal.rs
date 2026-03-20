@@ -119,9 +119,7 @@ impl Pipeline for PathTraversalPipeline {
                                 severity: "warning".to_string(),
                                 pipeline: self.name().to_string(),
                                 pattern: pattern.to_string(),
-                                message: format!(
-                                    "file path operation with function parameter — validate path to prevent traversal"
-                                ),
+                                message: "file path operation with function parameter — validate path to prevent traversal".to_string(),
                                 snippet: extract_snippet(source, call_node, 1),
                             });
                         }

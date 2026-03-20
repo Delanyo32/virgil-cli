@@ -79,8 +79,8 @@ impl Pipeline for CppInjectionPipeline {
                 }
 
                 // Pattern: popen() with non-literal command
-                if matches_function(fn_text, "popen") || matches_function(fn_text, "_popen") {
-                    if !self.first_arg_is_string_literal(args_cap.node, source) {
+                if (matches_function(fn_text, "popen") || matches_function(fn_text, "_popen"))
+                    && !self.first_arg_is_string_literal(args_cap.node, source) {
                         let start = call_cap.node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -96,7 +96,6 @@ impl Pipeline for CppInjectionPipeline {
                         });
                         continue;
                     }
-                }
 
                 // Pattern: printf family with variable format string
                 let printf_fns = ["printf", "fprintf", "sprintf", "snprintf"];

@@ -105,7 +105,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
             };
 
             // Only process top-level classes (direct children of program)
-            if !class_decl.parent().map_or(false, |p| p.kind() == "program") {
+            if class_decl.parent().is_none_or(|p| p.kind() != "program") {
                 continue;
             }
 
@@ -156,22 +156,20 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                 let mut leaky_field_names = Vec::new();
                 let mut field_cursor = body.walk();
                 for member in body.children(&mut field_cursor) {
-                    if member.kind() == "field_declaration" {
-                        if has_modifier(member, source, "public")
+                    if member.kind() == "field_declaration"
+                        && has_modifier(member, source, "public")
                             && !has_modifier(member, source, "final")
                         {
                             // Extract field name
                             let mut inner_cursor = member.walk();
                             for child in member.children(&mut inner_cursor) {
-                                if child.kind() == "variable_declarator" {
-                                    if let Some(name_node) = child.child_by_field_name("name") {
+                                if child.kind() == "variable_declarator"
+                                    && let Some(name_node) = child.child_by_field_name("name") {
                                         leaky_field_names
                                             .push(node_text(name_node, source).to_string());
                                     }
-                                }
                             }
                         }
-                    }
                 }
 
                 if !leaky_field_names.is_empty() {

@@ -247,11 +247,10 @@ fn collect_ids_excluding_iterative(
             continue;
         }
         let kind = node.kind();
-        if kind == "identifier" || kind == "type_identifier" {
-            if let Ok(text) = node.utf8_text(source) {
+        if (kind == "identifier" || kind == "type_identifier")
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

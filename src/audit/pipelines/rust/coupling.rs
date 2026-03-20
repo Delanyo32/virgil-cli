@@ -69,8 +69,8 @@ fn check_parameter_overload(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_item" {
-            if let Some(params) = node.child_by_field_name("parameters") {
+        if node.kind() == "function_item"
+            && let Some(params) = node.child_by_field_name("parameters") {
                 let param_count = count_parameters(params);
                 if param_count > PARAMETER_OVERLOAD_THRESHOLD {
                     let fn_name = node
@@ -96,7 +96,6 @@ fn check_parameter_overload(
                     });
                 }
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -114,8 +113,8 @@ fn check_low_cohesion(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "impl_item" {
-            if let Some(decl_list) = node.child_by_field_name("body") {
+        if node.kind() == "impl_item"
+            && let Some(decl_list) = node.child_by_field_name("body") {
                 let mut cursor = decl_list.walk();
                 for child in decl_list.named_children(&mut cursor) {
                     if child.kind() == "function_item" {
@@ -124,7 +123,6 @@ fn check_low_cohesion(
                 }
             }
             // Don't recurse into nested items from here; we handle them below.
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

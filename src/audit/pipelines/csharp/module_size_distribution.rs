@@ -29,11 +29,10 @@ fn count_all_type_definitions(node: tree_sitter::Node) -> usize {
         if CSHARP_TYPE_KINDS.contains(&child.kind()) {
             count += 1;
         }
-        if child.kind() == "namespace_declaration" {
-            if let Some(body) = child.child_by_field_name("body") {
+        if child.kind() == "namespace_declaration"
+            && let Some(body) = child.child_by_field_name("body") {
                 count += count_all_type_definitions(body);
             }
-        }
     }
     count
 }
@@ -43,16 +42,14 @@ fn count_exported_type_definitions(node: tree_sitter::Node, source: &[u8]) -> us
     let mut count = 0;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if CSHARP_TYPE_KINDS.contains(&child.kind()) {
-            if has_modifier(child, source, "public") || has_modifier(child, source, "internal") {
+        if CSHARP_TYPE_KINDS.contains(&child.kind())
+            && (has_modifier(child, source, "public") || has_modifier(child, source, "internal")) {
                 count += 1;
             }
-        }
-        if child.kind() == "namespace_declaration" {
-            if let Some(body) = child.child_by_field_name("body") {
+        if child.kind() == "namespace_declaration"
+            && let Some(body) = child.child_by_field_name("body") {
                 count += count_exported_type_definitions(body, source);
             }
-        }
     }
     count
 }
@@ -145,14 +142,13 @@ fn find_first_type_snippet(node: tree_sitter::Node, source: &[u8]) -> String {
         if CSHARP_TYPE_KINDS.contains(&child.kind()) {
             return extract_snippet(source, child, 3);
         }
-        if child.kind() == "namespace_declaration" {
-            if let Some(body) = child.child_by_field_name("body") {
+        if child.kind() == "namespace_declaration"
+            && let Some(body) = child.child_by_field_name("body") {
                 let inner = find_first_type_snippet(body, source);
                 if !inner.is_empty() {
                     return inner;
                 }
             }
-        }
     }
     String::new()
 }

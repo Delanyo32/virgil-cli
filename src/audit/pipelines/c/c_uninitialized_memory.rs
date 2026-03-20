@@ -68,21 +68,18 @@ impl CUninitializedMemoryPipeline {
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "call_expression" {
-                if let Some(func) = child.child_by_field_name("function") {
+            if child.kind() == "call_expression"
+                && let Some(func) = child.child_by_field_name("function") {
                     let fn_name = node_text(func, source);
-                    if INIT_FUNCTIONS.contains(&fn_name) {
-                        if let Some(args) = child.child_by_field_name("arguments") {
-                            if let Some(first_arg) = args.named_child(0) {
+                    if INIT_FUNCTIONS.contains(&fn_name)
+                        && let Some(args) = child.child_by_field_name("arguments")
+                            && let Some(first_arg) = args.named_child(0) {
                                 let arg_text = node_text(first_arg, source);
                                 if arg_text == buffer_name {
                                     return true;
                                 }
                             }
-                        }
-                    }
                 }
-            }
         }
         false
     }
@@ -99,11 +96,11 @@ impl CUninitializedMemoryPipeline {
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "call_expression" {
-                if let Some(func) = child.child_by_field_name("function") {
+            if child.kind() == "call_expression"
+                && let Some(func) = child.child_by_field_name("function") {
                     let fn_name = node_text(func, source);
-                    if SEND_FUNCTIONS.contains(&fn_name) {
-                        if let Some(args) = child.child_by_field_name("arguments") {
+                    if SEND_FUNCTIONS.contains(&fn_name)
+                        && let Some(args) = child.child_by_field_name("arguments") {
                             let mut args_cursor = args.walk();
                             let named_args: Vec<tree_sitter::Node> =
                                 args.named_children(&mut args_cursor).collect();
@@ -118,9 +115,7 @@ impl CUninitializedMemoryPipeline {
                                 }
                             }
                         }
-                    }
                 }
-            }
         }
         None
     }

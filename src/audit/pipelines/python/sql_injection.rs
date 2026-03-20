@@ -150,11 +150,10 @@ impl Pipeline for SqlInjectionPipeline {
 /// Checks if a Python `string` node contains `interpolation` children (i.e., is an f-string).
 fn has_interpolation(node: tree_sitter::Node) -> bool {
     for i in 0..node.named_child_count() {
-        if let Some(child) = node.named_child(i) {
-            if child.kind() == "interpolation" {
+        if let Some(child) = node.named_child(i)
+            && child.kind() == "interpolation" {
                 return true;
             }
-        }
     }
     false
 }

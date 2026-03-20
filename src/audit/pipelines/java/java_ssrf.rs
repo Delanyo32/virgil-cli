@@ -84,8 +84,8 @@ impl JavaSsrfPipeline {
                 }
 
                 // Check if the argument is a variable (not a string literal)
-                if let Some(first_arg) = args_node.named_child(0) {
-                    if first_arg.kind() != "string_literal" {
+                if let Some(first_arg) = args_node.named_child(0)
+                    && first_arg.kind() != "string_literal" {
                         let args_text = node_text(args_node, source);
                         if args_text.contains('+') || first_arg.kind() == "identifier" {
                             let start = creation_node.start_position();
@@ -103,7 +103,6 @@ impl JavaSsrfPipeline {
                             });
                         }
                     }
-                }
             }
         }
     }
@@ -148,8 +147,8 @@ impl JavaSsrfPipeline {
                 }
 
                 // Check if the argument is a variable (not a string literal)
-                if let Some(first_arg) = args_node.named_child(0) {
-                    if first_arg.kind() != "string_literal" {
+                if let Some(first_arg) = args_node.named_child(0)
+                    && first_arg.kind() != "string_literal" {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -162,7 +161,6 @@ impl JavaSsrfPipeline {
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
-                }
             }
         }
     }

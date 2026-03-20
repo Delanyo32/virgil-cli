@@ -71,11 +71,9 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         if let Some(first_line) = std::str::from_utf8(source)
             .ok()
             .and_then(|s| s.lines().next())
-        {
-            if first_line.starts_with("// Code generated") {
+            && first_line.starts_with("// Code generated") {
                 return Vec::new();
             }
-        }
 
         let mut findings = Vec::new();
         let root = tree.root_node();
@@ -119,7 +117,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
                     if cap
                         .node
                         .parent()
-                        .map_or(false, |p| p.kind() == "source_file")
+                        .is_some_and(|p| p.kind() == "source_file")
                     {
                         is_top_level = true;
                     }

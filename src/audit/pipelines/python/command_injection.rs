@@ -58,8 +58,7 @@ impl Pipeline for CommandInjectionPipeline {
 
             if let (Some(fn_node), Some(args_node), Some(call_node)) =
                 (fn_node, args_node, call_node)
-            {
-                if fn_node.kind() == "attribute" {
+                && fn_node.kind() == "attribute" {
                     let obj = fn_node
                         .child_by_field_name("object")
                         .map(|n| node_text(n, source));
@@ -70,8 +69,8 @@ impl Pipeline for CommandInjectionPipeline {
                     match (obj, attr) {
                         // os.system() / os.popen() with non-literal arg
                         (Some("os"), Some("system")) | (Some("os"), Some("popen")) => {
-                            if let Some(first_arg) = args_node.named_child(0) {
-                                if first_arg.kind() != "string" {
+                            if let Some(first_arg) = args_node.named_child(0)
+                                && first_arg.kind() != "string" {
                                     let start = call_node.start_position();
                                     findings.push(AuditFinding {
                                         file_path: file_path.to_string(),
@@ -87,7 +86,6 @@ impl Pipeline for CommandInjectionPipeline {
                                         snippet: extract_snippet(source, call_node, 1),
                                     });
                                 }
-                            }
                         }
                         // subprocess.run/Popen/call with shell=True
                         (
@@ -99,8 +97,8 @@ impl Pipeline for CommandInjectionPipeline {
                                 || call_text.contains("shell = True")
                             {
                                 // Check if first arg is a string (not a list)
-                                if let Some(first_arg) = args_node.named_child(0) {
-                                    if first_arg.kind() != "list" {
+                                if let Some(first_arg) = args_node.named_child(0)
+                                    && first_arg.kind() != "list" {
                                         let start = call_node.start_position();
                                         findings.push(AuditFinding {
                                             file_path: file_path.to_string(),
@@ -116,13 +114,11 @@ impl Pipeline for CommandInjectionPipeline {
                                             snippet: extract_snippet(source, call_node, 1),
                                         });
                                     }
-                                }
                             }
                         }
                         _ => {}
                     }
                 }
-            }
         }
 
         findings

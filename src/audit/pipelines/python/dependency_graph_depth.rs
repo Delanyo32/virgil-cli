@@ -78,7 +78,7 @@ impl Pipeline for DependencyGraphDepthPipeline {
                 for cap in m.captures {
                     if cap.index as usize == rel_import_idx {
                         // Only count top-level imports
-                        if cap.node.parent().map_or(false, |p| p.kind() == "module") {
+                        if cap.node.parent().is_some_and(|p| p.kind() == "module") {
                             relative_import_count += 1;
                         }
                     }

@@ -28,18 +28,16 @@ impl CBufferOverflowSecurityPipeline {
     /// Extract parameter names from a function_definition's parameter_list.
     fn extract_param_names(fn_def: tree_sitter::Node, source: &[u8]) -> Vec<String> {
         let mut names = Vec::new();
-        if let Some(declarator) = fn_def.child_by_field_name("declarator") {
-            if let Some(params) = declarator.child_by_field_name("parameters") {
+        if let Some(declarator) = fn_def.child_by_field_name("declarator")
+            && let Some(params) = declarator.child_by_field_name("parameters") {
                 let mut cursor = params.walk();
                 for child in params.named_children(&mut cursor) {
-                    if child.kind() == "parameter_declaration" {
-                        if let Some(decl) = child.child_by_field_name("declarator") {
+                    if child.kind() == "parameter_declaration"
+                        && let Some(decl) = child.child_by_field_name("declarator") {
                             Self::collect_identifiers(decl, source, &mut names);
                         }
-                    }
                 }
             }
-        }
         names
     }
 
@@ -156,8 +154,8 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                 // Pattern: memcpy_unchecked_size
                 if MEMCPY_FAMILY.contains(&fn_name) {
                     // Size is the 3rd argument (index 2) for memcpy/memmove/strncpy/memset
-                    if let Some(size_arg) = named_args.get(2) {
-                        if !Self::is_safe_size_arg(*size_arg, source) {
+                    if let Some(size_arg) = named_args.get(2)
+                        && !Self::is_safe_size_arg(*size_arg, source) {
                             let size_text = node_text(*size_arg, source);
 
                             // Check if size arg references a function parameter
@@ -187,7 +185,6 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                                 });
                             }
                         }
-                    }
                 }
 
                 // Pattern: scanf_no_width
@@ -196,8 +193,8 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                     // For fscanf/sscanf: format string is the 2nd arg
                     let fmt_arg_idx = if fn_name == "scanf" { 0 } else { 1 };
 
-                    if let Some(fmt_arg) = named_args.get(fmt_arg_idx) {
-                        if fmt_arg.kind() == "string_literal" {
+                    if let Some(fmt_arg) = named_args.get(fmt_arg_idx)
+                        && fmt_arg.kind() == "string_literal" {
                             let fmt_text = node_text(*fmt_arg, source);
                             if Self::has_bare_percent_s(fmt_text) {
                                 let start = call_cap.node.start_position();
@@ -215,7 +212,6 @@ impl Pipeline for CBufferOverflowSecurityPipeline {
                                 });
                             }
                         }
-                    }
                 }
             }
         }

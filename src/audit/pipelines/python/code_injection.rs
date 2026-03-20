@@ -103,11 +103,10 @@ impl Pipeline for CodeInjectionPipeline {
 
 fn has_interpolation(node: tree_sitter::Node) -> bool {
     for i in 0..node.named_child_count() {
-        if let Some(child) = node.named_child(i) {
-            if child.kind() == "interpolation" {
+        if let Some(child) = node.named_child(i)
+            && child.kind() == "interpolation" {
                 return true;
             }
-        }
     }
     false
 }

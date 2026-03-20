@@ -30,13 +30,11 @@ impl Workspace {
                 let ext = path.extension()?.to_str()?;
                 let lang = Language::from_extension(ext)?;
 
-                if let Some(max_size) = max_file_size {
-                    if let Ok(meta) = std::fs::metadata(path) {
-                        if meta.len() > max_size {
+                if let Some(max_size) = max_file_size
+                    && let Ok(meta) = std::fs::metadata(path)
+                        && meta.len() > max_size {
                             return None;
                         }
-                    }
-                }
 
                 let content = match std::fs::read_to_string(path) {
                     Ok(s) => s,
@@ -99,11 +97,10 @@ impl Workspace {
         // Build language map from extensions
         let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(file_map.len());
         for key in file_map.keys() {
-            if let Some(ext) = std::path::Path::new(key).extension().and_then(|e| e.to_str()) {
-                if let Some(lang) = Language::from_extension(ext) {
+            if let Some(ext) = std::path::Path::new(key).extension().and_then(|e| e.to_str())
+                && let Some(lang) = Language::from_extension(ext) {
                     lang_map.insert(key.clone(), lang);
                 }
-            }
         }
 
         let source = Box::new(MemoryFileSource::new(file_map, size_map));

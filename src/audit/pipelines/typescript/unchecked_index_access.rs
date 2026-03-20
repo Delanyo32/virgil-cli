@@ -46,22 +46,18 @@ impl Pipeline for UncheckedIndexAccessPipeline {
                 }
 
                 // Skip if parent is optional chain expression
-                if let Some(parent) = node.parent() {
-                    if parent.kind() == "optional_chain_expression" {
+                if let Some(parent) = node.parent()
+                    && parent.kind() == "optional_chain_expression" {
                         continue;
                     }
-                }
 
                 // Skip assignment targets (arr[i] = value)
-                if let Some(parent) = node.parent() {
-                    if parent.kind() == "assignment_expression" {
-                        if let Some(lhs) = parent.child_by_field_name("left") {
-                            if lhs.id() == node.id() {
+                if let Some(parent) = node.parent()
+                    && parent.kind() == "assignment_expression"
+                        && let Some(lhs) = parent.child_by_field_name("left")
+                            && lhs.id() == node.id() {
                                 continue;
                             }
-                        }
-                    }
-                }
 
                 let start = node.start_position();
                 findings.push(AuditFinding {
@@ -84,15 +80,13 @@ impl Pipeline for UncheckedIndexAccessPipeline {
 fn is_inside_if_condition(node: tree_sitter::Node) -> bool {
     let mut current = node;
     while let Some(parent) = current.parent() {
-        if parent.kind() == "if_statement" {
-            if let Some(condition) = parent.child_by_field_name("condition") {
-                if condition.start_byte() <= node.start_byte()
+        if parent.kind() == "if_statement"
+            && let Some(condition) = parent.child_by_field_name("condition")
+                && condition.start_byte() <= node.start_byte()
                     && condition.end_byte() >= node.end_byte()
                 {
                     return true;
                 }
-            }
-        }
         current = parent;
     }
     false

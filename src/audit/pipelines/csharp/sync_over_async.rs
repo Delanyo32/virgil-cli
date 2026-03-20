@@ -59,8 +59,8 @@ impl Pipeline for SyncOverAsyncPipeline {
                     .find(|c| c.index as usize == member_access_idx)
                     .map(|c| c.node);
 
-                if let (Some(name_node), Some(access_node)) = (name_node, access_node) {
-                    if node_text(name_node, source) == "Result" {
+                if let (Some(name_node), Some(access_node)) = (name_node, access_node)
+                    && node_text(name_node, source) == "Result" {
                         let start = access_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -73,7 +73,6 @@ impl Pipeline for SyncOverAsyncPipeline {
                             snippet: extract_snippet(source, access_node, 3),
                         });
                     }
-                }
             }
         }
 
@@ -147,8 +146,7 @@ impl Pipeline for SyncOverAsyncPipeline {
 
                 if let (Some(type_node), Some(name_node), Some(decl_node)) =
                     (type_node, name_node, decl_node)
-                {
-                    if has_modifier(decl_node, source, "async")
+                    && has_modifier(decl_node, source, "async")
                         && node_text(type_node, source) == "void"
                     {
                         let method_name = node_text(name_node, source);
@@ -166,7 +164,6 @@ impl Pipeline for SyncOverAsyncPipeline {
                             snippet: extract_snippet(source, decl_node, 3),
                         });
                     }
-                }
             }
         }
 

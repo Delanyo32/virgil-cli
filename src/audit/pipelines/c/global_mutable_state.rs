@@ -76,11 +76,10 @@ impl Pipeline for GlobalMutableStatePipeline {
                 }
 
                 // Skip function prototypes
-                if let Some(declarator) = decl_node.child_by_field_name("declarator") {
-                    if Self::is_function_declarator(declarator) {
+                if let Some(declarator) = decl_node.child_by_field_name("declarator")
+                    && Self::is_function_declarator(declarator) {
                         continue;
                     }
-                }
 
                 let var_name = decl_node
                     .child_by_field_name("declarator")

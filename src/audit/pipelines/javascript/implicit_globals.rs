@@ -69,17 +69,16 @@ impl ImplicitGlobalsPipeline {
 
     fn search_declarations(
         node: tree_sitter::Node,
-        cursor: &mut tree_sitter::TreeCursor,
+        _cursor: &mut tree_sitter::TreeCursor,
         name: &str,
         source: &[u8],
     ) -> bool {
         match node.kind() {
             "variable_declarator" => {
-                if let Some(name_node) = node.child_by_field_name("name") {
-                    if name_node.kind() == "identifier" && node_text(name_node, source) == name {
+                if let Some(name_node) = node.child_by_field_name("name")
+                    && name_node.kind() == "identifier" && node_text(name_node, source) == name {
                         return true;
                     }
-                }
             }
             "formal_parameters" => {
                 let mut child_cursor = node.walk();
@@ -101,7 +100,7 @@ impl ImplicitGlobalsPipeline {
             {
                 continue;
             }
-            if Self::search_declarations(child, cursor, name, source) {
+            if Self::search_declarations(child, _cursor, name, source) {
                 return true;
             }
         }

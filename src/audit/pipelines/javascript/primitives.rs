@@ -213,11 +213,10 @@ pub fn is_safe_literal(node: tree_sitter::Node, _source: &[u8]) -> bool {
         "template_string" => {
             // Safe only if no template substitutions
             for i in 0..node.named_child_count() {
-                if let Some(child) = node.named_child(i) {
-                    if child.kind() == "template_substitution" {
+                if let Some(child) = node.named_child(i)
+                    && child.kind() == "template_substitution" {
                         return false;
                     }
-                }
             }
             true
         }
@@ -229,7 +228,7 @@ pub fn is_safe_literal(node: tree_sitter::Node, _source: &[u8]) -> bool {
 /// Detect nested quantifiers in regex text: (x+)+, (a*)*, ([a-z]+)* etc.
 pub fn has_nested_quantifier(regex_text: &str) -> bool {
     let mut depth = 0;
-    let mut prev_quantifier_at_depth = vec![false; 64];
+    let mut prev_quantifier_at_depth = [false; 64];
     let chars: Vec<char> = regex_text.chars().collect();
     let mut i = 0;
     while i < chars.len() {
@@ -245,9 +244,7 @@ pub fn has_nested_quantifier(regex_text: &str) -> bool {
                 }
             }
             ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
                 // Check if a quantifier follows this group
                 if i + 1 < chars.len() && matches!(chars[i + 1], '+' | '*' | '?') {
                     // If the group contained a quantifier, we have nested quantifiers

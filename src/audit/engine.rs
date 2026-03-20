@@ -29,6 +29,12 @@ pub struct AuditEngine {
     progress: Option<indicatif::ProgressBar>,
 }
 
+impl Default for AuditEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuditEngine {
     pub fn new() -> Self {
         Self {

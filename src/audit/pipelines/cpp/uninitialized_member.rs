@@ -135,11 +135,10 @@ impl Pipeline for UninitializedMemberPipeline {
                     continue;
                 }
 
-                if let Some(declarator) = declarator_cap {
-                    if Self::has_default_member_init(declarator.node) {
+                if let Some(declarator) = declarator_cap
+                    && Self::has_default_member_init(declarator.node) {
                         continue;
                     }
-                }
 
                 let var_name = declarator_cap
                     .and_then(|c| find_identifier_in_declarator(c.node, source))

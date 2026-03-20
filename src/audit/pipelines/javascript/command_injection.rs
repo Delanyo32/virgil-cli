@@ -68,9 +68,9 @@ impl Pipeline for CommandInjectionPipeline {
                 {
                     let method_name = node_text(method, source);
 
-                    if matches!(method_name, "exec" | "execSync" | "execFileSync") {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                    if matches!(method_name, "exec" | "execSync" | "execFileSync")
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -86,8 +86,6 @@ impl Pipeline for CommandInjectionPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
 
                     // spawn with shell: true
                     if method_name == "spawn" {
@@ -138,9 +136,9 @@ impl Pipeline for CommandInjectionPipeline {
 
                 if let (Some(fn_n), Some(args), Some(call)) = (fn_node, args_node, call_node) {
                     let fn_name = node_text(fn_n, source);
-                    if matches!(fn_name, "exec" | "execSync") {
-                        if let Some(first_arg) = args.named_child(0) {
-                            if !is_safe_literal(first_arg, source) {
+                    if matches!(fn_name, "exec" | "execSync")
+                        && let Some(first_arg) = args.named_child(0)
+                            && !is_safe_literal(first_arg, source) {
                                 let start = call.start_position();
                                 findings.push(AuditFinding {
                                     file_path: file_path.to_string(),
@@ -156,8 +154,6 @@ impl Pipeline for CommandInjectionPipeline {
                                     snippet: extract_snippet(source, call, 1),
                                 });
                             }
-                        }
-                    }
                 }
             }
         }

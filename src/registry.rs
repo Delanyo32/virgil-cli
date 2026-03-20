@@ -80,11 +80,10 @@ pub fn create_project(
 
     let mut breakdown: HashMap<String, usize> = HashMap::new();
     for file in &files {
-        if let Some(ext) = file.extension().and_then(|e| e.to_str()) {
-            if let Some(lang) = Language::from_extension(ext) {
+        if let Some(ext) = file.extension().and_then(|e| e.to_str())
+            && let Some(lang) = Language::from_extension(ext) {
                 *breakdown.entry(lang.as_str().to_string()).or_default() += 1;
             }
-        }
     }
 
     let entry = ProjectEntry {

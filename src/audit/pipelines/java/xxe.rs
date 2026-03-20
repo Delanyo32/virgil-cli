@@ -77,8 +77,8 @@ impl Pipeline for XxePipeline {
                 let method_name = node_text(method_node, source);
 
                 // Detect XML factory instantiation without secure config
-                if XML_FACTORIES.contains(&obj_name) && method_name == "newInstance" {
-                    if !has_secure_config {
+                if XML_FACTORIES.contains(&obj_name) && method_name == "newInstance"
+                    && !has_secure_config {
                         let start = inv_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
@@ -93,13 +93,12 @@ impl Pipeline for XxePipeline {
                             snippet: extract_snippet(source, inv_node, 1),
                         });
                     }
-                }
 
                 // Detect XPath injection via string concat
                 if method_name == "evaluate" || method_name == "compile" {
                     let inv_text = node_text(inv_node, source);
-                    if inv_text.contains("XPath") || inv_text.contains("xpath") {
-                        if inv_text.contains('+') {
+                    if (inv_text.contains("XPath") || inv_text.contains("xpath"))
+                        && inv_text.contains('+') {
                             let start = inv_node.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
@@ -112,7 +111,6 @@ impl Pipeline for XxePipeline {
                                 snippet: extract_snippet(source, inv_node, 1),
                             });
                         }
-                    }
                 }
             }
         }

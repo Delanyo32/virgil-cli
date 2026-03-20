@@ -72,11 +72,10 @@ impl Pipeline for InitAbusePipeline {
                 .find(|c| c.index as usize == fn_body_idx)
                 .map(|c| c.node);
 
-            if let (Some(name_node), Some(body_node)) = (name_node, body_node) {
-                if node_text(name_node, source) == "init" {
+            if let (Some(name_node), Some(body_node)) = (name_node, body_node)
+                && node_text(name_node, source) == "init" {
                     init_body_ranges.push(body_node.range());
                 }
-            }
         }
 
         if init_body_ranges.is_empty() {

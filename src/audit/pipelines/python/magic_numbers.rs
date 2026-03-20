@@ -42,11 +42,10 @@ impl PythonMagicNumbersPipeline {
                 // Subscript index position (arr[3])
                 "subscript" => {
                     // Check if the number is the index (second named child)
-                    if let Some(index) = parent.named_child(1) {
-                        if index.id() == node.id() {
+                    if let Some(index) = parent.named_child(1)
+                        && index.id() == node.id() {
                             return true;
                         }
-                    }
                 }
                 // keyword argument (func(timeout=30))
                 "keyword_argument" => {

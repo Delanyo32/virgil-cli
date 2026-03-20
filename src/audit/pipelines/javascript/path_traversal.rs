@@ -129,9 +129,8 @@ impl Pipeline for PathTraversalPipeline {
                         method_name,
                         "readFile" | "readFileSync" | "writeFile" | "writeFileSync"
                     )
-                {
-                    if let Some(first_arg) = args.named_child(0) {
-                        if !is_safe_literal(first_arg, source) {
+                    && let Some(first_arg) = args.named_child(0)
+                        && !is_safe_literal(first_arg, source) {
                             let start = call.start_position();
                             findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
@@ -147,8 +146,6 @@ impl Pipeline for PathTraversalPipeline {
                                 snippet: extract_snippet(source, call, 1),
                             });
                         }
-                    }
-                }
             }
         }
 

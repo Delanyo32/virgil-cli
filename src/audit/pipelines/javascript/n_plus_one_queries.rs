@@ -138,26 +138,19 @@ impl NPlusOneQueriesPipeline {
         while let Some(parent) = current {
             // Look for arrow_function or function_expression whose parent is arguments
             // whose parent is a call_expression with a matching method name.
-            if parent.kind() == "arrow_function" || parent.kind() == "function_expression" {
-                if let Some(args_node) = parent.parent() {
-                    if args_node.kind() == "arguments" {
-                        if let Some(call_node) = args_node.parent() {
-                            if call_node.kind() == "call_expression" {
-                                if let Some(func) = call_node.child_by_field_name("function") {
-                                    if func.kind() == "member_expression" {
-                                        if let Some(prop) = func.child_by_field_name("property") {
+            if (parent.kind() == "arrow_function" || parent.kind() == "function_expression")
+                && let Some(args_node) = parent.parent()
+                    && args_node.kind() == "arguments"
+                        && let Some(call_node) = args_node.parent()
+                            && call_node.kind() == "call_expression"
+                                && let Some(func) = call_node.child_by_field_name("function")
+                                    && func.kind() == "member_expression"
+                                        && let Some(prop) = func.child_by_field_name("property") {
                                             let method_name = node_text(prop, source);
                                             if ARRAY_LOOP_METHODS.contains(&method_name) {
                                                 return true;
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             current = parent.parent();
         }
         false

@@ -99,7 +99,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
             for cap in m.captures {
                 if cap.index as usize == def_idx {
                     // Only count top-level exports (direct children of program)
-                    if cap.node.parent().map_or(false, |p| p.kind() == "program") {
+                    if cap.node.parent().is_some_and(|p| p.kind() == "program") {
                         exported_count += 1;
                     }
                 }

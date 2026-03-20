@@ -211,8 +211,8 @@ fn extract_import_names_recursive(
             // Default import identifier
             "identifier" => {
                 // Only if parent is import_clause (default import)
-                if let Some(parent) = node.parent() {
-                    if parent.kind() == "import_clause" {
+                if let Some(parent) = node.parent()
+                    && parent.kind() == "import_clause" {
                         let text = node.utf8_text(source).unwrap_or("");
                         if !text.is_empty() {
                             let pos = node.start_position();
@@ -223,7 +223,6 @@ fn extract_import_names_recursive(
                             ));
                         }
                     }
-                }
             }
             _ => {
                 let mut cursor = node.walk();

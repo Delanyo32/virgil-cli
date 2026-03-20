@@ -91,15 +91,14 @@ impl Pipeline for ApiSurfaceAreaPipeline {
             let mut matches = cursor.matches(&self.pub_symbol_query, root, source);
             while let Some(m) = matches.next() {
                 for cap in m.captures {
-                    if cap.index as usize == pub_sym_idx {
-                        if cap
+                    if cap.index as usize == pub_sym_idx
+                        && cap
                             .node
                             .parent()
-                            .map_or(false, |p| p.kind() == "source_file")
+                            .is_some_and(|p| p.kind() == "source_file")
                         {
                             exported_count += 1;
                         }
-                    }
                 }
             }
         }

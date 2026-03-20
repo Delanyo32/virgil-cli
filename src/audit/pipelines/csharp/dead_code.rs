@@ -167,15 +167,13 @@ fn collect_identifiers_into(root: tree_sitter::Node, source: &[u8], ids: &mut Ha
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();
-        if kind == "identifier"
+        if (kind == "identifier"
             || kind == "field_identifier"
             || kind == "type_identifier"
-            || kind == "property_identifier"
-        {
-            if let Ok(text) = node.utf8_text(source) {
+            || kind == "property_identifier")
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -188,11 +186,10 @@ fn extract_last_identifier(using_node: tree_sitter::Node, source: &[u8]) -> Stri
     let mut last_id = String::new();
     let mut stack = vec![using_node];
     while let Some(node) = stack.pop() {
-        if node.kind() == "identifier" {
-            if let Ok(text) = node.utf8_text(source) {
+        if node.kind() == "identifier"
+            && let Ok(text) = node.utf8_text(source) {
                 last_id = text.to_string();
             }
-        }
         let mut cursor = node.walk();
         // Push in reverse so left-to-right order means last identifier wins
         let children: Vec<_> = node.children(&mut cursor).collect();

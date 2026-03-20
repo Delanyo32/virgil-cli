@@ -76,14 +76,13 @@ fn classify_any_usage(node: tree_sitter::Node) -> (&'static str, &'static str) {
             }
             "function_declaration" | "arrow_function" | "method_definition" => {
                 // Check if we're in the return type position
-                if let Some(return_type) = parent.child_by_field_name("return_type") {
-                    if is_ancestor_of(return_type, node) {
+                if let Some(return_type) = parent.child_by_field_name("return_type")
+                    && is_ancestor_of(return_type, node) {
                         return (
                             "any_return",
                             "Function returns `any` — callers lose type safety. Use a specific return type or `unknown`",
                         );
                     }
-                }
                 break;
             }
             _ => {

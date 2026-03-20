@@ -109,13 +109,11 @@ fn collect_function_items<'a>(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_item" {
-            if let Some(name_node) = node.child_by_field_name("name") {
-                if let Ok(name) = name_node.utf8_text(source) {
+        if node.kind() == "function_item"
+            && let Some(name_node) = node.child_by_field_name("name")
+                && let Ok(name) = name_node.utf8_text(source) {
                     out.push((name.to_string(), node));
                 }
-            }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);
@@ -168,11 +166,9 @@ fn collect_usage_ids_recursive(
         // Collect identifiers (unless this node is the fn name position)
         if !skip_this_id
             && (kind == "identifier" || kind == "field_identifier" || kind == "type_identifier")
-        {
-            if let Ok(text) = node.utf8_text(source) {
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -215,14 +211,13 @@ fn collect_use_declarations<'a>(
 ) {
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        if child.kind() == "use_declaration" {
-            if let Some(name) = extract_last_use_segment(child, source) {
+        if child.kind() == "use_declaration"
+            && let Some(name) = extract_last_use_segment(child, source) {
                 // Skip wildcard imports
                 if name != "*" {
                     out.push((name, child));
                 }
             }
-        }
     }
 }
 
@@ -249,11 +244,10 @@ fn collect_ids_excluding_recursive(
             continue;
         }
         let kind = node.kind();
-        if kind == "identifier" || kind == "type_identifier" || kind == "field_identifier" {
-            if let Ok(text) = node.utf8_text(source) {
+        if (kind == "identifier" || kind == "type_identifier" || kind == "field_identifier")
+            && let Ok(text) = node.utf8_text(source) {
                 ids.insert(text.to_string());
             }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             stack.push(child);

@@ -67,9 +67,9 @@ impl MutexMisusePipeline {
         receiver: &str,
         expected_unlock: &str,
     ) -> bool {
-        if node.kind() == "call_expression" {
-            if let Some(func) = node.child_by_field_name("function") {
-                if func.kind() == "selector_expression" {
+        if node.kind() == "call_expression"
+            && let Some(func) = node.child_by_field_name("function")
+                && func.kind() == "selector_expression" {
                     let operand = func
                         .child_by_field_name("operand")
                         .and_then(|o| o.utf8_text(source).ok())
@@ -82,8 +82,6 @@ impl MutexMisusePipeline {
                         return true;
                     }
                 }
-            }
-        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if Self::walk_for_unlock(child, source, receiver, expected_unlock) {
