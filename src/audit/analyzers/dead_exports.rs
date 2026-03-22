@@ -94,7 +94,6 @@ mod tests {
     use crate::language::Language;
     use crate::models::{ImportInfo, SymbolKind};
 
-
     #[test]
     fn detects_dead_export() {
         let mut index = ProjectIndex::new();
