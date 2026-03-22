@@ -9,7 +9,7 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 
 /// Definite DB methods — always flagged regardless of receiver
 const DEFINITE_DB_METHODS: &[&str] = &[
@@ -163,9 +163,9 @@ impl NPlusOneQueriesPipeline {
                         let receiver = extract_receiver_text(inv_node, source);
                         if !receiver.is_empty() {
                             // Skip if receiver looks like a collection/non-DB type
-                            if receiver_matches_any(receiver, NON_DB_RECEIVER_PATTERNS) {
+                            if receiver_matches_any_word(receiver, NON_DB_RECEIVER_PATTERNS) {
                                 // Not a DB call — skip
-                            } else if receiver_matches_any(receiver, DB_RECEIVER_PATTERNS) {
+                            } else if receiver_matches_any_word(receiver, DB_RECEIVER_PATTERNS) {
                                 results.push((inv_node, "db_query_in_loop"));
                             }
                             // If receiver doesn't match either list, skip (conservative)

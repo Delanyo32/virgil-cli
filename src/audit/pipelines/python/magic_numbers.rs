@@ -6,7 +6,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{ancestor_has_kind, is_test_context_python, is_test_file};
+use crate::audit::pipelines::helpers::{
+    ancestor_has_kind, is_test_context_python, is_test_file, COMMON_ALLOWED_NUMBERS,
+};
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index, node_text};
 
@@ -91,7 +93,7 @@ impl Pipeline for PythonMagicNumbersPipeline {
             if let Some(num_cap) = num_cap {
                 let value = num_cap.node.utf8_text(source).unwrap_or("");
 
-                if EXCLUDED_VALUES.contains(&value) {
+                if EXCLUDED_VALUES.contains(&value) || COMMON_ALLOWED_NUMBERS.contains(&value) {
                     continue;
                 }
 

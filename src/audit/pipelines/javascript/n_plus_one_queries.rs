@@ -9,7 +9,7 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 
 /// DB/ORM method names that suggest a database query.
 const DB_METHOD_NAMES: &[&str] = &[
@@ -67,6 +67,9 @@ const DB_OBJ_METHOD_PAIRS: &[(&str, &str)] = &[
     ("http", "post"),
     ("http", "request"),
 ];
+
+/// Batch methods — skip these, they are the fix for N+1
+const BATCH_METHODS: &[&str] = &["insertMany", "updateMany", "deleteMany", "bulkWrite", "bulkCreate"];
 
 /// Bare function calls that suggest network access.
 const BARE_CALL_PATTERNS: &[&str] = &["fetch", "request"];
@@ -243,6 +246,11 @@ impl Pipeline for NPlusOneQueriesPipeline {
                     let obj_name = node_text(obj, source);
                     let method_name = node_text(method, source);
 
+                    // Skip batch methods — they are the fix for N+1
+                    if BATCH_METHODS.contains(&method_name) {
+                        continue;
+                    }
+
                     // Check specific obj.method pairs
                     let mut matched_pair = false;
                     for &(expected_obj, expected_method) in DB_OBJ_METHOD_PAIRS {
@@ -272,7 +280,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
                         if GENERIC_METHOD_NAMES.contains(&method_name) {
                             let receiver = extract_receiver_text(call, source);
                             if !receiver.is_empty()
-                                && receiver_matches_any(receiver, NON_DB_RECEIVERS)
+                                && receiver_matches_any_word(receiver, NON_DB_RECEIVERS)
                             {
                                 continue;
                             }

@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
 
@@ -45,6 +45,9 @@ const NON_DB_RECEIVERS: &[&str] = &[
 const DB_RECEIVERS: &[&str] = &[
     "session", "query", "db", "model", "objects", "cursor", "conn",
 ];
+
+/// Batch methods — skip these, they are the opposite of N+1
+const BATCH_METHODS: &[&str] = &["bulk_create", "bulk_update", "in_bulk"];
 
 const LOOP_KINDS: &[&str] = &["for_statement", "while_statement"];
 
@@ -93,6 +96,11 @@ impl NPlusOneQueriesPipeline {
                 .map(|n| node_text(n, source));
 
             if let (Some(obj), Some(attr)) = (obj, attr) {
+                // Skip batch methods — they are the fix for N+1
+                if BATCH_METHODS.contains(&attr) {
+                    return None;
+                }
+
                 // Check specific obj.method patterns
                 for &(expected_obj, expected_method) in DB_ATTR_CALLS {
                     if obj == expected_obj && attr == expected_method {
@@ -109,11 +117,11 @@ impl NPlusOneQueriesPipeline {
                 if ORM_METHOD_NAMES.contains(&attr) {
                     let receiver = extract_receiver_text(call_node, source);
                     // Skip if receiver matches non-DB patterns
-                    if !receiver.is_empty() && receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                    if !receiver.is_empty() && receiver_matches_any_word(receiver, NON_DB_RECEIVERS) {
                         return None;
                     }
                     // Only flag if receiver matches DB patterns or is unknown
-                    if receiver.is_empty() || receiver_matches_any(receiver, DB_RECEIVERS) {
+                    if receiver.is_empty() || receiver_matches_any_word(receiver, DB_RECEIVERS) {
                         return Some(self.make_finding(
                             call_node,
                             source,

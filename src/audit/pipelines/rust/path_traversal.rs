@@ -7,6 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use super::primitives::{self, extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{
+    all_args_are_literals, call_args_reference_params, is_literal_node_rust,
+};
 
 pub struct PathTraversalPipeline {
     fn_query: Arc<Query>,
@@ -54,15 +57,29 @@ impl Pipeline for PathTraversalPipeline {
                 .map(|c| c.node);
 
             if let (Some(body), Some(fn_def)) = (body_node, fn_node) {
-                // Check if function has parameters
-                let has_params = {
+                // Extract parameter names from the function's parameters field
+                let param_names: Vec<String> = {
                     let mut pc = QueryCursor::new();
                     pc.set_byte_range(fn_def.byte_range());
+                    let name_idx = find_capture_index(&self.param_query, "param_name");
                     let mut pm = pc.matches(&self.param_query, tree.root_node(), source);
-                    pm.next().is_some()
+                    let mut names = Vec::new();
+                    while let Some(m) = pm.next() {
+                        if let Some(cap) = m
+                            .captures
+                            .iter()
+                            .find(|c| c.index as usize == name_idx)
+                        {
+                            let name = node_text(cap.node, source);
+                            if !name.is_empty() {
+                                names.push(name.to_string());
+                            }
+                        }
+                    }
+                    names
                 };
 
-                if !has_params {
+                if param_names.is_empty() {
                     continue;
                 }
 
@@ -97,6 +114,18 @@ impl Pipeline for PathTraversalPipeline {
                             || call_lower.contains("file");
 
                         if is_path_op {
+                            // Skip if all arguments to the call are safe literals
+                            if let Some(args_node) = call.child_by_field_name("arguments") {
+                                if all_args_are_literals(args_node, is_literal_node_rust) {
+                                    continue;
+                                }
+                            }
+
+                            // Only flag if call arguments actually reference a function parameter
+                            if !call_args_reference_params(call, &param_names, source) {
+                                continue;
+                            }
+
                             let (pattern, msg) = match method_name {
                                 "join" => (
                                     "unvalidated_path_join",

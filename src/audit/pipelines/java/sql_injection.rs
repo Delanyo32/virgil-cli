@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{all_args_are_literals, is_literal_node_java};
 
 use super::primitives::{
     compile_method_invocation_with_object_query, extract_snippet, find_capture_index, node_text,
@@ -69,6 +70,11 @@ impl Pipeline for SqlInjectionPipeline {
                 }
 
                 let args_text = node_text(args_node, source);
+
+                // Skip if all arguments are safe literals/constants
+                if all_args_are_literals(args_node, is_literal_node_java) {
+                    continue;
+                }
 
                 if args_text.contains("String.format") || args_text.contains("string.format") {
                     let start = inv_node.start_position();

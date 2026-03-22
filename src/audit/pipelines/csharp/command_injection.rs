@@ -11,6 +11,9 @@ use super::primitives::{
     compile_assignment_expression_query, compile_object_creation_query, extract_snippet,
     find_capture_index, node_text,
 };
+use crate::audit::pipelines::helpers::{
+    all_args_are_literals, is_literal_node_csharp, is_safe_expression,
+};
 
 pub struct CommandInjectionPipeline {
     creation_query: Arc<Query>,
@@ -83,6 +86,11 @@ impl CommandInjectionPipeline {
                     continue;
                 }
 
+                // Skip if all arguments are safe literals/constants
+                if all_args_are_literals(args_node, is_literal_node_csharp) {
+                    continue;
+                }
+
                 let args_text = node_text(args_node, source);
                 let has_shell = args_text.contains("\"cmd\"")
                     || args_text.contains("\"bash\"")
@@ -144,6 +152,11 @@ impl CommandInjectionPipeline {
             {
                 let lhs_text = node_text(lhs_node, source);
                 if !lhs_text.contains("Arguments") {
+                    continue;
+                }
+
+                // Skip if the RHS is a safe literal expression
+                if is_safe_expression(rhs_node, is_literal_node_csharp) {
                     continue;
                 }
 

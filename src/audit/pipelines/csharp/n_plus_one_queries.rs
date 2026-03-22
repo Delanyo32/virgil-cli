@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
@@ -158,11 +158,11 @@ impl NPlusOneQueriesPipeline {
                                 let receiver = extract_receiver_text(inv_node, source);
                                 if !receiver.is_empty() {
                                     // Skip if receiver looks like an in-memory collection
-                                    if receiver_matches_any(receiver, IN_MEMORY_RECEIVER_PATTERNS) {
+                                    if receiver_matches_any_word(receiver, IN_MEMORY_RECEIVER_PATTERNS) {
                                         break;
                                     }
                                     // For ambiguous methods, only flag if receiver looks like a DB context
-                                    if !receiver_matches_any(receiver, DB_CONTEXT_RECEIVER_PATTERNS)
+                                    if !receiver_matches_any_word(receiver, DB_CONTEXT_RECEIVER_PATTERNS)
                                     {
                                         break;
                                     }

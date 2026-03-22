@@ -35,6 +35,9 @@ const DB_OBJ_METHOD_PAIRS: &[(&str, &str)] = &[
     ("http", "request"),
 ];
 
+/// Batch methods — skip these, they are the fix for N+1
+const BATCH_METHODS: &[&str] = &["insertMany", "updateMany", "deleteMany", "bulkWrite", "bulkCreate"];
+
 /// Bare function calls that suggest network access.
 const BARE_CALL_PATTERNS: &[&str] = &["fetch", "request"];
 
@@ -203,6 +206,11 @@ impl Pipeline for NPlusOneQueriesPipeline {
 
                     let obj_name = node_text(obj, source);
                     let method_name = node_text(method, source);
+
+                    // Skip batch methods — they are the fix for N+1
+                    if BATCH_METHODS.contains(&method_name) {
+                        continue;
+                    }
 
                     // Check specific obj.method pairs
                     for &(expected_obj, expected_method) in DB_OBJ_METHOD_PAIRS {

@@ -50,6 +50,11 @@ impl Pipeline for DeadCodePipeline {
         // so that type-only imports used in type positions aren't flagged as unused
         collect_type_identifiers(root, source, &mut used_ids);
 
+        // Collect re-exported names so imports that are immediately re-exported
+        // (e.g. `export { helper }` or `export { helper } from './utils'`) are not
+        // flagged as unused.
+        let reexported_names = collect_reexported_names(root, source);
+
         // Walk import statements and extract imported names
         let mut import_cursor = root.walk();
         for child in root.children(&mut import_cursor) {
@@ -58,7 +63,7 @@ impl Pipeline for DeadCodePipeline {
             }
             let imported_names = extract_import_names(child, source);
             for (name, name_line, name_col) in imported_names {
-                if !used_ids.contains(&name) {
+                if !used_ids.contains(&name) && !reexported_names.contains(&name) {
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: name_line,
@@ -141,6 +146,40 @@ fn collect_type_identifiers(root: tree_sitter::Node, source: &[u8], ids: &mut Ha
             stack.push(child);
         }
     }
+}
+
+/// Collect names that are re-exported via `export { name }` or `export { name } from '...'`.
+/// For `export { a as b }`, the *original* name `a` is what was imported, so we collect `a`.
+fn collect_reexported_names(root: tree_sitter::Node, source: &[u8]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() != "export_statement" {
+            continue;
+        }
+        // Look for export_clause children inside the export_statement
+        let mut export_cursor = child.walk();
+        for export_child in child.children(&mut export_cursor) {
+            if export_child.kind() != "export_clause" {
+                continue;
+            }
+            // Each named child of export_clause is an export_specifier
+            let mut clause_cursor = export_child.walk();
+            for specifier in export_child.named_children(&mut clause_cursor) {
+                if specifier.kind() != "export_specifier" {
+                    continue;
+                }
+                // The `name` field is the original identifier being re-exported
+                if let Some(name_node) = specifier.child_by_field_name("name") {
+                    let text = name_node.utf8_text(source).unwrap_or("");
+                    if !text.is_empty() {
+                        names.insert(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+    names
 }
 
 /// Extract imported names from an import_statement node.
@@ -354,6 +393,52 @@ const x = 1;
             .collect();
         assert_eq!(unused.len(), 1);
         assert!(unused[0].message.contains("utils"));
+    }
+
+    #[test]
+    fn skips_reexported_import() {
+        let source = r#"
+import { helper } from './utils';
+export { helper };
+"#;
+        let findings = parse_and_check(source);
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_imports")
+            .collect();
+        assert!(unused.is_empty());
+    }
+
+    #[test]
+    fn skips_reexported_with_alias() {
+        let source = r#"
+import { helper } from './utils';
+export { helper as renamedHelper };
+"#;
+        let findings = parse_and_check(source);
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_imports")
+            .collect();
+        assert!(unused.is_empty());
+    }
+
+    #[test]
+    fn skips_reexported_from_source() {
+        // Barrel re-export: export { helper } from './utils'
+        // This is an export_statement (not import_statement), so the import
+        // itself doesn't exist — nothing to flag.  But if there IS also a
+        // separate import, it should not be flagged.
+        let source = r#"
+import { helper } from './utils';
+export { helper } from './utils';
+"#;
+        let findings = parse_and_check(source);
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_imports")
+            .collect();
+        assert!(unused.is_empty());
     }
 
     #[test]

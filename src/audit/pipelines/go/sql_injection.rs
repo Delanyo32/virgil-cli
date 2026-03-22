@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{all_args_are_literals, is_literal_node_go};
 
 use super::primitives::{
     compile_method_call_query, extract_snippet, find_capture_index, node_text,
@@ -62,6 +63,16 @@ impl Pipeline for SqlInjectionPipeline {
                 }
 
                 let call_text = node_text(call_node, source);
+
+                // Skip if all arguments to the SQL call are safe literals
+                let args_child = (0..call_node.child_count())
+                    .filter_map(|i| call_node.child(i))
+                    .find(|c| c.kind() == "argument_list");
+                if let Some(args) = args_child {
+                    if all_args_are_literals(args, is_literal_node_go) {
+                        continue;
+                    }
+                }
 
                 if call_text.contains("fmt.Sprintf") {
                     let start = call_node.start_position();

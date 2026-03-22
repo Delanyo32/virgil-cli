@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 
 use super::primitives::{
     compile_for_statement_query, compile_method_call_query, compile_selector_call_query,
@@ -123,7 +123,7 @@ impl NPlusOneQueriesPipeline {
                     // For ambiguous methods, check the receiver
                     let receiver = extract_receiver_text(call, source);
                     if !receiver.is_empty()
-                        && receiver_matches_any(receiver, NON_DB_RECEIVER_PATTERNS)
+                        && receiver_matches_any_word(receiver, NON_DB_RECEIVER_PATTERNS)
                     {
                         continue;
                     }
