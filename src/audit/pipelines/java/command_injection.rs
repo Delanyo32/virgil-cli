@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{all_args_are_literals, is_literal_node_java};
 
 use super::primitives::{
     compile_method_invocation_with_object_query, compile_object_creation_query, extract_snippet,
@@ -88,6 +89,11 @@ impl CommandInjectionPipeline {
                     continue;
                 }
 
+                // Skip if all arguments are safe literals/constants
+                if all_args_are_literals(args_node, is_literal_node_java) {
+                    continue;
+                }
+
                 let args_text = node_text(args_node, source);
                 if args_text.contains('+') {
                     let start = inv_node.start_position();
@@ -144,6 +150,11 @@ impl CommandInjectionPipeline {
             {
                 let type_name = node_text(type_node, source);
                 if type_name != "ProcessBuilder" {
+                    continue;
+                }
+
+                // Skip if all arguments are safe literals/constants
+                if all_args_are_literals(args_node, is_literal_node_java) {
                     continue;
                 }
 

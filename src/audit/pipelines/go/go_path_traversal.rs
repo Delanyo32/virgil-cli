@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::call_args_reference_params;
 
 use super::primitives::{
     compile_function_decl_query, compile_param_decl_query, compile_selector_call_query,
@@ -27,20 +28,29 @@ impl GoPathTraversalPipeline {
         })
     }
 
-    fn function_has_params(&self, fn_body: tree_sitter::Node, source: &[u8]) -> bool {
+    fn extract_param_names(&self, fn_body: tree_sitter::Node, source: &[u8]) -> Vec<String> {
+        let mut names = Vec::new();
         // Walk up from fn_body to the function_declaration to find parameter_list
         if let Some(fn_decl) = fn_body.parent() {
             let mut child_cursor = fn_decl.walk();
             for child in fn_decl.children(&mut child_cursor) {
                 if child.kind() == "parameter_list" {
-                    // Check if there are actual parameter declarations
                     let mut param_cursor = QueryCursor::new();
+                    let name_idx = find_capture_index(&self.param_query, "param_name");
                     let mut matches = param_cursor.matches(&self.param_query, child, source);
-                    return matches.next().is_some();
+                    while let Some(m) = matches.next() {
+                        if let Some(cap) = m.captures.iter().find(|c| c.index as usize == name_idx)
+                        {
+                            let name = node_text(cap.node, source);
+                            if !name.is_empty() {
+                                names.push(name.to_string());
+                            }
+                        }
+                    }
                 }
             }
         }
-        false
+        names
     }
 
     fn enclosing_function_body<'a>(
@@ -117,12 +127,12 @@ impl Pipeline for GoPathTraversalPipeline {
                 let method_name = node_text(method, source);
 
                 if pkg_name == "filepath" && method_name == "Join" {
-                    // Check if we're in a function with parameters
-                    if let Some(fn_body) = self.enclosing_function_body(call)
-                        && self.function_has_params(fn_body, source)
-                    {
-                        let start = call.start_position();
-                        findings.push(AuditFinding {
+                    // Check if call arguments reference function parameters
+                    if let Some(fn_body) = self.enclosing_function_body(call) {
+                        let param_names = self.extract_param_names(fn_body, source);
+                        if call_args_reference_params(call, &param_names, source) {
+                            let start = call.start_position();
+                            findings.push(AuditFinding {
                                 file_path: file_path.to_string(),
                                 line: start.row as u32 + 1,
                                 column: start.column as u32 + 1,
@@ -132,30 +142,35 @@ impl Pipeline for GoPathTraversalPipeline {
                                 message: "filepath.Join in parameterized function — validate path components to prevent traversal".to_string(),
                                 snippet: extract_snippet(source, call, 1),
                             });
+                        }
                     }
                 } else if pkg_name == "os"
                     && (method_name == "Open"
                         || method_name == "Create"
                         || method_name == "OpenFile")
                 {
-                    // Flag if arguments are not all literals (i.e., contain variables)
-                    if !Self::call_has_only_literals(call, source)
-                        && let Some(fn_body) = self.enclosing_function_body(call)
-                        && self.function_has_params(fn_body, source)
-                    {
-                        let start = call.start_position();
-                        findings.push(AuditFinding {
-                                    file_path: file_path.to_string(),
-                                    line: start.row as u32 + 1,
-                                    column: start.column as u32 + 1,
-                                    severity: "warning".to_string(),
-                                    pipeline: self.name().to_string(),
-                                    pattern: "unvalidated_file_open".to_string(),
-                                    message: format!(
-                                        "os.{method_name} with non-literal argument in parameterized function — validate path to prevent traversal"
-                                    ),
-                                    snippet: extract_snippet(source, call, 1),
-                                });
+                    // Skip if all arguments are literals (no user input possible)
+                    if Self::call_has_only_literals(call, source) {
+                        continue;
+                    }
+                    // Flag only if call arguments reference function parameters
+                    if let Some(fn_body) = self.enclosing_function_body(call) {
+                        let param_names = self.extract_param_names(fn_body, source);
+                        if call_args_reference_params(call, &param_names, source) {
+                            let start = call.start_position();
+                            findings.push(AuditFinding {
+                                file_path: file_path.to_string(),
+                                line: start.row as u32 + 1,
+                                column: start.column as u32 + 1,
+                                severity: "warning".to_string(),
+                                pipeline: self.name().to_string(),
+                                pattern: "unvalidated_file_open".to_string(),
+                                message: format!(
+                                    "os.{method_name} with non-literal argument in parameterized function — validate path to prevent traversal"
+                                ),
+                                snippet: extract_snippet(source, call, 1),
+                            });
+                        }
                     }
                 }
             }

@@ -1,6 +1,10 @@
+pub mod analyzers;
 pub mod engine;
 pub mod format;
+pub mod index_builder;
 pub mod models;
 pub mod pipeline;
 pub mod pipelines;
 pub mod primitives;
+pub mod project_analyzer;
+pub mod project_index;

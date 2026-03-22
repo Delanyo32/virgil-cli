@@ -29,7 +29,8 @@ regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 aws-sdk-s3 = "1"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal", "time"] }
+axum = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

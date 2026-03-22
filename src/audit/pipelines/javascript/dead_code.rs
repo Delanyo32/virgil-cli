@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use tree_sitter::Tree;
 
@@ -23,6 +25,11 @@ impl DeadCodePipeline {
         file_path: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
+        // Collect re-exported names so imports that are immediately re-exported
+        // (e.g. `export { helper }` or `export { helper } from './utils'`) are not
+        // flagged as unused.
+        let reexported_names = Self::collect_reexported_names(root, source);
+
         let mut cursor = root.walk();
         for child in root.children(&mut cursor) {
             if child.kind() != "import_statement" {
@@ -35,6 +42,10 @@ impl DeadCodePipeline {
                 // The name must appear somewhere in the file identifiers
                 // AND it must appear outside the import statement itself.
                 // If the only occurrences are within the import, it's unused.
+                // Also skip if the name is re-exported.
+                if reexported_names.contains(&name) {
+                    continue;
+                }
                 if !Self::is_used_outside_import(root, child, source, &name) {
                     let start = child.start_position();
                     findings.push(AuditFinding {
@@ -179,6 +190,42 @@ impl DeadCodePipeline {
             }
         }
         false
+    }
+
+    /// Collect names that are re-exported via `export { name }` or
+    /// `export { name } from '...'`.
+    /// For `export { a as b }`, the *original* name `a` is what was imported,
+    /// so we collect `a`.
+    fn collect_reexported_names(root: tree_sitter::Node, source: &[u8]) -> HashSet<String> {
+        let mut names = HashSet::new();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() != "export_statement" {
+                continue;
+            }
+            // Look for export_clause children inside the export_statement
+            let mut export_cursor = child.walk();
+            for export_child in child.children(&mut export_cursor) {
+                if export_child.kind() != "export_clause" {
+                    continue;
+                }
+                // Each named child of export_clause is an export_specifier
+                let mut clause_cursor = export_child.walk();
+                for specifier in export_child.named_children(&mut clause_cursor) {
+                    if specifier.kind() != "export_specifier" {
+                        continue;
+                    }
+                    // The `name` field is the original identifier being re-exported
+                    if let Some(name_node) = specifier.child_by_field_name("name") {
+                        let text = name_node.utf8_text(source).unwrap_or("");
+                        if !text.is_empty() {
+                            names.insert(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        names
     }
 
     /// Walk all `statement_block` nodes. After any return/break/continue/throw,
@@ -343,6 +390,47 @@ console.log("no react here");
             .filter(|f| f.pattern == "unreachable_code")
             .collect();
         assert_eq!(unreachable.len(), 1);
+    }
+
+    // ── re-exports ─────────────────────────────────────────────────
+
+    #[test]
+    fn skips_reexported_import() {
+        let src = r#"import { helper } from './utils';
+export { helper };
+"#;
+        let findings = parse_and_check(src);
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_imports")
+            .collect();
+        assert!(unused.is_empty());
+    }
+
+    #[test]
+    fn skips_reexported_with_alias() {
+        let src = r#"import { helper } from './utils';
+export { helper as renamedHelper };
+"#;
+        let findings = parse_and_check(src);
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_imports")
+            .collect();
+        assert!(unused.is_empty());
+    }
+
+    #[test]
+    fn skips_reexported_from_source() {
+        let src = r#"import { helper } from './utils';
+export { helper } from './utils';
+"#;
+        let findings = parse_and_check(src);
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_imports")
+            .collect();
+        assert!(unused.is_empty());
     }
 
     // ── metadata ───────────────────────────────────────────────────

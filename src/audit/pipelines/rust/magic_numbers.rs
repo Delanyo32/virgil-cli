@@ -7,7 +7,9 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use super::primitives;
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{is_test_context_rust, is_test_file};
+use crate::audit::pipelines::helpers::{
+    COMMON_ALLOWED_NUMBERS, is_test_context_rust, is_test_file,
+};
 
 const EXCLUDED_VALUES: &[&str] = &[
     "0", "1", "2", "0.0", "1.0", // Common powers of 2 and sizes
@@ -94,7 +96,7 @@ impl Pipeline for MagicNumbersPipeline {
             if let Some(num_cap) = num_node {
                 let value = num_cap.node.utf8_text(source).unwrap_or("");
 
-                if EXCLUDED_VALUES.contains(&value) {
+                if EXCLUDED_VALUES.contains(&value) || COMMON_ALLOWED_NUMBERS.contains(&value) {
                     continue;
                 }
 

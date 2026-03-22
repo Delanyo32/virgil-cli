@@ -7,6 +7,8 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
+use crate::audit::pipelines::helpers::COMMON_ALLOWED_NUMBERS;
+
 use super::primitives::{compile_numeric_literal_query, find_capture_index, has_type_qualifier};
 
 const EXCLUDED_VALUES: &[&str] = &[
@@ -94,7 +96,7 @@ impl Pipeline for CMagicNumbersPipeline {
             if let Some(num_cap) = num_cap {
                 let value = num_cap.node.utf8_text(source).unwrap_or("");
 
-                if EXCLUDED_VALUES.contains(&value) {
+                if EXCLUDED_VALUES.contains(&value) || COMMON_ALLOWED_NUMBERS.contains(&value) {
                     continue;
                 }
 

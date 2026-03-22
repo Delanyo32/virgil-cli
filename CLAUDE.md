@@ -14,6 +14,8 @@ cargo run -- projects query myapp --file query.json
 # S3/R2 (no registration needed)
 cargo run -- projects query --s3 s3://bucket/prefix --q '{"find": "function"}' [--lang rs] [--out summary] [--pretty]
 cargo run -- audit --s3 s3://bucket/prefix [--language rs]
+# Serve mode (persistent HTTP server)
+cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
 ```
 
 ## Subcommands
@@ -42,6 +44,16 @@ Audit commands are under `virgil audit`:
 | `audit architecture <DIR>` | Architecture analysis (`--pipeline`: module_size_distribution, circular_dependencies, dependency_graph_depth, api_surface_area) |
 
 Common audit options: `--s3` (S3 URI, replaces `<DIR>`), `--language` (comma-separated), `--pipeline` (comma-separated), `--format` (table|json|csv), `--per-page` (default 20), `--page` (default 1).
+
+Server command is under `virgil serve`:
+
+| Command | Description |
+|---------|-------------|
+| `serve --s3 <URI>` | Start persistent HTTP server, load codebase from S3 at startup |
+
+Server options: `--host` (default `127.0.0.1`), `--port` (default `0` for OS-assigned), `--lang` (comma-separated), `--exclude` (repeatable globs).
+
+HTTP API: `GET /health`, `POST /query`, `POST /audit/summary`, `POST /audit/{category}` (architecture, security, scalability, code-quality).
 
 ## JSON Query Language
 
@@ -124,6 +136,7 @@ src/
 ├── models.rs          # Data structs: FileMetadata, SymbolInfo, SymbolKind, ImportInfo, CommentInfo
 ├── parser.rs          # Tree-sitter parsing, file metadata collection
 ├── s3.rs              # S3/R2 client: URI parsing, object listing, concurrent download
+├── server.rs          # Persistent HTTP server mode (axum, serves queries/audits from in-memory workspace)
 ├── workspace.rs       # Workspace: discover + load files into memory (rayon parallel), S3 loading
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
@@ -155,6 +168,7 @@ src/
 - **Output formats**: All JSON. `QueryOutputFormat` enum (outline/snippet/full/tree/locations/summary). `--pretty` controls indentation.
 - **In-memory workspace**: `Workspace::load()` reads all project files into memory via rayon, stored as `Arc<str>`. Query engine and audit engine operate on workspace, not disk.
 - **FileSource trait**: Pluggable file source (`file_source.rs`). `MemoryFileSource` backed by HashMap.
+- **Server mode**: `serve` command loads codebase from S3 once, starts an axum HTTP server, serves queries/audits from in-memory workspace. Blocking work (`query_engine::execute`, `AuditEngine::run`) runs via `tokio::task::spawn_blocking` to avoid blocking the async runtime. 120-second request timeout. Binds to `127.0.0.1` by default (no auth). Ready signal `{"ready": true, "port": N}` printed to stdout after successful startup.
 - **S3 support**: `--s3 s3://bucket/prefix` on query and audit commands. Downloads files from S3-compatible storage (AWS S3, Cloudflare R2, MinIO) into `MemoryFileSource`. No project registration needed. Uses `aws-sdk-s3` with custom endpoint support. Credentials via `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_ENDPOINT` env vars (falls back to `AWS_*` equivalents and standard AWS credential chain). Concurrent downloads with 64-semaphore bounded parallelism. Region defaults to "auto" for R2 compatibility.
 
 ## Supported Languages
@@ -221,3 +235,11 @@ line, block, doc
 - S3 credentials: `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_ENDPOINT` env vars checked first, then `AWS_*` equivalents, then standard AWS credential chain.
 - S3 `--s3` flag conflicts with positional `name`/`dir` args via `#[arg(conflicts_with)]`.
 - S3 query constructs a minimal `ProjectEntry` with dummy values so `query_engine::execute()` can reuse the same code path.
+- Server mode is S3-only (no `--path` flag). The caller is always Virgil Live (cloud service), codebases always come from S3.
+- Server binds to `127.0.0.1` by default (no auth). Override with `--host 0.0.0.0` for network access.
+- Server uses `tokio::task::spawn_blocking` for all query/audit handlers because `query_engine::execute()` and `AuditEngine::run()` use rayon internally (CPU-bound, would block tokio worker threads).
+- Server request timeout: 120 seconds via `tokio::time::timeout`. Returns HTTP 504 on expiry.
+- Server `--lang` filter stored in `AppState.languages` and used by all audit handlers. Without it, audit handlers would default to `Language::all()` ignoring the startup filter.
+- Server audit summary collects per-category errors instead of silently swallowing them. Returns partial results with `"errors"` array. Returns 500 only if all categories fail.
+- Server ready signal goes to stdout (`{"ready": true, "port": N}`), diagnostic messages to stderr. Caller reads stdout to detect readiness.
+- Server `--port 0` uses OS-assigned dynamic port. Actual port reported in ready signal.

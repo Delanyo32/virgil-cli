@@ -8,9 +8,11 @@ use crate::language::Language;
 use crate::parser;
 use crate::workspace::Workspace;
 
+use super::analyzers;
 use super::models::{AuditFinding, AuditSummary};
 use super::pipeline::{self, Pipeline};
 use super::pipelines::helpers::count_all_identifier_occurrences;
+use super::project_index::ProjectIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipelineSelector {
@@ -65,7 +67,11 @@ impl AuditEngine {
         self
     }
 
-    pub fn run(&self, workspace: &Workspace) -> Result<(Vec<AuditFinding>, AuditSummary)> {
+    pub fn run(
+        &self,
+        workspace: &Workspace,
+        index: Option<&ProjectIndex>,
+    ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Build pipelines per language, apply filter
         let mut pipeline_map: HashMap<Language, Vec<Arc<dyn Pipeline>>> = HashMap::new();
         for lang in &self.languages {
@@ -177,7 +183,26 @@ impl AuditEngine {
             pb.finish_and_clear();
         }
 
-        let findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
+        let mut findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
+
+        // Run project-level analyzers if index is provided
+        if let Some(idx) = index {
+            let mut project_analyzers: Vec<Box<dyn super::project_analyzer::ProjectAnalyzer>> =
+                match self.pipeline_selector {
+                    PipelineSelector::Architecture => analyzers::architecture_analyzers(),
+                    PipelineSelector::CodeStyle => analyzers::code_style_analyzers(),
+                    _ => Vec::new(),
+                };
+
+            if !self.pipeline_filter.is_empty() {
+                project_analyzers.retain(|a| self.pipeline_filter.contains(&a.name().to_string()));
+            }
+
+            for analyzer in &project_analyzers {
+                findings.extend(analyzer.analyze(idx));
+            }
+        }
+
         let summary = compute_summary(&findings, files_scanned);
 
         Ok((findings, summary))
@@ -248,7 +273,7 @@ mod tests {
         let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .run(&workspace)
+            .run(&workspace, None)
             .unwrap();
 
         assert_eq!(findings.len(), 2);
@@ -270,7 +295,7 @@ mod tests {
         let (findings, _) = AuditEngine::new()
             .languages(vec![Language::Rust])
             .pipelines(vec!["nonexistent_pipeline".to_string()])
-            .run(&workspace)
+            .run(&workspace, None)
             .unwrap();
 
         assert!(findings.is_empty());
@@ -283,7 +308,7 @@ mod tests {
         let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .run(&workspace)
+            .run(&workspace, None)
             .unwrap();
 
         assert!(findings.is_empty());
@@ -298,7 +323,7 @@ mod tests {
         let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .run(&workspace)
+            .run(&workspace, None)
             .unwrap();
 
         assert!(findings.is_empty());

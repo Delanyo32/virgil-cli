@@ -10,6 +10,7 @@ use crate::audit::pipeline::Pipeline;
 use super::primitives::{
     compile_function_definition_query, extract_snippet, find_capture_index, node_text,
 };
+use crate::audit::pipelines::helpers::{all_args_are_literals, is_literal_node_cpp};
 
 pub struct CppPathTraversalPipeline {
     fn_query: Arc<Query>,
@@ -61,6 +62,27 @@ impl CppPathTraversalPipeline {
         None
     }
 
+    /// Check if a declaration node contains an argument_list where all args are literals.
+    fn has_literal_args_only(node: tree_sitter::Node) -> bool {
+        // Walk children to find an argument_list
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "argument_list" {
+                return all_args_are_literals(child, is_literal_node_cpp);
+            }
+            // Also check inside declarators (e.g., `ifstream file("literal")`)
+            if child.kind() == "init_declarator" || child.kind() == "declarator" {
+                let mut inner_cursor = child.walk();
+                for inner_child in child.children(&mut inner_cursor) {
+                    if inner_child.kind() == "argument_list" {
+                        return all_args_are_literals(inner_child, is_literal_node_cpp);
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn scan_body_for_ifstream_dynamic(
         &self,
         body: tree_sitter::Node,
@@ -93,6 +115,11 @@ impl CppPathTraversalPipeline {
             let stream_types = ["ifstream", "ofstream", "fstream"];
             for stream_type in &stream_types {
                 if text.contains(stream_type) {
+                    // Skip if the stream constructor argument is a literal
+                    if Self::has_literal_args_only(node) {
+                        continue;
+                    }
+
                     // Check if any parameter name appears in the declaration
                     for param in param_names {
                         if text.contains(param.as_str()) {

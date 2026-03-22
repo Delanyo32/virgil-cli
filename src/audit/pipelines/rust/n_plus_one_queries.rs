@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 use crate::language::Language;
 
 // High-confidence DB methods (always flag)
@@ -124,23 +124,23 @@ impl Pipeline for NPlusOneQueriesPipeline {
                             (true, "db_query_in_loop")
                         } else if MAYBE_DB_METHODS.contains(&method_name) {
                             // For ambiguous DB methods, check receiver context
-                            if receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                            if receiver_matches_any_word(receiver, NON_DB_RECEIVERS) {
                                 (false, "")
-                            } else if receiver_matches_any(receiver, DB_RECEIVERS) {
+                            } else if receiver_matches_any_word(receiver, DB_RECEIVERS) {
                                 (true, "db_query_in_loop")
                             } else {
-                                // Unknown receiver — still flag but could be false positive
-                                (true, "db_query_in_loop")
+                                // Unknown receiver — don't flag when we can't confirm it's a DB call
+                                (false, "")
                             }
                         } else if MAYBE_HTTP_METHODS.contains(&method_name) {
                             // For ambiguous HTTP methods, check receiver context
-                            if receiver_matches_any(receiver, NON_DB_RECEIVERS) {
+                            if receiver_matches_any_word(receiver, NON_DB_RECEIVERS) {
                                 (false, "")
-                            } else if receiver_matches_any(receiver, HTTP_RECEIVERS) {
+                            } else if receiver_matches_any_word(receiver, HTTP_RECEIVERS) {
                                 (true, "http_call_in_loop")
                             } else {
-                                // Unknown receiver — still flag
-                                (true, "http_call_in_loop")
+                                // Unknown receiver — don't flag when we can't confirm it's an HTTP call
+                                (false, "")
                             }
                         } else {
                             (false, "")

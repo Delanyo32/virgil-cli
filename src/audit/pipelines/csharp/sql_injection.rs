@@ -11,6 +11,7 @@ use super::primitives::{
     compile_invocation_query, compile_object_creation_query, extract_snippet, find_capture_index,
     node_text,
 };
+use crate::audit::pipelines::helpers::{all_args_are_literals, is_literal_node_csharp};
 
 pub struct SqlInjectionPipeline {
     creation_query: Arc<Query>,
@@ -87,6 +88,11 @@ impl SqlInjectionPipeline {
                 }
 
                 let args_text = node_text(args_node, source);
+
+                // Skip if all arguments are safe literals/constants
+                if all_args_are_literals(args_node, is_literal_node_csharp) {
+                    continue;
+                }
 
                 if args_text.contains("string.Format") || args_text.contains("String.Format") {
                     let start = creation_node.start_position();
@@ -177,6 +183,12 @@ impl SqlInjectionPipeline {
                 }
 
                 let args_text = node_text(args_node, source);
+
+                // Skip if all arguments are safe literals/constants
+                if all_args_are_literals(args_node, is_literal_node_csharp) {
+                    continue;
+                }
+
                 if args_text.contains('+') || contains_interpolation(args_node) {
                     let start = inv_node.start_position();
                     findings.push(AuditFinding {

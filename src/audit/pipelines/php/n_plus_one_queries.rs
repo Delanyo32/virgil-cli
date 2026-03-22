@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any};
+use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 use crate::language::Language;
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
@@ -171,11 +171,11 @@ impl NPlusOneQueriesPipeline {
                     // Check receiver to disambiguate HTTP vs cache/collection usage
                     let receiver = extract_receiver_text(call_n, source);
                     if !receiver.is_empty()
-                        && receiver_matches_any(receiver, CACHE_RECEIVER_PATTERNS)
+                        && receiver_matches_any_word(receiver, CACHE_RECEIVER_PATTERNS)
                     {
                         (false, "")
                     } else if !receiver.is_empty()
-                        && receiver_matches_any(receiver, HTTP_RECEIVER_PATTERNS)
+                        && receiver_matches_any_word(receiver, HTTP_RECEIVER_PATTERNS)
                     {
                         (true, "http_call_in_loop")
                     } else {

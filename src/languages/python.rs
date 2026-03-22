@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -577,6 +578,64 @@ fn extract_symbol_from_node(
         }
         _ => (None, None),
     }
+}
+
+// ── Import resolution ──
+
+/// Resolve a relative Python import to a file path.
+/// Handles leading dots for relative depth.
+pub fn resolve_import(
+    source_file: &str,
+    specifier: &str,
+    known_files: &HashSet<String>,
+) -> Option<String> {
+    // Count leading dots
+    let dots = specifier.chars().take_while(|c| *c == '.').count();
+    if dots == 0 {
+        return None; // Absolute import, treated as external
+    }
+
+    let remaining = &specifier[dots..];
+    let dir = source_file.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let mut parts: Vec<&str> = if dir.is_empty() {
+        Vec::new()
+    } else {
+        dir.split('/').collect()
+    };
+
+    // Each dot beyond the first goes up one directory
+    for _ in 1..dots {
+        parts.pop();
+    }
+
+    // Add remaining path segments (dotted)
+    if !remaining.is_empty() {
+        for segment in remaining.split('.') {
+            parts.push(segment);
+        }
+    }
+
+    let path = parts.join("/");
+
+    // Try as a module file
+    let py_path = format!("{}.py", path);
+    if known_files.contains(&py_path) {
+        return Some(py_path);
+    }
+
+    // Try as a package (__init__.py)
+    let init_path = format!("{}/__init__.py", path);
+    if known_files.contains(&init_path) {
+        return Some(init_path);
+    }
+
+    // Try .pyi stub
+    let pyi_path = format!("{}.pyi", path);
+    if known_files.contains(&pyi_path) {
+        return Some(pyi_path);
+    }
+
+    None
 }
 
 // ── Tests ──

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -446,6 +447,73 @@ fn extract_symbol_from_node(
         }
         _ => (None, None),
     }
+}
+
+// ── Import resolution ──
+
+/// Resolve an internal Rust import (crate::, self::, super::) to a file path.
+pub fn resolve_import(
+    source_file: &str,
+    specifier: &str,
+    known_files: &HashSet<String>,
+) -> Option<String> {
+    // Strip the final segment — it's the item name, not a module
+    let module_path = if let Some(pos) = specifier.rfind("::") {
+        &specifier[..pos]
+    } else {
+        return None; // Single segment, can't resolve to a file
+    };
+
+    let segments: Vec<&str> = if let Some(rest) = module_path.strip_prefix("crate::") {
+        // crate::foo::bar -> src/foo/bar
+        let mut v = vec!["src"];
+        v.extend(rest.split("::"));
+        v
+    } else if let Some(rest) = module_path.strip_prefix("self::") {
+        // self::foo -> relative to current file's directory
+        let dir = source_file.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        let mut v: Vec<&str> = if dir.is_empty() {
+            Vec::new()
+        } else {
+            dir.split('/').collect()
+        };
+        v.extend(rest.split("::"));
+        v
+    } else if let Some(rest) = module_path.strip_prefix("super::") {
+        // super::foo -> parent directory
+        let dir = source_file.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        let mut v: Vec<&str> = if dir.is_empty() {
+            Vec::new()
+        } else {
+            dir.split('/').collect()
+        };
+        v.pop(); // go up one level
+        // Handle chained super::super::
+        let mut remaining = rest;
+        while let Some(after) = remaining.strip_prefix("super::") {
+            v.pop();
+            remaining = after;
+        }
+        v.extend(remaining.split("::"));
+        v
+    } else {
+        return None; // Not an internal import
+    };
+
+    let path = segments.join("/");
+
+    // Try path.rs first, then path/mod.rs
+    let rs_path = format!("{}.rs", path);
+    if known_files.contains(&rs_path) {
+        return Some(rs_path);
+    }
+
+    let mod_path = format!("{}/mod.rs", path);
+    if known_files.contains(&mod_path) {
+        return Some(mod_path);
+    }
+
+    None
 }
 
 // ── Tests ──

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -355,6 +356,37 @@ fn extract_field_name(node: tree_sitter::Node, source: &[u8]) -> Option<String> 
                 .map(|s| s.to_string());
         }
     }
+    None
+}
+
+// ── Import resolution ──
+
+/// Resolve a Java import to a file path.
+/// com.foo.bar.Baz -> com/foo/bar/Baz.java
+pub fn resolve_import(specifier: &str, known_files: &HashSet<String>) -> Option<String> {
+    // Strip trailing wildcard and semicolons
+    let clean = specifier.trim().trim_end_matches(';').trim();
+
+    if clean.ends_with(".*") {
+        // Wildcard import: com.foo.bar.* -> look for any file under com/foo/bar/
+        let pkg_path = clean.trim_end_matches(".*").replace('.', "/");
+        for file in known_files {
+            if file.starts_with(&pkg_path)
+                && file[pkg_path.len()..].starts_with('/')
+                && file.ends_with(".java")
+            {
+                return Some(pkg_path);
+            }
+        }
+        return None;
+    }
+
+    // Regular import: com.foo.bar.Baz -> com/foo/bar/Baz.java
+    let file_path = format!("{}.java", clean.replace('.', "/"));
+    if known_files.contains(&file_path) {
+        return Some(file_path);
+    }
+
     None
 }
 

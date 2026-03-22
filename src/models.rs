@@ -10,7 +10,7 @@ pub struct FileMetadata {
     pub line_count: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
     Function,
     Class,

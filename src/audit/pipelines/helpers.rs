@@ -1037,6 +1037,276 @@ pub fn receiver_matches_any(receiver: &str, patterns: &[&str]) -> bool {
     patterns.iter().any(|p| lower.contains(&p.to_lowercase()))
 }
 
+// ---------------------------------------------------------------------------
+// Literal / constant detection helpers (per-language)
+// ---------------------------------------------------------------------------
+
+/// Check if a Go AST node is a safe literal value.
+pub fn is_literal_node_go(node: tree_sitter::Node) -> bool {
+    matches!(
+        node.kind(),
+        "interpreted_string_literal"
+            | "raw_string_literal"
+            | "int_literal"
+            | "float_literal"
+            | "true"
+            | "false"
+            | "nil"
+    )
+}
+
+/// Check if a Java AST node is a safe literal value.
+pub fn is_literal_node_java(node: tree_sitter::Node) -> bool {
+    matches!(
+        node.kind(),
+        "string_literal"
+            | "decimal_integer_literal"
+            | "hex_integer_literal"
+            | "octal_integer_literal"
+            | "binary_integer_literal"
+            | "decimal_floating_point_literal"
+            | "character_literal"
+            | "true"
+            | "false"
+            | "null_literal"
+    )
+}
+
+/// Check if a C# AST node is a safe literal value.
+/// Note: `interpolated_string_expression` is NOT safe (contains dynamic parts).
+pub fn is_literal_node_csharp(node: tree_sitter::Node) -> bool {
+    matches!(
+        node.kind(),
+        "string_literal"
+            | "verbatim_string_literal"
+            | "integer_literal"
+            | "real_literal"
+            | "boolean_literal"
+            | "null_literal"
+            | "character_literal"
+    )
+}
+
+/// Check if a Rust AST node is a safe literal value.
+pub fn is_literal_node_rust(node: tree_sitter::Node) -> bool {
+    matches!(
+        node.kind(),
+        "string_literal"
+            | "raw_string_literal"
+            | "integer_literal"
+            | "float_literal"
+            | "boolean_literal"
+            | "char_literal"
+    )
+}
+
+/// Check if a Python AST node is a safe literal value.
+/// For strings, checks that there are no interpolation children (f-string).
+pub fn is_literal_node_python(node: tree_sitter::Node) -> bool {
+    match node.kind() {
+        "string" => {
+            // f-strings have interpolation children — not safe
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "interpolation" {
+                    return false;
+                }
+            }
+            true
+        }
+        "integer" | "float" | "true" | "false" | "none" => true,
+        "concatenated_string" => {
+            // Safe only if all parts are plain strings (no f-strings)
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if !is_literal_node_python(child) {
+                    return false;
+                }
+            }
+            node.named_child_count() > 0
+        }
+        _ => false,
+    }
+}
+
+/// Check if a C AST node is a safe literal value.
+pub fn is_literal_node_c(node: tree_sitter::Node) -> bool {
+    matches!(
+        node.kind(),
+        "string_literal"
+            | "concatenated_string"
+            | "number_literal"
+            | "char_literal"
+            | "true"
+            | "false"
+            | "null"
+    )
+}
+
+/// Check if a C++ AST node is a safe literal value (extends C).
+pub fn is_literal_node_cpp(node: tree_sitter::Node) -> bool {
+    is_literal_node_c(node) || matches!(node.kind(), "raw_string_literal" | "user_defined_literal")
+}
+
+/// Check if an expression node is safe (literal, or binary expression of literals).
+/// Recurses into `binary_expression` and `concatenated_string` nodes.
+pub fn is_safe_expression(
+    node: tree_sitter::Node,
+    is_literal: impl Fn(tree_sitter::Node) -> bool + Copy,
+) -> bool {
+    if is_literal(node) {
+        return true;
+    }
+    // Parenthesized expression — unwrap
+    if node.kind() == "parenthesized_expression"
+        && let Some(inner) = node.named_child(0)
+    {
+        return is_safe_expression(inner, is_literal);
+    }
+    // Binary expression (string concatenation with +, etc.)
+    if node.kind() == "binary_expression" {
+        let mut cursor = node.walk();
+        let mut has_children = false;
+        for child in node.named_children(&mut cursor) {
+            has_children = true;
+            if !is_safe_expression(child, is_literal) {
+                return false;
+            }
+        }
+        return has_children;
+    }
+    false
+}
+
+/// Check if ALL named children of an argument list node are safe expressions.
+pub fn all_args_are_literals(
+    args_node: tree_sitter::Node,
+    is_literal: impl Fn(tree_sitter::Node) -> bool + Copy,
+) -> bool {
+    let mut cursor = args_node.walk();
+    let mut count = 0;
+    for child in args_node.named_children(&mut cursor) {
+        count += 1;
+        if !is_safe_expression(child, is_literal) {
+            return false;
+        }
+    }
+    count > 0
+}
+
+// ---------------------------------------------------------------------------
+// Word-boundary receiver matching (for N+1 false positive reduction)
+// ---------------------------------------------------------------------------
+
+/// Split an identifier into words on camelCase, PascalCase, and snake_case boundaries.
+/// All results are lowercased.
+/// Examples: "myDbConn" -> ["my", "db", "conn"], "db_connection" -> ["db", "connection"],
+///           "debugger" -> ["debugger"], "HTTPClient" -> ["http", "client"]
+pub fn split_identifier_words(name: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+
+    let chars: Vec<char> = name.chars().collect();
+    for i in 0..chars.len() {
+        let c = chars[i];
+        if c == '_' {
+            if !current.is_empty() {
+                words.push(current.to_lowercase());
+                current.clear();
+            }
+            continue;
+        }
+        if c.is_uppercase() {
+            // Check if this is start of a new word
+            if !current.is_empty()
+                && (chars[i - 1].is_lowercase()
+                    || (chars[i - 1].is_uppercase()
+                        && i + 1 < chars.len()
+                        && chars[i + 1].is_lowercase()))
+            {
+                words.push(current.to_lowercase());
+                current.clear();
+            }
+        }
+        current.push(c);
+    }
+    if !current.is_empty() {
+        words.push(current.to_lowercase());
+    }
+    words
+}
+
+/// Check if receiver text matches any of the given patterns using word-boundary matching.
+/// Splits the receiver into words (camelCase/snake_case aware) and checks for exact word matches.
+/// This avoids false positives like "debugger" matching "db".
+pub fn receiver_matches_any_word(receiver: &str, patterns: &[&str]) -> bool {
+    let words = split_identifier_words(receiver);
+    patterns
+        .iter()
+        .any(|p| words.iter().any(|w| w == &p.to_lowercase()))
+}
+
+// ---------------------------------------------------------------------------
+// Shared magic number allowlist
+// ---------------------------------------------------------------------------
+
+/// Well-known numeric values that should not be flagged as magic numbers.
+/// Includes HTTP status codes, common ports, standard timeout/duration values, and common sizes.
+pub const COMMON_ALLOWED_NUMBERS: &[&str] = &[
+    // Small integers commonly used in non-magic contexts
+    "3", "4", "5", "6", "7", "8", "16", "32", "64", "128", // HTTP status codes
+    "100", "101", "200", "201", "202", "204", "206", "301", "302", "304", "307", "308", "400",
+    "401", "403", "404", "405", "408", "409", "410", "413", "415", "422", "429", "500", "501",
+    "502", "503", "504", // Common ports
+    "80", "443", "8000", "8080", "8443", "9090", // Common timeouts (ms)
+    "10000", "30000", "60000",
+];
+
+// ---------------------------------------------------------------------------
+// Path traversal: check if call arguments reference function parameters
+// ---------------------------------------------------------------------------
+
+/// Check if any identifier within a call node's arguments matches a function parameter name.
+/// Returns true if at least one argument references a parameter.
+pub fn call_args_reference_params(
+    call_node: tree_sitter::Node,
+    param_names: &[String],
+    source: &[u8],
+) -> bool {
+    if param_names.is_empty() {
+        return false;
+    }
+    // Find the argument list child
+    let args_node = call_node.child_by_field_name("arguments").or_else(|| {
+        let mut cursor = call_node.walk();
+        call_node
+            .named_children(&mut cursor)
+            .find(|c| c.kind() == "argument_list" || c.kind() == "arguments")
+    });
+    let Some(args) = args_node else {
+        return false;
+    };
+    // Walk all identifiers in the arguments subtree
+    identifiers_reference_names(args, param_names, source)
+}
+
+/// Recursively check if any identifier node within a subtree matches one of the given names.
+fn identifiers_reference_names(node: tree_sitter::Node, names: &[String], source: &[u8]) -> bool {
+    if node.kind() == "identifier" || node.kind() == "field_identifier" {
+        let text = node.utf8_text(source).unwrap_or("");
+        if names.iter().any(|n| n == text) {
+            return true;
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if identifiers_reference_names(child, names, source) {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1171,5 +1441,34 @@ mod tests {
         assert!(receiver_matches_any("dbConn", &["db", "conn"]));
         assert!(receiver_matches_any("myPool", &["pool"]));
         assert!(!receiver_matches_any("myList", &["db", "conn"]));
+    }
+
+    #[test]
+    fn test_split_identifier_words() {
+        assert_eq!(split_identifier_words("myDbConn"), vec!["my", "db", "conn"]);
+        assert_eq!(
+            split_identifier_words("db_connection"),
+            vec!["db", "connection"]
+        );
+        assert_eq!(split_identifier_words("debugger"), vec!["debugger"]);
+        assert_eq!(split_identifier_words("HTTPClient"), vec!["http", "client"]);
+        assert_eq!(split_identifier_words("DB"), vec!["db"]);
+        assert_eq!(split_identifier_words("myList"), vec!["my", "list"]);
+        assert_eq!(split_identifier_words("a_b_c"), vec!["a", "b", "c"]);
+        assert_eq!(split_identifier_words("XMLParser"), vec!["xml", "parser"]);
+    }
+
+    #[test]
+    fn test_receiver_matches_any_word() {
+        // Should match: "db" is an exact word in "myDbConn"
+        assert!(receiver_matches_any_word("myDbConn", &["db", "conn"]));
+        assert!(receiver_matches_any_word("db_connection", &["db"]));
+        assert!(receiver_matches_any_word("myPool", &["pool"]));
+        // Should NOT match: "debugger" does not contain "db" as a word
+        assert!(!receiver_matches_any_word("debugger", &["db"]));
+        assert!(!receiver_matches_any_word("adobe", &["db"]));
+        // Edge cases
+        assert!(receiver_matches_any_word("DB", &["db"]));
+        assert!(!receiver_matches_any_word("myList", &["db", "conn"]));
     }
 }

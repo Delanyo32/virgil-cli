@@ -6,6 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::{all_args_are_literals, is_literal_node_go};
 
 use super::primitives::{
     compile_selector_call_query, extract_snippet, find_capture_index, node_text,
@@ -78,6 +79,16 @@ impl Pipeline for CommandInjectionPipeline {
                 let is_shell = shells.iter().any(|s| call_text.contains(s));
 
                 if !is_shell {
+                    continue;
+                }
+
+                // Skip if all arguments are safe literals/constants
+                let args_child = (0..call.child_count())
+                    .filter_map(|i| call.child(i))
+                    .find(|c| c.kind() == "argument_list");
+                if let Some(args) = args_child
+                    && all_args_are_literals(args, is_literal_node_go)
+                {
                     continue;
                 }
 

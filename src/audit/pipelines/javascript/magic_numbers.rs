@@ -8,7 +8,7 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index};
-use crate::audit::pipelines::helpers::{is_test_context_js, is_test_file};
+use crate::audit::pipelines::helpers::{COMMON_ALLOWED_NUMBERS, is_test_context_js, is_test_file};
 
 const EXCLUDED_VALUES: &[&str] = &[
     "0", "1", "2", "0.0", "1.0", "10", "100", "1000", "256", "512", "1024", "2048", "4096", "8192",
@@ -90,7 +90,7 @@ impl Pipeline for JsMagicNumbersPipeline {
             if let Some(num_cap) = num_cap {
                 let value = num_cap.node.utf8_text(source).unwrap_or("");
 
-                if EXCLUDED_VALUES.contains(&value) {
+                if EXCLUDED_VALUES.contains(&value) || COMMON_ALLOWED_NUMBERS.contains(&value) {
                     continue;
                 }
 
