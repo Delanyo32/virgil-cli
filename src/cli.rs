@@ -26,6 +26,10 @@ pub enum Command {
         #[arg(long)]
         s3: String,
 
+        /// Host to bind (use 0.0.0.0 for all interfaces)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
         /// Port to bind (use 0 for OS-assigned)
         #[arg(long, default_value = "0")]
         port: u16,

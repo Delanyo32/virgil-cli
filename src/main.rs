@@ -144,6 +144,7 @@ fn main() -> Result<()> {
 
         Command::Serve {
             s3,
+            host,
             port,
             lang,
             exclude,
@@ -157,8 +158,9 @@ fn main() -> Result<()> {
             let workspace =
                 Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &exclude, None)?;
             eprintln!(
-                "Loaded {} files. Starting server on port {}…",
+                "Loaded {} files. Starting server on {}:{}…",
                 workspace.file_count(),
+                host,
                 if port == 0 {
                     "dynamic".to_string()
                 } else {
@@ -167,7 +169,9 @@ fn main() -> Result<()> {
             );
 
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(server::run_server(workspace, &s3, port, lang))?;
+            rt.block_on(server::run_server(
+                workspace, &s3, &host, port, lang, languages,
+            ))?;
             Ok(())
         }
 

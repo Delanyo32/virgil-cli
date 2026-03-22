@@ -49,11 +49,12 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 
 ## Usage
 
-Two top-level command groups:
+Three top-level command groups:
 
 ```bash
 virgil projects <COMMAND>
 virgil audit [CATEGORY] <DIR|--s3 URI> [OPTIONS]
+virgil serve --s3 <URI> [OPTIONS]
 ```
 
 ## Projects
@@ -332,6 +333,66 @@ virgil audit --s3 s3://bucket/my-repo --language rs
 
 # Security audit on S3 codebase
 virgil audit security --s3 s3://bucket/my-repo --language rs
+
+# --- Server Mode ---
+
+# Start a persistent HTTP server (loads codebase once, serves queries/audits over HTTP)
+virgil serve --s3 s3://bucket/my-repo
+
+# With language filter and custom port
+virgil serve --s3 s3://bucket/my-repo --lang rs --port 8080
+
+# Expose on all interfaces (default is 127.0.0.1)
+virgil serve --s3 s3://bucket/my-repo --host 0.0.0.0 --port 8080
+```
+
+## Serve (Server Mode)
+
+Persistent HTTP server that loads a codebase from S3 once and serves queries and audits over HTTP. Designed for use by orchestrators (e.g. AI agents) that make many queries against the same codebase — avoids re-downloading and re-parsing on every request.
+
+```bash
+virgil serve --s3 <URI> [OPTIONS]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--s3` | S3 URI — load codebase at startup | required |
+| `--host` | Host to bind (use `0.0.0.0` for all interfaces) | `127.0.0.1` |
+| `--port` | Port to bind (use `0` for OS-assigned) | `0` |
+| `-l`, `--lang` | Comma-separated language filter | all supported |
+| `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
+
+### Lifecycle
+
+1. Downloads codebase from S3 into memory
+2. Prints ready signal to stdout: `{"ready": true, "port": <actual_port>}`
+3. Serves HTTP requests until killed (SIGTERM/SIGINT)
+
+### HTTP API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check — returns `{"status": "ok"}` |
+| `/query` | POST | Codebase query (same JSON query language as `projects query`) |
+| `/audit/summary` | POST | Audit summary (files scanned, files with findings) |
+| `/audit/{category}` | POST | Audit by category: `architecture`, `security`, `scalability`, `code-quality` |
+
+**Query request body:**
+
+```json
+{
+  "query": {"find": "function", "name": "*handle*"},
+  "format": "outline",
+  "max": 50
+}
+```
+
+**Audit category request body (optional):**
+
+```json
+{
+  "per_page": 100000
+}
 ```
 
 ## S3 Configuration
@@ -387,6 +448,7 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 - **Multiple output formats** — outline, snippet, full, tree, locations, summary (all JSON)
 - **In-memory workspace** — files loaded upfront for fast repeated queries
 - **S3 support** — query and audit codebases directly from AWS S3, Cloudflare R2, MinIO, or any S3-compatible storage
+- **Server mode** — persistent HTTP server that loads a codebase once and serves queries/audits over HTTP, avoiding repeated S3 downloads and re-parsing
 
 ## License
 
