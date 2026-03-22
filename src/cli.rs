@@ -20,6 +20,25 @@ pub enum Command {
         command: ProjectCommand,
     },
 
+    /// Start a persistent HTTP server for queries and audits
+    Serve {
+        /// S3 URI — load codebase from S3 at startup
+        #[arg(long)]
+        s3: String,
+
+        /// Port to bind (use 0 for OS-assigned)
+        #[arg(long, default_value = "0")]
+        port: u16,
+
+        /// Comma-separated language filter
+        #[arg(short, long)]
+        lang: Option<String>,
+
+        /// Glob patterns to exclude (repeatable)
+        #[arg(short, long)]
+        exclude: Vec<String>,
+    },
+
     /// Static analysis and tech debt detection
     #[command(
         args_conflicts_with_subcommands = true,

@@ -10,6 +10,8 @@ use virgil_cli::cli::{
 };
 use virgil_cli::language::{self, Language};
 use virgil_cli::registry;
+use virgil_cli::s3::S3Location;
+use virgil_cli::server;
 use virgil_cli::workspace::Workspace;
 
 fn main() -> Result<()> {
@@ -139,6 +141,35 @@ fn main() -> Result<()> {
                 Ok(())
             }
         },
+
+        Command::Serve {
+            s3,
+            port,
+            lang,
+            exclude,
+        } => {
+            let languages = match &lang {
+                Some(f) => language::parse_language_filter(f),
+                None => Language::all().to_vec(),
+            };
+            let loc = S3Location::parse(&s3)?;
+            eprintln!("Loading codebase from {}…", s3);
+            let workspace =
+                Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &exclude, None)?;
+            eprintln!(
+                "Loaded {} files. Starting server on port {}…",
+                workspace.file_count(),
+                if port == 0 {
+                    "dynamic".to_string()
+                } else {
+                    port.to_string()
+                }
+            );
+
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(server::run_server(workspace, &s3, port, lang))?;
+            Ok(())
+        }
 
         Command::Audit {
             dir,
