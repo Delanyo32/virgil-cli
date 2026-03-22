@@ -422,7 +422,7 @@ fn run_tech_debt_ws(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(workspace)?;
+    let (findings, summary) = engine.run(workspace, None)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -461,7 +461,7 @@ fn run_complexity_ws(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(workspace)?;
+    let (findings, summary) = engine.run(workspace, None)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -488,6 +488,8 @@ fn run_code_style_ws(
 
     let start = Instant::now();
 
+    let index = audit::index_builder::build_index(workspace, &languages)?;
+
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle);
@@ -500,7 +502,7 @@ fn run_code_style_ws(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(workspace)?;
+    let (findings, summary) = engine.run(workspace, Some(&index))?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -539,7 +541,7 @@ fn run_security_ws(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(workspace)?;
+    let (findings, summary) = engine.run(workspace, None)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -578,7 +580,7 @@ fn run_scalability_ws(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(workspace)?;
+    let (findings, summary) = engine.run(workspace, None)?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -605,6 +607,8 @@ fn run_architecture_ws(
 
     let start = Instant::now();
 
+    let index = audit::index_builder::build_index(workspace, &languages)?;
+
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture);
@@ -617,7 +621,7 @@ fn run_architecture_ws(
     let pb = create_audit_progress_bar();
     engine = engine.progress_bar(pb);
 
-    let (findings, summary) = engine.run(workspace)?;
+    let (findings, summary) = engine.run(workspace, Some(&index))?;
 
     let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
     print!("{output}");
@@ -653,7 +657,7 @@ fn run_code_quality_summary_ws(
     let td_engine = audit::engine::AuditEngine::new()
         .languages(languages.clone())
         .progress_bar(file_pb);
-    let (_td_findings, td_summary) = td_engine.run(workspace)?;
+    let (_td_findings, td_summary) = td_engine.run(workspace, None)?;
     overall.inc(1);
 
     overall.set_message("Auditing: Complexity");
@@ -667,7 +671,7 @@ fn run_code_quality_summary_ws(
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
         .progress_bar(file_pb);
-    let (_cx_findings, cx_summary) = cx_engine.run(workspace)?;
+    let (_cx_findings, cx_summary) = cx_engine.run(workspace, None)?;
     overall.inc(1);
 
     overall.set_message("Auditing: Code Style");
@@ -676,11 +680,12 @@ fn run_code_quality_summary_ws(
         .into_iter()
         .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
         .collect();
+    let cs_index = audit::index_builder::build_index(workspace, &cs_languages)?;
     let cs_engine = audit::engine::AuditEngine::new()
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
         .progress_bar(file_pb);
-    let (_cs_findings, cs_summary) = cs_engine.run(workspace)?;
+    let (_cs_findings, cs_summary) = cs_engine.run(workspace, Some(&cs_index))?;
     overall.inc(1);
 
     overall.finish_and_clear();
@@ -730,7 +735,7 @@ fn run_full_audit_ws(
     let (_, td_summary) = audit::engine::AuditEngine::new()
         .languages(td_languages)
         .progress_bar(file_pb)
-        .run(workspace)?;
+        .run(workspace, None)?;
     overall.inc(1);
 
     // Complexity
@@ -745,7 +750,7 @@ fn run_full_audit_ws(
         .languages(cx_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Complexity)
         .progress_bar(file_pb)
-        .run(workspace)?;
+        .run(workspace, None)?;
     overall.inc(1);
 
     // Code Style
@@ -756,11 +761,12 @@ fn run_full_audit_ws(
         .copied()
         .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
         .collect();
+    let cs_index = audit::index_builder::build_index(workspace, &cs_languages)?;
     let (_, cs_summary) = audit::engine::AuditEngine::new()
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
         .progress_bar(file_pb)
-        .run(workspace)?;
+        .run(workspace, Some(&cs_index))?;
     overall.inc(1);
 
     // Security
@@ -775,7 +781,7 @@ fn run_full_audit_ws(
         .languages(sec_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Security)
         .progress_bar(file_pb)
-        .run(workspace)?;
+        .run(workspace, None)?;
     overall.inc(1);
 
     // Scalability
@@ -790,7 +796,7 @@ fn run_full_audit_ws(
         .languages(scl_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Scalability)
         .progress_bar(file_pb)
-        .run(workspace)?;
+        .run(workspace, None)?;
     overall.inc(1);
 
     // Architecture
@@ -801,11 +807,12 @@ fn run_full_audit_ws(
         .copied()
         .filter(|l| audit::pipeline::supported_architecture_languages().contains(l))
         .collect();
+    let arch_index = audit::index_builder::build_index(workspace, &arch_languages)?;
     let (_, arch_summary) = audit::engine::AuditEngine::new()
         .languages(arch_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture)
         .progress_bar(file_pb)
-        .run(workspace)?;
+        .run(workspace, Some(&arch_index))?;
     overall.inc(1);
 
     overall.finish_and_clear();

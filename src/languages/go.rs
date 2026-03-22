@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -345,6 +346,45 @@ fn extract_symbol_from_node(
         }
         _ => (None, None),
     }
+}
+
+// ── Import resolution ──
+
+/// Resolve a Go import to a package directory.
+/// Go imports are package-level — returns the directory path if any .go file exists under it.
+pub fn resolve_import(
+    specifier: &str,
+    known_files: &HashSet<String>,
+) -> Option<String> {
+    // Go imports are full module paths like "github.com/foo/bar/pkg"
+    // We need to find if any file in the workspace lives under a matching directory.
+    // Try the specifier as a directory prefix — find any file under it.
+    for file in known_files {
+        if file.starts_with(specifier) && file[specifier.len()..].starts_with('/') {
+            return Some(specifier.to_string());
+        }
+    }
+
+    // Try just the last segment(s) as a relative path
+    // For internal packages like "myapp/internal/auth" the workspace might just have "internal/auth/"
+    let segments: Vec<&str> = specifier.rsplitn(3, '/').collect();
+    for n in 1..=segments.len().min(3) {
+        let suffix: String = specifier
+            .splitn(specifier.matches('/').count() + 2 - n, '/')
+            .skip(specifier.matches('/').count() + 1 - n)
+            .collect::<Vec<_>>()
+            .join("/");
+        if suffix.is_empty() {
+            continue;
+        }
+        for file in known_files {
+            if file.starts_with(&suffix) && file[suffix.len()..].starts_with('/') {
+                return Some(suffix);
+            }
+        }
+    }
+
+    None
 }
 
 // ── Tests ──

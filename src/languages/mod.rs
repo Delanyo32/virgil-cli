@@ -8,11 +8,13 @@ mod python;
 mod rust_lang;
 mod typescript;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::Result;
 use tree_sitter::{Query, Tree};
 
+use crate::audit::project_index::GraphNode;
 use crate::language::Language;
 use crate::models::{CommentInfo, ImportInfo, SymbolInfo};
 
@@ -127,5 +129,47 @@ pub fn extract_comments(
         Language::Go => go::extract_comments(tree, source, query, file_path),
         Language::Java => java::extract_comments(tree, source, query, file_path),
         Language::Php => php::extract_comments(tree, source, query, file_path),
+    }
+}
+
+/// Resolve an internal import to a graph node within the project.
+/// Returns None for external imports, unresolvable imports, or C# (no file mapping).
+pub fn resolve_import(
+    source_file: &str,
+    import: &ImportInfo,
+    language: Language,
+    known_files: &HashSet<String>,
+) -> Option<GraphNode> {
+    if import.is_external {
+        return None;
+    }
+    match language {
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::resolve_import(source_file, &import.module_specifier, known_files)
+                .map(GraphNode::File)
+        }
+        Language::Rust => rust_lang::resolve_import(source_file, &import.module_specifier, known_files)
+            .map(GraphNode::File),
+        Language::Python => {
+            python::resolve_import(source_file, &import.module_specifier, known_files)
+                .map(GraphNode::File)
+        }
+        Language::Go => {
+            go::resolve_import(&import.module_specifier, known_files).map(GraphNode::Package)
+        }
+        Language::Java => {
+            java::resolve_import(&import.module_specifier, known_files).map(GraphNode::File)
+        }
+        Language::Php => {
+            php::resolve_import(source_file, &import.module_specifier, &import.kind, known_files)
+                .map(GraphNode::File)
+        }
+        Language::C => c_lang::resolve_import(source_file, &import.module_specifier, known_files)
+            .map(GraphNode::File),
+        Language::Cpp => {
+            cpp::resolve_import(source_file, &import.module_specifier, known_files)
+                .map(GraphNode::File)
+        }
+        Language::CSharp => None, // No file-level mapping without .csproj
     }
 }

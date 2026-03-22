@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -426,6 +427,34 @@ fn has_child_kind(node: tree_sitter::Node, kind: &str) -> bool {
         }
     }
     false
+}
+
+// ── Import resolution ──
+
+/// Resolve a C++ `#include "header.h"` to a file path.
+/// Tries relative to source file's directory, then project root.
+pub fn resolve_import(
+    source_file: &str,
+    specifier: &str,
+    known_files: &HashSet<String>,
+) -> Option<String> {
+    // Same logic as C
+    let base_dir = source_file.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+
+    let relative = if base_dir.is_empty() {
+        specifier.to_string()
+    } else {
+        format!("{}/{}", base_dir, specifier)
+    };
+    if known_files.contains(&relative) {
+        return Some(relative);
+    }
+
+    if known_files.contains(specifier) {
+        return Some(specifier.to_string());
+    }
+
+    None
 }
 
 // ── Tests ──

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -649,6 +650,67 @@ fn find_child_by_kind<'a>(
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .find(|child| child.kind() == kind)
+}
+
+// ── Import resolution ──
+
+/// Resolve a relative import specifier to a file path in the workspace.
+/// Tries extension inference (.ts, .tsx, .js, .jsx) and index file fallback.
+pub fn resolve_import(
+    source_file: &str,
+    specifier: &str,
+    known_files: &HashSet<String>,
+) -> Option<String> {
+    let base_dir = source_file.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+
+    // Normalize the relative path
+    let resolved = normalize_relative_path(base_dir, specifier);
+
+    // Try exact match first
+    if known_files.contains(&resolved) {
+        return Some(resolved);
+    }
+
+    // Try extensions
+    for ext in &[".ts", ".tsx", ".js", ".jsx"] {
+        let candidate = format!("{}{}", resolved, ext);
+        if known_files.contains(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    // Try index files
+    for ext in &[".ts", ".tsx", ".js", ".jsx"] {
+        let candidate = format!("{}/index{}", resolved, ext);
+        if known_files.contains(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+/// Normalize a relative path (./foo, ../bar) against a base directory.
+fn normalize_relative_path(base_dir: &str, specifier: &str) -> String {
+    let specifier = specifier.strip_prefix("./").unwrap_or(specifier);
+
+    let mut parts: Vec<&str> = if base_dir.is_empty() {
+        Vec::new()
+    } else {
+        base_dir.split('/').collect()
+    };
+
+    for segment in specifier.split('/') {
+        match segment {
+            ".." => {
+                parts.pop();
+            }
+            "." | "" => {}
+            other => parts.push(other),
+        }
+    }
+
+    parts.join("/")
 }
 
 // ── Tests ──

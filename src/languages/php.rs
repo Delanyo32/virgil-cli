@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -532,6 +533,65 @@ fn extract_symbol_from_node(
         }
         _ => (None, None),
     }
+}
+
+// ── Import resolution ──
+
+/// Resolve a PHP import to a file path.
+/// For `use` (PSR-4): convert namespace `\` to `/`, try `.php`.
+/// For `require`/`include`: resolve relative path from source file.
+pub fn resolve_import(
+    source_file: &str,
+    specifier: &str,
+    kind: &str,
+    known_files: &HashSet<String>,
+) -> Option<String> {
+    match kind {
+        "require" | "include" => {
+            // Relative path from source file
+            let base_dir = source_file.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+            let resolved = normalize_relative_path(base_dir, specifier);
+            if known_files.contains(&resolved) {
+                return Some(resolved);
+            }
+            // Try from project root
+            if known_files.contains(specifier) {
+                return Some(specifier.to_string());
+            }
+            None
+        }
+        "use" => {
+            // PSR-4: namespace separator \ -> /
+            let path = format!("{}.php", specifier.replace('\\', "/"));
+            if known_files.contains(&path) {
+                return Some(path);
+            }
+            // Try lowercase
+            let lower = format!("{}.php", specifier.replace('\\', "/").to_lowercase());
+            if known_files.contains(&lower) {
+                return Some(lower);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn normalize_relative_path(base_dir: &str, specifier: &str) -> String {
+    let specifier = specifier.strip_prefix("./").unwrap_or(specifier);
+    let mut parts: Vec<&str> = if base_dir.is_empty() {
+        Vec::new()
+    } else {
+        base_dir.split('/').collect()
+    };
+    for segment in specifier.split('/') {
+        match segment {
+            ".." => { parts.pop(); }
+            "." | "" => {}
+            other => parts.push(other),
+        }
+    }
+    parts.join("/")
 }
 
 // ── Tests ──

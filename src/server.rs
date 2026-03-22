@@ -15,6 +15,7 @@ use tokio::time::timeout;
 use crate::audit;
 use crate::audit::engine::{AuditEngine, PipelineSelector};
 use crate::audit::models::AuditFinding;
+use crate::audit::project_index::ProjectIndex;
 use crate::language::Language;
 use crate::query_engine;
 use crate::query_lang::TsQuery;
@@ -27,6 +28,7 @@ struct AppState {
     workspace: Workspace,
     project: ProjectEntry,
     languages: Vec<Language>,
+    project_index: ProjectIndex,
 }
 
 #[derive(Deserialize)]
@@ -70,10 +72,13 @@ pub async fn run_server(
         created_at: chrono::Utc::now(),
     };
 
+    let project_index = audit::index_builder::build_index(&workspace, &languages)?;
+
     let state = Arc::new(AppState {
         workspace,
         project,
         languages,
+        project_index,
     });
 
     let app = Router::new()
@@ -260,10 +265,16 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 if langs.is_empty() {
                     continue;
                 }
+                let index_ref = match selector {
+                    PipelineSelector::Architecture | PipelineSelector::CodeStyle => {
+                        Some(&state.project_index)
+                    }
+                    _ => None,
+                };
                 let engine = AuditEngine::new()
                     .languages(langs)
                     .pipeline_selector(selector);
-                match engine.run(&state.workspace) {
+                match engine.run(&state.workspace, index_ref) {
                     Ok((findings, summary)) => {
                         total_scanned = total_scanned.max(summary.files_scanned);
                         for f in &findings {
@@ -378,11 +389,15 @@ async fn handle_audit_category(
                 return Ok(serde_json::json!([]));
             }
 
+            let index_ref = match selector {
+                PipelineSelector::Architecture => Some(&state.project_index),
+                _ => None,
+            };
             let engine = AuditEngine::new()
                 .languages(langs)
                 .pipeline_selector(selector);
 
-            match engine.run(&state.workspace) {
+            match engine.run(&state.workspace, index_ref) {
                 Ok((findings, _)) => {
                     let limited: Vec<&AuditFinding> = findings.iter().take(per_page).collect();
                     Ok(serde_json::to_value(&limited).unwrap_or_default())
@@ -445,10 +460,14 @@ fn run_code_quality_audit_blocking(
         if langs.is_empty() {
             continue;
         }
+        let index_ref = match selector {
+            PipelineSelector::CodeStyle => Some(&state.project_index),
+            _ => None,
+        };
         let engine = AuditEngine::new()
             .languages(langs)
             .pipeline_selector(selector);
-        if let Ok((findings, _)) = engine.run(&state.workspace) {
+        if let Ok((findings, _)) = engine.run(&state.workspace, index_ref) {
             all_findings.extend(findings);
         }
     }
