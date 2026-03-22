@@ -94,9 +94,7 @@ mod tests {
         let analyzer = DuplicateSymbolsAnalyzer;
         let findings = analyzer.analyze(&index);
         assert_eq!(findings.len(), 2); // One per file
-        assert!(findings
-            .iter()
-            .all(|f| f.pattern == "cross_file_duplicate"));
+        assert!(findings.iter().all(|f| f.pattern == "cross_file_duplicate"));
     }
 
     #[test]

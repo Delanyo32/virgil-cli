@@ -161,8 +161,7 @@ async fn handle_query(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let start = Instant::now();
-            let output =
-                query_engine::execute(&state.project, &query, max, &state.workspace)?;
+            let output = query_engine::execute(&state.project, &query, max, &state.workspace)?;
             let elapsed = start.elapsed();
 
             let formatted = crate::format::format_results(
@@ -256,7 +255,10 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 ),
             ];
 
-            let attempted = categories.iter().filter(|(_, _, langs)| !langs.is_empty()).count();
+            let attempted = categories
+                .iter()
+                .filter(|(_, _, langs)| !langs.is_empty())
+                .count();
             let mut total_scanned = 0;
             let mut files_with_findings = std::collections::HashSet::new();
             let mut errors: Vec<serde_json::Value> = Vec::new();
@@ -425,10 +427,7 @@ async fn handle_audit_category(
     }
 }
 
-fn run_code_quality_audit_blocking(
-    state: &AppState,
-    per_page: usize,
-) -> Result<serde_json::Value> {
+fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<serde_json::Value> {
     let user_languages = &state.languages;
     let mut all_findings: Vec<AuditFinding> = Vec::new();
 

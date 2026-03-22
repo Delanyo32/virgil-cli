@@ -37,13 +37,9 @@ impl GoPathTraversalPipeline {
                 if child.kind() == "parameter_list" {
                     let mut param_cursor = QueryCursor::new();
                     let name_idx = find_capture_index(&self.param_query, "param_name");
-                    let mut matches =
-                        param_cursor.matches(&self.param_query, child, source);
+                    let mut matches = param_cursor.matches(&self.param_query, child, source);
                     while let Some(m) = matches.next() {
-                        if let Some(cap) = m
-                            .captures
-                            .iter()
-                            .find(|c| c.index as usize == name_idx)
+                        if let Some(cap) = m.captures.iter().find(|c| c.index as usize == name_idx)
                         {
                             let name = node_text(cap.node, source);
                             if !name.is_empty() {

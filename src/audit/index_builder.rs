@@ -103,12 +103,10 @@ pub fn build_index(workspace: &Workspace, languages_filter: &[Language]) -> Resu
         };
 
         for import in &entry.imports {
-            if let Some(to_node) = languages::resolve_import(
-                &entry.path,
-                import,
-                entry.language,
-                &index.known_files,
-            ) && from_node != to_node {
+            if let Some(to_node) =
+                languages::resolve_import(&entry.path, import, entry.language, &index.known_files)
+                && from_node != to_node
+            {
                 index
                     .edges
                     .entry(from_node.clone())

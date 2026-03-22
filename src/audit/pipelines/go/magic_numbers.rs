@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::{is_test_file, COMMON_ALLOWED_NUMBERS};
+use crate::audit::pipelines::helpers::{COMMON_ALLOWED_NUMBERS, is_test_file};
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index};
 

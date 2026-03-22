@@ -195,8 +195,7 @@ impl AuditEngine {
                 };
 
             if !self.pipeline_filter.is_empty() {
-                project_analyzers
-                    .retain(|a| self.pipeline_filter.contains(&a.name().to_string()));
+                project_analyzers.retain(|a| self.pipeline_filter.contains(&a.name().to_string()));
             }
 
             for analyzer in &project_analyzers {

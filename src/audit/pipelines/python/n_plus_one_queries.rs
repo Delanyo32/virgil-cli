@@ -117,7 +117,8 @@ impl NPlusOneQueriesPipeline {
                 if ORM_METHOD_NAMES.contains(&attr) {
                     let receiver = extract_receiver_text(call_node, source);
                     // Skip if receiver matches non-DB patterns
-                    if !receiver.is_empty() && receiver_matches_any_word(receiver, NON_DB_RECEIVERS) {
+                    if !receiver.is_empty() && receiver_matches_any_word(receiver, NON_DB_RECEIVERS)
+                    {
                         return None;
                     }
                     // Only flag if receiver matches DB patterns or is unknown

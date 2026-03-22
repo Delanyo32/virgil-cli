@@ -65,10 +65,7 @@ impl Pipeline for PathTraversalPipeline {
                     let mut pm = pc.matches(&self.param_query, tree.root_node(), source);
                     let mut names = Vec::new();
                     while let Some(m) = pm.next() {
-                        if let Some(cap) = m
-                            .captures
-                            .iter()
-                            .find(|c| c.index as usize == name_idx)
+                        if let Some(cap) = m.captures.iter().find(|c| c.index as usize == name_idx)
                         {
                             let name = node_text(cap.node, source);
                             if !name.is_empty() {
@@ -115,10 +112,10 @@ impl Pipeline for PathTraversalPipeline {
 
                         if is_path_op {
                             // Skip if all arguments to the call are safe literals
-                            if let Some(args_node) = call.child_by_field_name("arguments") {
-                                if all_args_are_literals(args_node, is_literal_node_rust) {
-                                    continue;
-                                }
+                            if let Some(args_node) = call.child_by_field_name("arguments")
+                                && all_args_are_literals(args_node, is_literal_node_rust)
+                            {
+                                continue;
                             }
 
                             // Only flag if call arguments actually reference a function parameter

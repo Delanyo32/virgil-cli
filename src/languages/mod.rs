@@ -148,8 +148,10 @@ pub fn resolve_import(
             typescript::resolve_import(source_file, &import.module_specifier, known_files)
                 .map(GraphNode::File)
         }
-        Language::Rust => rust_lang::resolve_import(source_file, &import.module_specifier, known_files)
-            .map(GraphNode::File),
+        Language::Rust => {
+            rust_lang::resolve_import(source_file, &import.module_specifier, known_files)
+                .map(GraphNode::File)
+        }
         Language::Python => {
             python::resolve_import(source_file, &import.module_specifier, known_files)
                 .map(GraphNode::File)
@@ -160,16 +162,17 @@ pub fn resolve_import(
         Language::Java => {
             java::resolve_import(&import.module_specifier, known_files).map(GraphNode::File)
         }
-        Language::Php => {
-            php::resolve_import(source_file, &import.module_specifier, &import.kind, known_files)
-                .map(GraphNode::File)
-        }
+        Language::Php => php::resolve_import(
+            source_file,
+            &import.module_specifier,
+            &import.kind,
+            known_files,
+        )
+        .map(GraphNode::File),
         Language::C => c_lang::resolve_import(source_file, &import.module_specifier, known_files)
             .map(GraphNode::File),
-        Language::Cpp => {
-            cpp::resolve_import(source_file, &import.module_specifier, known_files)
-                .map(GraphNode::File)
-        }
+        Language::Cpp => cpp::resolve_import(source_file, &import.module_specifier, known_files)
+            .map(GraphNode::File),
         Language::CSharp => None, // No file-level mapping without .csproj
     }
 }

@@ -68,10 +68,10 @@ impl Pipeline for SqlInjectionPipeline {
                 let args_child = (0..call_node.child_count())
                     .filter_map(|i| call_node.child(i))
                     .find(|c| c.kind() == "argument_list");
-                if let Some(args) = args_child {
-                    if all_args_are_literals(args, is_literal_node_go) {
-                        continue;
-                    }
+                if let Some(args) = args_child
+                    && all_args_are_literals(args, is_literal_node_go)
+                {
+                    continue;
                 }
 
                 if call_text.contains("fmt.Sprintf") {

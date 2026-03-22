@@ -363,10 +363,7 @@ fn extract_field_name(node: tree_sitter::Node, source: &[u8]) -> Option<String> 
 
 /// Resolve a Java import to a file path.
 /// com.foo.bar.Baz -> com/foo/bar/Baz.java
-pub fn resolve_import(
-    specifier: &str,
-    known_files: &HashSet<String>,
-) -> Option<String> {
+pub fn resolve_import(specifier: &str, known_files: &HashSet<String>) -> Option<String> {
     // Strip trailing wildcard and semicolons
     let clean = specifier.trim().trim_end_matches(';').trim();
 

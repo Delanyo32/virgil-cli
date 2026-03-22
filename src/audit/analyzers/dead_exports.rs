@@ -5,9 +5,7 @@ use crate::audit::project_analyzer::ProjectAnalyzer;
 use crate::audit::project_index::ProjectIndex;
 
 /// Entry-point file names that should not be flagged as dead exports.
-const ENTRY_POINT_NAMES: &[&str] = &[
-    "main", "lib", "mod", "index", "__init__", "__main__",
-];
+const ENTRY_POINT_NAMES: &[&str] = &["main", "lib", "mod", "index", "__init__", "__main__"];
 
 pub struct DeadExportsAnalyzer;
 
@@ -67,10 +65,7 @@ impl ProjectAnalyzer for DeadExportsAnalyzer {
                             "Exported {} '{}' is not imported by any other file in the project",
                             symbol.kind, symbol.name
                         ),
-                        snippet: symbol
-                            .signature
-                            .clone()
-                            .unwrap_or_default(),
+                        snippet: symbol.signature.clone().unwrap_or_default(),
                     });
                 }
             }

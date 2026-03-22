@@ -63,10 +63,7 @@ impl ProjectIndex {
         let mut reverse: HashMap<GraphNode, HashSet<GraphNode>> = HashMap::new();
         for (from, tos) in &self.edges {
             for to in tos {
-                reverse
-                    .entry(to.clone())
-                    .or_default()
-                    .insert(from.clone());
+                reverse.entry(to.clone()).or_default().insert(from.clone());
             }
         }
         reverse

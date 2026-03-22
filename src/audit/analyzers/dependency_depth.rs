@@ -126,8 +126,10 @@ mod tests {
         let findings = analyzer.analyze(&index);
         // Nodes at depth >= 6 should be flagged
         assert!(!findings.is_empty());
-        assert!(findings
-            .iter()
-            .all(|f| f.pattern == "deep_dependency_chain"));
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.pattern == "deep_dependency_chain")
+        );
     }
 }

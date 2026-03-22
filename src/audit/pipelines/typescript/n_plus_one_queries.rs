@@ -36,7 +36,13 @@ const DB_OBJ_METHOD_PAIRS: &[(&str, &str)] = &[
 ];
 
 /// Batch methods — skip these, they are the fix for N+1
-const BATCH_METHODS: &[&str] = &["insertMany", "updateMany", "deleteMany", "bulkWrite", "bulkCreate"];
+const BATCH_METHODS: &[&str] = &[
+    "insertMany",
+    "updateMany",
+    "deleteMany",
+    "bulkWrite",
+    "bulkCreate",
+];
 
 /// Bare function calls that suggest network access.
 const BARE_CALL_PATTERNS: &[&str] = &["fetch", "request"];

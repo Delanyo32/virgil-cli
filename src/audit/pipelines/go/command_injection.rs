@@ -86,10 +86,10 @@ impl Pipeline for CommandInjectionPipeline {
                 let args_child = (0..call.child_count())
                     .filter_map(|i| call.child(i))
                     .find(|c| c.kind() == "argument_list");
-                if let Some(args) = args_child {
-                    if all_args_are_literals(args, is_literal_node_go) {
-                        continue;
-                    }
+                if let Some(args) = args_child
+                    && all_args_are_literals(args, is_literal_node_go)
+                {
+                    continue;
                 }
 
                 // Check if there's string concatenation or variable in the arguments

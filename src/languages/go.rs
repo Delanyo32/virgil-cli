@@ -352,10 +352,7 @@ fn extract_symbol_from_node(
 
 /// Resolve a Go import to a package directory.
 /// Go imports are package-level — returns the directory path if any .go file exists under it.
-pub fn resolve_import(
-    specifier: &str,
-    known_files: &HashSet<String>,
-) -> Option<String> {
+pub fn resolve_import(specifier: &str, known_files: &HashSet<String>) -> Option<String> {
     // Go imports are full module paths like "github.com/foo/bar/pkg"
     // We need to find if any file in the workspace lives under a matching directory.
     // Try the specifier as a directory prefix — find any file under it.

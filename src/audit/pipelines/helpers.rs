@@ -1145,11 +1145,7 @@ pub fn is_literal_node_c(node: tree_sitter::Node) -> bool {
 
 /// Check if a C++ AST node is a safe literal value (extends C).
 pub fn is_literal_node_cpp(node: tree_sitter::Node) -> bool {
-    is_literal_node_c(node)
-        || matches!(
-            node.kind(),
-            "raw_string_literal" | "user_defined_literal"
-        )
+    is_literal_node_c(node) || matches!(node.kind(), "raw_string_literal" | "user_defined_literal")
 }
 
 /// Check if an expression node is safe (literal, or binary expression of literals).
@@ -1162,10 +1158,10 @@ pub fn is_safe_expression(
         return true;
     }
     // Parenthesized expression — unwrap
-    if node.kind() == "parenthesized_expression" {
-        if let Some(inner) = node.named_child(0) {
-            return is_safe_expression(inner, is_literal);
-        }
+    if node.kind() == "parenthesized_expression"
+        && let Some(inner) = node.named_child(0)
+    {
+        return is_safe_expression(inner, is_literal);
     }
     // Binary expression (string concatenation with +, etc.)
     if node.kind() == "binary_expression" {
@@ -1222,20 +1218,14 @@ pub fn split_identifier_words(name: &str) -> Vec<String> {
         }
         if c.is_uppercase() {
             // Check if this is start of a new word
-            if !current.is_empty() {
-                // camelCase boundary: lowercase followed by uppercase
-                if chars[i - 1].is_lowercase() {
-                    words.push(current.to_lowercase());
-                    current.clear();
-                }
-                // ALLCAPS to CamelCase boundary: e.g. "HTTPClient" -> "HTTP" + "Client"
-                else if chars[i - 1].is_uppercase()
-                    && i + 1 < chars.len()
-                    && chars[i + 1].is_lowercase()
-                {
-                    words.push(current.to_lowercase());
-                    current.clear();
-                }
+            if !current.is_empty()
+                && (chars[i - 1].is_lowercase()
+                    || (chars[i - 1].is_uppercase()
+                        && i + 1 < chars.len()
+                        && chars[i + 1].is_lowercase()))
+            {
+                words.push(current.to_lowercase());
+                current.clear();
             }
         }
         current.push(c);
@@ -1264,14 +1254,11 @@ pub fn receiver_matches_any_word(receiver: &str, patterns: &[&str]) -> bool {
 /// Includes HTTP status codes, common ports, standard timeout/duration values, and common sizes.
 pub const COMMON_ALLOWED_NUMBERS: &[&str] = &[
     // Small integers commonly used in non-magic contexts
-    "3", "4", "5", "6", "7", "8", "16", "32", "64", "128",
-    // HTTP status codes
+    "3", "4", "5", "6", "7", "8", "16", "32", "64", "128", // HTTP status codes
     "100", "101", "200", "201", "202", "204", "206", "301", "302", "304", "307", "308", "400",
     "401", "403", "404", "405", "408", "409", "410", "413", "415", "422", "429", "500", "501",
-    "502", "503", "504",
-    // Common ports
-    "80", "443", "8000", "8080", "8443", "9090",
-    // Common timeouts (ms)
+    "502", "503", "504", // Common ports
+    "80", "443", "8000", "8080", "8443", "9090", // Common timeouts (ms)
     "10000", "30000", "60000",
 ];
 
@@ -1290,14 +1277,12 @@ pub fn call_args_reference_params(
         return false;
     }
     // Find the argument list child
-    let args_node = call_node
-        .child_by_field_name("arguments")
-        .or_else(|| {
-            let mut cursor = call_node.walk();
-            call_node
-                .named_children(&mut cursor)
-                .find(|c| c.kind() == "argument_list" || c.kind() == "arguments")
-        });
+    let args_node = call_node.child_by_field_name("arguments").or_else(|| {
+        let mut cursor = call_node.walk();
+        call_node
+            .named_children(&mut cursor)
+            .find(|c| c.kind() == "argument_list" || c.kind() == "arguments")
+    });
     let Some(args) = args_node else {
         return false;
     };
@@ -1306,11 +1291,7 @@ pub fn call_args_reference_params(
 }
 
 /// Recursively check if any identifier node within a subtree matches one of the given names.
-fn identifiers_reference_names(
-    node: tree_sitter::Node,
-    names: &[String],
-    source: &[u8],
-) -> bool {
+fn identifiers_reference_names(node: tree_sitter::Node, names: &[String], source: &[u8]) -> bool {
     if node.kind() == "identifier" || node.kind() == "field_identifier" {
         let text = node.utf8_text(source).unwrap_or("");
         if names.iter().any(|n| n == text) {
@@ -1470,10 +1451,7 @@ mod tests {
             vec!["db", "connection"]
         );
         assert_eq!(split_identifier_words("debugger"), vec!["debugger"]);
-        assert_eq!(
-            split_identifier_words("HTTPClient"),
-            vec!["http", "client"]
-        );
+        assert_eq!(split_identifier_words("HTTPClient"), vec!["http", "client"]);
         assert_eq!(split_identifier_words("DB"), vec!["db"]);
         assert_eq!(split_identifier_words("myList"), vec!["my", "list"]);
         assert_eq!(split_identifier_words("a_b_c"), vec!["a", "b", "c"]);

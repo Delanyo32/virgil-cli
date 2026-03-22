@@ -7,7 +7,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::{
-    ancestor_has_kind, is_test_context_python, is_test_file, COMMON_ALLOWED_NUMBERS,
+    COMMON_ALLOWED_NUMBERS, ancestor_has_kind, is_test_context_python, is_test_file,
 };
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index, node_text};

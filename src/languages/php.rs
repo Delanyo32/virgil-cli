@@ -586,7 +586,9 @@ fn normalize_relative_path(base_dir: &str, specifier: &str) -> String {
     };
     for segment in specifier.split('/') {
         match segment {
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             "." | "" => {}
             other => parts.push(other),
         }
