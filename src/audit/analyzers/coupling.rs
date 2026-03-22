@@ -70,7 +70,7 @@ impl ProjectAnalyzer for CouplingAnalyzer {
 mod tests {
     use super::*;
     use crate::audit::project_index::GraphNode;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     #[test]
     fn detects_high_efferent() {

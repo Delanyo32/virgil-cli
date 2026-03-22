@@ -93,7 +93,7 @@ mod tests {
     use crate::audit::project_index::{ExportedSymbol, FileEntry};
     use crate::language::Language;
     use crate::models::{ImportInfo, SymbolKind};
-    use std::collections::HashMap;
+
 
     #[test]
     fn detects_dead_export() {
