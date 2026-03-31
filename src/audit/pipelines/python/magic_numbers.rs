@@ -14,7 +14,8 @@ use super::primitives::{compile_numeric_literal_query, find_capture_index, node_
 
 const EXCLUDED_VALUES: &[&str] = &[
     "0", "1", "2", "-1", "0.0", "1.0", "10", "100", "1000", "256", "512", "1024", "2048", "4096",
-    "8192",
+    "8192", "60", "3600", "86400", "24", "365", "12", "30", "90", "180", "360", "20", "50",
+    "1000000",
 ];
 
 pub struct PythonMagicNumbersPipeline {
@@ -50,6 +51,14 @@ impl PythonMagicNumbersPipeline {
                         return true;
                     }
                 }
+                // Collection literals (list, tuple, set, dict)
+                "list" | "tuple" | "set" | "dictionary" => {
+                    return true;
+                }
+                // Return statements
+                "return_statement" => {
+                    return true;
+                }
                 // keyword argument (func(timeout=30))
                 "keyword_argument" => {
                     return true;
@@ -57,6 +66,26 @@ impl PythonMagicNumbersPipeline {
                 // default parameter value
                 "default_parameter" | "typed_default_parameter" => {
                     return true;
+                }
+                // Common builtin function calls
+                "call" => {
+                    if let Some(fn_node) = parent.child_by_field_name("function") {
+                        let fn_name = node_text(fn_node, source);
+                        if matches!(
+                            fn_name,
+                            "range"
+                                | "sleep"
+                                | "round"
+                                | "enumerate"
+                                | "zip"
+                                | "min"
+                                | "max"
+                                | "pow"
+                                | "abs"
+                        ) {
+                            return true;
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -195,5 +224,12 @@ mod tests {
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("3.14159"));
+    }
+
+    #[test]
+    fn skips_collection_literals() {
+        let src = "prices = [5.99, 12.99, 24.99]\ntiers = (199, 299, 399)\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "expected no findings for collection literals, got: {findings:?}");
     }
 }

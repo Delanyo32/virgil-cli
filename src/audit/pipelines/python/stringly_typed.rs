@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -41,11 +42,13 @@ impl Pipeline for StringlyTypedPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
-        let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.comparison_query, tree.root_node(), source);
 
         let comp_idx = find_capture_index(&self.comparison_query, "comparison");
+
+        // (variable_name) -> Vec<(line, column, snippet, string_value)>
+        let mut var_comparisons: HashMap<String, Vec<(u32, u32, String, String)>> = HashMap::new();
 
         while let Some(m) = matches.next() {
             let comp_cap = m.captures.iter().find(|c| c.index as usize == comp_idx);
@@ -54,14 +57,14 @@ impl Pipeline for StringlyTypedPipeline {
                 let node = comp_cap.node;
 
                 // Look for a string literal and an identifier/attribute among children
-                let mut has_string = false;
+                let mut string_value = None;
                 let mut suspicious_identifier = None;
 
                 for i in 0..node.named_child_count() {
                     if let Some(child) = node.named_child(i) {
                         match child.kind() {
                             "string" => {
-                                has_string = true;
+                                string_value = Some(node_text(child, source).to_string());
                             }
                             "identifier" => {
                                 let name = node_text(child, source);
@@ -84,19 +87,37 @@ impl Pipeline for StringlyTypedPipeline {
                     }
                 }
 
-                if has_string && let Some(ident) = suspicious_identifier {
+                if let (Some(ident), Some(sv)) = (suspicious_identifier, string_value) {
                     let start = node.start_position();
+                    var_comparisons.entry(ident).or_default().push((
+                        start.row as u32 + 1,
+                        start.column as u32 + 1,
+                        extract_snippet(source, node, 1),
+                        sv,
+                    ));
+                }
+            }
+        }
+
+        // Only emit findings for variables with 3+ distinct string comparisons
+        let mut findings = Vec::new();
+        for (ident, comparisons) in &var_comparisons {
+            let unique_values: std::collections::HashSet<&String> =
+                comparisons.iter().map(|(_, _, _, v)| v).collect();
+            if unique_values.len() >= 3 {
+                for (line, column, snippet, _) in comparisons {
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
-                        line: start.row as u32 + 1,
-                        column: start.column as u32 + 1,
+                        line: *line,
+                        column: *column,
                         severity: "info".to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "stringly_typed_comparison".to_string(),
                         message: format!(
-                            "string comparison on `{ident}` — consider using an enum instead"
+                            "string comparison on `{ident}` — compared against {} distinct values, consider using an enum",
+                            unique_values.len()
                         ),
-                        snippet: extract_snippet(source, node, 1),
+                        snippet: snippet.clone(),
                     });
                 }
             }
@@ -123,17 +144,33 @@ mod tests {
 
     #[test]
     fn detects_status_string_comparison() {
-        let src = "if status == \"active\":\n    pass\n";
+        let src = "if status == \"active\":\n    pass\nelif status == \"inactive\":\n    pass\nelif status == \"pending\":\n    pass\n";
         let findings = parse_and_check(src);
-        assert_eq!(findings.len(), 1);
+        assert_eq!(findings.len(), 3);
         assert_eq!(findings[0].pattern, "stringly_typed_comparison");
     }
 
     #[test]
     fn detects_attribute_comparison() {
-        let src = "if obj.state == \"running\":\n    pass\n";
+        let src = "if obj.state == \"running\":\n    pass\nelif obj.state == \"stopped\":\n    pass\nelif obj.state == \"paused\":\n    pass\n";
         let findings = parse_and_check(src);
-        assert_eq!(findings.len(), 1);
+        assert_eq!(findings.len(), 3);
+    }
+
+    #[test]
+    fn skips_few_comparisons() {
+        // Only 1 comparison — should not trigger
+        let src = "if status == \"active\":\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_two_comparisons() {
+        // Only 2 distinct values — should not trigger (threshold is 3)
+        let src = "if status == \"active\":\n    pass\nelif status == \"inactive\":\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 
     #[test]

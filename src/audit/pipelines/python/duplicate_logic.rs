@@ -32,8 +32,7 @@ impl DuplicateLogicPipeline {
                         if name == "self" || name == "cls" {
                             param_types.push(name.to_string());
                         } else {
-                            // Untyped param — use placeholder
-                            param_types.push("_".to_string());
+                            param_types.push(name.to_string());
                         }
                     }
                     "typed_parameter" => {
@@ -45,7 +44,11 @@ impl DuplicateLogicPipeline {
                         }
                     }
                     "default_parameter" => {
-                        param_types.push("_=".to_string());
+                        if let Some(name_node) = child.child_by_field_name("name") {
+                            param_types.push(format!("{}=", node_text(name_node, source)));
+                        } else {
+                            param_types.push("_=".to_string());
+                        }
                     }
                     "typed_default_parameter" => {
                         if let Some(type_node) = child.child_by_field_name("type") {
@@ -71,7 +74,7 @@ impl DuplicateLogicPipeline {
             .filter(|p| *p != "self" && *p != "cls")
             .collect();
 
-        if non_self.is_empty() {
+        if non_self.len() < 3 {
             return None;
         }
 
@@ -134,7 +137,7 @@ impl Pipeline for DuplicateLogicPipeline {
         }
 
         for (sig, funcs) in &sig_map {
-            if funcs.len() >= 2 {
+            if funcs.len() >= 3 {
                 let names: Vec<&str> = funcs.iter().map(|(n, _, _)| n.as_str()).collect();
                 for (fn_name, line, column) in funcs {
                     findings.push(AuditFinding {
@@ -186,9 +189,12 @@ def process_user(name, age, email):
 
 def process_order(name, age, email):
     pass
+
+def process_item(name, age, email):
+    pass
 ";
         let findings = parse_and_check(src);
-        assert_eq!(findings.len(), 2);
+        assert_eq!(findings.len(), 3);
         assert_eq!(findings[0].pattern, "similar_function_signature");
     }
 

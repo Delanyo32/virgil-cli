@@ -44,6 +44,11 @@ impl ProjectAnalyzer for DeadExportsAnalyzer {
                 continue;
             }
 
+            // Skip framework-dispatched files (web handlers, tasks, tests, migrations)
+            if is_framework_dispatched_file(file_path) {
+                continue;
+            }
+
             // Skip main functions
             if name == "main" || name == "__init__" {
                 continue;
@@ -98,6 +103,64 @@ fn is_entry_point(path: &str) -> bool {
         .unwrap_or(path);
 
     ENTRY_POINT_NAMES.contains(&file_stem)
+}
+
+/// File stems for framework-dispatched modules (web handlers, admin, signals, etc.)
+const FRAMEWORK_FILE_STEMS: &[&str] = &[
+    "api",
+    "views",
+    "routes",
+    "tasks",
+    "handlers",
+    "endpoints",
+    "commands",
+    "admin",
+    "signals",
+    "middleware",
+    "urls",
+    "wsgi",
+    "asgi",
+    "conftest",
+    "manage",
+];
+
+/// Directory segments that indicate framework-managed or non-library code.
+const FRAMEWORK_DIR_SEGMENTS: &[&str] = &[
+    "tests",
+    "test",
+    "migrations",
+    "management",
+    "commands",
+];
+
+/// Returns `true` if the file lives in a framework-dispatched context where
+/// exported symbols are typically invoked by the framework (or test runner)
+/// rather than imported directly by other project code.
+fn is_framework_dispatched_file(path: &str) -> bool {
+    // Check file stem against known framework file names
+    let file_name = path.rsplit_once('/').map(|(_, f)| f).unwrap_or(path);
+    let file_stem = file_name
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .unwrap_or(file_name);
+
+    if FRAMEWORK_FILE_STEMS.contains(&file_stem) {
+        return true;
+    }
+
+    // Check for test file patterns: test_*.py, *_test.py
+    if file_stem.starts_with("test_") || file_stem.ends_with("_test") {
+        return true;
+    }
+
+    // Check if any directory segment matches a framework directory
+    for segment in path.split('/') {
+        if FRAMEWORK_DIR_SEGMENTS.contains(&segment) {
+            return true;
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -204,5 +267,76 @@ mod tests {
         let analyzer = DeadExportsAnalyzer;
         let findings = analyzer.analyze(&graph);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_framework_dispatched_files() {
+        let mut graph = CodeGraph::new();
+
+        // views.py — Django view module
+        let file_idx = graph.graph.add_node(NodeWeight::File {
+            path: "app/views.py".to_string(),
+            language: Language::Python,
+        });
+        graph
+            .file_nodes
+            .insert("app/views.py".to_string(), file_idx);
+
+        let _sym = graph.graph.add_node(NodeWeight::Symbol {
+            name: "index".to_string(),
+            kind: SymbolKind::Function,
+            file_path: "app/views.py".to_string(),
+            start_line: 1,
+            end_line: 5,
+            exported: true,
+        });
+
+        let analyzer = DeadExportsAnalyzer;
+        let findings = analyzer.analyze(&graph);
+        assert!(findings.is_empty(), "views.py should be skipped");
+    }
+
+    #[test]
+    fn is_framework_dispatched_file_matches_stems() {
+        // Framework file stems
+        assert!(is_framework_dispatched_file("app/views.py"));
+        assert!(is_framework_dispatched_file("app/routes.py"));
+        assert!(is_framework_dispatched_file("app/tasks.py"));
+        assert!(is_framework_dispatched_file("app/handlers.py"));
+        assert!(is_framework_dispatched_file("app/endpoints.py"));
+        assert!(is_framework_dispatched_file("app/commands.py"));
+        assert!(is_framework_dispatched_file("app/admin.py"));
+        assert!(is_framework_dispatched_file("app/signals.py"));
+        assert!(is_framework_dispatched_file("app/middleware.py"));
+        assert!(is_framework_dispatched_file("app/urls.py"));
+        assert!(is_framework_dispatched_file("app/wsgi.py"));
+        assert!(is_framework_dispatched_file("app/asgi.py"));
+        assert!(is_framework_dispatched_file("conftest.py"));
+        assert!(is_framework_dispatched_file("manage.py"));
+        assert!(is_framework_dispatched_file("project/api.py"));
+    }
+
+    #[test]
+    fn is_framework_dispatched_file_matches_test_patterns() {
+        assert!(is_framework_dispatched_file("app/test_views.py"));
+        assert!(is_framework_dispatched_file("app/models_test.py"));
+        // But not a file that merely contains "test" in the middle
+        assert!(!is_framework_dispatched_file("app/contest.py"));
+    }
+
+    #[test]
+    fn is_framework_dispatched_file_matches_dir_segments() {
+        assert!(is_framework_dispatched_file("project/tests/test_foo.py"));
+        assert!(is_framework_dispatched_file("project/test/helpers.py"));
+        assert!(is_framework_dispatched_file("app/migrations/0001_initial.py"));
+        assert!(is_framework_dispatched_file("app/management/commands/seed.py"));
+        assert!(is_framework_dispatched_file("app/commands/deploy.py"));
+    }
+
+    #[test]
+    fn is_framework_dispatched_file_rejects_normal_files() {
+        assert!(!is_framework_dispatched_file("app/models.py"));
+        assert!(!is_framework_dispatched_file("src/utils.rs"));
+        assert!(!is_framework_dispatched_file("lib/helpers.ts"));
     }
 }

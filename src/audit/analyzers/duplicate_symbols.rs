@@ -3,6 +3,12 @@ use crate::audit::project_analyzer::ProjectAnalyzer;
 use crate::graph::{CodeGraph, NodeWeight};
 use crate::models::SymbolKind;
 
+const COMMON_INNER_NAMES: &[&str] = &[
+    "wrapper", "inner", "decorated", "wrapped", "decorator", "closure",
+    "helper", "callback", "handler", "validate", "transform", "execute",
+    "process", "run", "setup", "teardown", "factory",
+];
+
 pub struct DuplicateSymbolsAnalyzer;
 
 impl ProjectAnalyzer for DuplicateSymbolsAnalyzer {
@@ -18,7 +24,13 @@ impl ProjectAnalyzer for DuplicateSymbolsAnalyzer {
         let mut findings = Vec::new();
 
         for (name, indices) in &graph.symbols_by_name {
-            // Collect exported symbols with their file+kind info
+            // Skip common inner function / decorator names
+            if COMMON_INNER_NAMES.contains(&name.as_str()) {
+                continue;
+            }
+
+            // Collect exported symbols with their file+kind info,
+            // excluding __init__.py and test files
             let exported: Vec<(&str, SymbolKind, u32)> = indices
                 .iter()
                 .filter_map(|&idx| match &graph.graph[idx] {
@@ -29,17 +41,28 @@ impl ProjectAnalyzer for DuplicateSymbolsAnalyzer {
                         exported,
                         ..
                     } => {
-                        if *exported {
-                            Some((file_path.as_str(), *kind, *start_line))
-                        } else {
-                            None
+                        if !*exported {
+                            return None;
                         }
+                        // Exclude __init__.py (re-exports are intentional)
+                        if file_path.ends_with("__init__.py") {
+                            return None;
+                        }
+                        // Exclude test files
+                        if file_path.contains("/test_")
+                            || file_path.ends_with("_test.py")
+                            || file_path.contains("/tests/")
+                            || file_path.contains("/test/")
+                        {
+                            return None;
+                        }
+                        Some((file_path.as_str(), *kind, *start_line))
                     }
                     _ => None,
                 })
                 .collect();
 
-            if exported.len() < 2 {
+            if exported.len() < 3 {
                 continue;
             }
 
@@ -51,7 +74,7 @@ impl ProjectAnalyzer for DuplicateSymbolsAnalyzer {
             }
 
             for (kind, locations) in &by_kind {
-                if locations.len() < 2 {
+                if locations.len() < 3 {
                     continue;
                 }
 
@@ -94,7 +117,7 @@ mod tests {
     fn detects_cross_file_duplicates() {
         let mut graph = CodeGraph::new();
 
-        for path in &["src/a.rs", "src/b.rs"] {
+        for path in &["src/a.rs", "src/b.rs", "src/c.rs"] {
             let file_idx = graph.graph.add_node(NodeWeight::File {
                 path: path.to_string(),
                 language: Language::Rust,
@@ -118,7 +141,7 @@ mod tests {
 
         let analyzer = DuplicateSymbolsAnalyzer;
         let findings = analyzer.analyze(&graph);
-        assert_eq!(findings.len(), 2);
+        assert_eq!(findings.len(), 3);
         assert!(findings.iter().all(|f| f.pattern == "cross_file_duplicate"));
     }
 
