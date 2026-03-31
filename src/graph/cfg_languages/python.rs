@@ -20,10 +20,10 @@ impl CfgBuilder for PythonCfgBuilder {
         let exit = ctx.process_block(&body, ctx.cfg.entry, source);
 
         // If the last block didn't end with a return, mark it as an implicit exit
-        if let Some(exit) = exit {
-            if !ctx.cfg.exits.contains(&exit) {
-                ctx.cfg.exits.push(exit);
-            }
+        if let Some(exit) = exit
+            && !ctx.cfg.exits.contains(&exit)
+        {
+            ctx.cfg.exits.push(exit);
         }
 
         // If no explicit exits were recorded, the entry is the exit
@@ -76,7 +76,12 @@ impl BuildCtx {
     // Returns the "current" block at the end, or None if all paths returned.
     // ------------------------------------------------------------------
 
-    fn process_block(&mut self, block_node: &Node, mut current: NodeIndex, source: &[u8]) -> Option<NodeIndex> {
+    fn process_block(
+        &mut self,
+        block_node: &Node,
+        mut current: NodeIndex,
+        source: &[u8],
+    ) -> Option<NodeIndex> {
         let mut cursor = block_node.walk();
         for child in block_node.children(&mut cursor) {
             if !child.is_named() {
@@ -119,7 +124,9 @@ impl BuildCtx {
                 Some(current)
             }
             // Comprehensions at statement level (list/dict/set/generator)
-            "list_comprehension" | "dictionary_comprehension" | "set_comprehension"
+            "list_comprehension"
+            | "dictionary_comprehension"
+            | "set_comprehension"
             | "generator_expression" => {
                 self.process_comprehension(node, current, source);
                 Some(current)
@@ -156,7 +163,12 @@ impl BuildCtx {
     // return_statement
     // ------------------------------------------------------------------
 
-    fn process_return(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Option<NodeIndex> {
+    fn process_return(
+        &mut self,
+        node: &Node,
+        current: NodeIndex,
+        source: &[u8],
+    ) -> Option<NodeIndex> {
         let value_vars = if let Some(value) = node.child(1) {
             collect_identifiers_in_subtree(&value, source)
         } else {
@@ -424,7 +436,12 @@ impl BuildCtx {
     //     alternative: else_clause  (optional, while-else)
     // ------------------------------------------------------------------
 
-    fn process_while(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Option<NodeIndex> {
+    fn process_while(
+        &mut self,
+        node: &Node,
+        current: NodeIndex,
+        source: &[u8],
+    ) -> Option<NodeIndex> {
         let header = self.new_block();
         self.add_edge(current, header, CfgEdge::Normal);
 
@@ -583,9 +600,7 @@ impl BuildCtx {
             }
             let else_body = else_node.child_by_field_name("body").or_else(|| {
                 let mut c = else_node.walk();
-                else_node
-                    .children(&mut c)
-                    .find(|ch| ch.kind() == "block")
+                else_node.children(&mut c).find(|ch| ch.kind() == "block")
             });
             if let Some(body) = else_body {
                 self.process_block(&body, else_block, source)
@@ -604,10 +619,8 @@ impl BuildCtx {
             if let Some(ne) = normal_exit {
                 self.add_edge(ne, finally_block, CfgEdge::Cleanup);
             }
-            for he in &handler_exits {
-                if let Some(h) = he {
-                    self.add_edge(*h, finally_block, CfgEdge::Cleanup);
-                }
+            for h in handler_exits.iter().flatten() {
+                self.add_edge(*h, finally_block, CfgEdge::Cleanup);
             }
 
             let finally_body = finally_node.child_by_field_name("body").or_else(|| {
@@ -630,10 +643,8 @@ impl BuildCtx {
             if let Some(ne) = normal_exit {
                 self.add_edge(ne, after_try, CfgEdge::Normal);
             }
-            for he in &handler_exits {
-                if let Some(h) = he {
-                    self.add_edge(*h, after_try, CfgEdge::Normal);
-                }
+            for h in handler_exits.iter().flatten() {
+                self.add_edge(*h, after_try, CfgEdge::Normal);
             }
         }
 
@@ -653,7 +664,12 @@ impl BuildCtx {
     // Modeled as: ResourceAcquire -> body -> ResourceRelease
     // ------------------------------------------------------------------
 
-    fn process_with(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Option<NodeIndex> {
+    fn process_with(
+        &mut self,
+        node: &Node,
+        current: NodeIndex,
+        source: &[u8],
+    ) -> Option<NodeIndex> {
         // Extract with items: resource expressions and their bound names
         let mut items: Vec<(String, String)> = Vec::new(); // (target, resource_expr)
         let mut walk = node.walk();
@@ -697,7 +713,7 @@ impl BuildCtx {
         };
 
         // Emit ResourceRelease (cleanup) for each item, in reverse order
-        let release_block = if let Some(exit) = body_exit {
+        if let Some(exit) = body_exit {
             let cleanup = self.new_block();
             self.add_edge(exit, cleanup, CfgEdge::Cleanup);
 
@@ -716,9 +732,7 @@ impl BuildCtx {
             Some(cleanup)
         } else {
             None
-        };
-
-        release_block
+        }
     }
 
     // ------------------------------------------------------------------
@@ -743,12 +757,7 @@ impl BuildCtx {
     // expression_statement — may contain a bare call or assignment
     // ------------------------------------------------------------------
 
-    fn process_expression_statement(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) {
+    fn process_expression_statement(&mut self, node: &Node, current: NodeIndex, source: &[u8]) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if !child.is_named() {
@@ -1048,8 +1057,8 @@ fn extract_resource_type(resource_expr: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::create_parser;
     use crate::language::Language;
+    use crate::parser::create_parser;
 
     fn build_cfg_for(source: &str) -> FunctionCfg {
         let full = format!("def test_fn():\n{}", indent(source));
@@ -1062,7 +1071,9 @@ mod tests {
             .expect("no function_definition found");
 
         let builder = PythonCfgBuilder;
-        builder.build_cfg(&func, full.as_bytes()).expect("build_cfg")
+        builder
+            .build_cfg(&func, full.as_bytes())
+            .expect("build_cfg")
     }
 
     fn indent(s: &str) -> String {
@@ -1124,7 +1135,8 @@ mod tests {
     #[test]
     fn assignment() {
         let cfg = build_cfg_for("x = 1");
-        let assigns = count_stmts_of_kind(&cfg, |k| matches!(k, CfgStatementKind::Assignment { .. }));
+        let assigns =
+            count_stmts_of_kind(&cfg, |k| matches!(k, CfgStatementKind::Assignment { .. }));
         assert!(assigns >= 1);
     }
 
@@ -1228,7 +1240,8 @@ mod tests {
     fn assignment_with_call() {
         let cfg = build_cfg_for("result = compute(a, b)");
         let calls = count_stmts_of_kind(&cfg, |k| matches!(k, CfgStatementKind::Call { .. }));
-        let assigns = count_stmts_of_kind(&cfg, |k| matches!(k, CfgStatementKind::Assignment { .. }));
+        let assigns =
+            count_stmts_of_kind(&cfg, |k| matches!(k, CfgStatementKind::Assignment { .. }));
         assert_eq!(calls, 1);
         assert!(assigns >= 1);
     }

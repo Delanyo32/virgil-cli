@@ -700,13 +700,10 @@ impl BuildCtx {
                 // Record the inner effect, then add the error edge.
                 // We don't split blocks here because we're inside a larger statement;
                 // just record the exception edge from the current block.
-                if let Some(inner) = node.named_child(0) {
-                    if matches!(
-                        inner.kind(),
-                        "call_expression" | "method_call_expression"
-                    ) {
-                        self.process_call_stmt(&inner, current, source);
-                    }
+                if let Some(inner) = node.named_child(0)
+                    && matches!(inner.kind(), "call_expression" | "method_call_expression")
+                {
+                    self.process_call_stmt(&inner, current, source);
                 }
                 let err_exit = self.error_exit();
                 self.add_edge(current, err_exit, CfgEdge::Exception);
@@ -759,10 +756,7 @@ fn extract_call_name(node: &Node, source: &[u8]) -> String {
         // method_call_expression has field "name" for the method name
         // and field "value" for the receiver
         if let Some(name_node) = node.child_by_field_name("name") {
-            return name_node
-                .utf8_text(source)
-                .unwrap_or("unknown")
-                .to_string();
+            return name_node.utf8_text(source).unwrap_or("unknown").to_string();
         }
     }
 
@@ -811,12 +805,8 @@ fn collect_identifiers(node: &Node, source: &[u8], out: &mut Vec<String>) {
 /// Find a direct child by kind name.
 fn find_child_by_kind<'a>(node: &'a Node, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
+    node.named_children(&mut cursor)
+        .find(|&child| child.kind() == kind)
 }
 
 /// Filter out Rust keywords that tree-sitter may parse as identifiers in some contexts.
@@ -850,8 +840,8 @@ mod tests {
     use super::*;
     use crate::language::Language;
     use crate::parser::create_parser;
-    use petgraph::visit::EdgeRef;
     use petgraph::Direction;
+    use petgraph::visit::EdgeRef;
 
     fn build_cfg_for(code: &str) -> FunctionCfg {
         let mut parser = create_parser(Language::Rust).expect("create parser");
@@ -861,7 +851,9 @@ mod tests {
         // Find the first function_item
         let func = find_function_item(root).expect("no function_item found");
         let builder = RustCfgBuilder;
-        builder.build_cfg(&func, code.as_bytes()).expect("build_cfg")
+        builder
+            .build_cfg(&func, code.as_bytes())
+            .expect("build_cfg")
     }
 
     fn find_function_item(node: Node) -> Option<Node> {
@@ -974,7 +966,10 @@ mod tests {
             }
         "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -989,7 +984,10 @@ mod tests {
             }
         "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -1025,9 +1023,10 @@ mod tests {
         "#,
         );
         // Should have an Exception edge somewhere
-        let has_exception = cfg.blocks.edge_indices().any(|e| {
-            matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::Exception))
-        });
+        let has_exception = cfg
+            .blocks
+            .edge_indices()
+            .any(|e| matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::Exception)));
         assert!(has_exception, "expected Exception edge for ? operator");
     }
 
@@ -1058,7 +1057,10 @@ mod tests {
             }
         "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -1090,7 +1092,10 @@ mod tests {
             }
         "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 }

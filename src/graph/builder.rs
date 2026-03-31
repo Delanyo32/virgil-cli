@@ -22,7 +22,6 @@ struct FileGraphData {
     symbols: Vec<SymbolInfo>,
     imports: Vec<ImportInfo>,
     call_sites: Vec<CallSiteData>,
-    line_count: u32,
     /// CFGs built for functions in this file: (symbol start_line, cfg)
     function_cfgs: Vec<(u32, FunctionCfg)>,
 }
@@ -32,7 +31,6 @@ struct CallSiteData {
     callee_name: String,
     caller_file: String,
     caller_symbol_line: u32,
-    line: u32,
 }
 
 pub struct GraphBuilder<'a> {
@@ -126,15 +124,9 @@ impl<'a> GraphBuilder<'a> {
                         );
                     }
 
-                    let line_count = source.lines().count() as u32;
-
                     // Build CFGs for functions in this file
-                    let function_cfgs = build_function_cfgs(
-                        &tree,
-                        source.as_bytes(),
-                        &symbols,
-                        lang,
-                    );
+                    let function_cfgs =
+                        build_function_cfgs(&tree, source.as_bytes(), &symbols, lang);
 
                     Some(FileGraphData {
                         path: rel_path.to_string(),
@@ -142,7 +134,6 @@ impl<'a> GraphBuilder<'a> {
                         symbols,
                         imports,
                         call_sites,
-                        line_count,
                         function_cfgs,
                     })
                 })
@@ -186,9 +177,7 @@ impl<'a> GraphBuilder<'a> {
 
                 // Exports: File -> Symbol (if exported)
                 if sym.is_exported {
-                    graph
-                        .graph
-                        .add_edge(file_idx, sym_idx, EdgeWeight::Exports);
+                    graph.graph.add_edge(file_idx, sym_idx, EdgeWeight::Exports);
                 }
 
                 graph
@@ -208,14 +197,12 @@ impl<'a> GraphBuilder<'a> {
             for import in &fd.imports {
                 if let Some(resolved) =
                     resolve_import_to_file(&fd.path, import, fd.language, &known_files)
+                    && let Some(&to_file_idx) = graph.file_nodes.get(&resolved)
+                    && from_file_idx != to_file_idx
                 {
-                    if let Some(&to_file_idx) = graph.file_nodes.get(&resolved) {
-                        if from_file_idx != to_file_idx {
-                            graph
-                                .graph
-                                .add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
-                        }
-                    }
+                    graph
+                        .graph
+                        .add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
                 }
             }
         }
@@ -301,12 +288,10 @@ fn build_function_cfgs(
         }
 
         // Find the tree-sitter node for this function by line range
-        if let Some(func_node) =
-            find_node_at_line(tree.root_node(), sym.start_line, sym.end_line)
+        if let Some(func_node) = find_node_at_line(tree.root_node(), sym.start_line, sym.end_line)
+            && let Ok(cfg) = builder.build_cfg(&func_node, source)
         {
-            if let Ok(cfg) = builder.build_cfg(&func_node, source) {
-                cfgs.push((sym.start_line, cfg));
-            }
+            cfgs.push((sym.start_line, cfg));
         }
     }
 
@@ -358,6 +343,7 @@ fn call_expression_types(language: Language) -> Vec<&'static str> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_calls_in_range(
     node: tree_sitter::Node,
     source: &[u8],
@@ -376,15 +362,14 @@ fn collect_calls_in_range(
         return;
     }
 
-    if call_types.contains(&node.kind()) {
-        if let Some(name) = extract_callee_name(node, source, language) {
-            out.push(CallSiteData {
-                callee_name: name,
-                caller_file: file_path.to_string(),
-                caller_symbol_line,
-                line: node_start,
-            });
-        }
+    if call_types.contains(&node.kind())
+        && let Some(name) = extract_callee_name(node, source, language)
+    {
+        out.push(CallSiteData {
+            callee_name: name,
+            caller_file: file_path.to_string(),
+            caller_symbol_line,
+        });
     }
 
     let mut cursor = node.walk();

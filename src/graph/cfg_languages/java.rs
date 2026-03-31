@@ -91,7 +91,14 @@ impl BuildCtx {
         for (i, child) in children.iter().enumerate() {
             let is_last = i == children.len() - 1;
             let next_block = if is_last { after } else { self.new_block() };
-            self.process_statement(child, source, cur, next_block, break_target, continue_target);
+            self.process_statement(
+                child,
+                source,
+                cur,
+                next_block,
+                break_target,
+                continue_target,
+            );
             cur = next_block;
         }
     }
@@ -274,13 +281,7 @@ impl BuildCtx {
 
     // ── for_statement ─────────────────────────────────────────────────────
 
-    fn build_for(
-        &mut self,
-        node: &Node,
-        source: &[u8],
-        current: NodeIndex,
-        after: NodeIndex,
-    ) {
+    fn build_for(&mut self, node: &Node, source: &[u8], current: NodeIndex, after: NodeIndex) {
         // Initializer runs in `current`
         if let Some(init) = node.child_by_field_name("init") {
             self.try_extract_expression(&init, source, current);
@@ -379,13 +380,7 @@ impl BuildCtx {
 
     // ── while_statement ───────────────────────────────────────────────────
 
-    fn build_while(
-        &mut self,
-        node: &Node,
-        source: &[u8],
-        current: NodeIndex,
-        after: NodeIndex,
-    ) {
+    fn build_while(&mut self, node: &Node, source: &[u8], current: NodeIndex, after: NodeIndex) {
         let cond_block = self.new_block();
         let body_block = self.new_block();
 
@@ -424,13 +419,7 @@ impl BuildCtx {
 
     // ── do_statement ──────────────────────────────────────────────────────
 
-    fn build_do_while(
-        &mut self,
-        node: &Node,
-        source: &[u8],
-        current: NodeIndex,
-        after: NodeIndex,
-    ) {
+    fn build_do_while(&mut self, node: &Node, source: &[u8], current: NodeIndex, after: NodeIndex) {
         let body_block = self.new_block();
         let cond_block = self.new_block();
 
@@ -470,13 +459,7 @@ impl BuildCtx {
 
     // ── switch_expression / switch_statement ──────────────────────────────
 
-    fn build_switch(
-        &mut self,
-        node: &Node,
-        source: &[u8],
-        current: NodeIndex,
-        after: NodeIndex,
-    ) {
+    fn build_switch(&mut self, node: &Node, source: &[u8], current: NodeIndex, after: NodeIndex) {
         // Guard on the condition
         let cond_vars = node
             .child_by_field_name("condition")
@@ -502,10 +485,7 @@ impl BuildCtx {
             b.children(&mut c2).collect()
         } else {
             node.children(&mut cursor)
-                .filter(|c| {
-                    c.kind() == "switch_block_statement_group"
-                        || c.kind() == "switch_rule"
-                })
+                .filter(|c| c.kind() == "switch_block_statement_group" || c.kind() == "switch_rule")
                 .collect()
         };
 
@@ -572,7 +552,14 @@ impl BuildCtx {
 
         // Try body
         if let Some(b) = body {
-            self.process_statement(&b, source, try_block, merge_target, break_target, continue_target);
+            self.process_statement(
+                &b,
+                source,
+                try_block,
+                merge_target,
+                break_target,
+                continue_target,
+            );
         } else {
             self.add_edge(try_block, merge_target, CfgEdge::Normal);
         }
@@ -785,21 +772,19 @@ impl BuildCtx {
                         })
                         .unwrap_or(false);
 
-                    if is_call {
-                        if let Some(value_node) = child.child_by_field_name("value") {
-                            let call_name = extract_call_name(&value_node, source);
-                            let args = extract_call_args(&value_node, source);
-                            self.push_stmt(
-                                block,
-                                CfgStatement {
-                                    kind: CfgStatementKind::Call {
-                                        name: call_name,
-                                        args,
-                                    },
-                                    line: node.start_position().row as u32,
+                    if is_call && let Some(value_node) = child.child_by_field_name("value") {
+                        let call_name = extract_call_name(&value_node, source);
+                        let args = extract_call_args(&value_node, source);
+                        self.push_stmt(
+                            block,
+                            CfgStatement {
+                                kind: CfgStatementKind::Call {
+                                    name: call_name,
+                                    args,
                                 },
-                            );
-                        }
+                                line: node.start_position().row as u32,
+                            },
+                        );
                     }
 
                     self.push_stmt(
@@ -897,7 +882,8 @@ impl BuildCtx {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     match child.kind() {
-                        "method_invocation" | "object_creation_expression"
+                        "method_invocation"
+                        | "object_creation_expression"
                         | "assignment_expression" => {
                             self.try_extract_expression(&child, source, block);
                         }
@@ -924,7 +910,10 @@ fn extract_call_name(node: &Node, source: &[u8]) -> String {
         "method_invocation" => {
             // Try the `name` field first, then `object.name` form
             if let Some(name_node) = node.child_by_field_name("name") {
-                return name_node.utf8_text(source).unwrap_or("<unknown>").to_string();
+                return name_node
+                    .utf8_text(source)
+                    .unwrap_or("<unknown>")
+                    .to_string();
             }
             // Fallback: full text of the function child
             node.child_by_field_name("object")
@@ -1029,7 +1018,10 @@ mod tests {
             .count()
     }
 
-    fn has_statement_kind(cfg: &FunctionCfg, predicate: impl Fn(&CfgStatementKind) -> bool) -> bool {
+    fn has_statement_kind(
+        cfg: &FunctionCfg,
+        predicate: impl Fn(&CfgStatementKind) -> bool,
+    ) -> bool {
         cfg.blocks.node_indices().any(|idx| {
             cfg.blocks[idx]
                 .statements
@@ -1055,7 +1047,10 @@ mod tests {
                 }
             }"#,
         );
-        assert!(has_statement_kind(&cfg, |k| matches!(k, CfgStatementKind::Return { .. })));
+        assert!(has_statement_kind(&cfg, |k| matches!(
+            k,
+            CfgStatementKind::Return { .. }
+        )));
     }
 
     #[test]
@@ -1103,7 +1098,10 @@ mod tests {
         );
         assert!(count_edges_of_kind(&cfg, "TrueBranch") >= 1);
         assert!(count_edges_of_kind(&cfg, "FalseBranch") >= 1);
-        assert!(has_statement_kind(&cfg, |k| matches!(k, CfgStatementKind::Guard { .. })));
+        assert!(has_statement_kind(&cfg, |k| matches!(
+            k,
+            CfgStatementKind::Guard { .. }
+        )));
     }
 
     #[test]
@@ -1135,7 +1133,10 @@ mod tests {
         );
         assert!(count_edges_of_kind(&cfg, "TrueBranch") >= 1);
         assert!(count_edges_of_kind(&cfg, "FalseBranch") >= 1);
-        assert!(has_statement_kind(&cfg, |k| matches!(k, CfgStatementKind::Guard { .. })));
+        assert!(has_statement_kind(&cfg, |k| matches!(
+            k,
+            CfgStatementKind::Guard { .. }
+        )));
     }
 
     #[test]
@@ -1259,7 +1260,10 @@ mod tests {
                 }
             }"#,
         );
-        assert!(has_statement_kind(&cfg, |k| matches!(k, CfgStatementKind::Guard { .. })));
+        assert!(has_statement_kind(&cfg, |k| matches!(
+            k,
+            CfgStatementKind::Guard { .. }
+        )));
         // Multiple case blocks should exist
         assert!(cfg.blocks.node_count() >= 4);
     }
@@ -1290,7 +1294,9 @@ mod tests {
         let method = find_method_node(root).expect("no method found");
 
         let builder = JavaCfgBuilder;
-        let cfg = builder.build_cfg(&method, source.as_bytes()).expect("build");
+        let cfg = builder
+            .build_cfg(&method, source.as_bytes())
+            .expect("build");
         assert_eq!(cfg.blocks.node_count(), 1);
         assert_eq!(cfg.exits.len(), 1);
         assert_eq!(cfg.exits[0], cfg.entry);

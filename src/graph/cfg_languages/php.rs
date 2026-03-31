@@ -40,12 +40,8 @@ impl CfgBuilder for PhpCfgBuilder {
 
 fn find_compound_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "compound_statement" {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut cursor)
+        .find(|&child| child.kind() == "compound_statement")
 }
 
 /// Process a compound_statement and return the last live block index,
@@ -221,12 +217,7 @@ fn build_colon_block(
 
 // ── Loops (for / while) ────────────────────────────────────────────────────
 
-fn build_loop(
-    cfg: &mut FunctionCfg,
-    current: NodeIndex,
-    node: &Node,
-    source: &[u8],
-) -> NodeIndex {
+fn build_loop(cfg: &mut FunctionCfg, current: NodeIndex, node: &Node, source: &[u8]) -> NodeIndex {
     let header = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks.add_edge(current, header, CfgEdge::Normal);
 
@@ -243,8 +234,7 @@ fn build_loop(
     });
 
     let body_block = cfg.blocks.add_node(BasicBlock::new());
-    cfg.blocks
-        .add_edge(header, body_block, CfgEdge::TrueBranch);
+    cfg.blocks.add_edge(header, body_block, CfgEdge::TrueBranch);
 
     let body = node.child_by_field_name("body");
     let body_exit = match body {
@@ -292,8 +282,7 @@ fn build_foreach(
     });
 
     let body_block = cfg.blocks.add_node(BasicBlock::new());
-    cfg.blocks
-        .add_edge(header, body_block, CfgEdge::TrueBranch);
+    cfg.blocks.add_edge(header, body_block, CfgEdge::TrueBranch);
 
     // PHP foreach value variable: extract $value from `foreach ($arr as $key => $value)`
     // The value and key are stored as children with specific node kinds
@@ -379,8 +368,7 @@ fn build_do_while(
         .add_edge(cond_block, body_block, CfgEdge::TrueBranch);
 
     let exit = cfg.blocks.add_node(BasicBlock::new());
-    cfg.blocks
-        .add_edge(cond_block, exit, CfgEdge::FalseBranch);
+    cfg.blocks.add_edge(cond_block, exit, CfgEdge::FalseBranch);
     exit
 }
 
@@ -447,8 +435,7 @@ fn build_switch(
         for stmt in case.children(&mut case_cursor) {
             match stmt.kind() {
                 "break_statement" => {
-                    cfg.blocks
-                        .add_edge(case_current, join, CfgEdge::Normal);
+                    cfg.blocks.add_edge(case_current, join, CfgEdge::Normal);
                     broke = true;
                     break;
                 }
@@ -500,8 +487,7 @@ fn build_switch(
     }
 
     if !has_default {
-        cfg.blocks
-            .add_edge(current, join, CfgEdge::FalseBranch);
+        cfg.blocks.add_edge(current, join, CfgEdge::FalseBranch);
     }
 
     Some(join)
@@ -576,10 +562,11 @@ fn build_try_catch(
     for child in node.children(&mut cursor2) {
         if child.kind() == "finally_clause" {
             let finally_block = cfg.blocks.add_node(BasicBlock::new());
-            cfg.blocks
-                .add_edge(join, finally_block, CfgEdge::Cleanup);
+            cfg.blocks.add_edge(join, finally_block, CfgEdge::Cleanup);
 
-            let finally_body = child.child_by_field_name("body").or_else(|| child.named_child(0));
+            let finally_body = child
+                .child_by_field_name("body")
+                .or_else(|| child.named_child(0));
             let finally_exit = match finally_body {
                 Some(b) if b.kind() == "compound_statement" => {
                     build_block(cfg, finally_block, &b, source)
@@ -589,8 +576,7 @@ fn build_try_catch(
 
             if let Some(fe) = finally_exit {
                 let after_finally = cfg.blocks.add_node(BasicBlock::new());
-                cfg.blocks
-                    .add_edge(fe, after_finally, CfgEdge::Normal);
+                cfg.blocks.add_edge(fe, after_finally, CfgEdge::Normal);
                 return Some(after_finally);
             }
             return None;
@@ -665,10 +651,7 @@ fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source:
         }
         "scoped_call_expression" => {
             // Static method calls like ClassName::method()
-            let name = expr
-                .utf8_text(source)
-                .unwrap_or_default()
-                .to_string();
+            let name = expr.utf8_text(source).unwrap_or_default().to_string();
 
             let args = expr
                 .child_by_field_name("arguments")
@@ -685,7 +668,8 @@ fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source:
                 .child_by_field_name("type")
                 .or_else(|| {
                     let mut c = expr.walk();
-                    expr.children(&mut c).find(|ch| ch.kind() == "name" || ch.kind() == "qualified_name")
+                    expr.children(&mut c)
+                        .find(|ch| ch.kind() == "name" || ch.kind() == "qualified_name")
                 })
                 .and_then(|t| t.utf8_text(source).ok())
                 .unwrap_or("unknown")

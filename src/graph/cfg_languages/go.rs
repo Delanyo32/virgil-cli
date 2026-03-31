@@ -120,9 +120,7 @@ impl<'a> GoFunctionBuilder<'a> {
             "type_switch_statement" => {
                 self.process_switch(node, current, break_target, continue_target)
             }
-            "select_statement" => {
-                self.process_select(node, current, break_target, continue_target)
-            }
+            "select_statement" => self.process_select(node, current, break_target, continue_target),
             "return_statement" => self.process_return(node, current),
             "defer_statement" => self.process_defer(node, current),
             "go_statement" => self.process_go(node, current),
@@ -241,14 +239,10 @@ impl<'a> GoFunctionBuilder<'a> {
             self.add_edge(current, false_block, CfgEdge::FalseBranch);
             if alternative.kind() == "if_statement" {
                 // else-if chain
-                match self.process_if(
-                    &alternative,
-                    false_block,
-                    break_target,
-                    continue_target,
-                ) {
-                    Some(end) => self.add_edge(end, merge, CfgEdge::Normal),
-                    None => {} // all paths terminated
+                if let Some(end) =
+                    self.process_if(&alternative, false_block, break_target, continue_target)
+                {
+                    self.add_edge(end, merge, CfgEdge::Normal);
                 }
             } else {
                 // else block
@@ -309,17 +303,15 @@ impl<'a> GoFunctionBuilder<'a> {
         // (compiler treats it as always true, but we keep the edge for analysis).
 
         // Process body with break/continue targets
-        if let Some(body) = node.child_by_field_name("body") {
-            if let Some(end) =
-                self.process_block(&body, body_block, Some(after_loop), Some(header))
-            {
-                // Process update if present
-                if let Some(update) = node.child_by_field_name("update") {
-                    self.process_statement(&update, end, None, None);
-                }
-                // Back edge to header
-                self.add_edge(end, header, CfgEdge::Normal);
+        if let Some(body) = node.child_by_field_name("body")
+            && let Some(end) = self.process_block(&body, body_block, Some(after_loop), Some(header))
+        {
+            // Process update if present
+            if let Some(update) = node.child_by_field_name("update") {
+                self.process_statement(&update, end, None, None);
             }
+            // Back edge to header
+            self.add_edge(end, header, CfgEdge::Normal);
         }
 
         Some(after_loop)
@@ -368,12 +360,8 @@ impl<'a> GoFunctionBuilder<'a> {
                     self.add_edge(current, case_block, CfgEdge::TrueBranch);
 
                     // Process the case body statements
-                    let end = self.process_case_body(
-                        &child,
-                        case_block,
-                        Some(merge),
-                        continue_target,
-                    );
+                    let end =
+                        self.process_case_body(&child, case_block, Some(merge), continue_target);
                     if let Some(end) = end {
                         self.add_edge(end, merge, CfgEdge::Normal);
                     }
@@ -383,12 +371,8 @@ impl<'a> GoFunctionBuilder<'a> {
                     let default_block = self.add_block();
                     self.add_edge(current, default_block, CfgEdge::FalseBranch);
 
-                    let end = self.process_case_body(
-                        &child,
-                        default_block,
-                        Some(merge),
-                        continue_target,
-                    );
+                    let end =
+                        self.process_case_body(&child, default_block, Some(merge), continue_target);
                     if let Some(end) = end {
                         self.add_edge(end, merge, CfgEdge::Normal);
                     }
@@ -443,7 +427,7 @@ impl<'a> GoFunctionBuilder<'a> {
         &mut self,
         node: &Node,
         current: NodeIndex,
-        break_target: Option<NodeIndex>,
+        _break_target: Option<NodeIndex>,
         continue_target: Option<NodeIndex>,
     ) -> Option<NodeIndex> {
         // select is like switch but for channel operations
@@ -469,12 +453,8 @@ impl<'a> GoFunctionBuilder<'a> {
 
                     // The communication clause contains a send/receive operation
                     // followed by body statements
-                    let end = self.process_case_body(
-                        &child,
-                        case_block,
-                        Some(merge),
-                        continue_target,
-                    );
+                    let end =
+                        self.process_case_body(&child, case_block, Some(merge), continue_target);
                     if let Some(end) = end {
                         self.add_edge(end, merge, CfgEdge::Normal);
                     }
@@ -484,12 +464,8 @@ impl<'a> GoFunctionBuilder<'a> {
                     let default_block = self.add_block();
                     self.add_edge(current, default_block, CfgEdge::FalseBranch);
 
-                    let end = self.process_case_body(
-                        &child,
-                        default_block,
-                        Some(merge),
-                        continue_target,
-                    );
+                    let end =
+                        self.process_case_body(&child, default_block, Some(merge), continue_target);
                     if let Some(end) = end {
                         self.add_edge(end, merge, CfgEdge::Normal);
                     }
@@ -520,11 +496,7 @@ impl<'a> GoFunctionBuilder<'a> {
                 for child in node.named_children(&mut c) {
                     vars.extend(extract_identifiers(&child, self.source));
                 }
-                if vars.is_empty() {
-                    None
-                } else {
-                    Some(vars)
-                }
+                if vars.is_empty() { None } else { Some(vars) }
             })
             .unwrap_or_default();
 
@@ -873,7 +845,10 @@ func hello() {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -892,7 +867,10 @@ func test() {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -908,7 +886,10 @@ func test() {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -922,7 +903,10 @@ func add(a, b int) int {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -938,7 +922,10 @@ func test() {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -952,7 +939,10 @@ func test() {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -973,7 +963,10 @@ func test(x int) {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -992,7 +985,10 @@ func test(ch1, ch2 chan int) {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -1012,7 +1008,10 @@ func test(x int) {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -1038,7 +1037,10 @@ func test() {
 }
 "#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         assert!(!cfg.exits.is_empty(), "should have at least one exit");
     }
 
@@ -1052,10 +1054,9 @@ func test() {
 }
 "#,
         );
-        let has_call = cfg.blocks[cfg.entry]
-            .statements
-            .iter()
-            .any(|s| matches!(&s.kind, CfgStatementKind::Call { name, .. } if name == "fmt.Println"));
+        let has_call = cfg.blocks[cfg.entry].statements.iter().any(
+            |s| matches!(&s.kind, CfgStatementKind::Call { name, .. } if name == "fmt.Println"),
+        );
         assert!(has_call);
     }
 }

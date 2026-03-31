@@ -150,8 +150,7 @@ impl Pipeline for SqlInjectionPipeline {
     fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
         // When graph is available, use taint analysis for higher-confidence findings
         if let Some(graph) = ctx.graph {
-            let graph_findings =
-                check_sql_injection_via_graph(graph, ctx.file_path);
+            let graph_findings = check_sql_injection_via_graph(graph, ctx.file_path);
             if !graph_findings.is_empty() {
                 return graph_findings;
             }
@@ -163,7 +162,6 @@ impl Pipeline for SqlInjectionPipeline {
 
 /// Query the CodeGraph for unsanitized taint paths to SQL sink calls in this file.
 fn check_sql_injection_via_graph(graph: &CodeGraph, file_path: &str) -> Vec<AuditFinding> {
-    use petgraph::visit::EdgeRef;
     use petgraph::Direction;
 
     let mut findings = Vec::new();

@@ -280,11 +280,11 @@ pub fn execute(
     results.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
 
     // Call graph traversal if requested
-    if let Some(ref direction) = query.calls {
-        if let Some(g) = graph {
-            let depth = query.depth.unwrap_or(1).min(5);
-            results = traverse_via_graph(g, &results, direction, depth, workspace);
-        }
+    if let Some(ref direction) = query.calls
+        && let Some(g) = graph
+    {
+        let depth = query.depth.unwrap_or(1).min(5);
+        results = traverse_via_graph(g, &results, direction, depth, workspace);
     }
 
     let total = results.len();
@@ -536,38 +536,36 @@ fn traverse_via_graph(
     // Convert NodeIndex results back to QueryResult
     let mut results: Vec<QueryResult> = result_indices
         .iter()
-        .filter_map(|&idx| {
-            match &graph.graph[idx] {
-                NodeWeight::Symbol {
-                    name,
-                    kind,
-                    file_path,
-                    start_line,
-                    end_line,
-                    exported,
-                } => {
-                    let sig = workspace.read_file(file_path).and_then(|source| {
-                        let lang = workspace.file_language(file_path)?;
-                        signature::extract_signature(&source, *start_line, lang)
-                    });
+        .filter_map(|&idx| match &graph.graph[idx] {
+            NodeWeight::Symbol {
+                name,
+                kind,
+                file_path,
+                start_line,
+                end_line,
+                exported,
+            } => {
+                let sig = workspace.read_file(file_path).and_then(|source| {
+                    let lang = workspace.file_language(file_path)?;
+                    signature::extract_signature(&source, *start_line, lang)
+                });
 
-                    Some(QueryResult {
-                        name: name.clone(),
-                        kind: kind.to_string(),
-                        file: file_path.clone(),
-                        line: *start_line,
-                        end_line: *end_line,
-                        column: 0,
-                        exported: *exported,
-                        signature: sig,
-                        docstring: None,
-                        body: None,
-                        preview: None,
-                        parent: None,
-                    })
-                }
-                _ => None,
+                Some(QueryResult {
+                    name: name.clone(),
+                    kind: kind.to_string(),
+                    file: file_path.clone(),
+                    line: *start_line,
+                    end_line: *end_line,
+                    column: 0,
+                    exported: *exported,
+                    signature: sig,
+                    docstring: None,
+                    body: None,
+                    preview: None,
+                    parent: None,
+                })
             }
+            _ => None,
         })
         .collect();
 

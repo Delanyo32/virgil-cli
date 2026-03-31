@@ -14,8 +14,7 @@ pub struct TypeScriptCfgBuilder;
 
 impl CfgBuilder for TypeScriptCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
-        let body = find_function_body(function_node)
-            .unwrap_or(*function_node);
+        let body = find_function_body(function_node).unwrap_or(*function_node);
 
         let mut ctx = BuildContext::new();
         let entry = ctx.cfg.entry;
@@ -36,12 +35,8 @@ fn find_function_body<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     }
     // Fallback: look for a statement_block child
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "statement_block" {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut cursor)
+        .find(|&child| child.kind() == "statement_block")
 }
 
 /// Mutable context used while building the CFG.
@@ -121,10 +116,13 @@ impl BuildContext {
             "throw_statement" => {
                 // throw terminates the block, no exits
                 let vars = extract_vars_from_children(node, source);
-                self.push_stmt(current, CfgStatement {
-                    kind: CfgStatementKind::Return { value_vars: vars },
-                    line: node.start_position().row as u32 + 1,
-                });
+                self.push_stmt(
+                    current,
+                    CfgStatement {
+                        kind: CfgStatementKind::Return { value_vars: vars },
+                        line: node.start_position().row as u32 + 1,
+                    },
+                );
                 vec![] // no normal exits
             }
             "variable_declaration" | "lexical_declaration" => {
@@ -143,22 +141,20 @@ impl BuildContext {
 
     // ── if/else ──
 
-    fn process_if(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) -> Vec<NodeIndex> {
+    fn process_if(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Vec<NodeIndex> {
         // Add guard for the condition
         let condition_vars = node
             .child_by_field_name("condition")
             .map(|c| extract_vars(&c, source))
             .unwrap_or_default();
 
-        self.push_stmt(current, CfgStatement {
-            kind: CfgStatementKind::Guard { condition_vars },
-            line: node.start_position().row as u32 + 1,
-        });
+        self.push_stmt(
+            current,
+            CfgStatement {
+                kind: CfgStatementKind::Guard { condition_vars },
+                line: node.start_position().row as u32 + 1,
+            },
+        );
 
         let mut exits = Vec::new();
 
@@ -198,12 +194,7 @@ impl BuildContext {
 
     // ── for loop ──
 
-    fn process_for(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) -> Vec<NodeIndex> {
+    fn process_for(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Vec<NodeIndex> {
         // Initializer in current block
         if let Some(init) = node.child_by_field_name("initializer") {
             self.process_expression_statement(&init, current, source);
@@ -219,10 +210,13 @@ impl BuildContext {
             .map(|c| extract_vars(&c, source))
             .unwrap_or_default();
 
-        self.push_stmt(header, CfgStatement {
-            kind: CfgStatementKind::Guard { condition_vars },
-            line: node.start_position().row as u32 + 1,
-        });
+        self.push_stmt(
+            header,
+            CfgStatement {
+                kind: CfgStatementKind::Guard { condition_vars },
+                line: node.start_position().row as u32 + 1,
+            },
+        );
 
         // Body
         let body_block = self.new_block();
@@ -244,12 +238,7 @@ impl BuildContext {
 
     // ── while loop ──
 
-    fn process_while(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) -> Vec<NodeIndex> {
+    fn process_while(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Vec<NodeIndex> {
         let header = self.new_block();
         self.add_edge(current, header, CfgEdge::Normal);
 
@@ -258,10 +247,13 @@ impl BuildContext {
             .map(|c| extract_vars(&c, source))
             .unwrap_or_default();
 
-        self.push_stmt(header, CfgStatement {
-            kind: CfgStatementKind::Guard { condition_vars },
-            line: node.start_position().row as u32 + 1,
-        });
+        self.push_stmt(
+            header,
+            CfgStatement {
+                kind: CfgStatementKind::Guard { condition_vars },
+                line: node.start_position().row as u32 + 1,
+            },
+        );
 
         let body_block = self.new_block();
         self.add_edge(header, body_block, CfgEdge::TrueBranch);
@@ -307,10 +299,13 @@ impl BuildContext {
             .map(|c| extract_vars(&c, source))
             .unwrap_or_default();
 
-        self.push_stmt(cond_block, CfgStatement {
-            kind: CfgStatementKind::Guard { condition_vars },
-            line: node.start_position().row as u32 + 1,
-        });
+        self.push_stmt(
+            cond_block,
+            CfgStatement {
+                kind: CfgStatementKind::Guard { condition_vars },
+                line: node.start_position().row as u32 + 1,
+            },
+        );
 
         // True branch loops back to body
         self.add_edge(cond_block, body_block, CfgEdge::TrueBranch);
@@ -323,22 +318,20 @@ impl BuildContext {
 
     // ── switch/case ──
 
-    fn process_switch(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) -> Vec<NodeIndex> {
+    fn process_switch(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Vec<NodeIndex> {
         // Guard for the switch expression
         let condition_vars = node
             .child_by_field_name("value")
             .map(|c| extract_vars(&c, source))
             .unwrap_or_default();
 
-        self.push_stmt(current, CfgStatement {
-            kind: CfgStatementKind::Guard { condition_vars },
-            line: node.start_position().row as u32 + 1,
-        });
+        self.push_stmt(
+            current,
+            CfgStatement {
+                kind: CfgStatementKind::Guard { condition_vars },
+                line: node.start_position().row as u32 + 1,
+            },
+        );
 
         let mut exits = Vec::new();
         let mut has_default = false;
@@ -364,7 +357,7 @@ impl BuildContext {
                 let mut child_cursor = case_node.walk();
                 for child in case_node.children(&mut child_cursor) {
                     // Skip the case value node itself
-                    if child.kind() == ":" || child.is_named() == false {
+                    if child.kind() == ":" || !child.is_named() {
                         continue;
                     }
                     // Skip the case value expression (first named child for switch_case)
@@ -427,12 +420,7 @@ impl BuildContext {
 
     // ── try/catch/finally ──
 
-    fn process_try(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) -> Vec<NodeIndex> {
+    fn process_try(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Vec<NodeIndex> {
         let mut exits = Vec::new();
 
         // Try body
@@ -464,16 +452,21 @@ impl BuildContext {
         // Finally
         if let Some(finalizer) = node.child_by_field_name("finalizer") {
             // finally_clause wraps a statement_block
-            let finally_body = finalizer.child_by_field_name("body")
-                .or_else(|| {
-                    // Some grammars have the block as a direct child
-                    let mut cursor = finalizer.walk();
-                    finalizer.children(&mut cursor).find(|c| c.kind() == "statement_block")
-                });
+            let finally_body = finalizer.child_by_field_name("body").or_else(|| {
+                // Some grammars have the block as a direct child
+                let mut cursor = finalizer.walk();
+                finalizer
+                    .children(&mut cursor)
+                    .find(|c| c.kind() == "statement_block")
+            });
 
             if let Some(body) = finally_body {
                 // All paths flow through finally
-                let all_exits: Vec<NodeIndex> = try_exits.iter().chain(catch_exits.iter()).copied().collect();
+                let all_exits: Vec<NodeIndex> = try_exits
+                    .iter()
+                    .chain(catch_exits.iter())
+                    .copied()
+                    .collect();
                 for &ex in &all_exits {
                     let finally_block = self.new_block();
                     self.add_edge(ex, finally_block, CfgEdge::Cleanup);
@@ -494,22 +487,20 @@ impl BuildContext {
 
     // ── return ──
 
-    fn process_return(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) -> Vec<NodeIndex> {
+    fn process_return(&mut self, node: &Node, current: NodeIndex, source: &[u8]) -> Vec<NodeIndex> {
         let value_vars = node
             .child_by_field_name("value")
             .or_else(|| node.named_child(0))
             .map(|v| extract_vars(&v, source))
             .unwrap_or_default();
 
-        self.push_stmt(current, CfgStatement {
-            kind: CfgStatementKind::Return { value_vars },
-            line: node.start_position().row as u32 + 1,
-        });
+        self.push_stmt(
+            current,
+            CfgStatement {
+                kind: CfgStatementKind::Return { value_vars },
+                line: node.start_position().row as u32 + 1,
+            },
+        );
 
         // Return terminates the block — it becomes an exit
         self.cfg.exits.push(current);
@@ -518,12 +509,7 @@ impl BuildContext {
 
     // ── Variable declarations ──
 
-    fn process_variable_declaration(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) {
+    fn process_variable_declaration(&mut self, node: &Node, current: NodeIndex, source: &[u8]) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() != "variable_declarator" {
@@ -542,38 +528,39 @@ impl BuildContext {
             let value_node = child.child_by_field_name("value");
 
             // Check if the value is a call expression, new expression, or await
-            if let Some(ref val) = value_node {
-                if let Some(stmt) = try_extract_call_or_resource(val, source, &target) {
-                    self.push_stmt(current, CfgStatement {
+            if let Some(ref val) = value_node
+                && let Some(stmt) = try_extract_call_or_resource(val, source, &target)
+            {
+                self.push_stmt(
+                    current,
+                    CfgStatement {
                         kind: stmt,
                         line: child.start_position().row as u32 + 1,
-                    });
-                    continue;
-                }
+                    },
+                );
+                continue;
             }
 
             let source_vars = value_node
                 .map(|v| extract_vars(&v, source))
                 .unwrap_or_default();
 
-            self.push_stmt(current, CfgStatement {
-                kind: CfgStatementKind::Assignment {
-                    target,
-                    source_vars,
+            self.push_stmt(
+                current,
+                CfgStatement {
+                    kind: CfgStatementKind::Assignment {
+                        target,
+                        source_vars,
+                    },
+                    line: child.start_position().row as u32 + 1,
                 },
-                line: child.start_position().row as u32 + 1,
-            });
+            );
         }
     }
 
     // ── Expression statements ──
 
-    fn process_expression_statement(
-        &mut self,
-        node: &Node,
-        current: NodeIndex,
-        source: &[u8],
-    ) {
+    fn process_expression_statement(&mut self, node: &Node, current: NodeIndex, source: &[u8]) {
         // Unwrap expression_statement wrapper
         let expr = if node.kind() == "expression_statement" {
             match node.named_child(0) {
@@ -594,22 +581,28 @@ impl BuildContext {
                 if let Some(right) = expr.child_by_field_name("right") {
                     // Check if RHS is a call
                     if let Some(stmt) = try_extract_call_or_resource(&right, source, &target) {
-                        self.push_stmt(current, CfgStatement {
-                            kind: stmt,
-                            line: expr.start_position().row as u32 + 1,
-                        });
+                        self.push_stmt(
+                            current,
+                            CfgStatement {
+                                kind: stmt,
+                                line: expr.start_position().row as u32 + 1,
+                            },
+                        );
                         return;
                     }
 
                     let source_vars = extract_vars(&right, source);
                     if !target.is_empty() {
-                        self.push_stmt(current, CfgStatement {
-                            kind: CfgStatementKind::Assignment {
-                                target,
-                                source_vars,
+                        self.push_stmt(
+                            current,
+                            CfgStatement {
+                                kind: CfgStatementKind::Assignment {
+                                    target,
+                                    source_vars,
+                                },
+                                line: expr.start_position().row as u32 + 1,
                             },
-                            line: expr.start_position().row as u32 + 1,
-                        });
+                        );
                     }
                 }
             }
@@ -621,28 +614,33 @@ impl BuildContext {
 
                 if !target.is_empty() {
                     let right = expr.child_by_field_name("right");
-                    let mut source_vars = right
-                        .map(|r| extract_vars(&r, source))
-                        .unwrap_or_default();
+                    let mut source_vars =
+                        right.map(|r| extract_vars(&r, source)).unwrap_or_default();
                     // Augmented assignment reads the target too (e.g., x += y reads x and y)
                     if !source_vars.contains(&target) {
                         source_vars.push(target.clone());
                     }
-                    self.push_stmt(current, CfgStatement {
-                        kind: CfgStatementKind::Assignment {
-                            target,
-                            source_vars,
+                    self.push_stmt(
+                        current,
+                        CfgStatement {
+                            kind: CfgStatementKind::Assignment {
+                                target,
+                                source_vars,
+                            },
+                            line: expr.start_position().row as u32 + 1,
                         },
-                        line: expr.start_position().row as u32 + 1,
-                    });
+                    );
                 }
             }
             "call_expression" | "new_expression" => {
                 let (name, args) = extract_call_info(&expr, source);
-                self.push_stmt(current, CfgStatement {
-                    kind: CfgStatementKind::Call { name, args },
-                    line: expr.start_position().row as u32 + 1,
-                });
+                self.push_stmt(
+                    current,
+                    CfgStatement {
+                        kind: CfgStatementKind::Call { name, args },
+                        line: expr.start_position().row as u32 + 1,
+                    },
+                );
             }
             "await_expression" => {
                 // Treat await as synchronous — unwrap to inner expression
@@ -652,12 +650,17 @@ impl BuildContext {
                     } else {
                         inner
                     };
-                    if inner_node.kind() == "call_expression" || inner_node.kind() == "new_expression" {
+                    if inner_node.kind() == "call_expression"
+                        || inner_node.kind() == "new_expression"
+                    {
                         let (name, args) = extract_call_info(&inner_node, source);
-                        self.push_stmt(current, CfgStatement {
-                            kind: CfgStatementKind::Call { name, args },
-                            line: expr.start_position().row as u32 + 1,
-                        });
+                        self.push_stmt(
+                            current,
+                            CfgStatement {
+                                kind: CfgStatementKind::Call { name, args },
+                                line: expr.start_position().row as u32 + 1,
+                            },
+                        );
                     }
                 }
             }
@@ -783,9 +786,7 @@ fn extract_callable_name(node: &Node, source: &[u8]) -> String {
                 .to_string()
         }
         // `new Foo()` — the type name
-        "type_identifier" | "nested_identifier" => {
-            node.utf8_text(source).unwrap_or("").to_string()
-        }
+        "type_identifier" | "nested_identifier" => node.utf8_text(source).unwrap_or("").to_string(),
         _ => node.utf8_text(source).unwrap_or("").to_string(),
     }
 }
@@ -809,7 +810,11 @@ fn extract_identifier_text(node: &Node, source: &[u8]) -> Option<String> {
         _ => {
             // Fallback: try the raw text if it looks like an identifier
             let text = node.utf8_text(source).ok()?.trim().to_string();
-            if text.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !text.is_empty() {
+            if text
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                && !text.is_empty()
+            {
                 Some(text)
             } else {
                 None
@@ -833,9 +838,7 @@ fn collect_vars_recursive(node: &Node, source: &[u8], vars: &mut Vec<String>) {
             if let Ok(text) = node.utf8_text(source) {
                 let text = text.trim();
                 // Skip keywords that tree-sitter may classify as identifiers
-                if !text.is_empty()
-                    && !is_js_keyword(text)
-                {
+                if !text.is_empty() && !is_js_keyword(text) {
                     vars.push(text.to_string());
                 }
             }
@@ -876,12 +879,7 @@ fn extract_vars_from_children(node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Collect nested call expressions from an arbitrary expression.
-fn collect_nested_calls(
-    node: &Node,
-    source: &[u8],
-    block: NodeIndex,
-    cfg: &mut FunctionCfg,
-) {
+fn collect_nested_calls(node: &Node, source: &[u8], block: NodeIndex, cfg: &mut FunctionCfg) {
     match node.kind() {
         "call_expression" | "new_expression" => {
             let (name, args) = extract_call_info(node, source);
@@ -918,8 +916,14 @@ fn is_resource_acquire(name: &str, is_new: bool) -> bool {
     }
     matches!(
         name,
-        "open" | "createReadStream" | "createWriteStream" | "connect" | "createConnection"
-            | "createServer" | "createPool" | "fopen"
+        "open"
+            | "createReadStream"
+            | "createWriteStream"
+            | "connect"
+            | "createConnection"
+            | "createServer"
+            | "createPool"
+            | "fopen"
     )
 }
 
@@ -927,8 +931,16 @@ fn is_resource_acquire(name: &str, is_new: bool) -> bool {
 fn is_resource_release(name: &str) -> bool {
     matches!(
         name,
-        "close" | "destroy" | "end" | "release" | "disconnect" | "dispose"
-            | "unref" | "shutdown" | "fclose" | "free"
+        "close"
+            | "destroy"
+            | "end"
+            | "release"
+            | "disconnect"
+            | "dispose"
+            | "unref"
+            | "shutdown"
+            | "fclose"
+            | "free"
     )
 }
 
@@ -936,13 +948,45 @@ fn is_resource_release(name: &str) -> bool {
 fn is_js_keyword(s: &str) -> bool {
     matches!(
         s,
-        "true" | "false" | "null" | "undefined" | "void" | "typeof"
-            | "instanceof" | "new" | "delete" | "this" | "super"
-            | "class" | "function" | "return" | "if" | "else"
-            | "for" | "while" | "do" | "switch" | "case" | "default"
-            | "break" | "continue" | "throw" | "try" | "catch" | "finally"
-            | "const" | "let" | "var" | "import" | "export" | "from"
-            | "async" | "await" | "yield" | "in" | "of"
+        "true"
+            | "false"
+            | "null"
+            | "undefined"
+            | "void"
+            | "typeof"
+            | "instanceof"
+            | "new"
+            | "delete"
+            | "this"
+            | "super"
+            | "class"
+            | "function"
+            | "return"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "do"
+            | "switch"
+            | "case"
+            | "default"
+            | "break"
+            | "continue"
+            | "throw"
+            | "try"
+            | "catch"
+            | "finally"
+            | "const"
+            | "let"
+            | "var"
+            | "import"
+            | "export"
+            | "from"
+            | "async"
+            | "await"
+            | "yield"
+            | "in"
+            | "of"
     )
 }
 
@@ -983,24 +1027,31 @@ mod tests {
     #[test]
     fn test_simple_function() {
         let cfg = parse_and_build("function foo() { const x = 1; return x; }");
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
         // Smoke test: CFG built without panicking
     }
 
     #[test]
     fn test_if_else_branches() {
-        let cfg = parse_and_build(
-            "function foo(x) { if (x > 0) { return 1; } else { return -1; } }",
+        let cfg =
+            parse_and_build("function foo(x) { if (x > 0) { return 1; } else { return -1; } }");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
     }
 
     #[test]
     fn test_while_loop() {
-        let cfg = parse_and_build(
-            "function foo() { let i = 0; while (i < 10) { i++; } return i; }",
+        let cfg =
+            parse_and_build("function foo() { let i = 0; while (i < 10) { i++; } return i; }");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
     }
 
     #[test]
@@ -1009,9 +1060,10 @@ mod tests {
             "function foo() { try { doSomething(); } catch (e) { handleError(e); } }",
         );
         // Should have an Exception edge
-        let has_exception_edge = cfg.blocks.edge_indices().any(|e| {
-            matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::Exception))
-        });
+        let has_exception_edge = cfg
+            .blocks
+            .edge_indices()
+            .any(|e| matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::Exception)));
         assert!(has_exception_edge, "should have an Exception edge");
     }
 
@@ -1026,7 +1078,10 @@ mod tests {
                 }
             }"#,
         );
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
     }
 
     #[test]
@@ -1035,36 +1090,42 @@ mod tests {
         // Entry block should have Call statements
         let entry = cfg.entry;
         let stmts = &cfg.blocks[entry].statements;
-        let has_call = stmts.iter().any(|s| matches!(&s.kind, CfgStatementKind::Call { .. }));
-        assert!(has_call, "should have Call statements for console.log and bar");
+        let has_call = stmts
+            .iter()
+            .any(|s| matches!(&s.kind, CfgStatementKind::Call { .. }));
+        assert!(
+            has_call,
+            "should have Call statements for console.log and bar"
+        );
     }
 
     #[test]
     fn test_arrow_function() {
         let cfg = parse_and_build("const foo = (x) => { return x + 1; }");
-        assert!(cfg.blocks.node_count() >= 1, "should have at least one block");
+        assert!(
+            cfg.blocks.node_count() >= 1,
+            "should have at least one block"
+        );
     }
 
     #[test]
     fn test_for_loop() {
-        let cfg = parse_and_build(
-            "function foo() { for (let i = 0; i < 10; i++) { doWork(i); } }",
-        );
+        let cfg = parse_and_build("function foo() { for (let i = 0; i < 10; i++) { doWork(i); } }");
         // Should have a FalseBranch edge (loop exit)
-        let has_false_edge = cfg.blocks.edge_indices().any(|e| {
-            matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::FalseBranch))
-        });
+        let has_false_edge = cfg
+            .blocks
+            .edge_indices()
+            .any(|e| matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::FalseBranch)));
         assert!(has_false_edge, "for loop should have FalseBranch exit edge");
     }
 
     #[test]
     fn test_do_while() {
-        let cfg = parse_and_build(
-            "function foo() { let i = 0; do { i++; } while (i < 10); }",
-        );
-        let has_true_edge = cfg.blocks.edge_indices().any(|e| {
-            matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::TrueBranch))
-        });
+        let cfg = parse_and_build("function foo() { let i = 0; do { i++; } while (i < 10); }");
+        let has_true_edge = cfg
+            .blocks
+            .edge_indices()
+            .any(|e| matches!(cfg.blocks.edge_weight(e), Some(CfgEdge::TrueBranch)));
         assert!(has_true_edge, "do-while should have TrueBranch back edge");
     }
 }

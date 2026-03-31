@@ -6,9 +6,9 @@ pub mod taint;
 
 use std::collections::{HashMap, HashSet};
 
+use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 
 use crate::audit::project_index::{ExportedSymbol, FileEntry, GraphNode, ProjectIndex};
 use crate::language::Language;
@@ -79,6 +79,12 @@ pub struct CodeGraph {
     pub symbols_by_name: HashMap<String, Vec<NodeIndex>>,
     /// function NodeIndex -> its CFG
     pub function_cfgs: HashMap<NodeIndex, cfg::FunctionCfg>,
+}
+
+impl Default for CodeGraph {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CodeGraph {
@@ -196,7 +202,7 @@ impl CodeGraph {
     /// Build a map of file entries (same shape as old `ProjectIndex.files`).
     pub fn file_entries(&self) -> HashMap<String, FileEntry> {
         let mut entries = HashMap::new();
-        for (&ref path, &file_idx) in &self.file_nodes {
+        for (path, &file_idx) in &self.file_nodes {
             let language = match &self.graph[file_idx] {
                 NodeWeight::File { language, .. } => *language,
                 _ => continue,
@@ -209,29 +215,27 @@ impl CodeGraph {
 
             for edge in self.graph.edges_directed(file_idx, Direction::Outgoing) {
                 let target = edge.target();
-                match &self.graph[target] {
-                    NodeWeight::Symbol {
-                        name,
-                        kind,
-                        start_line,
-                        end_line,
-                        exported,
-                        ..
-                    } => {
-                        symbol_count += 1;
-                        if *end_line > line_count {
-                            line_count = *end_line;
-                        }
-                        if *exported {
-                            exported_symbols.push(ExportedSymbol {
-                                name: name.clone(),
-                                kind: *kind,
-                                signature: None,
-                                start_line: *start_line,
-                            });
-                        }
+                if let NodeWeight::Symbol {
+                    name,
+                    kind,
+                    start_line,
+                    end_line,
+                    exported,
+                    ..
+                } = &self.graph[target]
+                {
+                    symbol_count += 1;
+                    if *end_line > line_count {
+                        line_count = *end_line;
                     }
-                    _ => {}
+                    if *exported {
+                        exported_symbols.push(ExportedSymbol {
+                            name: name.clone(),
+                            kind: *kind,
+                            signature: None,
+                            start_line: *start_line,
+                        });
+                    }
                 }
             }
 

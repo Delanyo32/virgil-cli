@@ -21,7 +21,7 @@ impl ProjectAnalyzer for CouplingAnalyzer {
     fn analyze(&self, graph: &CodeGraph) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
 
-        for (&ref path, &file_idx) in &graph.file_nodes {
+        for (path, &file_idx) in &graph.file_nodes {
             // Efferent: outgoing Imports edges
             let efferent = graph
                 .graph
@@ -102,7 +102,11 @@ mod tests {
 
         let analyzer = CouplingAnalyzer;
         let findings = analyzer.analyze(&graph);
-        assert!(findings.iter().any(|f| f.pattern == "high_efferent_coupling"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "high_efferent_coupling")
+        );
     }
 
     #[test]
@@ -119,7 +123,11 @@ mod tests {
 
         let analyzer = CouplingAnalyzer;
         let findings = analyzer.analyze(&graph);
-        assert!(findings.iter().any(|f| f.pattern == "high_afferent_coupling"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "high_afferent_coupling")
+        );
     }
 
     #[test]

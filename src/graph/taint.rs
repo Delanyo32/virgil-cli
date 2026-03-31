@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 
 use super::cfg::{CfgStatementKind, FunctionCfg};
 use super::{CodeGraph, EdgeWeight, NodeWeight, SourceKind};
@@ -16,146 +16,419 @@ use super::{CodeGraph, EdgeWeight, NodeWeight, SourceKind};
 /// or parameter names encountered in the CFG.
 const SOURCES: &[TaintPattern] = &[
     // -- JavaScript / TypeScript --
-    TaintPattern { text: "request.body",   kind: SourceKind::UserInput },
-    TaintPattern { text: "request.params", kind: SourceKind::UserInput },
-    TaintPattern { text: "request.query",  kind: SourceKind::UserInput },
-    TaintPattern { text: "request.args",   kind: SourceKind::UserInput },
-    TaintPattern { text: "req.body",       kind: SourceKind::UserInput },
-    TaintPattern { text: "req.params",     kind: SourceKind::UserInput },
-    TaintPattern { text: "req.query",      kind: SourceKind::UserInput },
-    TaintPattern { text: "req.headers",    kind: SourceKind::UserInput },
-    TaintPattern { text: "process.env",    kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "document.cookie",kind: SourceKind::UserInput },
-    TaintPattern { text: "location.href",  kind: SourceKind::UserInput },
-    TaintPattern { text: "location.search",kind: SourceKind::UserInput },
-    TaintPattern { text: "window.location",kind: SourceKind::UserInput },
+    TaintPattern {
+        text: "request.body",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "request.params",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "request.query",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "request.args",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "req.body",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "req.params",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "req.query",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "req.headers",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "process.env",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "document.cookie",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "location.href",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "location.search",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "window.location",
+        kind: SourceKind::UserInput,
+    },
     // -- Python --
-    TaintPattern { text: "request.form",   kind: SourceKind::UserInput },
-    TaintPattern { text: "request.data",   kind: SourceKind::UserInput },
-    TaintPattern { text: "request.json",   kind: SourceKind::UserInput },
-    TaintPattern { text: "request.args",   kind: SourceKind::UserInput },
-    TaintPattern { text: "os.environ",     kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "sys.argv",       kind: SourceKind::UserInput },
-    TaintPattern { text: "sys.stdin",      kind: SourceKind::UserInput },
-    TaintPattern { text: "input(",         kind: SourceKind::UserInput },
+    TaintPattern {
+        text: "request.form",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "request.data",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "request.json",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "request.args",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "os.environ",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "sys.argv",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "sys.stdin",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "input(",
+        kind: SourceKind::UserInput,
+    },
     // -- Rust --
-    TaintPattern { text: "env::var",       kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "env::args",      kind: SourceKind::UserInput },
-    TaintPattern { text: "stdin",          kind: SourceKind::UserInput },
+    TaintPattern {
+        text: "env::var",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "env::args",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "stdin",
+        kind: SourceKind::UserInput,
+    },
     // -- Go --
-    TaintPattern { text: "os.Getenv",      kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "os.Args",        kind: SourceKind::UserInput },
-    TaintPattern { text: "r.FormValue",    kind: SourceKind::UserInput },
-    TaintPattern { text: "r.URL.Query",    kind: SourceKind::UserInput },
-    TaintPattern { text: "r.Header",       kind: SourceKind::UserInput },
-    TaintPattern { text: "r.Body",         kind: SourceKind::UserInput },
-    TaintPattern { text: "os.Stdin",       kind: SourceKind::UserInput },
+    TaintPattern {
+        text: "os.Getenv",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "os.Args",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "r.FormValue",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "r.URL.Query",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "r.Header",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "r.Body",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "os.Stdin",
+        kind: SourceKind::UserInput,
+    },
     // -- PHP --
-    TaintPattern { text: "$_GET",          kind: SourceKind::UserInput },
-    TaintPattern { text: "$_POST",         kind: SourceKind::UserInput },
-    TaintPattern { text: "$_REQUEST",      kind: SourceKind::UserInput },
-    TaintPattern { text: "$_COOKIE",       kind: SourceKind::UserInput },
-    TaintPattern { text: "$_SERVER",       kind: SourceKind::UserInput },
-    TaintPattern { text: "$_FILES",        kind: SourceKind::UserInput },
-    TaintPattern { text: "getenv",         kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "php://input",    kind: SourceKind::UserInput },
+    TaintPattern {
+        text: "$_GET",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "$_POST",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "$_REQUEST",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "$_COOKIE",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "$_SERVER",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "$_FILES",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "getenv",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "php://input",
+        kind: SourceKind::UserInput,
+    },
     // -- C / C++ --
-    TaintPattern { text: "getenv",         kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "argv",           kind: SourceKind::UserInput },
-    TaintPattern { text: "fgets",          kind: SourceKind::UserInput },
-    TaintPattern { text: "scanf",          kind: SourceKind::UserInput },
-    TaintPattern { text: "gets",           kind: SourceKind::UserInput },
-    TaintPattern { text: "fread",          kind: SourceKind::FileRead },
-    TaintPattern { text: "recv",           kind: SourceKind::NetworkRead },
-    TaintPattern { text: "recvfrom",       kind: SourceKind::NetworkRead },
+    TaintPattern {
+        text: "getenv",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "argv",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "fgets",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "scanf",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "gets",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "fread",
+        kind: SourceKind::FileRead,
+    },
+    TaintPattern {
+        text: "recv",
+        kind: SourceKind::NetworkRead,
+    },
+    TaintPattern {
+        text: "recvfrom",
+        kind: SourceKind::NetworkRead,
+    },
     // -- Java --
-    TaintPattern { text: "getParameter",   kind: SourceKind::UserInput },
-    TaintPattern { text: "getHeader",      kind: SourceKind::UserInput },
-    TaintPattern { text: "getInputStream", kind: SourceKind::UserInput },
-    TaintPattern { text: "getReader",      kind: SourceKind::UserInput },
-    TaintPattern { text: "System.getenv",  kind: SourceKind::EnvironmentVar },
-    TaintPattern { text: "System.getProperty", kind: SourceKind::EnvironmentVar },
+    TaintPattern {
+        text: "getParameter",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "getHeader",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "getInputStream",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "getReader",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "System.getenv",
+        kind: SourceKind::EnvironmentVar,
+    },
+    TaintPattern {
+        text: "System.getProperty",
+        kind: SourceKind::EnvironmentVar,
+    },
     // -- C# --
-    TaintPattern { text: "Request.Query",  kind: SourceKind::UserInput },
-    TaintPattern { text: "Request.Form",   kind: SourceKind::UserInput },
-    TaintPattern { text: "Request.Headers",kind: SourceKind::UserInput },
-    TaintPattern { text: "Request.Body",   kind: SourceKind::UserInput },
-    TaintPattern { text: "Environment.GetEnvironmentVariable", kind: SourceKind::EnvironmentVar },
+    TaintPattern {
+        text: "Request.Query",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "Request.Form",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "Request.Headers",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "Request.Body",
+        kind: SourceKind::UserInput,
+    },
+    TaintPattern {
+        text: "Environment.GetEnvironmentVariable",
+        kind: SourceKind::EnvironmentVar,
+    },
     // -- Deserialization --
-    TaintPattern { text: "JSON.parse",     kind: SourceKind::Deserialization },
-    TaintPattern { text: "json.loads",     kind: SourceKind::Deserialization },
-    TaintPattern { text: "json_decode",    kind: SourceKind::Deserialization },
-    TaintPattern { text: "serde_json::from", kind: SourceKind::Deserialization },
-    TaintPattern { text: "ObjectMapper.readValue", kind: SourceKind::Deserialization },
+    TaintPattern {
+        text: "JSON.parse",
+        kind: SourceKind::Deserialization,
+    },
+    TaintPattern {
+        text: "json.loads",
+        kind: SourceKind::Deserialization,
+    },
+    TaintPattern {
+        text: "json_decode",
+        kind: SourceKind::Deserialization,
+    },
+    TaintPattern {
+        text: "serde_json::from",
+        kind: SourceKind::Deserialization,
+    },
+    TaintPattern {
+        text: "ObjectMapper.readValue",
+        kind: SourceKind::Deserialization,
+    },
     // -- Database reads --
-    TaintPattern { text: "ResultSet.getString", kind: SourceKind::DatabaseRead },
-    TaintPattern { text: "fetchone",       kind: SourceKind::DatabaseRead },
-    TaintPattern { text: "fetchall",       kind: SourceKind::DatabaseRead },
-    TaintPattern { text: "rows.Scan",      kind: SourceKind::DatabaseRead },
+    TaintPattern {
+        text: "ResultSet.getString",
+        kind: SourceKind::DatabaseRead,
+    },
+    TaintPattern {
+        text: "fetchone",
+        kind: SourceKind::DatabaseRead,
+    },
+    TaintPattern {
+        text: "fetchall",
+        kind: SourceKind::DatabaseRead,
+    },
+    TaintPattern {
+        text: "rows.Scan",
+        kind: SourceKind::DatabaseRead,
+    },
 ];
 
 /// Sink patterns — dangerous operations that should not receive unsanitized input.
 const SINKS: &[&str] = &[
     // SQL injection
-    "execute", "query", "raw_query", "cursor.execute", "db.query",
-    "prepare", "exec", "raw",
+    "execute",
+    "query",
+    "raw_query",
+    "cursor.execute",
+    "db.query",
+    "prepare",
+    "exec",
+    "raw",
     // Command injection
-    "system", "exec.Command", "subprocess.call", "subprocess.run",
-    "subprocess.Popen", "Runtime.exec", "shell_exec", "popen",
-    "execvp", "execve", "ProcessBuilder",
-    "os.system", "os.popen", "os.exec",
-    "child_process.exec", "child_process.spawn",
+    "system",
+    "exec.Command",
+    "subprocess.call",
+    "subprocess.run",
+    "subprocess.Popen",
+    "Runtime.exec",
+    "shell_exec",
+    "popen",
+    "execvp",
+    "execve",
+    "ProcessBuilder",
+    "os.system",
+    "os.popen",
+    "os.exec",
+    "child_process.exec",
+    "child_process.spawn",
     "Command::new",
     // Code injection
-    "eval", "Function(", "compile",
+    "eval",
+    "Function(",
+    "compile",
     // XSS / DOM
-    "innerHTML", "outerHTML", "document.write", "dangerouslySetInnerHTML",
+    "innerHTML",
+    "outerHTML",
+    "document.write",
+    "dangerouslySetInnerHTML",
     // Path traversal
-    "readFile", "writeFile", "open", "readFileSync", "writeFileSync",
+    "readFile",
+    "writeFile",
+    "open",
+    "readFileSync",
+    "writeFileSync",
     // PHP specific
-    "mysqli_query", "pg_query", "preg_replace",
-    "include", "require", "include_once", "require_once",
+    "mysqli_query",
+    "pg_query",
+    "preg_replace",
+    "include",
+    "require",
+    "include_once",
+    "require_once",
     // LDAP
-    "ldap_search", "ldap_bind",
+    "ldap_search",
+    "ldap_bind",
     // Deserialization sinks
-    "unserialize", "pickle.loads", "yaml.load",
+    "unserialize",
+    "pickle.loads",
+    "yaml.load",
     "ObjectInputStream",
     // Network sinks
-    "fetch", "XMLHttpRequest", "http.Get", "http.Post",
-    "redirect", "header(",
+    "fetch",
+    "XMLHttpRequest",
+    "http.Get",
+    "http.Post",
+    "redirect",
+    "header(",
 ];
 
 /// Sanitizer patterns — functions that neutralize taint.
 const SANITIZERS: &[&str] = &[
     // Generic
-    "escape", "sanitize", "validate", "encode", "clean",
-    "purify", "strip", "filter",
+    "escape",
+    "sanitize",
+    "validate",
+    "encode",
+    "clean",
+    "purify",
+    "strip",
+    "filter",
     // JS / TS
-    "parseInt", "parseFloat", "Number(", "encodeURIComponent", "encodeURI",
-    "DOMPurify.sanitize", "xss(",
+    "parseInt",
+    "parseFloat",
+    "Number(",
+    "encodeURIComponent",
+    "encodeURI",
+    "DOMPurify.sanitize",
+    "xss(",
     // Python
-    "bleach.clean", "markupsafe.escape", "shlex.quote", "quote",
+    "bleach.clean",
+    "markupsafe.escape",
+    "shlex.quote",
+    "quote",
     // Go
-    "filepath.Clean", "html.EscapeString", "url.QueryEscape",
-    "template.HTMLEscapeString", "strconv.Atoi", "strconv.ParseInt",
+    "filepath.Clean",
+    "html.EscapeString",
+    "url.QueryEscape",
+    "template.HTMLEscapeString",
+    "strconv.Atoi",
+    "strconv.ParseInt",
     // PHP
-    "htmlspecialchars", "htmlentities", "addslashes",
-    "mysqli_real_escape_string", "pg_escape_string",
-    "filter_var", "filter_input",
+    "htmlspecialchars",
+    "htmlentities",
+    "addslashes",
+    "mysqli_real_escape_string",
+    "pg_escape_string",
+    "filter_var",
+    "filter_input",
     // Java
-    "PreparedStatement", "parameterize",
-    "StringEscapeUtils.escapeHtml", "StringEscapeUtils.escapeSql",
-    "Encoder.encodeForHTML", "ESAPI.encoder",
+    "PreparedStatement",
+    "parameterize",
+    "StringEscapeUtils.escapeHtml",
+    "StringEscapeUtils.escapeSql",
+    "Encoder.encodeForHTML",
+    "ESAPI.encoder",
     // C / C++
-    "snprintf", "strlcpy",
+    "snprintf",
+    "strlcpy",
     // Rust
-    "html_escape", "ammonia::clean",
+    "html_escape",
+    "ammonia::clean",
     // C#
-    "HtmlEncode", "UrlEncode", "AntiXss",
-    "SqlParameter", "AddWithValue",
+    "HtmlEncode",
+    "UrlEncode",
+    "AntiXss",
+    "SqlParameter",
+    "AddWithValue",
     // General ORM / prepared statements
-    "parameterized", "bind_param", "bindValue", "bindParam",
-    "placeholder", "prepare(",
+    "parameterized",
+    "bind_param",
+    "bindValue",
+    "bindParam",
+    "placeholder",
+    "prepare(",
 ];
 
 /// A taint source pattern with its classification.
@@ -255,13 +528,11 @@ impl TaintEngine {
         let func_nodes: Vec<(NodeIndex, String, String)> = graph
             .function_cfgs
             .keys()
-            .filter_map(|&node_idx| {
-                match &graph.graph[node_idx] {
-                    NodeWeight::Symbol {
-                        name, file_path, ..
-                    } => Some((node_idx, name.clone(), file_path.clone())),
-                    _ => None,
-                }
+            .filter_map(|&node_idx| match &graph.graph[node_idx] {
+                NodeWeight::Symbol {
+                    name, file_path, ..
+                } => Some((node_idx, name.clone(), file_path.clone())),
+                _ => None,
             })
             .collect();
 
@@ -293,11 +564,9 @@ impl TaintEngine {
                         target,
                         sanitizer,
                     } => {
-                        graph.graph.add_edge(
-                            node,
-                            target,
-                            EdgeWeight::SanitizedBy { sanitizer },
-                        );
+                        graph
+                            .graph
+                            .add_edge(node, target, EdgeWeight::SanitizedBy { sanitizer });
                     }
                     GraphEdgeAction::AddExternalSource {
                         kind,
@@ -310,7 +579,9 @@ impl TaintEngine {
                             file_path,
                             line,
                         });
-                        graph.graph.add_edge(src_idx, target_node, EdgeWeight::FlowsTo);
+                        graph
+                            .graph
+                            .add_edge(src_idx, target_node, EdgeWeight::FlowsTo);
                     }
                 }
             }
@@ -389,7 +660,10 @@ impl TaintEngine {
                 // Process each statement in the block.
                 for stmt in &block.statements {
                     match &stmt.kind {
-                        CfgStatementKind::Assignment { target, source_vars } => {
+                        CfgStatementKind::Assignment {
+                            target,
+                            source_vars,
+                        } => {
                             // Check if any source variable is tainted.
                             if let Some((tainted_var, origin)) = state.any_tainted(source_vars) {
                                 state.mark_tainted(
@@ -465,26 +739,26 @@ impl TaintEngine {
                             }
 
                             // 3) Check if this call is a sink with tainted args.
-                            if matches_sink(name) {
-                                if let Some((tainted_var, origin)) = state.any_tainted(args) {
-                                    findings.push(TaintFinding {
-                                        function_node: func_idx,
-                                        function_name: func_name.to_string(),
-                                        file_path: file_path.to_string(),
-                                        tainted_var: tainted_var.to_string(),
-                                        sink_name: name.clone(),
-                                        sink_line: stmt.line,
-                                        source_description: origin.description.clone(),
-                                        source_line: origin.line,
-                                    });
+                            if matches_sink(name)
+                                && let Some((tainted_var, origin)) = state.any_tainted(args)
+                            {
+                                findings.push(TaintFinding {
+                                    function_node: func_idx,
+                                    function_name: func_name.to_string(),
+                                    file_path: file_path.to_string(),
+                                    tainted_var: tainted_var.to_string(),
+                                    sink_name: name.clone(),
+                                    sink_line: stmt.line,
+                                    source_description: origin.description.clone(),
+                                    source_line: origin.line,
+                                });
 
-                                    // Add a FlowsTo edge from function to itself
-                                    // to mark that taint reaches a sink here.
-                                    edges.push(GraphEdgeAction::FlowsTo {
-                                        from: func_idx,
-                                        to: func_idx,
-                                    });
-                                }
+                                // Add a FlowsTo edge from function to itself
+                                // to mark that taint reaches a sink here.
+                                edges.push(GraphEdgeAction::FlowsTo {
+                                    from: func_idx,
+                                    to: func_idx,
+                                });
                             }
 
                             // 4) Taint propagation through unknown calls:
@@ -509,7 +783,10 @@ impl TaintEngine {
                             // Guards don't propagate or sanitize taint.
                         }
 
-                        CfgStatementKind::ResourceAcquire { target, resource_type } => {
+                        CfgStatementKind::ResourceAcquire {
+                            target,
+                            resource_type,
+                        } => {
                             // If the resource type looks like a source, taint
                             // the target variable.
                             if let Some(src_kind) = matches_source(resource_type) {
@@ -555,9 +832,7 @@ impl TaintEngine {
 
                 // Update the block's output state. If it changed, mark for
                 // another iteration.
-                let prev_count = block_states
-                    .get(&block_idx)
-                    .map_or(0, |s| s.tainted.len());
+                let prev_count = block_states.get(&block_idx).map_or(0, |s| s.tainted.len());
                 let new_count = state.tainted.len();
 
                 // Check if any new taint was added (monotonic growth).
@@ -704,12 +979,26 @@ fn is_source_param(name: &str) -> bool {
     let lower = name.to_lowercase();
     // Common parameter names that typically carry user input.
     const PARAM_PATTERNS: &[&str] = &[
-        "request", "req", "input", "body", "query", "params",
-        "args", "argv", "data", "payload", "form", "user_input",
-        "raw_input", "stdin",
+        "request",
+        "req",
+        "input",
+        "body",
+        "query",
+        "params",
+        "args",
+        "argv",
+        "data",
+        "payload",
+        "form",
+        "user_input",
+        "raw_input",
+        "stdin",
     ];
     for &pat in PARAM_PATTERNS {
-        if lower == pat || lower.starts_with(&format!("{pat}_")) || lower.ends_with(&format!("_{pat}")) {
+        if lower == pat
+            || lower.starts_with(&format!("{pat}_"))
+            || lower.ends_with(&format!("_{pat}"))
+        {
             return true;
         }
     }
@@ -819,19 +1108,14 @@ mod tests {
     use petgraph::graph::DiGraph;
 
     /// Helper to build a minimal CodeGraph with one function and its CFG.
-    fn make_graph_with_cfg(
-        func_name: &str,
-        stmts: Vec<CfgStatement>,
-    ) -> (CodeGraph, NodeIndex) {
+    fn make_graph_with_cfg(func_name: &str, stmts: Vec<CfgStatement>) -> (CodeGraph, NodeIndex) {
         let mut graph = CodeGraph::new();
 
         let file_idx = graph.graph.add_node(NodeWeight::File {
             path: "test.py".to_string(),
             language: Language::Python,
         });
-        graph
-            .file_nodes
-            .insert("test.py".to_string(), file_idx);
+        graph.file_nodes.insert("test.py".to_string(), file_idx);
 
         let func_idx = graph.graph.add_node(NodeWeight::Symbol {
             name: func_name.to_string(),
@@ -958,7 +1242,10 @@ mod tests {
         let (mut graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
         let findings = TaintEngine::analyze_all(&mut graph);
 
-        assert!(findings.is_empty(), "expected no findings after sanitization");
+        assert!(
+            findings.is_empty(),
+            "expected no findings after sanitization"
+        );
     }
 
     #[test]
@@ -1146,9 +1433,7 @@ mod tests {
             path: "test.py".to_string(),
             language: Language::Python,
         });
-        graph
-            .file_nodes
-            .insert("test.py".to_string(), file_idx);
+        graph.file_nodes.insert("test.py".to_string(), file_idx);
 
         let func_idx = graph.graph.add_node(NodeWeight::Symbol {
             name: "branchy".to_string(),

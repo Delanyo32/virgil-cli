@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
+use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::project_analyzer::ProjectAnalyzer;
@@ -104,9 +104,7 @@ mod tests {
             });
             graph.file_nodes.insert(path, idx);
             if let Some(prev_idx) = prev {
-                graph
-                    .graph
-                    .add_edge(prev_idx, idx, EdgeWeight::Imports);
+                graph.graph.add_edge(prev_idx, idx, EdgeWeight::Imports);
             }
             prev = Some(idx);
         }

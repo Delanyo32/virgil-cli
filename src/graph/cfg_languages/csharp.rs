@@ -45,12 +45,8 @@ impl CfgBuilder for CSharpCfgBuilder {
 
 fn find_block<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "block" {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut cursor)
+        .find(|&child| child.kind() == "block")
 }
 
 /// Process a block and return the last live block index,
@@ -217,12 +213,7 @@ fn build_if(
 
 // ── Loops (for / while) ────────────────────────────────────────────────────
 
-fn build_loop(
-    cfg: &mut FunctionCfg,
-    current: NodeIndex,
-    node: &Node,
-    source: &[u8],
-) -> NodeIndex {
+fn build_loop(cfg: &mut FunctionCfg, current: NodeIndex, node: &Node, source: &[u8]) -> NodeIndex {
     let header = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks.add_edge(current, header, CfgEdge::Normal);
 
@@ -239,8 +230,7 @@ fn build_loop(
     });
 
     let body_block = cfg.blocks.add_node(BasicBlock::new());
-    cfg.blocks
-        .add_edge(header, body_block, CfgEdge::TrueBranch);
+    cfg.blocks.add_edge(header, body_block, CfgEdge::TrueBranch);
 
     let body = node.child_by_field_name("body");
     let body_exit = match body {
@@ -286,8 +276,7 @@ fn build_foreach(
     });
 
     let body_block = cfg.blocks.add_node(BasicBlock::new());
-    cfg.blocks
-        .add_edge(header, body_block, CfgEdge::TrueBranch);
+    cfg.blocks.add_edge(header, body_block, CfgEdge::TrueBranch);
 
     // Loop variable assignment
     if let Some(left) = node.child_by_field_name("left") {
@@ -364,8 +353,7 @@ fn build_do_while(
         .add_edge(cond_block, body_block, CfgEdge::TrueBranch);
 
     let exit = cfg.blocks.add_node(BasicBlock::new());
-    cfg.blocks
-        .add_edge(cond_block, exit, CfgEdge::FalseBranch);
+    cfg.blocks.add_edge(cond_block, exit, CfgEdge::FalseBranch);
     exit
 }
 
@@ -429,8 +417,7 @@ fn build_switch(
         for stmt in section.children(&mut section_cursor) {
             match stmt.kind() {
                 "break_statement" => {
-                    cfg.blocks
-                        .add_edge(case_current, join, CfgEdge::Normal);
+                    cfg.blocks.add_edge(case_current, join, CfgEdge::Normal);
                     terminated = true;
                     break;
                 }
@@ -476,14 +463,12 @@ fn build_switch(
         if !terminated {
             // C# requires explicit break/return/throw in switch sections,
             // but handle fallthrough gracefully
-            cfg.blocks
-                .add_edge(case_current, join, CfgEdge::Normal);
+            cfg.blocks.add_edge(case_current, join, CfgEdge::Normal);
         }
     }
 
     if !has_default {
-        cfg.blocks
-            .add_edge(current, join, CfgEdge::FalseBranch);
+        cfg.blocks.add_edge(current, join, CfgEdge::FalseBranch);
     }
 
     Some(join)
@@ -551,8 +536,7 @@ fn build_try_catch(
     for child in node.children(&mut cursor2) {
         if child.kind() == "finally_clause" {
             let finally_block = cfg.blocks.add_node(BasicBlock::new());
-            cfg.blocks
-                .add_edge(join, finally_block, CfgEdge::Cleanup);
+            cfg.blocks.add_edge(join, finally_block, CfgEdge::Cleanup);
 
             let finally_body = child.named_child(0);
             let finally_exit = match finally_body {
@@ -562,8 +546,7 @@ fn build_try_catch(
 
             if let Some(fe) = finally_exit {
                 let after_finally = cfg.blocks.add_node(BasicBlock::new());
-                cfg.blocks
-                    .add_edge(fe, after_finally, CfgEdge::Normal);
+                cfg.blocks.add_edge(fe, after_finally, CfgEdge::Normal);
                 return Some(after_finally);
             }
             return None;
@@ -594,10 +577,10 @@ fn build_using(
             // Try to find the declarator name
             let mut c = decl.walk();
             for child in decl.children(&mut c) {
-                if child.kind() == "variable_declarator" || child.kind() == "variable_declaration" {
-                    if let Some(name) = child.child_by_field_name("name") {
-                        return name.utf8_text(source).ok().map(|s| s.to_string());
-                    }
+                if (child.kind() == "variable_declarator" || child.kind() == "variable_declaration")
+                    && let Some(name) = child.child_by_field_name("name")
+                {
+                    return name.utf8_text(source).ok().map(|s| s.to_string());
                 }
             }
             None
@@ -628,8 +611,7 @@ fn build_using(
     match body_exit {
         Some(exit) => {
             let release_block = cfg.blocks.add_node(BasicBlock::new());
-            cfg.blocks
-                .add_edge(exit, release_block, CfgEdge::Cleanup);
+            cfg.blocks.add_edge(exit, release_block, CfgEdge::Cleanup);
             cfg.blocks[release_block].statements.push(CfgStatement {
                 kind: CfgStatementKind::ResourceRelease {
                     target,
@@ -665,7 +647,8 @@ fn emit_local_declaration(cfg: &mut FunctionCfg, block: NodeIndex, node: &Node, 
                         .unwrap_or_default()
                         .to_string();
 
-                    let value = declarator.child_by_field_name("value")
+                    let value = declarator
+                        .child_by_field_name("value")
                         .or_else(|| declarator.child_by_field_name("initializer"));
 
                     let source_vars = value

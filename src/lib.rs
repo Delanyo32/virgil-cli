@@ -1,9 +1,9 @@
 pub mod audit;
-pub mod graph;
 pub mod cli;
 pub mod discovery;
 pub mod file_source;
 pub mod format;
+pub mod graph;
 pub mod language;
 pub mod languages;
 pub mod models;

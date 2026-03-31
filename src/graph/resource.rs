@@ -1,8 +1,8 @@
 use std::collections::{HashSet, VecDeque};
 
+use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 
 use super::cfg::{CfgEdge, CfgStatementKind, FunctionCfg};
 use super::{CodeGraph, EdgeWeight, NodeWeight};
@@ -184,9 +184,10 @@ fn analyze_function_resources(cfg: &FunctionCfg) -> Vec<(String, bool)> {
                         });
                     }
                 }
-                CfgStatementKind::Assignment { target, source_vars }
-                    if !source_vars.is_empty() =>
-                {
+                CfgStatementKind::Assignment {
+                    target,
+                    source_vars,
+                } if !source_vars.is_empty() => {
                     // Check if the assignment sources a call-based acquire.
                     // This is handled by looking at the *previous* statement
                     // being a call acquire -- but we can't easily track that
@@ -394,18 +395,17 @@ fn find_assignment_target_for_call(
     // the call as part of an Assignment (e.g., `f := os.Open(...)` becomes
     // Assignment { target: "f", source_vars: ["os", "Open", ...] }).
     // We look for an Assignment immediately preceding or at the call position.
-    if call_stmt_idx > 0 {
-        if let CfgStatementKind::Assignment { target, .. } =
+    if call_stmt_idx > 0
+        && let CfgStatementKind::Assignment { target, .. } =
             &block_data.statements[call_stmt_idx - 1].kind
-        {
-            return Some(target.clone());
-        }
+    {
+        return Some(target.clone());
     }
     // Also check the statement at the same index (if it was folded into an assignment).
-    if let Some(stmt) = block_data.statements.get(call_stmt_idx) {
-        if let CfgStatementKind::Assignment { target, .. } = &stmt.kind {
-            return Some(target.clone());
-        }
+    if let Some(stmt) = block_data.statements.get(call_stmt_idx)
+        && let CfgStatementKind::Assignment { target, .. } = &stmt.kind
+    {
+        return Some(target.clone());
     }
     None
 }
@@ -450,9 +450,7 @@ mod tests {
                 line: 3,
             },
             CfgStatement {
-                kind: CfgStatementKind::Return {
-                    value_vars: vec![],
-                },
+                kind: CfgStatementKind::Return { value_vars: vec![] },
                 line: 4,
             },
         ]);
@@ -474,9 +472,7 @@ mod tests {
                 line: 1,
             },
             CfgStatement {
-                kind: CfgStatementKind::Return {
-                    value_vars: vec![],
-                },
+                kind: CfgStatementKind::Return { value_vars: vec![] },
                 line: 2,
             },
         ]);
@@ -619,9 +615,7 @@ mod tests {
 
         // Return
         cfg.blocks[cfg.entry].statements.push(CfgStatement {
-            kind: CfgStatementKind::Return {
-                value_vars: vec![],
-            },
+            kind: CfgStatementKind::Return { value_vars: vec![] },
             line: 3,
         });
         cfg.exits.push(cfg.entry);
@@ -661,9 +655,7 @@ mod tests {
             },
             // fp2 is NOT released
             CfgStatement {
-                kind: CfgStatementKind::Return {
-                    value_vars: vec![],
-                },
+                kind: CfgStatementKind::Return { value_vars: vec![] },
                 line: 4,
             },
         ]);
@@ -687,9 +679,7 @@ mod tests {
                 line: 1,
             },
             CfgStatement {
-                kind: CfgStatementKind::Return {
-                    value_vars: vec![],
-                },
+                kind: CfgStatementKind::Return { value_vars: vec![] },
                 line: 2,
             },
         ]);

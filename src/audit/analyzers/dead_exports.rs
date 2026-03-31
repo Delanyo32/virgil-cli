@@ -1,5 +1,5 @@
-use petgraph::visit::EdgeRef;
 use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::project_analyzer::ProjectAnalyzer;
@@ -127,7 +127,9 @@ mod tests {
             end_line: 5,
             exported: true,
         });
-        graph.graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
+        graph
+            .graph
+            .add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
 
         let analyzer = DeadExportsAnalyzer;
         let findings = analyzer.analyze(&graph);
@@ -188,9 +190,7 @@ mod tests {
             path: "src/main.rs".to_string(),
             language: Language::Rust,
         });
-        graph
-            .file_nodes
-            .insert("src/main.rs".to_string(), file_idx);
+        graph.file_nodes.insert("src/main.rs".to_string(), file_idx);
 
         let _sym_idx = graph.graph.add_node(NodeWeight::Symbol {
             name: "run".to_string(),

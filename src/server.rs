@@ -15,8 +15,8 @@ use tokio::time::timeout;
 use crate::audit;
 use crate::audit::engine::{AuditEngine, PipelineSelector};
 use crate::audit::models::AuditFinding;
-use crate::graph::builder::GraphBuilder;
 use crate::graph::CodeGraph;
+use crate::graph::builder::GraphBuilder;
 use crate::language::Language;
 use crate::query_engine;
 use crate::query_lang::TsQuery;
@@ -162,7 +162,13 @@ async fn handle_query(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let start = Instant::now();
-            let output = query_engine::execute(&state.project, &query, max, &state.workspace, Some(&state.code_graph))?;
+            let output = query_engine::execute(
+                &state.project,
+                &query,
+                max,
+                &state.workspace,
+                Some(&state.code_graph),
+            )?;
             let elapsed = start.elapsed();
 
             let formatted = crate::format::format_results(

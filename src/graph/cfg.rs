@@ -16,18 +16,11 @@ pub enum CfgStatementKind {
         source_vars: Vec<String>,
     },
     /// Function/method call
-    Call {
-        name: String,
-        args: Vec<String>,
-    },
+    Call { name: String, args: Vec<String> },
     /// Return statement
-    Return {
-        value_vars: Vec<String>,
-    },
+    Return { value_vars: Vec<String> },
     /// Guard/condition check (if condition, match guard, etc.)
-    Guard {
-        condition_vars: Vec<String>,
-    },
+    Guard { condition_vars: Vec<String> },
     /// Resource acquisition (malloc, fopen, new Stream, etc.)
     ResourceAcquire {
         target: String,
@@ -49,6 +42,12 @@ pub enum CfgStatementKind {
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
     pub statements: Vec<CfgStatement>,
+}
+
+impl Default for BasicBlock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BasicBlock {
@@ -80,6 +79,12 @@ pub struct FunctionCfg {
     pub blocks: DiGraph<BasicBlock, CfgEdge>,
     pub entry: NodeIndex,
     pub exits: Vec<NodeIndex>,
+}
+
+impl Default for FunctionCfg {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FunctionCfg {

@@ -20,22 +20,22 @@ impl ProjectAnalyzer for CircularDepsAnalyzer {
     fn analyze(&self, graph: &CodeGraph) -> Vec<AuditFinding> {
         // Build a subgraph of only File nodes connected by Imports edges
         let mut import_graph = petgraph::graph::DiGraph::<NodeIndex, ()>::new();
-        let mut idx_map: std::collections::HashMap<NodeIndex, NodeIndex> = std::collections::HashMap::new();
+        let mut idx_map: std::collections::HashMap<NodeIndex, NodeIndex> =
+            std::collections::HashMap::new();
 
         // Add file nodes
-        for (&ref _path, &file_idx) in &graph.file_nodes {
+        for &file_idx in graph.file_nodes.values() {
             let sub_idx = import_graph.add_node(file_idx);
             idx_map.insert(file_idx, sub_idx);
         }
 
         // Add import edges
         for edge in graph.graph.edge_references() {
-            if matches!(edge.weight(), EdgeWeight::Imports) {
-                if let (Some(&from_sub), Some(&to_sub)) =
+            if matches!(edge.weight(), EdgeWeight::Imports)
+                && let (Some(&from_sub), Some(&to_sub)) =
                     (idx_map.get(&edge.source()), idx_map.get(&edge.target()))
-                {
-                    import_graph.add_edge(from_sub, to_sub, ());
-                }
+            {
+                import_graph.add_edge(from_sub, to_sub, ());
             }
         }
 
@@ -109,9 +109,7 @@ mod tests {
         for (from, to) in edges {
             let from_idx = graph.file_nodes[*from];
             let to_idx = graph.file_nodes[*to];
-            graph
-                .graph
-                .add_edge(from_idx, to_idx, EdgeWeight::Imports);
+            graph.graph.add_edge(from_idx, to_idx, EdgeWeight::Imports);
         }
 
         graph
