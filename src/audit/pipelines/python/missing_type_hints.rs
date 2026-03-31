@@ -5,7 +5,8 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::graph::CodeGraph;
 
 use super::primitives::{compile_function_def_query, find_capture_index, node_text};
 
@@ -24,6 +25,66 @@ impl MissingTypeHintsPipeline {
     }
 }
 
+impl MissingTypeHintsPipeline {
+    /// Determine whether a finding is for a function that is part of the cross-module
+    /// public API (called from another file) or lives in an inherently API-facing file.
+    fn is_cross_module_api(
+        &self,
+        finding: &AuditFinding,
+        file_path: &str,
+        graph: &CodeGraph,
+    ) -> bool {
+        // Files that are inherently API-facing
+        let api_patterns = [
+            "__init__.py",
+            "/api/",
+            "/views/",
+            "/routes/",
+            "/endpoints/",
+        ];
+        if api_patterns.iter().any(|p| file_path.contains(p)) {
+            return true;
+        }
+
+        // finding.line is 1-indexed, graph stores 0-indexed start_line
+        let start_line = finding.line - 1;
+
+        // Look up the function in the graph
+        let Some(sym_idx) = graph.find_symbol(file_path, start_line) else {
+            // Function not in graph — it has no known callers, suppress
+            return false;
+        };
+
+        // Check if the function has callers from other files
+        let callers = graph.traverse_callers(&[sym_idx], 1);
+
+        for caller_idx in &callers {
+            match &graph.graph[*caller_idx] {
+                crate::graph::NodeWeight::CallSite {
+                    file_path: caller_file,
+                    ..
+                } => {
+                    if caller_file != file_path {
+                        return true; // Called from another file — cross-module API
+                    }
+                }
+                crate::graph::NodeWeight::Symbol {
+                    file_path: caller_file,
+                    ..
+                } => {
+                    if caller_file != file_path {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // No cross-module callers found — suppress
+        false
+    }
+}
+
 impl Pipeline for MissingTypeHintsPipeline {
     fn name(&self) -> &str {
         "missing_type_hints"
@@ -31,6 +92,20 @@ impl Pipeline for MissingTypeHintsPipeline {
 
     fn description(&self) -> &str {
         "Detects public functions missing parameter or return type annotations"
+    }
+
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+
+        // When graph is available, only keep findings for cross-module API functions
+        if let Some(graph) = ctx.graph {
+            return base
+                .into_iter()
+                .filter(|f| self.is_cross_module_api(f, ctx.file_path, graph))
+                .collect();
+        }
+
+        base
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
@@ -145,6 +220,8 @@ impl Pipeline for MissingTypeHintsPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
@@ -155,6 +232,44 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MissingTypeHintsPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.py")
+    }
+
+    fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = MissingTypeHintsPipeline::new().unwrap();
+        let id_counts = HashMap::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: None,
+        };
+        pipeline.check_with_context(&ctx)
+    }
+
+    fn parse_and_check_with_graph(source: &str, file_path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = MissingTypeHintsPipeline::new().unwrap();
+        let id_counts = HashMap::new();
+        // Create an empty graph — no callers for any symbol
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: Some(&graph),
+        };
+        pipeline.check_with_context(&ctx)
     }
 
     #[test]
@@ -192,5 +307,36 @@ mod tests {
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "missing_return_type");
+    }
+
+    #[test]
+    fn context_without_graph_returns_all_findings() {
+        // Without a graph, check_with_context should return the same results as check()
+        let src = "def foo(x, y):\n    pass\n";
+        let findings = parse_and_check_with_context(src);
+        assert!(findings.iter().any(|f| f.pattern == "missing_return_type"));
+        assert!(findings.iter().any(|f| f.pattern == "missing_param_type"));
+    }
+
+    #[test]
+    fn context_with_empty_graph_suppresses_non_api_findings() {
+        // Empty graph = no callers = no cross-module API = suppress
+        let src = "def foo(x, y):\n    pass\n";
+        let findings = parse_and_check_with_graph(src, "mymodule.py");
+        assert!(
+            findings.is_empty(),
+            "should suppress when no cross-module callers"
+        );
+    }
+
+    #[test]
+    fn context_with_graph_keeps_init_py_findings() {
+        // __init__.py is always API-facing
+        let src = "def foo(x, y):\n    pass\n";
+        let findings = parse_and_check_with_graph(src, "package/__init__.py");
+        assert!(
+            !findings.is_empty(),
+            "should keep findings for __init__.py"
+        );
     }
 }

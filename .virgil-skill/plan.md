@@ -122,11 +122,11 @@ Research:
 Findings: Overrode check_with_context() with receiver assignment tracing (suppresses dict/list/set literals, comprehensions, dict()/list()/set() calls) and .get() with default arg heuristic. 7 new tests, all pass.
 
 ## Phase 3: Reduce Type-Safety Extras (444 → ~50)
-Status: pending
+Status: completed
 Goal: `missing_type_hints` only flags functions that are part of cross-module public API
 
 ### Task 3.1: Graph-aware missing_type_hints — scope to cross-module API
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/missing_type_hints.rs`:
 - Override `check_with_context()`
 - When graph is available, for each untyped public function:
@@ -142,7 +142,7 @@ Research:
 - [code] `NodeWeight::Symbol { exported: bool, ... }` — tracks export status (source: graph/mod.rs)
 - [code] `graph.traverse_callers(&[node_idx], 1)` → Vec<NodeIndex> — finds direct callers
 - [code] `graph.find_symbol(file_path, start_line)` → Option<NodeIndex>
-Findings:
+Findings: Overrode check_with_context() to filter via graph.find_symbol + traverse_callers. Functions with no cross-module callers are suppressed. API-facing files (__init__.py, /api/, /views/, /routes/, /endpoints/) always keep findings. 3 new tests, all pass.
 
 ## Phase 4: Reduce Style Extras (143 → ~30)
 Status: pending
