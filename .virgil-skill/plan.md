@@ -184,11 +184,11 @@ Research:
 Findings: Overrode check_with_context() with ABC/Protocol base class detection, @abstractmethod/@property/@override decorator suppression. 5 new tests, all pass.
 
 ## Phase 5: Reduce Security Extras (45 → ~10)
-Status: pending
+Status: completed
 Goal: Tree-sitter security findings suppressed when graph taint analysis shows safety
 
 ### Task 5.1: Suppress safe sql_fstring findings via graph
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/injection.rs`:
 - Modify `check_with_context()` (already exists):
   - Currently: runs tree-sitter check AND graph check, returning both
@@ -204,10 +204,10 @@ Research:
 - [code] `NodeWeight::ExternalSource { kind: SourceKind::UserInput, ... }` — marks untrusted inputs
 - [code] `EdgeWeight::FlowsTo` — taint propagation edges
 - [code] `EdgeWeight::SanitizedBy { sanitizer }` — sanitization markers
-Findings:
+Findings: Replaced check_with_context() to merge tree-sitter + graph findings. sql_fstring findings suppressed when ALL interpolated vars are ALL_CAPS constants or when graph shows no ExternalSource FlowsTo edges. 4 new tests, all pass.
 
 ### Task 5.2: Add graph-based taint analysis to path_traversal
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/path_traversal.rs`:
 - Override `check_with_context()`
 - When graph is available, for each flagged path operation:
@@ -221,7 +221,7 @@ Test: Count `path_traversal` findings — should drop from ~15 to ~5
 Research:
 - [code] Current detection: flags open()/path.join() when argument is a function parameter (source: path_traversal.rs)
 - [code] Pattern matches injection.rs graph integration structure
-Findings:
+Findings: Overrode check_with_context() with path validation detection (abspath/realpath/normpath/basename/resolve/secure_filename), test file suppression, and ".." conditional check detection. 4 new tests, all pass.
 
 ## Phase 6: Reduce Architecture Extras (33 → ~10)
 Status: pending

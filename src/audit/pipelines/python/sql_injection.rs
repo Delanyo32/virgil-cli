@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
@@ -148,22 +150,38 @@ impl Pipeline for SqlInjectionPipeline {
     }
 
     fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        // When graph is available, use taint analysis for higher-confidence findings
+        let mut ts_findings = self.check(ctx.tree, ctx.source, ctx.file_path);
+
+        // When graph is available, add graph-based findings and filter tree-sitter ones
         if let Some(graph) = ctx.graph {
             let graph_findings = check_sql_injection_via_graph(graph, ctx.file_path);
-            if !graph_findings.is_empty() {
-                return graph_findings;
-            }
+
+            // Filter sql_fstring findings — suppress when no external taint
+            ts_findings.retain(|f| {
+                if f.pattern != "sql_fstring" {
+                    return true;
+                }
+                // Check if the f-string uses only constants (ALL_CAPS identifiers)
+                if is_constant_interpolation(ctx.tree, ctx.source, f.line) {
+                    return false; // suppress — safe constant interpolation
+                }
+                // Check if the enclosing function receives external input via graph
+                if !function_has_external_input(graph, ctx.file_path, f.line) {
+                    return false; // suppress — no external input flows here
+                }
+                true
+            });
+
+            // Merge graph findings
+            ts_findings.extend(graph_findings);
         }
-        // Fallback to tree-sitter pattern matching
-        self.check_with_ids(ctx.tree, ctx.source, ctx.file_path, ctx.id_counts)
+
+        ts_findings
     }
 }
 
 /// Query the CodeGraph for unsanitized taint paths to SQL sink calls in this file.
 fn check_sql_injection_via_graph(graph: &CodeGraph, file_path: &str) -> Vec<AuditFinding> {
-    use petgraph::Direction;
-
     let mut findings = Vec::new();
 
     // Find all symbol nodes in this file
@@ -233,6 +251,160 @@ fn has_interpolation(node: tree_sitter::Node) -> bool {
     false
 }
 
+/// Check if an f-string at `finding_line` (1-indexed) only interpolates ALL_CAPS constants.
+///
+/// Walks the tree to find the call node at the given line, locates the f-string argument,
+/// and checks whether every interpolated expression is an ALL_CAPS identifier (e.g. `TABLE_NAME`).
+/// Returns `true` only if ALL interpolated variables are constants.
+fn is_constant_interpolation(tree: &Tree, source: &[u8], finding_line: u32) -> bool {
+    let target_row = finding_line.saturating_sub(1); // convert to 0-indexed
+    let root = tree.root_node();
+
+    // Find the deepest node at this line that is a `call` node
+    let call_node = match find_call_at_line(root, target_row) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // Get the argument_list
+    let args_node = match call_node.child_by_field_name("arguments") {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // Get the first named argument (the SQL string)
+    let first_arg = match args_node.named_child(0) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // Must be a string with interpolations
+    if first_arg.kind() != "string" || !has_interpolation(first_arg) {
+        return false;
+    }
+
+    // Check all interpolated expressions
+    let mut found_any = false;
+    for i in 0..first_arg.named_child_count() {
+        if let Some(child) = first_arg.named_child(i) {
+            if child.kind() == "interpolation" {
+                found_any = true;
+                // The expression inside the interpolation
+                let expr = match child.named_child(0) {
+                    Some(e) => e,
+                    None => return false,
+                };
+                if expr.kind() != "identifier" {
+                    return false;
+                }
+                let name = node_text(expr, source);
+                // Check ALL_CAPS pattern: at least one letter, only uppercase letters + underscores + digits
+                if !is_all_caps_constant(name) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    found_any
+}
+
+/// Returns true if the name matches ALL_CAPS constant convention:
+/// only uppercase ASCII letters, digits, and underscores, with at least one letter.
+fn is_all_caps_constant(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let has_letter = name.chars().any(|c| c.is_ascii_uppercase());
+    let all_valid = name
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    has_letter && all_valid
+}
+
+/// Walk the tree to find a `call` node whose start row matches `target_row`.
+/// Prefers the shallowest (outermost) call at the matching line.
+fn find_call_at_line(node: tree_sitter::Node, target_row: u32) -> Option<tree_sitter::Node> {
+    // If this node doesn't contain the target row at all, skip
+    if (node.start_position().row as u32) > target_row
+        || (node.end_position().row as u32) < target_row
+    {
+        return None;
+    }
+
+    // If this node itself is a call at the right line, return it (prefer outermost)
+    if node.kind() == "call" && node.start_position().row as u32 == target_row {
+        return Some(node);
+    }
+
+    // Otherwise, recurse into children
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            if let Some(found) = find_call_at_line(child, target_row) {
+                return Some(found);
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if the enclosing function of a finding receives external input via the graph.
+///
+/// Finds the Symbol node in the graph whose line range contains `finding_line`,
+/// then checks if that symbol has any incoming `FlowsTo` edges from `ExternalSource` nodes
+/// (directly or via one hop through intermediate nodes).
+fn function_has_external_input(graph: &CodeGraph, file_path: &str, finding_line: u32) -> bool {
+    // Find the enclosing symbol: the closest Symbol node in this file
+    // whose start_line <= finding_line <= end_line
+    let mut enclosing_idx = None;
+    let mut best_range = u32::MAX; // narrowest enclosing range wins
+
+    for idx in graph.graph.node_indices() {
+        if let NodeWeight::Symbol {
+            file_path: fp,
+            start_line,
+            end_line,
+            ..
+        } = &graph.graph[idx]
+        {
+            if fp == file_path && *start_line <= finding_line && finding_line <= *end_line {
+                let range = end_line - start_line;
+                if range < best_range {
+                    best_range = range;
+                    enclosing_idx = Some(idx);
+                }
+            }
+        }
+    }
+
+    let sym_idx = match enclosing_idx {
+        Some(idx) => idx,
+        None => return false, // no enclosing function found
+    };
+
+    // Check direct incoming FlowsTo edges from ExternalSource nodes
+    for edge in graph.graph.edges_directed(sym_idx, Direction::Incoming) {
+        if matches!(edge.weight(), EdgeWeight::FlowsTo) {
+            let source = edge.source();
+            if matches!(graph.graph[source], NodeWeight::ExternalSource { .. }) {
+                return true;
+            }
+            // One-hop transitive: check if the source node itself has incoming
+            // FlowsTo from an ExternalSource
+            for inner_edge in graph.graph.edges_directed(source, Direction::Incoming) {
+                if matches!(inner_edge.weight(), EdgeWeight::FlowsTo)
+                    && matches!(graph.graph[inner_edge.source()], NodeWeight::ExternalSource { .. })
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +457,113 @@ mod tests {
         let src = "cursor.execute(\"SELECT * FROM users WHERE id = ?\", (user_id,))";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
+    }
+
+    // --- check_with_context tests ---
+
+    fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
+        use std::collections::HashMap;
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = SqlInjectionPipeline::new().unwrap();
+        let id_counts = HashMap::new();
+        let graph = CodeGraph::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: Some(&graph),
+        };
+        pipeline.check_with_context(&ctx)
+    }
+
+    #[test]
+    fn context_suppresses_constant_fstring() {
+        let src = "cursor.execute(f\"SELECT * FROM {TABLE_NAME}\")";
+        let findings = parse_and_check_with_context(src);
+        // TABLE_NAME is ALL_CAPS → constant → suppress
+        assert!(
+            findings.is_empty(),
+            "Expected constant f-string to be suppressed, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn context_suppresses_no_external_input() {
+        // With an empty graph (no FlowsTo edges), the enclosing function
+        // has no external input, so sql_fstring should be suppressed
+        let src = "cursor.execute(f\"SELECT * FROM users WHERE id = {user_id}\")";
+        let findings = parse_and_check_with_context(src);
+        // user_id is not ALL_CAPS, but the empty graph has no external input → suppress
+        assert!(
+            findings.is_empty(),
+            "Expected f-string to be suppressed when graph has no external input, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn context_still_flags_variable_fstring() {
+        // When graph shows external input flowing to the function, the finding should persist
+        use crate::graph::SourceKind;
+        use crate::models::SymbolKind;
+        use std::collections::HashMap;
+
+        let src = "def handle(request):\n    user_id = request.args.get('id')\n    cursor.execute(f\"SELECT * FROM users WHERE id = {user_id}\")";
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(src, None).unwrap();
+
+        let pipeline = SqlInjectionPipeline::new().unwrap();
+        let id_counts = HashMap::new();
+
+        // Build a graph with an ExternalSource flowing into the function
+        let mut graph = CodeGraph::new();
+        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: "handle".to_string(),
+            kind: SymbolKind::Function,
+            file_path: "test.py".to_string(),
+            start_line: 1,
+            end_line: 3,
+            exported: false,
+        });
+        let ext_idx = graph.graph.add_node(NodeWeight::ExternalSource {
+            kind: SourceKind::UserInput,
+            file_path: "test.py".to_string(),
+            line: 2,
+        });
+        graph.graph.add_edge(ext_idx, sym_idx, EdgeWeight::FlowsTo);
+
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: src.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: Some(&graph),
+        };
+        let findings = pipeline.check_with_context(&ctx);
+        // Tree-sitter sql_fstring is kept (external input present) + graph sql_taint_flow is added
+        assert!(
+            findings.iter().any(|f| f.pattern == "sql_fstring"),
+            "Expected sql_fstring finding to be kept when external input is present"
+        );
+    }
+
+    #[test]
+    fn context_still_flags_percent_format() {
+        // Non-fstring patterns should pass through unchanged
+        let src = "cursor.execute(\"SELECT * FROM users WHERE id = %s\" % user_id)";
+        let findings = parse_and_check_with_context(src);
+        assert_eq!(findings.len(), 1, "Expected percent format to pass through");
+        assert_eq!(findings[0].pattern, "sql_percent_format");
     }
 }

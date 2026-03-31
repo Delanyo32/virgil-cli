@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{Pipeline, PipelineContext};
 
 use super::primitives::{
     compile_call_query, compile_function_def_query, extract_snippet, find_capture_index, node_text,
@@ -130,6 +130,114 @@ impl Pipeline for PathTraversalPipeline {
 
         findings
     }
+
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        // Suppress all findings in test files
+        if is_test_file(ctx.file_path) {
+            return Vec::new();
+        }
+
+        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+
+        base.into_iter()
+            .filter(|f| !is_path_validated(ctx.tree, ctx.source, f.line))
+            .collect()
+    }
+}
+
+/// Check if the file path indicates a test file.
+fn is_test_file(file_path: &str) -> bool {
+    file_path.contains("/tests/")
+        || file_path.contains("/test/")
+        || file_path.contains("test_")
+        || file_path.ends_with("_test.py")
+}
+
+/// Validation function names that indicate a path has been sanitized.
+const VALIDATION_NAMES: &[&str] = &[
+    "abspath",
+    "realpath",
+    "normpath",
+    "basename",
+    "resolve",
+    "secure_filename",
+];
+
+/// Check if the function enclosing the finding at `finding_line` (1-indexed)
+/// contains path validation/sanitization calls before that line.
+fn is_path_validated(tree: &Tree, source: &[u8], finding_line: u32) -> bool {
+    let finding_row = finding_line.saturating_sub(1); // convert to 0-indexed
+
+    // Find the enclosing function_definition by walking up from the finding location
+    let root = tree.root_node();
+    let Some(finding_node) = root.descendant_for_point_range(
+        tree_sitter::Point::new(finding_row as usize, 0),
+        tree_sitter::Point::new(finding_row as usize, 0),
+    ) else {
+        return false;
+    };
+
+    // Walk up to find the enclosing function_definition
+    let mut current = Some(finding_node);
+    let mut fn_body = None;
+    while let Some(node) = current {
+        if node.kind() == "function_definition" {
+            fn_body = node.child_by_field_name("body");
+            break;
+        }
+        current = node.parent();
+    }
+
+    let Some(body) = fn_body else {
+        return false;
+    };
+
+    // Scan the function body for validation patterns before the finding line
+    scan_for_validation(body, source, finding_row)
+}
+
+/// Recursively scan nodes in the function body for validation patterns
+/// that appear before `finding_row` (0-indexed).
+fn scan_for_validation(node: tree_sitter::Node, source: &[u8], finding_row: u32) -> bool {
+    // Only consider nodes on or before the finding line (validation may wrap the operation)
+    if node.start_position().row as u32 > finding_row {
+        return false;
+    }
+
+    match node.kind() {
+        "call" => {
+            // Check if this call is a validation function
+            if let Some(fn_expr) = node.child_by_field_name("function") {
+                let fn_text = node_text(fn_expr, source);
+                for name in VALIDATION_NAMES {
+                    if fn_text.contains(name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        "if_statement" => {
+            // Check if the condition contains ".." or "../" string checks
+            if let Some(condition) = node.child_by_field_name("condition") {
+                let cond_text = node_text(condition, source);
+                if cond_text.contains("\"..\"") || cond_text.contains("\"../\"") {
+                    return true;
+                }
+            }
+        }
+        _ => {}
+    }
+
+    // Recurse into children
+    for i in 0..node.named_child_count() {
+        if let Some(child) = node.named_child(i) {
+            if scan_for_validation(child, source, finding_row) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn collect_param_names<'a>(params_node: tree_sitter::Node<'a>, source: &'a [u8]) -> Vec<&'a str> {
@@ -198,6 +306,8 @@ fn args_contain_param(args_node: tree_sitter::Node, source: &[u8], param_names: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
@@ -208,6 +318,28 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = PathTraversalPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.py")
+    }
+
+    fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_with_context_file(source, "test.py")
+    }
+
+    fn parse_and_check_with_context_file(source: &str, file_path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = PathTraversalPipeline::new().unwrap();
+        let id_counts = HashMap::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: None,
+        };
+        pipeline.check_with_context(&ctx)
     }
 
     #[test]
@@ -230,5 +362,60 @@ mod tests {
         let src = "def load():\n    f = open(filename)";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn context_suppresses_validated_path_abspath() {
+        let src = r#"def read_file(name):
+    safe_path = os.path.abspath(os.path.join("/base", name))
+    return open(safe_path)
+"#;
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "expected no findings when abspath is called before open, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn context_suppresses_test_file() {
+        let src = "def read_file(name):\n    return open(\"/base/\" + name)";
+        let findings = parse_and_check_with_context_file(src, "tests/test_utils.py");
+        assert!(
+            findings.is_empty(),
+            "expected no findings in test files, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn context_still_flags_unvalidated_path() {
+        let src = r#"def read_file(name):
+    return open("/base/" + name)
+"#;
+        let findings = parse_and_check_with_context(src);
+        assert_eq!(
+            findings.len(),
+            1,
+            "expected 1 finding for unvalidated path, got {:?}",
+            findings
+        );
+        assert_eq!(findings[0].pattern, "unvalidated_path_open");
+    }
+
+    #[test]
+    fn context_suppresses_dotdot_check() {
+        let src = r#"def read_file(name):
+    if ".." in name:
+        raise ValueError("bad path")
+    return open("/base/" + name)
+"#;
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "expected no findings when '..' check exists before open, got {:?}",
+            findings
+        );
     }
 }
