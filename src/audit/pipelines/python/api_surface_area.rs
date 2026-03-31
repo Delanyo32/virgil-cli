@@ -167,12 +167,20 @@ impl Pipeline for ApiSurfaceAreaPipeline {
         let base = self.check(ctx.tree, ctx.source, ctx.file_path);
 
         if let Some(graph) = ctx.graph {
+            let is_init = ctx.file_path.ends_with("__init__.py");
+            let is_boundary_file = is_boundary_layer_file(ctx.file_path);
+
             return base
                 .into_iter()
                 .filter(|f| match f.pattern.as_str() {
-                    "excessive_public_api" => !self.is_effective_api_small(ctx.file_path, graph),
+                    // Never suppress __init__.py — it IS the API surface
+                    "excessive_public_api" => {
+                        is_init || !self.is_effective_api_small(ctx.file_path, graph)
+                    }
+                    // Keep leaky_abstraction_boundary for view/serializer files
                     "leaky_abstraction_boundary" => {
-                        !self.is_internal_only_class(f, ctx.file_path, graph)
+                        is_boundary_file
+                            || !self.is_internal_only_class(f, ctx.file_path, graph)
                     }
                     _ => true,
                 })
@@ -294,6 +302,18 @@ impl Pipeline for ApiSurfaceAreaPipeline {
 
         findings
     }
+}
+
+/// Check if the file is a boundary layer (views, serializers, forms, etc.)
+/// where leaky abstraction findings are especially relevant.
+fn is_boundary_layer_file(file_path: &str) -> bool {
+    let lower = file_path.to_lowercase();
+    lower.ends_with("/views.py")
+        || lower.ends_with("/serializers.py")
+        || lower.ends_with("/forms.py")
+        || lower.ends_with("/schemas.py")
+        || lower.contains("/views/")
+        || lower.contains("/serializers/")
 }
 
 /// Count public (non-underscore) self.attribute assignments in __init__ methods

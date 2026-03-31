@@ -161,11 +161,19 @@ impl Pipeline for SqlInjectionPipeline {
                 if f.pattern != "sql_fstring" {
                     return true;
                 }
-                // Check if the f-string uses only constants (ALL_CAPS identifiers)
+                // Always suppress constant interpolation (ALL_CAPS)
                 if is_constant_interpolation(ctx.tree, ctx.source, f.line) {
                     return false; // suppress — safe constant interpolation
                 }
-                // Check if the enclosing function receives external input via graph
+                // Keep finding if file is API-facing (parameters are likely user-controlled)
+                if is_api_facing_file(ctx.file_path) {
+                    return true;
+                }
+                // Keep finding if enclosing function has user-input-like params
+                if function_has_user_input_params(ctx.tree, ctx.source, f.line) {
+                    return true;
+                }
+                // Fall back to graph-based check
                 if !function_has_external_input(graph, ctx.file_path, f.line) {
                     return false; // suppress — no external input flows here
                 }
@@ -347,6 +355,117 @@ fn find_call_at_line(node: tree_sitter::Node, target_row: u32) -> Option<tree_si
     }
 
     None
+}
+
+/// Check if the file is an API-facing file where parameters are likely user-controlled.
+fn is_api_facing_file(file_path: &str) -> bool {
+    let lower = file_path.to_lowercase();
+    lower.ends_with("/api.py")
+        || lower.ends_with("/views.py")
+        || lower.ends_with("/routes.py")
+        || lower.ends_with("/endpoints.py")
+        || lower.ends_with("/handlers.py")
+        || lower.contains("/api/")
+        || lower.contains("/views/")
+        || lower.contains("/routes/")
+        || lower.contains("/endpoints/")
+        || lower.contains("/handlers/")
+}
+
+/// Common parameter names that indicate user-controlled input.
+const USER_INPUT_PARAMS: &[&str] = &[
+    "request",
+    "req",
+    "headers",
+    "params",
+    "body",
+    "search",
+    "keyword",
+    "username",
+    "email",
+    "user_id",
+    "query",
+    "filter",
+    "form",
+    "payload",
+    "data",
+    "session",
+    "cookies",
+    "token",
+    "role_filter",
+    "category",
+];
+
+/// Check if the enclosing function of a finding has parameters suggesting user input.
+fn function_has_user_input_params(tree: &Tree, source: &[u8], finding_line: u32) -> bool {
+    let target_row = finding_line.saturating_sub(1); // convert to 0-indexed
+    let root = tree.root_node();
+
+    let func = match find_enclosing_function(root, target_row) {
+        Some(f) => f,
+        None => return false,
+    };
+
+    let params = match func.child_by_field_name("parameters") {
+        Some(p) => p,
+        None => return false,
+    };
+
+    for i in 0..params.named_child_count() {
+        if let Some(param) = params.named_child(i) {
+            let param_name = match param.kind() {
+                "identifier" => node_text(param, source),
+                "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
+                    match param.child_by_field_name("name") {
+                        Some(n) => node_text(n, source),
+                        None => continue,
+                    }
+                }
+                "dictionary_splat_pattern" | "list_splat_pattern" => {
+                    match param.named_child(0) {
+                        Some(n) if n.kind() == "identifier" => node_text(n, source),
+                        _ => continue,
+                    }
+                }
+                _ => continue,
+            };
+            let lower = param_name.to_lowercase();
+            if USER_INPUT_PARAMS.iter().any(|&p| lower == p) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Find the innermost function_definition containing the target row.
+fn find_enclosing_function(
+    node: tree_sitter::Node,
+    target_row: u32,
+) -> Option<tree_sitter::Node<'_>> {
+    let mut result = None;
+
+    if node.kind() == "function_definition"
+        && node.start_position().row as u32 <= target_row
+        && node.end_position().row as u32 >= target_row
+    {
+        result = Some(node);
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            if child.start_position().row as u32 <= target_row
+                && child.end_position().row as u32 >= target_row
+            {
+                if let Some(inner) = find_enclosing_function(child, target_row) {
+                    result = Some(inner);
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Check if the enclosing function of a finding receives external input via the graph.
