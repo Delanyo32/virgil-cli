@@ -1,11 +1,14 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
+use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{Pipeline, PipelineContext};
 use crate::audit::pipelines::helpers::{count_all_identifier_occurrences, find_unreachable_after};
+use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 
 use super::primitives::{extract_snippet, node_text};
 
@@ -274,6 +277,137 @@ impl DeadCodePipeline {
 
         findings
     }
+
+    /// Returns true if the import flagged in `finding` is actually used,
+    /// meaning the finding is a false positive that should be suppressed.
+    fn is_import_actually_used(&self, finding: &AuditFinding, ctx: &PipelineContext) -> bool {
+        // Extract the imported name from the message: import `NAME` appears unused
+        let name = match extract_name_from_finding(finding) {
+            Some(n) => n,
+            None => return false,
+        };
+
+        // 1. __init__.py files are re-export hubs — suppress all unused imports
+        if is_init_file(ctx.file_path) {
+            return true;
+        }
+
+        let root = ctx.tree.root_node();
+
+        // 2. Check if the name appears in __all__
+        if is_in_all_list(root, ctx.source, &name) {
+            return true;
+        }
+
+        // 3. Check if the name appears in type annotation strings
+        if is_used_in_type_annotations(root, ctx.source, &name) {
+            return true;
+        }
+
+        // 4. Graph-based: check if the file exports a symbol with this name
+        if let Some(graph) = ctx.graph {
+            if is_reexported_via_graph(graph, ctx.file_path, &name) {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+/// Extract the imported name from a finding message like `import \`foo\` appears unused`.
+fn extract_name_from_finding(finding: &AuditFinding) -> Option<String> {
+    let msg = &finding.message;
+    let start = msg.find('`')? + 1;
+    let end = msg[start..].find('`')? + start;
+    Some(msg[start..end].to_string())
+}
+
+/// Check if the file path ends with `__init__.py`.
+fn is_init_file(file_path: &str) -> bool {
+    file_path.ends_with("__init__.py")
+}
+
+/// Check if an imported name appears in string-based type annotations.
+/// Python allows forward references as strings: `def foo(x: "Bar") -> "Baz"`.
+fn is_used_in_type_annotations(root: tree_sitter::Node, source: &[u8], name: &str) -> bool {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_definition" {
+            // Check parameter type annotations
+            if let Some(params) = node.child_by_field_name("parameters") {
+                let mut param_cursor = params.walk();
+                for param in params.named_children(&mut param_cursor) {
+                    // typed_parameter, typed_default_parameter, etc.
+                    if let Some(type_node) = param.child_by_field_name("type") {
+                        if is_string_containing_name(type_node, source, name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Check return type annotation
+            if let Some(return_type) = node.child_by_field_name("return_type") {
+                if is_string_containing_name(return_type, source, name) {
+                    return true;
+                }
+            }
+        }
+        // Also check variable annotations: x: "Foo" = ...
+        if node.kind() == "type" {
+            if is_string_containing_name(node, source, name) {
+                return true;
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    false
+}
+
+/// Check if a node is a string literal containing the given name.
+fn is_string_containing_name(node: tree_sitter::Node, source: &[u8], name: &str) -> bool {
+    // The type annotation itself, or a child string node
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "string" {
+            if let Ok(text) = n.utf8_text(source) {
+                // Strip quotes and check if the name appears
+                let inner = text.trim_matches(|c| c == '"' || c == '\'');
+                if inner == name || inner.contains(name) {
+                    return true;
+                }
+            }
+        }
+        let mut cursor = n.walk();
+        for child in n.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    false
+}
+
+/// Check if the graph shows this file exporting a symbol with the given name.
+fn is_reexported_via_graph(graph: &CodeGraph, file_path: &str, name: &str) -> bool {
+    if let Some(&file_idx) = graph.file_nodes.get(file_path) {
+        // Check outgoing Exports edges from the file node
+        for edge in graph.graph.edges_directed(file_idx, Direction::Outgoing) {
+            if matches!(edge.weight(), EdgeWeight::Exports) {
+                let target = edge.target();
+                if let Some(NodeWeight::Symbol {
+                    name: sym_name, ..
+                }) = graph.graph.node_weight(target)
+                {
+                    if sym_name == name {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Check if a function name appears in an `__all__` list at the module level.
@@ -395,6 +529,20 @@ impl Pipeline for DeadCodePipeline {
         findings.extend(self.check_unused_imports(tree, source, file_path));
         findings.extend(self.check_unreachable_code(tree, source, file_path));
         findings
+    }
+
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+
+        // Filter unused_import findings using tree-sitter + graph heuristics
+        base.into_iter()
+            .filter(|f| {
+                if f.pattern != "unused_import" {
+                    return true; // pass through non-import findings
+                }
+                !self.is_import_actually_used(f, ctx)
+            })
+            .collect()
     }
 }
 
@@ -600,5 +748,107 @@ def foo():
         let pipeline = DeadCodePipeline::new().unwrap();
         assert_eq!(pipeline.name(), "dead_code");
         assert!(!pipeline.description().is_empty());
+    }
+
+    // ── check_with_context tests ──
+
+    fn parse_and_check_with_context(source: &str, file_path: &str) -> Vec<AuditFinding> {
+        use std::collections::HashMap;
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = DeadCodePipeline::new().unwrap();
+        let id_counts = HashMap::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: None,
+        };
+        pipeline.check_with_context(&ctx)
+    }
+
+    #[test]
+    fn context_suppresses_unused_import_in_init_py() {
+        let src = "\
+from .models import User
+
+def helper():
+    pass
+";
+        let findings = parse_and_check_with_context(src, "mypackage/__init__.py");
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_import")
+            .collect();
+        assert!(
+            unused.is_empty(),
+            "imports in __init__.py should be suppressed as re-exports"
+        );
+    }
+
+    #[test]
+    fn context_suppresses_import_in_all_list() {
+        let src = r#"
+from .models import User
+
+__all__ = ["User"]
+
+def helper():
+    pass
+"#;
+        let findings = parse_and_check_with_context(src, "mymodule.py");
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_import")
+            .collect();
+        assert!(
+            unused.is_empty(),
+            "imports listed in __all__ should be suppressed"
+        );
+    }
+
+    #[test]
+    fn context_still_flags_genuinely_unused_import() {
+        let src = "\
+import os
+
+def main():
+    x = 1
+";
+        let findings = parse_and_check_with_context(src, "app.py");
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_import")
+            .collect();
+        assert_eq!(
+            unused.len(),
+            1,
+            "genuinely unused imports should still be flagged"
+        );
+        assert!(unused[0].message.contains("os"));
+    }
+
+    #[test]
+    fn context_suppresses_type_annotation_string_usage() {
+        let src = r#"
+from models import User
+
+def get_user(user_id: int) -> "User":
+    pass
+"#;
+        let findings = parse_and_check_with_context(src, "service.py");
+        let unused: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "unused_import")
+            .collect();
+        assert!(
+            unused.is_empty(),
+            "imports used in string type annotations should be suppressed"
+        );
     }
 }

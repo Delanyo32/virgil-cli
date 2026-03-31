@@ -145,11 +145,11 @@ Research:
 Findings: Overrode check_with_context() to filter via graph.find_symbol + traverse_callers. Functions with no cross-module callers are suppressed. API-facing files (__init__.py, /api/, /views/, /routes/, /endpoints/) always keep findings. 3 new tests, all pass.
 
 ## Phase 4: Reduce Style Extras (143 → ~30)
-Status: pending
+Status: completed
 Goal: `dead_code` and `coupling` use graph for import tracing and cohesion analysis
 
 ### Task 4.1: Graph-aware unused_import detection
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/dead_code.rs`:
 - Override `check_with_context()`
 - When graph is available, for each flagged unused import:
@@ -164,10 +164,10 @@ Research:
 - [code] Current detection: counts identifier occurrences, if count == 0 in non-import nodes → unused (source: dead_code.rs)
 - [code] `EdgeWeight::Exports` — tracks file export relationships
 - [code] `EdgeWeight::Calls` — tracks call relationships between symbols
-Findings:
+Findings: Overrode check_with_context() with __init__.py suppression, __all__ list check, type annotation string detection, and graph Exports edge check. 4 new tests, all pass.
 
 ### Task 4.2: Graph-aware low_cohesion in coupling
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/coupling.rs`:
 - Override `check_with_context()` for the low_cohesion check
 - When graph is available, for each method flagged as low-cohesion (has `self` but doesn't use it):
@@ -181,7 +181,7 @@ Research:
 - [code] Current detection: checks if method body contains `self.` attribute access (source: coupling.rs)
 - [code] `NodeWeight::Symbol { kind: SymbolKind::Method, ... }` for method symbols
 - [code] Graph can trace inheritance via Contains edges and class hierarchies
-Findings:
+Findings: Overrode check_with_context() with ABC/Protocol base class detection, @abstractmethod/@property/@override decorator suppression. 5 new tests, all pass.
 
 ## Phase 5: Reduce Security Extras (45 → ~10)
 Status: pending
