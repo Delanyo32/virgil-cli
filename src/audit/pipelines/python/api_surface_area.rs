@@ -84,16 +84,18 @@ impl ApiSurfaceAreaPipeline {
                     ..
                 } if fp == file_path && !name.starts_with('_') => {
                     // Check if this symbol has callers from other files
-                    let has_cross_file_caller =
-                        graph.graph.edges_directed(idx, Direction::Incoming).any(|e| {
+                    let has_cross_file_caller = graph
+                        .graph
+                        .edges_directed(idx, Direction::Incoming)
+                        .any(|e| {
                             matches!(e.weight(), crate::graph::EdgeWeight::Calls)
                                 && match &graph.graph[e.source()] {
                                     crate::graph::NodeWeight::CallSite {
                                         file_path: cf, ..
                                     } => cf != file_path,
-                                    crate::graph::NodeWeight::Symbol {
-                                        file_path: sf, ..
-                                    } => sf != file_path,
+                                    crate::graph::NodeWeight::Symbol { file_path: sf, .. } => {
+                                        sf != file_path
+                                    }
                                     _ => false,
                                 }
                         });
@@ -127,11 +129,11 @@ impl ApiSurfaceAreaPipeline {
         // Check if this class has any cross-file usage
         for &idx in graph.find_symbols_by_name(class_name) {
             match &graph.graph[idx] {
-                crate::graph::NodeWeight::Symbol {
-                    file_path: fp, ..
-                } if fp == file_path => {
-                    let has_external_use =
-                        graph.graph.edges_directed(idx, Direction::Incoming).any(|e| {
+                crate::graph::NodeWeight::Symbol { file_path: fp, .. } if fp == file_path => {
+                    let has_external_use = graph
+                        .graph
+                        .edges_directed(idx, Direction::Incoming)
+                        .any(|e| {
                             matches!(e.weight(), crate::graph::EdgeWeight::Calls)
                                 && match &graph.graph[e.source()] {
                                     crate::graph::NodeWeight::CallSite {
@@ -168,9 +170,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
             return base
                 .into_iter()
                 .filter(|f| match f.pattern.as_str() {
-                    "excessive_public_api" => {
-                        !self.is_effective_api_small(ctx.file_path, graph)
-                    }
+                    "excessive_public_api" => !self.is_effective_api_small(ctx.file_path, graph),
                     "leaky_abstraction_boundary" => {
                         !self.is_internal_only_class(f, ctx.file_path, graph)
                     }
@@ -524,9 +524,11 @@ class SmallClass:
 
         // Verify base check does detect it
         let base_findings = parse_and_check(&src);
-        assert!(base_findings
-            .iter()
-            .any(|f| f.pattern == "excessive_public_api"));
+        assert!(
+            base_findings
+                .iter()
+                .any(|f| f.pattern == "excessive_public_api")
+        );
 
         // With context (empty graph), should be suppressed
         let mut parser = tree_sitter::Parser::new();
@@ -544,9 +546,7 @@ class SmallClass:
         };
         let findings = pipeline.check_with_context(&ctx);
         assert!(
-            !findings
-                .iter()
-                .any(|f| f.pattern == "excessive_public_api"),
+            !findings.iter().any(|f| f.pattern == "excessive_public_api"),
             "excessive_public_api should be suppressed when no cross-file callers exist"
         );
     }
@@ -566,9 +566,11 @@ class ConnectionPool:
 "#;
         // Verify base check does detect it
         let base_findings = parse_and_check(src);
-        assert!(base_findings
-            .iter()
-            .any(|f| f.pattern == "leaky_abstraction_boundary"));
+        assert!(
+            base_findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
 
         // With context (empty graph), should be suppressed
         let findings = parse_and_check_with_context(src);
@@ -602,9 +604,7 @@ class ConnectionPool:
         };
         let findings = pipeline.check_with_context(&ctx);
         assert!(
-            findings
-                .iter()
-                .any(|f| f.pattern == "excessive_public_api"),
+            findings.iter().any(|f| f.pattern == "excessive_public_api"),
             "Without graph, all findings should be returned unchanged"
         );
     }

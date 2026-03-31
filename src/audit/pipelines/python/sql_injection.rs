@@ -286,22 +286,22 @@ fn is_constant_interpolation(tree: &Tree, source: &[u8], finding_line: u32) -> b
     // Check all interpolated expressions
     let mut found_any = false;
     for i in 0..first_arg.named_child_count() {
-        if let Some(child) = first_arg.named_child(i) {
-            if child.kind() == "interpolation" {
-                found_any = true;
-                // The expression inside the interpolation
-                let expr = match child.named_child(0) {
-                    Some(e) => e,
-                    None => return false,
-                };
-                if expr.kind() != "identifier" {
-                    return false;
-                }
-                let name = node_text(expr, source);
-                // Check ALL_CAPS pattern: at least one letter, only uppercase letters + underscores + digits
-                if !is_all_caps_constant(name) {
-                    return false;
-                }
+        if let Some(child) = first_arg.named_child(i)
+            && child.kind() == "interpolation"
+        {
+            found_any = true;
+            // The expression inside the interpolation
+            let expr = match child.named_child(0) {
+                Some(e) => e,
+                None => return false,
+            };
+            if expr.kind() != "identifier" {
+                return false;
+            }
+            let name = node_text(expr, source);
+            // Check ALL_CAPS pattern: at least one letter, only uppercase letters + underscores + digits
+            if !is_all_caps_constant(name) {
+                return false;
             }
         }
     }
@@ -339,10 +339,10 @@ fn find_call_at_line(node: tree_sitter::Node, target_row: u32) -> Option<tree_si
 
     // Otherwise, recurse into children
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
-            if let Some(found) = find_call_at_line(child, target_row) {
-                return Some(found);
-            }
+        if let Some(child) = node.child(i)
+            && let Some(found) = find_call_at_line(child, target_row)
+        {
+            return Some(found);
         }
     }
 
@@ -367,13 +367,14 @@ fn function_has_external_input(graph: &CodeGraph, file_path: &str, finding_line:
             end_line,
             ..
         } = &graph.graph[idx]
+            && fp == file_path
+            && *start_line <= finding_line
+            && finding_line <= *end_line
         {
-            if fp == file_path && *start_line <= finding_line && finding_line <= *end_line {
-                let range = end_line - start_line;
-                if range < best_range {
-                    best_range = range;
-                    enclosing_idx = Some(idx);
-                }
+            let range = end_line - start_line;
+            if range < best_range {
+                best_range = range;
+                enclosing_idx = Some(idx);
             }
         }
     }
@@ -394,7 +395,10 @@ fn function_has_external_input(graph: &CodeGraph, file_path: &str, finding_line:
             // FlowsTo from an ExternalSource
             for inner_edge in graph.graph.edges_directed(source, Direction::Incoming) {
                 if matches!(inner_edge.weight(), EdgeWeight::FlowsTo)
-                    && matches!(graph.graph[inner_edge.source()], NodeWeight::ExternalSource { .. })
+                    && matches!(
+                        graph.graph[inner_edge.source()],
+                        NodeWeight::ExternalSource { .. }
+                    )
                 {
                     return true;
                 }

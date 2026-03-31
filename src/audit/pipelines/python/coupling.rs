@@ -216,12 +216,7 @@ impl CouplingPipeline {
 
     /// Returns true if the finding's method is part of an interface/abstract pattern
     /// and should be suppressed.
-    fn is_interface_method(
-        &self,
-        finding: &AuditFinding,
-        tree: &Tree,
-        source: &[u8],
-    ) -> bool {
+    fn is_interface_method(&self, finding: &AuditFinding, tree: &Tree, source: &[u8]) -> bool {
         let root = tree.root_node();
         // Finding line is 1-indexed, tree-sitter rows are 0-indexed
         let target_row = finding.line.saturating_sub(1);
@@ -237,10 +232,10 @@ impl CouplingPipeline {
         }
 
         // Check if the enclosing class inherits from ABC/Protocol
-        if let Some(class_node) = self.find_enclosing_class(func_node) {
-            if self.class_has_abc_base(class_node, source) {
-                return true;
-            }
+        if let Some(class_node) = self.find_enclosing_class(func_node)
+            && self.class_has_abc_base(class_node, source)
+        {
+            return true;
         }
 
         false

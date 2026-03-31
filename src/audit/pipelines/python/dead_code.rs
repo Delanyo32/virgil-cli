@@ -305,10 +305,10 @@ impl DeadCodePipeline {
         }
 
         // 4. Graph-based: check if the file exports a symbol with this name
-        if let Some(graph) = ctx.graph {
-            if is_reexported_via_graph(graph, ctx.file_path, &name) {
-                return true;
-            }
+        if let Some(graph) = ctx.graph
+            && is_reexported_via_graph(graph, ctx.file_path, &name)
+        {
+            return true;
         }
 
         false
@@ -339,25 +339,23 @@ fn is_used_in_type_annotations(root: tree_sitter::Node, source: &[u8], name: &st
                 let mut param_cursor = params.walk();
                 for param in params.named_children(&mut param_cursor) {
                     // typed_parameter, typed_default_parameter, etc.
-                    if let Some(type_node) = param.child_by_field_name("type") {
-                        if is_string_containing_name(type_node, source, name) {
-                            return true;
-                        }
+                    if let Some(type_node) = param.child_by_field_name("type")
+                        && is_string_containing_name(type_node, source, name)
+                    {
+                        return true;
                     }
                 }
             }
             // Check return type annotation
-            if let Some(return_type) = node.child_by_field_name("return_type") {
-                if is_string_containing_name(return_type, source, name) {
-                    return true;
-                }
+            if let Some(return_type) = node.child_by_field_name("return_type")
+                && is_string_containing_name(return_type, source, name)
+            {
+                return true;
             }
         }
         // Also check variable annotations: x: "Foo" = ...
-        if node.kind() == "type" {
-            if is_string_containing_name(node, source, name) {
-                return true;
-            }
+        if node.kind() == "type" && is_string_containing_name(node, source, name) {
+            return true;
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -372,13 +370,13 @@ fn is_string_containing_name(node: tree_sitter::Node, source: &[u8], name: &str)
     // The type annotation itself, or a child string node
     let mut stack = vec![node];
     while let Some(n) = stack.pop() {
-        if n.kind() == "string" {
-            if let Ok(text) = n.utf8_text(source) {
-                // Strip quotes and check if the name appears
-                let inner = text.trim_matches(|c| c == '"' || c == '\'');
-                if inner == name || inner.contains(name) {
-                    return true;
-                }
+        if n.kind() == "string"
+            && let Ok(text) = n.utf8_text(source)
+        {
+            // Strip quotes and check if the name appears
+            let inner = text.trim_matches(|c| c == '"' || c == '\'');
+            if inner == name || inner.contains(name) {
+                return true;
             }
         }
         let mut cursor = n.walk();
@@ -396,13 +394,11 @@ fn is_reexported_via_graph(graph: &CodeGraph, file_path: &str, name: &str) -> bo
         for edge in graph.graph.edges_directed(file_idx, Direction::Outgoing) {
             if matches!(edge.weight(), EdgeWeight::Exports) {
                 let target = edge.target();
-                if let Some(NodeWeight::Symbol {
-                    name: sym_name, ..
-                }) = graph.graph.node_weight(target)
+                if let Some(NodeWeight::Symbol { name: sym_name, .. }) =
+                    graph.graph.node_weight(target)
+                    && sym_name == name
                 {
-                    if sym_name == name {
-                        return true;
-                    }
+                    return true;
                 }
             }
         }

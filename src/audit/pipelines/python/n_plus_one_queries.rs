@@ -180,10 +180,7 @@ impl NPlusOneQueriesPipeline {
     }
 
     /// Find a `call` node at the given 0-indexed row in the tree.
-    fn find_call_node_at_row(
-        root: tree_sitter::Node,
-        row: usize,
-    ) -> Option<tree_sitter::Node> {
+    fn find_call_node_at_row(root: tree_sitter::Node, row: usize) -> Option<tree_sitter::Node> {
         let mut cursor = root.walk();
         let mut result = None;
         Self::walk_tree_for_call(root, &mut cursor, row, &mut result);
@@ -266,10 +263,10 @@ impl NPlusOneQueriesPipeline {
                 let left_text = left.utf8_text(source).unwrap_or("");
                 if left_text == receiver_name {
                     // Check the right-hand side
-                    if let Some(right) = node.child_by_field_name("right") {
-                        if Self::is_non_db_expression(right, source) {
-                            return true;
-                        }
+                    if let Some(right) = node.child_by_field_name("right")
+                        && Self::is_non_db_expression(right, source)
+                    {
+                        return true;
                     }
                 }
             }
@@ -300,7 +297,9 @@ impl NPlusOneQueriesPipeline {
             // Literals: {}, [], set()
             "dictionary" | "list" | "set" => true,
             // Comprehensions
-            "dictionary_comprehension" | "list_comprehension" | "set_comprehension"
+            "dictionary_comprehension"
+            | "list_comprehension"
+            | "set_comprehension"
             | "generator_expression" => true,
             // Subscript on a variable (e.g. data[key]) — likely dict/list access
             "subscript" => true,
@@ -321,36 +320,32 @@ impl NPlusOneQueriesPipeline {
 
     /// Check if a `.get()` call has 2+ arguments (key + default), which is
     /// a strong signal it's a dict `.get(key, default)`.
-    fn is_dict_get_with_default(
-        call_node: tree_sitter::Node,
-        source: &[u8],
-    ) -> bool {
+    fn is_dict_get_with_default(call_node: tree_sitter::Node, source: &[u8]) -> bool {
         // The call should be an attribute call where method is "get"
-        if let Some(func) = call_node.child_by_field_name("function") {
-            if func.kind() == "attribute" {
-                if let Some(attr) = func.child_by_field_name("attribute") {
-                    let method = attr.utf8_text(source).unwrap_or("");
-                    if method == "get" {
-                        // Count arguments in argument_list
-                        if let Some(args) = call_node.child_by_field_name("arguments") {
-                            let mut arg_count = 0;
-                            let mut arg_cursor = args.walk();
-                            if arg_cursor.goto_first_child() {
-                                loop {
-                                    let child = arg_cursor.node();
-                                    // Skip punctuation (parens, commas)
-                                    if child.is_named() {
-                                        arg_count += 1;
-                                    }
-                                    if !arg_cursor.goto_next_sibling() {
-                                        break;
-                                    }
-                                }
+        if let Some(func) = call_node.child_by_field_name("function")
+            && func.kind() == "attribute"
+            && let Some(attr) = func.child_by_field_name("attribute")
+        {
+            let method = attr.utf8_text(source).unwrap_or("");
+            if method == "get" {
+                // Count arguments in argument_list
+                if let Some(args) = call_node.child_by_field_name("arguments") {
+                    let mut arg_count = 0;
+                    let mut arg_cursor = args.walk();
+                    if arg_cursor.goto_first_child() {
+                        loop {
+                            let child = arg_cursor.node();
+                            // Skip punctuation (parens, commas)
+                            if child.is_named() {
+                                arg_count += 1;
                             }
-                            // .get(key, default) has 2 args
-                            return arg_count >= 2;
+                            if !arg_cursor.goto_next_sibling() {
+                                break;
+                            }
                         }
                     }
+                    // .get(key, default) has 2 args
+                    return arg_count >= 2;
                 }
             }
         }
@@ -387,10 +382,10 @@ impl NPlusOneQueriesPipeline {
                 }
 
                 // Find enclosing function and check assignments
-                if let Some(func_node) = Self::find_enclosing_function(call_node) {
-                    if Self::receiver_assigned_from_non_db(func_node, receiver, source) {
-                        return false; // Suppress: assigned from non-DB source
-                    }
+                if let Some(func_node) = Self::find_enclosing_function(call_node)
+                    && Self::receiver_assigned_from_non_db(func_node, receiver, source)
+                {
+                    return false; // Suppress: assigned from non-DB source
                 }
 
                 // Check parameter names against NON_DB_RECEIVERS

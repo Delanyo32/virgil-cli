@@ -140,26 +140,23 @@ impl MemoryLeakIndicatorsPipeline {
     }
 
     fn walk_for_assignment(node: Node, source: &[u8], name: &str) -> bool {
-        if node.kind() == "assignment" {
-            if let Some(left) = node.child_by_field_name("left") {
-                if left.kind() == "identifier" && node_text(left, source) == name {
-                    if let Some(right) = node.child_by_field_name("right") {
-                        // Check for `[]`
-                        if right.kind() == "list" && right.named_child_count() == 0 {
-                            return true;
-                        }
-                        // Check for `list()`
-                        if right.kind() == "call" {
-                            if let Some(fn_node) = right.child_by_field_name("function") {
-                                if fn_node.kind() == "identifier"
-                                    && node_text(fn_node, source) == "list"
-                                {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
+        if node.kind() == "assignment"
+            && let Some(left) = node.child_by_field_name("left")
+            && left.kind() == "identifier"
+            && node_text(left, source) == name
+            && let Some(right) = node.child_by_field_name("right")
+        {
+            // Check for `[]`
+            if right.kind() == "list" && right.named_child_count() == 0 {
+                return true;
+            }
+            // Check for `list()`
+            if right.kind() == "call"
+                && let Some(fn_node) = right.child_by_field_name("function")
+                && fn_node.kind() == "identifier"
+                && node_text(fn_node, source) == "list"
+            {
+                return true;
             }
         }
         let mut cursor = node.walk();
@@ -237,31 +234,24 @@ impl MemoryLeakIndicatorsPipeline {
     }
 
     /// Check if the iterator of a for_statement is a function parameter.
-    fn is_for_iterator_a_parameter(
-        loop_node: Node,
-        func_node: Node,
-        source: &[u8],
-    ) -> bool {
+    fn is_for_iterator_a_parameter(loop_node: Node, func_node: Node, source: &[u8]) -> bool {
         // for_statement structure: `for <left> in <right>:`
         // The `right` field is the iterator expression
         if loop_node.kind() != "for_statement" {
             return false;
         }
-        if let Some(right) = loop_node.child_by_field_name("right") {
-            if right.kind() == "identifier" {
-                let iter_name = node_text(right, source);
-                let params = Self::extract_parameter_names(func_node, source);
-                return params.contains(&iter_name);
-            }
+        if let Some(right) = loop_node.child_by_field_name("right")
+            && right.kind() == "identifier"
+        {
+            let iter_name = node_text(right, source);
+            let params = Self::extract_parameter_names(func_node, source);
+            return params.contains(&iter_name);
         }
         false
     }
 
     /// Determine if an unbounded_growth finding is a result builder pattern.
-    fn is_result_builder(
-        call_node: Node,
-        source: &[u8],
-    ) -> bool {
+    fn is_result_builder(call_node: Node, source: &[u8]) -> bool {
         let collection_name = match Self::extract_collection_name(call_node, source) {
             Some(name) => name,
             None => return false,
@@ -279,10 +269,7 @@ impl MemoryLeakIndicatorsPipeline {
     }
 
     /// Determine if the loop iterating over bounded (parameter-driven) input.
-    fn is_bounded_loop_iteration(
-        call_node: Node,
-        source: &[u8],
-    ) -> bool {
+    fn is_bounded_loop_iteration(call_node: Node, source: &[u8]) -> bool {
         let loop_node = match Self::find_enclosing_loop(call_node) {
             Some(l) => l,
             None => return false,
@@ -428,9 +415,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                         // finding.line is 1-based, tree-sitter rows are 0-based
                         let target_row = (finding.line - 1) as usize;
 
-                        if let Some(call_node) =
-                            Self::find_call_node_at_line(root, target_row)
-                        {
+                        if let Some(call_node) = Self::find_call_node_at_line(root, target_row) {
                             // Suppress if this is a result builder pattern
                             if Self::is_result_builder(call_node, ctx.source) {
                                 return false;
@@ -447,9 +432,7 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
                     "file_handle_leak" => {
                         let target_row = (finding.line - 1) as usize;
 
-                        if let Some(call_node) =
-                            Self::find_call_node_at_line(root, target_row)
-                        {
+                        if let Some(call_node) = Self::find_call_node_at_line(root, target_row) {
                             // Suppress if inside a try block with a finally clause
                             if Self::is_inside_try_with_finally(call_node) {
                                 return false;

@@ -230,10 +230,10 @@ fn scan_for_validation(node: tree_sitter::Node, source: &[u8], finding_row: u32)
 
     // Recurse into children
     for i in 0..node.named_child_count() {
-        if let Some(child) = node.named_child(i) {
-            if scan_for_validation(child, source, finding_row) {
-                return true;
-            }
+        if let Some(child) = node.named_child(i)
+            && scan_for_validation(child, source, finding_row)
+        {
+            return true;
         }
     }
 

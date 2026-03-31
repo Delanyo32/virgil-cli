@@ -738,8 +738,7 @@ fn run_full_audit_ws(
 
     let start = Instant::now();
 
-    let index =
-        virgil_cli::graph::builder::GraphBuilder::new(workspace, &all_languages).build()?;
+    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &all_languages).build()?;
 
     let mp = indicatif::MultiProgress::new();
     let category_style =

@@ -35,13 +35,7 @@ impl MissingTypeHintsPipeline {
         graph: &CodeGraph,
     ) -> bool {
         // Files that are inherently API-facing
-        let api_patterns = [
-            "__init__.py",
-            "/api/",
-            "/views/",
-            "/routes/",
-            "/endpoints/",
-        ];
+        let api_patterns = ["__init__.py", "/api/", "/views/", "/routes/", "/endpoints/"];
         if api_patterns.iter().any(|p| file_path.contains(p)) {
             return true;
         }
@@ -334,9 +328,6 @@ mod tests {
         // __init__.py is always API-facing
         let src = "def foo(x, y):\n    pass\n";
         let findings = parse_and_check_with_graph(src, "package/__init__.py");
-        assert!(
-            !findings.is_empty(),
-            "should keep findings for __init__.py"
-        );
+        assert!(!findings.is_empty(), "should keep findings for __init__.py");
     }
 }

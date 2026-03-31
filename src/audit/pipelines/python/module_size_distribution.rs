@@ -87,22 +87,21 @@ impl ModuleSizeDistributionPipeline {
                     name,
                     ..
                 } if fp == file_path && !name.starts_with('_') => {
-                    let has_cross_file_caller =
-                        graph
-                            .graph
-                            .edges_directed(idx, Direction::Incoming)
-                            .any(|e| {
-                                matches!(e.weight(), crate::graph::EdgeWeight::Calls)
-                                    && match &graph.graph[e.source()] {
-                                        crate::graph::NodeWeight::CallSite {
-                                            file_path: cf, ..
-                                        } => cf != file_path,
-                                        crate::graph::NodeWeight::Symbol {
-                                            file_path: sf, ..
-                                        } => sf != file_path,
-                                        _ => false,
+                    let has_cross_file_caller = graph
+                        .graph
+                        .edges_directed(idx, Direction::Incoming)
+                        .any(|e| {
+                            matches!(e.weight(), crate::graph::EdgeWeight::Calls)
+                                && match &graph.graph[e.source()] {
+                                    crate::graph::NodeWeight::CallSite {
+                                        file_path: cf, ..
+                                    } => cf != file_path,
+                                    crate::graph::NodeWeight::Symbol { file_path: sf, .. } => {
+                                        sf != file_path
                                     }
-                            });
+                                    _ => false,
+                                }
+                        });
                     if has_cross_file_caller {
                         cross_module_count += 1;
                     }
