@@ -224,11 +224,11 @@ Research:
 Findings: Overrode check_with_context() with path validation detection (abspath/realpath/normpath/basename/resolve/secure_filename), test file suppression, and ".." conditional check detection. 4 new tests, all pass.
 
 ## Phase 6: Reduce Architecture Extras (33 → ~10)
-Status: pending
+Status: completed
 Goal: Architecture metrics consider actual cross-module usage via graph
 
 ### Task 6.1: Graph-aware api_surface_area
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/api_surface_area.rs`:
 - Override `check_with_context()`
 - For `excessive_public_api`:
@@ -245,10 +245,10 @@ Research:
 - [code] Current: counts symbols starting without `_`, ratio > 80% → finding (source: api_surface_area.rs)
 - [code] `graph.symbol_nodes` — HashMap<(String, u32), NodeIndex> for all symbols
 - [code] `EdgeWeight::Imports` — file-level import edges for cross-module analysis
-Findings:
+Findings: Overrode check_with_context() with effective API size check (cross-file callers < 10 → suppress excessive_public_api) and internal-only class detection (no cross-file Calls edges → suppress leaky_abstraction_boundary). 3 new tests, all pass.
 
 ### Task 6.2: Graph-aware module_size_distribution
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/module_size_distribution.rs`:
 - Override `check_with_context()`
 - For `monolithic_export_surface`:
@@ -263,7 +263,7 @@ Test: Count `oversized_module` + `monolithic_export_surface` findings — should
 Research:
 - [code] Current: ≥20 exported symbols → monolithic, ≥30 definitions or ≥1000 lines → oversized (source: module_size_distribution.rs)
 - [code] Graph can distinguish local definitions from re-exported imports
-Findings:
+Findings: Overrode check_with_context() with effective exports count (cross-file callers < 20 → suppress monolithic_export_surface) and barrel module detection (>80% imports → suppress oversized_module). 4 new tests, all pass.
 
 ## Phase 7: Add Correct Extras to Manifest + Regenerate Report
 Status: pending

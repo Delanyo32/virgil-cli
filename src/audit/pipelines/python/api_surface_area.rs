@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{Pipeline, PipelineContext};
 use crate::audit::pipelines::helpers::count_top_level_definitions;
+use crate::graph::CodeGraph;
 use crate::language::Language;
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
@@ -66,6 +69,89 @@ impl ApiSurfaceAreaPipeline {
     }
 }
 
+impl ApiSurfaceAreaPipeline {
+    /// Check how many exported symbols are actually imported/called by other modules.
+    /// If the effectively-used export count is below the threshold, suppress the finding.
+    fn is_effective_api_small(&self, file_path: &str, graph: &CodeGraph) -> bool {
+        let mut cross_module_count = 0;
+
+        for idx in graph.graph.node_indices() {
+            match &graph.graph[idx] {
+                crate::graph::NodeWeight::Symbol {
+                    file_path: fp,
+                    exported: true,
+                    name,
+                    ..
+                } if fp == file_path && !name.starts_with('_') => {
+                    // Check if this symbol has callers from other files
+                    let has_cross_file_caller =
+                        graph.graph.edges_directed(idx, Direction::Incoming).any(|e| {
+                            matches!(e.weight(), crate::graph::EdgeWeight::Calls)
+                                && match &graph.graph[e.source()] {
+                                    crate::graph::NodeWeight::CallSite {
+                                        file_path: cf, ..
+                                    } => cf != file_path,
+                                    crate::graph::NodeWeight::Symbol {
+                                        file_path: sf, ..
+                                    } => sf != file_path,
+                                    _ => false,
+                                }
+                        });
+                    if has_cross_file_caller {
+                        cross_module_count += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If effective API is small, suppress the finding
+        cross_module_count < EXCESSIVE_API_MIN_SYMBOLS
+    }
+
+    /// Check if the class's public attributes are accessed from outside the file.
+    /// If the class is only used within the same file or not used at all, suppress.
+    fn is_internal_only_class(
+        &self,
+        finding: &AuditFinding,
+        file_path: &str,
+        graph: &CodeGraph,
+    ) -> bool {
+        // Extract class name from finding message: "Public class `Foo` has..."
+        let class_name = finding.message.split('`').nth(1).unwrap_or("");
+
+        if class_name.is_empty() {
+            return false;
+        }
+
+        // Check if this class has any cross-file usage
+        for &idx in graph.find_symbols_by_name(class_name) {
+            match &graph.graph[idx] {
+                crate::graph::NodeWeight::Symbol {
+                    file_path: fp, ..
+                } if fp == file_path => {
+                    let has_external_use =
+                        graph.graph.edges_directed(idx, Direction::Incoming).any(|e| {
+                            matches!(e.weight(), crate::graph::EdgeWeight::Calls)
+                                && match &graph.graph[e.source()] {
+                                    crate::graph::NodeWeight::CallSite {
+                                        file_path: cf, ..
+                                    } => cf != file_path,
+                                    _ => false,
+                                }
+                        });
+                    if has_external_use {
+                        return false; // Used externally — keep the finding
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        true // Not used externally — suppress
+    }
+}
+
 impl Pipeline for ApiSurfaceAreaPipeline {
     fn name(&self) -> &str {
         "api_surface_area"
@@ -73,6 +159,27 @@ impl Pipeline for ApiSurfaceAreaPipeline {
 
     fn description(&self) -> &str {
         "Detects excessive public API and leaky abstraction boundaries"
+    }
+
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+
+        if let Some(graph) = ctx.graph {
+            return base
+                .into_iter()
+                .filter(|f| match f.pattern.as_str() {
+                    "excessive_public_api" => {
+                        !self.is_effective_api_small(ctx.file_path, graph)
+                    }
+                    "leaky_abstraction_boundary" => {
+                        !self.is_internal_only_class(f, ctx.file_path, graph)
+                    }
+                    _ => true,
+                })
+                .collect();
+        }
+
+        base
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
@@ -383,6 +490,122 @@ class SmallClass:
             !findings
                 .iter()
                 .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
+    }
+
+    // --- check_with_context tests ---
+
+    fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&python_lang()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
+        let id_counts = std::collections::HashMap::new();
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: Some(&graph),
+        };
+        pipeline.check_with_context(&ctx)
+    }
+
+    #[test]
+    fn context_suppresses_excessive_api_with_empty_graph() {
+        // 10+ public symbols should trigger excessive_public_api in check(),
+        // but check_with_context should suppress it when graph has no cross-file callers
+        let mut src = String::new();
+        for i in 0..10 {
+            src.push_str(&format!("def func_{}():\n    pass\n", i));
+        }
+        src.push_str("def _private_func():\n    pass\n");
+
+        // Verify base check does detect it
+        let base_findings = parse_and_check(&src);
+        assert!(base_findings
+            .iter()
+            .any(|f| f.pattern == "excessive_public_api"));
+
+        // With context (empty graph), should be suppressed
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&python_lang()).unwrap();
+        let tree = parser.parse(src.as_bytes(), None).unwrap();
+        let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
+        let id_counts = std::collections::HashMap::new();
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: src.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: Some(&graph),
+        };
+        let findings = pipeline.check_with_context(&ctx);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "excessive_public_api"),
+            "excessive_public_api should be suppressed when no cross-file callers exist"
+        );
+    }
+
+    #[test]
+    fn context_suppresses_leaky_abstraction_with_empty_graph() {
+        let src = r#"
+class ConnectionPool:
+    def __init__(self, dsn, max_size=10):
+        self.connections = []
+        self.available = []
+        self.dsn = dsn
+        self.max_size = max_size
+
+    def acquire(self):
+        pass
+"#;
+        // Verify base check does detect it
+        let base_findings = parse_and_check(src);
+        assert!(base_findings
+            .iter()
+            .any(|f| f.pattern == "leaky_abstraction_boundary"));
+
+        // With context (empty graph), should be suppressed
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern == "leaky_abstraction_boundary"),
+            "leaky_abstraction_boundary should be suppressed when class has no external usage"
+        );
+    }
+
+    #[test]
+    fn context_without_graph_returns_all_findings() {
+        let mut src = String::new();
+        for i in 0..10 {
+            src.push_str(&format!("def func_{}():\n    pass\n", i));
+        }
+        src.push_str("def _private_func():\n    pass\n");
+
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&python_lang()).unwrap();
+        let tree = parser.parse(src.as_bytes(), None).unwrap();
+        let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: src.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: None,
+        };
+        let findings = pipeline.check_with_context(&ctx);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern == "excessive_public_api"),
+            "Without graph, all findings should be returned unchanged"
         );
     }
 }
