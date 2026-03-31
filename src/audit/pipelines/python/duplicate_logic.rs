@@ -74,7 +74,7 @@ impl DuplicateLogicPipeline {
             .filter(|p| *p != "self" && *p != "cls")
             .collect();
 
-        if non_self.len() < 3 {
+        if non_self.len() < 2 {
             return None;
         }
 

@@ -68,6 +68,10 @@ impl ProjectAnalyzer for DeadExportsAnalyzer {
                             file_path: caller_file,
                             ..
                         } => caller_file != file_path,
+                        NodeWeight::CallSite {
+                            file_path: caller_file,
+                            ..
+                        } => caller_file != file_path,
                         _ => false,
                     }
                 });
