@@ -1,5 +1,5 @@
 pub mod audit;
-pub mod call_graph;
+pub mod graph;
 pub mod cli;
 pub mod discovery;
 pub mod file_source;

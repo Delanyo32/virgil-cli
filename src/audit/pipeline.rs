@@ -3,10 +3,20 @@ use std::collections::HashMap;
 use anyhow::Result;
 use tree_sitter::Tree;
 
+use crate::graph::CodeGraph;
 use crate::language::Language;
 
 use super::models::AuditFinding;
 use super::pipelines;
+
+/// Context passed to pipelines during graph-aware checking.
+pub struct PipelineContext<'a> {
+    pub tree: &'a Tree,
+    pub source: &'a [u8],
+    pub file_path: &'a str,
+    pub id_counts: &'a HashMap<String, usize>,
+    pub graph: Option<&'a CodeGraph>,
+}
 
 pub trait Pipeline: Send + Sync {
     fn name(&self) -> &str;
@@ -24,6 +34,13 @@ pub trait Pipeline: Send + Sync {
         _id_counts: &HashMap<String, usize>,
     ) -> Vec<AuditFinding> {
         self.check(tree, source, file_path)
+    }
+
+    /// Check with full pipeline context including CodeGraph access.
+    /// Default delegates to check_with_ids — pipelines that want graph access
+    /// override this method. Zero breakage across existing pipelines.
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        self.check_with_ids(ctx.tree, ctx.source, ctx.file_path, ctx.id_counts)
     }
 }
 

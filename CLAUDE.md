@@ -128,7 +128,6 @@ src/
 ├── query_engine.rs    # On-demand parse + filter pipeline (rayon parallel, per-file symbol extraction)
 ├── format.rs          # Query output formatting (outline/snippet/full/tree/locations/summary)
 ├── signature.rs       # One-line signature extraction from AST nodes
-├── call_graph.rs      # Call graph traversal (BFS, find callees/callers via tree-sitter call expressions)
 ├── discovery.rs       # File walking with .gitignore support (ignore crate)
 ├── file_source.rs     # FileSource trait + MemoryFileSource (in-memory, Arc<str> zero-copy)
 ├── language.rs        # Language enum, extension mapping, parser selection
@@ -138,6 +137,23 @@ src/
 ├── s3.rs              # S3/R2 client: URI parsing, object listing, concurrent download
 ├── server.rs          # Persistent HTTP server mode (axum, serves queries/audits from in-memory workspace)
 ├── workspace.rs       # Workspace: discover + load files into memory (rayon parallel), S3 loading
+├── graph/
+│   ├── mod.rs         # CodeGraph struct, NodeWeight/EdgeWeight enums, traversal methods
+│   ├── builder.rs     # GraphBuilder: parallel extraction, graph assembly, CFG building
+│   ├── cfg.rs         # CFG types: BasicBlock, CfgStatement, CfgEdge, FunctionCfg
+│   ├── taint.rs       # Taint propagation engine + source/sink/sanitizer tables
+│   ├── resource.rs    # Resource lifecycle analysis (acquire/release tracking)
+│   └── cfg_languages/
+│       ├── mod.rs     # CfgBuilder trait + language dispatch
+│       ├── typescript.rs  # JS/TS/TSX/JSX CFG builder
+│       ├── python.rs      # Python CFG builder
+│       ├── rust_lang.rs   # Rust CFG builder
+│       ├── go.rs          # Go CFG builder
+│       ├── java.rs        # Java CFG builder
+│       ├── c_lang.rs      # C CFG builder
+│       ├── cpp.rs         # C++ CFG builder
+│       ├── csharp.rs      # C# CFG builder
+│       └── php.rs         # PHP CFG builder
 ├── languages/
 │   ├── mod.rs         # Language-agnostic dispatch: compile queries, extract symbols/imports/comments
 │   ├── typescript.rs  # All TS/JS/TSX/JSX tree-sitter queries and extraction
@@ -149,7 +165,7 @@ src/
 │   ├── go.rs          # Go tree-sitter queries and extraction
 │   ├── java.rs        # Java tree-sitter queries and extraction
 │   └── php.rs         # PHP tree-sitter queries and extraction
-└── audit/             # Static analysis pipelines (unchanged)
+└── audit/             # Static analysis pipelines
 ```
 
 ## Architecture
@@ -163,7 +179,9 @@ src/
 - **tree-sitter 0.25**: `QueryMatches` uses `streaming_iterator::StreamingIterator`, not `std::iter::Iterator`. Iterate with `while let Some(m) = matches.next()`.
 - **Query pipeline**: `query_engine::execute()` follows the same rayon pattern as `AuditEngine::run()` — discover files, pre-compile queries into `HashMap<Language, Arc<Query>>`, `par_iter` with per-task Parser, filter per-file, flatten + sort + limit.
 - **Name matching**: glob (via `globset`), substring (`contains`), or regex (`regex` crate).
-- **Call graph**: Name-based resolution (heuristic, no type info). BFS traversal up to configurable depth. Per-language call expression node types. "down" = callees within symbol subtree, "up" = scan all files for callers.
+- **CodeGraph**: petgraph-backed `DiGraph<NodeWeight, EdgeWeight>` providing cross-file analysis. Nodes: File, Symbol, CallSite, Parameter, ExternalSource. Edges: DefinedIn, Calls, Imports, FlowsTo, SanitizedBy, Exports, Acquires, ReleasedBy, Contains. Built by `GraphBuilder` in parallel (rayon), includes per-function CFGs built by language-specific `CfgBuilder` implementations. Taint analysis via `TaintEngine` computes FlowsTo/SanitizedBy edges. Resource lifecycle via `ResourceAnalyzer` computes Acquires/ReleasedBy edges.
+- **PipelineContext**: Wraps tree + source + graph reference, passed to `Pipeline::check_with_context()`. Default delegates to `check_with_ids()` for backward compat. Pipelines override `check_with_context()` to access graph-based taint paths.
+- **Call graph**: Name-based resolution via `CodeGraph.symbols_by_name` lookup. BFS traversal up to configurable depth via `traverse_callees()`/`traverse_callers()` methods on `CodeGraph`.
 - **Signature extraction**: Takes source text from symbol start line to first `{`, trims. Multi-line support (up to 5 lines). Python stops at `:`.
 - **Output formats**: All JSON. `QueryOutputFormat` enum (outline/snippet/full/tree/locations/summary). `--pretty` controls indentation.
 - **In-memory workspace**: `Workspace::load()` reads all project files into memory via rayon, stored as `Arc<str>`. Query engine and audit engine operate on workspace, not disk.
@@ -221,7 +239,8 @@ line, block, doc
 - PHP export detection: top-level functions/classes/interfaces/traits/enums/namespaces = always exported. Methods/properties/constants: `visibility_modifier` checked — `public` = exported, `private`/`protected` = not. Default = exported (PHP's default is public).
 - PHP imports: `use` statements (kind = "use", always external). `require`/`include` (kind = "require"/"include", starts with `.` = internal, else external). Grouped use (`use App\Models\{User, Post}`) expanded to individual imports.
 - PHP property names: `$` prefix stripped from variable names for clean symbol output.
-- Call graph: name-based resolution is heuristic — no type info. Documented as best-effort. BFS with configurable depth (max 5). Per-language call expression node types.
+- CodeGraph: petgraph `DiGraph` is `Send` but not `Sync`. After building, share via `Arc<CodeGraph>` for read-only access across rayon threads. CFG building is parallelized per-file during graph construction.
+- Call graph: name-based resolution via `symbols_by_name` lookup — heuristic, no type info. BFS with configurable depth (max 5). Replaces old `call_graph.rs`.
 - `find: "function"` matches both `Function` and `ArrowFunction` kinds. `find: "constructor"` matches `Method` kind (post-filter by name: "constructor", "__init__", "__construct", "new").
 - `inside` filter: containment check via line range comparison against all symbols in the same file.
 - `has` filter: cross-references with comment extraction. `{"not": "docstring"}` = inverse match for symbols without doc comments.

@@ -4,15 +4,15 @@ use std::sync::Arc;
 use anyhow::Result;
 use rayon::prelude::*;
 
+use crate::graph::CodeGraph;
 use crate::language::Language;
 use crate::parser;
 use crate::workspace::Workspace;
 
 use super::analyzers;
 use super::models::{AuditFinding, AuditSummary};
-use super::pipeline::{self, Pipeline};
+use super::pipeline::{self, Pipeline, PipelineContext};
 use super::pipelines::helpers::count_all_identifier_occurrences;
-use super::project_index::ProjectIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipelineSelector {
@@ -70,7 +70,7 @@ impl AuditEngine {
     pub fn run(
         &self,
         workspace: &Workspace,
-        index: Option<&ProjectIndex>,
+        graph: Option<&CodeGraph>,
     ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Build pipelines per language, apply filter
         let mut pipeline_map: HashMap<Language, Vec<Arc<dyn Pipeline>>> = HashMap::new();
@@ -122,6 +122,7 @@ impl AuditEngine {
         }
 
         let progress = self.progress.clone();
+        let graph_ref = graph;
 
         // Phase 4.4: Reduced stack size — stack-based iteration in helpers
         // eliminates deep recursion, so 4MB suffices.
@@ -159,14 +160,17 @@ impl AuditEngine {
                         let id_counts =
                             count_all_identifier_occurrences(tree.root_node(), source.as_bytes());
 
+                        let ctx = PipelineContext {
+                            tree: &tree,
+                            source: source.as_bytes(),
+                            file_path: rel_path,
+                            id_counts: &id_counts,
+                            graph: graph_ref,
+                        };
+
                         let mut file_findings = Vec::new();
                         for pipeline in pipelines {
-                            file_findings.extend(pipeline.check_with_ids(
-                                &tree,
-                                source.as_bytes(),
-                                rel_path,
-                                &id_counts,
-                            ));
+                            file_findings.extend(pipeline.check_with_context(&ctx));
                         }
 
                         Some(file_findings)
@@ -185,8 +189,8 @@ impl AuditEngine {
 
         let mut findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
 
-        // Run project-level analyzers if index is provided
-        if let Some(idx) = index {
+        // Run project-level analyzers if graph is provided
+        if let Some(g) = graph {
             let mut project_analyzers: Vec<Box<dyn super::project_analyzer::ProjectAnalyzer>> =
                 match self.pipeline_selector {
                     PipelineSelector::Architecture => analyzers::architecture_analyzers(),
@@ -199,7 +203,7 @@ impl AuditEngine {
             }
 
             for analyzer in &project_analyzers {
-                findings.extend(analyzer.analyze(idx));
+                findings.extend(analyzer.analyze(g));
             }
         }
 

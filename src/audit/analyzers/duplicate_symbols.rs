@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use crate::audit::models::AuditFinding;
 use crate::audit::project_analyzer::ProjectAnalyzer;
-use crate::audit::project_index::ProjectIndex;
+use crate::graph::{CodeGraph, NodeWeight};
 use crate::models::SymbolKind;
 
 pub struct DuplicateSymbolsAnalyzer;
@@ -13,51 +11,72 @@ impl ProjectAnalyzer for DuplicateSymbolsAnalyzer {
     }
 
     fn description(&self) -> &str {
-        "Detect exported symbols with identical name, kind, and signature across files"
+        "Detect exported symbols with identical names across files"
     }
 
-    fn analyze(&self, index: &ProjectIndex) -> Vec<AuditFinding> {
-        // Group exported symbols by (name, kind, signature) triple
-        let mut groups: HashMap<(String, SymbolKind, String), Vec<(String, u32)>> = HashMap::new();
-
-        for entry in index.files.values() {
-            for symbol in &entry.exported_symbols {
-                let sig = symbol.signature.clone().unwrap_or_default();
-                let key = (symbol.name.clone(), symbol.kind, sig);
-                groups
-                    .entry(key)
-                    .or_default()
-                    .push((entry.path.clone(), symbol.start_line));
-            }
-        }
-
+    fn analyze(&self, graph: &CodeGraph) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
 
-        for ((name, kind, _sig), locations) in &groups {
-            if locations.len() < 2 {
+        for (name, indices) in &graph.symbols_by_name {
+            // Collect exported symbols with their file+kind info
+            let exported: Vec<(&str, SymbolKind, u32)> = indices
+                .iter()
+                .filter_map(|&idx| match &graph.graph[idx] {
+                    NodeWeight::Symbol {
+                        file_path,
+                        kind,
+                        start_line,
+                        exported,
+                        ..
+                    } => {
+                        if *exported {
+                            Some((file_path.as_str(), *kind, *start_line))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            if exported.len() < 2 {
                 continue;
             }
 
-            let other_files: Vec<String> = locations.iter().map(|(p, _)| p.clone()).collect();
-            let message = format!(
-                "Cross-file duplicate: {} '{}' has identical signature in {} files: {}",
-                kind,
-                name,
-                other_files.len(),
-                other_files.join(", ")
-            );
+            // Group by kind — only flag duplicates of the same kind
+            let mut by_kind: std::collections::HashMap<SymbolKind, Vec<(&str, u32)>> =
+                std::collections::HashMap::new();
+            for (file_path, kind, line) in &exported {
+                by_kind.entry(*kind).or_default().push((file_path, *line));
+            }
 
-            for (file_path, line) in locations {
-                findings.push(AuditFinding {
-                    file_path: file_path.clone(),
-                    line: *line,
-                    column: 1,
-                    severity: "info".to_string(),
-                    pipeline: "cross_file_duplicates".to_string(),
-                    pattern: "cross_file_duplicate".to_string(),
-                    message: message.clone(),
-                    snippet: String::new(),
-                });
+            for (kind, locations) in &by_kind {
+                if locations.len() < 2 {
+                    continue;
+                }
+
+                let other_files: Vec<String> =
+                    locations.iter().map(|(p, _)| p.to_string()).collect();
+                let message = format!(
+                    "Cross-file duplicate: {} '{}' exported from {} files: {}",
+                    kind,
+                    name,
+                    other_files.len(),
+                    other_files.join(", ")
+                );
+
+                for (file_path, line) in locations {
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: *line,
+                        column: 1,
+                        severity: "info".to_string(),
+                        pipeline: "cross_file_duplicates".to_string(),
+                        pattern: "cross_file_duplicate".to_string(),
+                        message: message.clone(),
+                        snippet: String::new(),
+                    });
+                }
             }
         }
 
@@ -68,73 +87,69 @@ impl ProjectAnalyzer for DuplicateSymbolsAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::project_index::{ExportedSymbol, FileEntry};
+    use crate::graph::{EdgeWeight, NodeWeight};
     use crate::language::Language;
 
     #[test]
     fn detects_cross_file_duplicates() {
-        let mut index = ProjectIndex::new();
-        let sym = |path: &str| FileEntry {
-            path: path.into(),
-            language: Language::Rust,
-            line_count: 10,
-            symbol_count: 1,
-            exported_symbols: vec![ExportedSymbol {
-                name: "parse_config".into(),
-                kind: SymbolKind::Function,
-                signature: Some("pub fn parse_config(path: &str) -> Config".into()),
-                start_line: 1,
-            }],
-            imports: vec![],
-        };
+        let mut graph = CodeGraph::new();
 
-        index.files.insert("src/a.rs".into(), sym("src/a.rs"));
-        index.files.insert("src/b.rs".into(), sym("src/b.rs"));
+        for path in &["src/a.rs", "src/b.rs"] {
+            let file_idx = graph.graph.add_node(NodeWeight::File {
+                path: path.to_string(),
+                language: Language::Rust,
+            });
+            graph.file_nodes.insert(path.to_string(), file_idx);
+
+            let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+                name: "parse_config".to_string(),
+                kind: SymbolKind::Function,
+                file_path: path.to_string(),
+                start_line: 1,
+                end_line: 10,
+                exported: true,
+            });
+            graph
+                .symbols_by_name
+                .entry("parse_config".to_string())
+                .or_default()
+                .push(sym_idx);
+        }
 
         let analyzer = DuplicateSymbolsAnalyzer;
-        let findings = analyzer.analyze(&index);
-        assert_eq!(findings.len(), 2); // One per file
+        let findings = analyzer.analyze(&graph);
+        assert_eq!(findings.len(), 2);
         assert!(findings.iter().all(|f| f.pattern == "cross_file_duplicate"));
     }
 
     #[test]
-    fn no_duplicate_with_different_signatures() {
-        let mut index = ProjectIndex::new();
-        index.files.insert(
-            "src/a.rs".into(),
-            FileEntry {
-                path: "src/a.rs".into(),
+    fn no_duplicate_when_not_exported() {
+        let mut graph = CodeGraph::new();
+
+        for path in &["src/a.rs", "src/b.rs"] {
+            let file_idx = graph.graph.add_node(NodeWeight::File {
+                path: path.to_string(),
                 language: Language::Rust,
-                line_count: 10,
-                symbol_count: 1,
-                exported_symbols: vec![ExportedSymbol {
-                    name: "parse".into(),
-                    kind: SymbolKind::Function,
-                    signature: Some("pub fn parse(s: &str)".into()),
-                    start_line: 1,
-                }],
-                imports: vec![],
-            },
-        );
-        index.files.insert(
-            "src/b.rs".into(),
-            FileEntry {
-                path: "src/b.rs".into(),
-                language: Language::Rust,
-                line_count: 10,
-                symbol_count: 1,
-                exported_symbols: vec![ExportedSymbol {
-                    name: "parse".into(),
-                    kind: SymbolKind::Function,
-                    signature: Some("pub fn parse(n: i32)".into()),
-                    start_line: 1,
-                }],
-                imports: vec![],
-            },
-        );
+            });
+            graph.file_nodes.insert(path.to_string(), file_idx);
+
+            let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+                name: "helper".to_string(),
+                kind: SymbolKind::Function,
+                file_path: path.to_string(),
+                start_line: 1,
+                end_line: 10,
+                exported: false,
+            });
+            graph
+                .symbols_by_name
+                .entry("helper".to_string())
+                .or_default()
+                .push(sym_idx);
+        }
 
         let analyzer = DuplicateSymbolsAnalyzer;
-        let findings = analyzer.analyze(&index);
+        let findings = analyzer.analyze(&graph);
         assert!(findings.is_empty());
     }
 }

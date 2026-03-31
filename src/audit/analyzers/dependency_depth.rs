@@ -1,8 +1,12 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
+
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::project_analyzer::ProjectAnalyzer;
-use crate::audit::project_index::{GraphNode, ProjectIndex};
+use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 
 const DEEP_CHAIN_THRESHOLD: usize = 6;
 
@@ -17,14 +21,18 @@ impl ProjectAnalyzer for DependencyDepthAnalyzer {
         "Detect deep dependency chains in the import graph"
     }
 
-    fn analyze(&self, index: &ProjectIndex) -> Vec<AuditFinding> {
-        let depths = compute_depths(&index.edges);
+    fn analyze(&self, graph: &CodeGraph) -> Vec<AuditFinding> {
+        let depths = compute_depths(graph);
         let mut findings = Vec::new();
 
-        for (node, depth) in &depths {
+        for (idx, depth) in &depths {
             if *depth >= DEEP_CHAIN_THRESHOLD {
+                let path = match &graph.graph[*idx] {
+                    NodeWeight::File { path, .. } => path.clone(),
+                    _ => continue,
+                };
                 findings.push(AuditFinding {
-                    file_path: node.path().to_string(),
+                    file_path: path.clone(),
                     line: 1,
                     column: 1,
                     severity: "info".to_string(),
@@ -32,9 +40,7 @@ impl ProjectAnalyzer for DependencyDepthAnalyzer {
                     pattern: "deep_dependency_chain".to_string(),
                     message: format!(
                         "Deep dependency chain: {} is at depth {} in the import graph (threshold: {})",
-                        node.path(),
-                        depth,
-                        DEEP_CHAIN_THRESHOLD
+                        path, depth, DEEP_CHAIN_THRESHOLD
                     ),
                     snippet: String::new(),
                 });
@@ -45,43 +51,34 @@ impl ProjectAnalyzer for DependencyDepthAnalyzer {
     }
 }
 
-/// BFS from root nodes (no incoming edges) to compute depth of each node.
-fn compute_depths(edges: &HashMap<GraphNode, HashSet<GraphNode>>) -> HashMap<GraphNode, usize> {
-    // Collect all nodes
-    let mut all_nodes: HashSet<GraphNode> = HashSet::new();
-    let mut has_incoming: HashSet<GraphNode> = HashSet::new();
-    for (from, tos) in edges {
-        all_nodes.insert(from.clone());
-        for to in tos {
-            all_nodes.insert(to.clone());
-            has_incoming.insert(to.clone());
+fn compute_depths(graph: &CodeGraph) -> HashMap<NodeIndex, usize> {
+    // Find root file nodes (no incoming Imports edges)
+    let mut has_incoming: std::collections::HashSet<NodeIndex> = std::collections::HashSet::new();
+    for edge in graph.graph.edge_references() {
+        if matches!(edge.weight(), EdgeWeight::Imports) {
+            has_incoming.insert(edge.target());
         }
     }
 
-    // Root nodes = no incoming edges
-    let roots: Vec<GraphNode> = all_nodes
-        .iter()
-        .filter(|n| !has_incoming.contains(*n))
-        .cloned()
-        .collect();
+    let mut depths: HashMap<NodeIndex, usize> = HashMap::new();
+    let mut queue: VecDeque<(NodeIndex, usize)> = VecDeque::new();
 
-    let mut depths: HashMap<GraphNode, usize> = HashMap::new();
-    let mut queue: VecDeque<(GraphNode, usize)> = VecDeque::new();
-
-    for root in roots {
-        depths.insert(root.clone(), 0);
-        queue.push_back((root, 0));
+    for &file_idx in graph.file_nodes.values() {
+        if !has_incoming.contains(&file_idx) {
+            depths.insert(file_idx, 0);
+            queue.push_back((file_idx, 0));
+        }
     }
 
-    // BFS — take maximum depth for each node
     while let Some((node, depth)) = queue.pop_front() {
-        if let Some(neighbors) = edges.get(&node) {
-            for neighbor in neighbors {
+        for edge in graph.graph.edges_directed(node, Direction::Outgoing) {
+            if matches!(edge.weight(), EdgeWeight::Imports) {
+                let target = edge.target();
                 let new_depth = depth + 1;
-                let current = depths.get(neighbor).copied().unwrap_or(0);
+                let current = depths.get(&target).copied().unwrap_or(0);
                 if new_depth > current {
-                    depths.insert(neighbor.clone(), new_depth);
-                    queue.push_back((neighbor.clone(), new_depth));
+                    depths.insert(target, new_depth);
+                    queue.push_back((target, new_depth));
                 }
             }
         }
@@ -93,38 +90,42 @@ fn compute_depths(edges: &HashMap<GraphNode, HashSet<GraphNode>>) -> HashMap<Gra
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{EdgeWeight, NodeWeight};
+    use crate::language::Language;
+
+    fn make_chain(n: usize) -> CodeGraph {
+        let mut graph = CodeGraph::new();
+        let mut prev = None;
+        for i in 0..n {
+            let path = format!("f{}.rs", i);
+            let idx = graph.graph.add_node(NodeWeight::File {
+                path: path.clone(),
+                language: Language::Rust,
+            });
+            graph.file_nodes.insert(path, idx);
+            if let Some(prev_idx) = prev {
+                graph
+                    .graph
+                    .add_edge(prev_idx, idx, EdgeWeight::Imports);
+            }
+            prev = Some(idx);
+        }
+        graph
+    }
 
     #[test]
     fn shallow_graph_no_findings() {
-        let mut index = ProjectIndex::new();
-        let a = GraphNode::File("a.rs".into());
-        let b = GraphNode::File("b.rs".into());
-
-        let mut edges = HashMap::new();
-        edges.insert(a, HashSet::from([b]));
-        index.edges = edges;
-
+        let graph = make_chain(2);
         let analyzer = DependencyDepthAnalyzer;
-        let findings = analyzer.analyze(&index);
+        let findings = analyzer.analyze(&graph);
         assert!(findings.is_empty());
     }
 
     #[test]
     fn deep_chain_detected() {
-        let mut index = ProjectIndex::new();
-        let nodes: Vec<GraphNode> = (0..8)
-            .map(|i| GraphNode::File(format!("f{}.rs", i)))
-            .collect();
-
-        let mut edges = HashMap::new();
-        for i in 0..7 {
-            edges.insert(nodes[i].clone(), HashSet::from([nodes[i + 1].clone()]));
-        }
-        index.edges = edges;
-
+        let graph = make_chain(8);
         let analyzer = DependencyDepthAnalyzer;
-        let findings = analyzer.analyze(&index);
-        // Nodes at depth >= 6 should be flagged
+        let findings = analyzer.analyze(&graph);
         assert!(!findings.is_empty());
         assert!(
             findings

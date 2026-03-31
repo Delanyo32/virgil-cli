@@ -6,7 +6,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use rayon::prelude::*;
 use regex::Regex;
 
-use crate::call_graph;
+use crate::graph::{CodeGraph, NodeWeight};
 use crate::language::{self, Language};
 use crate::languages;
 use crate::models::{CommentInfo, SymbolInfo, SymbolKind};
@@ -60,6 +60,7 @@ pub fn execute(
     query: &TsQuery,
     max: usize,
     workspace: &Workspace,
+    graph: Option<&CodeGraph>,
 ) -> Result<QueryOutput> {
     // Handle read mode: return file content instead of symbol search
     if let Some(ref file_path) = query.read {
@@ -280,9 +281,10 @@ pub fn execute(
 
     // Call graph traversal if requested
     if let Some(ref direction) = query.calls {
-        let depth = query.depth.unwrap_or(1).min(5);
-        let call_results = call_graph::traverse_call_graph(workspace, &results, direction, depth)?;
-        results = call_results;
+        if let Some(g) = graph {
+            let depth = query.depth.unwrap_or(1).min(5);
+            results = traverse_via_graph(g, &results, direction, depth, workspace);
+        }
     }
 
     let total = results.len();
@@ -500,6 +502,77 @@ fn find_parent(sym: &SymbolInfo, all_symbols: &[SymbolInfo]) -> Option<String> {
         })
         .min_by_key(|s| s.end_line - s.start_line)
         .map(|s| s.name.clone())
+}
+
+fn traverse_via_graph(
+    graph: &CodeGraph,
+    seeds: &[QueryResult],
+    direction: &str,
+    max_depth: usize,
+    workspace: &Workspace,
+) -> Vec<QueryResult> {
+    // Map seed results to NodeIndex
+    let seed_indices: Vec<_> = seeds
+        .iter()
+        .filter_map(|r| graph.find_symbol(&r.file, r.line))
+        .collect();
+
+    let result_indices = match direction {
+        "down" => graph.traverse_callees(&seed_indices, max_depth),
+        "up" => graph.traverse_callers(&seed_indices, max_depth),
+        "both" => {
+            let mut combined = graph.traverse_callees(&seed_indices, max_depth);
+            let callers = graph.traverse_callers(&seed_indices, max_depth);
+            for idx in callers {
+                if !combined.contains(&idx) {
+                    combined.push(idx);
+                }
+            }
+            combined
+        }
+        _ => Vec::new(),
+    };
+
+    // Convert NodeIndex results back to QueryResult
+    let mut results: Vec<QueryResult> = result_indices
+        .iter()
+        .filter_map(|&idx| {
+            match &graph.graph[idx] {
+                NodeWeight::Symbol {
+                    name,
+                    kind,
+                    file_path,
+                    start_line,
+                    end_line,
+                    exported,
+                } => {
+                    let sig = workspace.read_file(file_path).and_then(|source| {
+                        let lang = workspace.file_language(file_path)?;
+                        signature::extract_signature(&source, *start_line, lang)
+                    });
+
+                    Some(QueryResult {
+                        name: name.clone(),
+                        kind: kind.to_string(),
+                        file: file_path.clone(),
+                        line: *start_line,
+                        end_line: *end_line,
+                        column: 0,
+                        exported: *exported,
+                        signature: sig,
+                        docstring: None,
+                        body: None,
+                        preview: None,
+                        parent: None,
+                    })
+                }
+                _ => None,
+            }
+        })
+        .collect();
+
+    results.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+    results
 }
 
 #[cfg(test)]

@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::audit::models::AuditFinding;
 use crate::audit::project_analyzer::ProjectAnalyzer;
-use crate::audit::project_index::ProjectIndex;
+use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 
 /// Entry-point file names that should not be flagged as dead exports.
 const ENTRY_POINT_NAMES: &[&str] = &["main", "lib", "mod", "index", "__init__", "__main__"];
@@ -15,59 +16,71 @@ impl ProjectAnalyzer for DeadExportsAnalyzer {
     }
 
     fn description(&self) -> &str {
-        "Detect exported symbols that are never imported by any other file"
+        "Detect exported symbols that are never referenced by any other file"
     }
 
-    fn analyze(&self, index: &ProjectIndex) -> Vec<AuditFinding> {
-        // Build set of all internally-imported names across all files
-        let mut imported_names: HashSet<String> = HashSet::new();
-        for entry in index.files.values() {
-            for import in &entry.imports {
-                if !import.is_external {
-                    imported_names.insert(import.imported_name.clone());
-                    // Also add the local name in case of aliasing
-                    imported_names.insert(import.local_name.clone());
-                }
-            }
-        }
-
-        // Wildcard imports mean we can't know what's used
-        let has_wildcard = imported_names.contains("*");
-
+    fn analyze(&self, graph: &CodeGraph) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
 
-        for entry in index.files.values() {
-            // Skip entry-point files
-            if is_entry_point(&entry.path) {
+        for sym_idx in graph.graph.node_indices() {
+            let (name, kind, file_path, start_line, exported) = match &graph.graph[sym_idx] {
+                NodeWeight::Symbol {
+                    name,
+                    kind,
+                    file_path,
+                    start_line,
+                    exported,
+                    ..
+                } => (name, kind, file_path, *start_line, *exported),
+                _ => continue,
+            };
+
+            if !exported {
                 continue;
             }
 
-            for symbol in &entry.exported_symbols {
-                // Skip main functions
-                if symbol.name == "main" || symbol.name == "__init__" {
-                    continue;
-                }
+            // Skip entry-point files
+            if is_entry_point(file_path) {
+                continue;
+            }
 
-                // If there are wildcard imports, we can't prove a symbol is dead
-                if has_wildcard {
-                    continue;
-                }
+            // Skip main functions
+            if name == "main" || name == "__init__" {
+                continue;
+            }
 
-                if !imported_names.contains(&symbol.name) {
-                    findings.push(AuditFinding {
-                        file_path: entry.path.clone(),
-                        line: symbol.start_line,
-                        column: 1,
-                        severity: "info".to_string(),
-                        pipeline: "dead_exports".to_string(),
-                        pattern: "dead_export".to_string(),
-                        message: format!(
-                            "Exported {} '{}' is not imported by any other file in the project",
-                            symbol.kind, symbol.name
-                        ),
-                        snippet: symbol.signature.clone().unwrap_or_default(),
-                    });
-                }
+            // Check if any incoming Calls edge comes from a symbol in a different file
+            let has_cross_file_caller = graph
+                .graph
+                .edges_directed(sym_idx, Direction::Incoming)
+                .any(|edge| {
+                    if !matches!(edge.weight(), EdgeWeight::Calls) {
+                        return false;
+                    }
+                    // Check if caller is in a different file
+                    match &graph.graph[edge.source()] {
+                        NodeWeight::Symbol {
+                            file_path: caller_file,
+                            ..
+                        } => caller_file != file_path,
+                        _ => false,
+                    }
+                });
+
+            if !has_cross_file_caller {
+                findings.push(AuditFinding {
+                    file_path: file_path.clone(),
+                    line: start_line,
+                    column: 1,
+                    severity: "info".to_string(),
+                    pipeline: "dead_exports".to_string(),
+                    pattern: "dead_export".to_string(),
+                    message: format!(
+                        "Exported {} '{}' is not referenced by any other file in the project",
+                        kind, name
+                    ),
+                    snippet: String::new(),
+                });
             }
         }
 
@@ -90,115 +103,106 @@ fn is_entry_point(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::project_index::{ExportedSymbol, FileEntry};
+    use crate::graph::{EdgeWeight, NodeWeight};
     use crate::language::Language;
-    use crate::models::{ImportInfo, SymbolKind};
+    use crate::models::SymbolKind;
 
     #[test]
     fn detects_dead_export() {
-        let mut index = ProjectIndex::new();
-        index.files.insert(
-            "src/utils.rs".into(),
-            FileEntry {
-                path: "src/utils.rs".into(),
-                language: Language::Rust,
-                line_count: 10,
-                symbol_count: 1,
-                exported_symbols: vec![ExportedSymbol {
-                    name: "format_date".into(),
-                    kind: SymbolKind::Function,
-                    signature: Some("pub fn format_date()".into()),
-                    start_line: 1,
-                }],
-                imports: vec![],
-            },
-        );
-        index.files.insert(
-            "src/main.rs".into(),
-            FileEntry {
-                path: "src/main.rs".into(),
-                language: Language::Rust,
-                line_count: 5,
-                symbol_count: 1,
-                exported_symbols: vec![],
-                imports: vec![], // Does NOT import format_date
-            },
-        );
+        let mut graph = CodeGraph::new();
+
+        let file_idx = graph.graph.add_node(NodeWeight::File {
+            path: "src/utils.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph
+            .file_nodes
+            .insert("src/utils.rs".to_string(), file_idx);
+
+        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: "format_date".to_string(),
+            kind: SymbolKind::Function,
+            file_path: "src/utils.rs".to_string(),
+            start_line: 1,
+            end_line: 5,
+            exported: true,
+        });
+        graph.graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
 
         let analyzer = DeadExportsAnalyzer;
-        let findings = analyzer.analyze(&index);
+        let findings = analyzer.analyze(&graph);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "dead_export");
         assert!(findings[0].message.contains("format_date"));
     }
 
     #[test]
-    fn no_finding_when_imported() {
-        let mut index = ProjectIndex::new();
-        index.files.insert(
-            "src/utils.rs".into(),
-            FileEntry {
-                path: "src/utils.rs".into(),
-                language: Language::Rust,
-                line_count: 10,
-                symbol_count: 1,
-                exported_symbols: vec![ExportedSymbol {
-                    name: "format_date".into(),
-                    kind: SymbolKind::Function,
-                    signature: None,
-                    start_line: 1,
-                }],
-                imports: vec![],
-            },
-        );
-        index.files.insert(
-            "src/handler.rs".into(),
-            FileEntry {
-                path: "src/handler.rs".into(),
-                language: Language::Rust,
-                line_count: 5,
-                symbol_count: 1,
-                exported_symbols: vec![],
-                imports: vec![ImportInfo {
-                    source_file: "src/handler.rs".into(),
-                    module_specifier: "crate::utils::format_date".into(),
-                    imported_name: "format_date".into(),
-                    local_name: "format_date".into(),
-                    kind: "use".into(),
-                    is_type_only: false,
-                    line: 1,
-                    is_external: false,
-                }],
-            },
-        );
+    fn no_finding_when_called_cross_file() {
+        let mut graph = CodeGraph::new();
+
+        let file_a = graph.graph.add_node(NodeWeight::File {
+            path: "src/utils.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph.file_nodes.insert("src/utils.rs".to_string(), file_a);
+
+        let sym_a = graph.graph.add_node(NodeWeight::Symbol {
+            name: "format_date".to_string(),
+            kind: SymbolKind::Function,
+            file_path: "src/utils.rs".to_string(),
+            start_line: 1,
+            end_line: 5,
+            exported: true,
+        });
+
+        let file_b = graph.graph.add_node(NodeWeight::File {
+            path: "src/handler.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph
+            .file_nodes
+            .insert("src/handler.rs".to_string(), file_b);
+
+        let sym_b = graph.graph.add_node(NodeWeight::Symbol {
+            name: "handle".to_string(),
+            kind: SymbolKind::Function,
+            file_path: "src/handler.rs".to_string(),
+            start_line: 1,
+            end_line: 10,
+            exported: false,
+        });
+
+        // sym_b calls sym_a
+        graph.graph.add_edge(sym_b, sym_a, EdgeWeight::Calls);
 
         let analyzer = DeadExportsAnalyzer;
-        let findings = analyzer.analyze(&index);
+        let findings = analyzer.analyze(&graph);
         assert!(findings.is_empty());
     }
 
     #[test]
     fn skips_entry_points() {
-        let mut index = ProjectIndex::new();
-        index.files.insert(
-            "src/main.rs".into(),
-            FileEntry {
-                path: "src/main.rs".into(),
-                language: Language::Rust,
-                line_count: 10,
-                symbol_count: 1,
-                exported_symbols: vec![ExportedSymbol {
-                    name: "run".into(),
-                    kind: SymbolKind::Function,
-                    signature: None,
-                    start_line: 1,
-                }],
-                imports: vec![],
-            },
-        );
+        let mut graph = CodeGraph::new();
+
+        let file_idx = graph.graph.add_node(NodeWeight::File {
+            path: "src/main.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph
+            .file_nodes
+            .insert("src/main.rs".to_string(), file_idx);
+
+        let _sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: "run".to_string(),
+            kind: SymbolKind::Function,
+            file_path: "src/main.rs".to_string(),
+            start_line: 1,
+            end_line: 5,
+            exported: true,
+        });
 
         let analyzer = DeadExportsAnalyzer;
-        let findings = analyzer.analyze(&index);
+        let findings = analyzer.analyze(&graph);
         assert!(findings.is_empty());
     }
 }

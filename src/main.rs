@@ -127,7 +127,12 @@ fn main() -> Result<()> {
                 };
 
                 let start = Instant::now();
-                let output = virgil_cli::query_engine::execute(&project, &query, max, &workspace)?;
+                let languages = match &project.languages {
+                    Some(f) => language::parse_language_filter(f),
+                    None => Language::all().to_vec(),
+                };
+                let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
+                let output = virgil_cli::query_engine::execute(&project, &query, max, &workspace, Some(&graph))?;
                 let elapsed = start.elapsed();
 
                 let formatted = virgil_cli::format::format_results(
@@ -488,7 +493,7 @@ fn run_code_style_ws(
 
     let start = Instant::now();
 
-    let index = audit::index_builder::build_index(workspace, &languages)?;
+    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
@@ -607,7 +612,7 @@ fn run_architecture_ws(
 
     let start = Instant::now();
 
-    let index = audit::index_builder::build_index(workspace, &languages)?;
+    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
@@ -680,7 +685,7 @@ fn run_code_quality_summary_ws(
         .into_iter()
         .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
         .collect();
-    let cs_index = audit::index_builder::build_index(workspace, &cs_languages)?;
+    let cs_index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &cs_languages).build()?;
     let cs_engine = audit::engine::AuditEngine::new()
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
@@ -761,7 +766,7 @@ fn run_full_audit_ws(
         .copied()
         .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
         .collect();
-    let cs_index = audit::index_builder::build_index(workspace, &cs_languages)?;
+    let cs_index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &cs_languages).build()?;
     let (_, cs_summary) = audit::engine::AuditEngine::new()
         .languages(cs_languages)
         .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
@@ -807,7 +812,7 @@ fn run_full_audit_ws(
         .copied()
         .filter(|l| audit::pipeline::supported_architecture_languages().contains(l))
         .collect();
-    let arch_index = audit::index_builder::build_index(workspace, &arch_languages)?;
+    let arch_index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &arch_languages).build()?;
     let (_, arch_summary) = audit::engine::AuditEngine::new()
         .languages(arch_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture)

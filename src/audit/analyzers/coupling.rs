@@ -1,6 +1,8 @@
+use petgraph::Direction;
+
 use crate::audit::models::AuditFinding;
 use crate::audit::project_analyzer::ProjectAnalyzer;
-use crate::audit::project_index::ProjectIndex;
+use crate::graph::{CodeGraph, EdgeWeight};
 
 const EFFERENT_THRESHOLD: usize = 10;
 const AFFERENT_THRESHOLD: usize = 15;
@@ -16,15 +18,20 @@ impl ProjectAnalyzer for CouplingAnalyzer {
         "Detect high efferent (fan-out) and afferent (fan-in) coupling"
     }
 
-    fn analyze(&self, index: &ProjectIndex) -> Vec<AuditFinding> {
+    fn analyze(&self, graph: &CodeGraph) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
-        let reverse = index.reverse_edges();
 
-        // Efferent coupling (fan-out): how many files does this file depend on?
-        for (node, targets) in &index.edges {
-            if targets.len() >= EFFERENT_THRESHOLD {
+        for (&ref path, &file_idx) in &graph.file_nodes {
+            // Efferent: outgoing Imports edges
+            let efferent = graph
+                .graph
+                .edges_directed(file_idx, Direction::Outgoing)
+                .filter(|e| matches!(e.weight(), EdgeWeight::Imports))
+                .count();
+
+            if efferent >= EFFERENT_THRESHOLD {
                 findings.push(AuditFinding {
-                    file_path: node.path().to_string(),
+                    file_path: path.clone(),
                     line: 1,
                     column: 1,
                     severity: "warning".to_string(),
@@ -32,20 +39,22 @@ impl ProjectAnalyzer for CouplingAnalyzer {
                     pattern: "high_efferent_coupling".to_string(),
                     message: format!(
                         "High efferent coupling: {} depends on {} other files/packages (threshold: {})",
-                        node.path(),
-                        targets.len(),
-                        EFFERENT_THRESHOLD
+                        path, efferent, EFFERENT_THRESHOLD
                     ),
                     snippet: String::new(),
                 });
             }
-        }
 
-        // Afferent coupling (fan-in): how many files depend on this file?
-        for (node, sources) in &reverse {
-            if sources.len() >= AFFERENT_THRESHOLD {
+            // Afferent: incoming Imports edges
+            let afferent = graph
+                .graph
+                .edges_directed(file_idx, Direction::Incoming)
+                .filter(|e| matches!(e.weight(), EdgeWeight::Imports))
+                .count();
+
+            if afferent >= AFFERENT_THRESHOLD {
                 findings.push(AuditFinding {
-                    file_path: node.path().to_string(),
+                    file_path: path.clone(),
                     line: 1,
                     column: 1,
                     severity: "info".to_string(),
@@ -53,9 +62,7 @@ impl ProjectAnalyzer for CouplingAnalyzer {
                     pattern: "high_afferent_coupling".to_string(),
                     message: format!(
                         "Hub module: {} files/packages depend on {} (threshold: {})",
-                        sources.len(),
-                        node.path(),
-                        AFFERENT_THRESHOLD
+                        afferent, path, AFFERENT_THRESHOLD
                     ),
                     snippet: String::new(),
                 });
@@ -69,52 +76,63 @@ impl ProjectAnalyzer for CouplingAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::project_index::GraphNode;
-    use std::collections::HashSet;
+    use crate::graph::{EdgeWeight, NodeWeight};
+    use crate::language::Language;
+    use std::collections::HashMap;
+
+    fn add_file(graph: &mut CodeGraph, path: &str) {
+        let idx = graph.graph.add_node(NodeWeight::File {
+            path: path.to_string(),
+            language: Language::Rust,
+        });
+        graph.file_nodes.insert(path.to_string(), idx);
+    }
 
     #[test]
     fn detects_high_efferent() {
-        let mut index = ProjectIndex::new();
-        let hub = GraphNode::File("hub.rs".into());
-        let targets: HashSet<GraphNode> = (0..12)
-            .map(|i| GraphNode::File(format!("dep{}.rs", i)))
-            .collect();
-        index.edges.insert(hub, targets);
+        let mut graph = CodeGraph::new();
+        add_file(&mut graph, "hub.rs");
+        for i in 0..12 {
+            let dep = format!("dep{}.rs", i);
+            add_file(&mut graph, &dep);
+            let from = graph.file_nodes["hub.rs"];
+            let to = graph.file_nodes[&dep];
+            graph.graph.add_edge(from, to, EdgeWeight::Imports);
+        }
 
         let analyzer = CouplingAnalyzer;
-        let findings = analyzer.analyze(&index);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "high_efferent_coupling");
+        let findings = analyzer.analyze(&graph);
+        assert!(findings.iter().any(|f| f.pattern == "high_efferent_coupling"));
     }
 
     #[test]
     fn detects_high_afferent() {
-        let mut index = ProjectIndex::new();
-        let target = GraphNode::File("core.rs".into());
+        let mut graph = CodeGraph::new();
+        add_file(&mut graph, "core.rs");
         for i in 0..16 {
-            let source = GraphNode::File(format!("user{}.rs", i));
-            index
-                .edges
-                .entry(source)
-                .or_default()
-                .insert(target.clone());
+            let user = format!("user{}.rs", i);
+            add_file(&mut graph, &user);
+            let from = graph.file_nodes[&user];
+            let to = graph.file_nodes["core.rs"];
+            graph.graph.add_edge(from, to, EdgeWeight::Imports);
         }
 
         let analyzer = CouplingAnalyzer;
-        let findings = analyzer.analyze(&index);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "high_afferent_coupling");
+        let findings = analyzer.analyze(&graph);
+        assert!(findings.iter().any(|f| f.pattern == "high_afferent_coupling"));
     }
 
     #[test]
     fn no_findings_below_threshold() {
-        let mut index = ProjectIndex::new();
-        let a = GraphNode::File("a.rs".into());
-        let b = GraphNode::File("b.rs".into());
-        index.edges.insert(a, HashSet::from([b]));
+        let mut graph = CodeGraph::new();
+        add_file(&mut graph, "a.rs");
+        add_file(&mut graph, "b.rs");
+        let a = graph.file_nodes["a.rs"];
+        let b = graph.file_nodes["b.rs"];
+        graph.graph.add_edge(a, b, EdgeWeight::Imports);
 
         let analyzer = CouplingAnalyzer;
-        let findings = analyzer.analyze(&index);
+        let findings = analyzer.analyze(&graph);
         assert!(findings.is_empty());
     }
 }

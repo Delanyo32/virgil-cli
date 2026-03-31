@@ -15,7 +15,8 @@ use tokio::time::timeout;
 use crate::audit;
 use crate::audit::engine::{AuditEngine, PipelineSelector};
 use crate::audit::models::AuditFinding;
-use crate::audit::project_index::ProjectIndex;
+use crate::graph::builder::GraphBuilder;
+use crate::graph::CodeGraph;
 use crate::language::Language;
 use crate::query_engine;
 use crate::query_lang::TsQuery;
@@ -28,7 +29,7 @@ struct AppState {
     workspace: Workspace,
     project: ProjectEntry,
     languages: Vec<Language>,
-    project_index: ProjectIndex,
+    code_graph: CodeGraph,
 }
 
 #[derive(Deserialize)]
@@ -72,13 +73,13 @@ pub async fn run_server(
         created_at: chrono::Utc::now(),
     };
 
-    let project_index = audit::index_builder::build_index(&workspace, &languages)?;
+    let code_graph = GraphBuilder::new(&workspace, &languages).build()?;
 
     let state = Arc::new(AppState {
         workspace,
         project,
         languages,
-        project_index,
+        code_graph,
     });
 
     let app = Router::new()
@@ -161,7 +162,7 @@ async fn handle_query(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let start = Instant::now();
-            let output = query_engine::execute(&state.project, &query, max, &state.workspace)?;
+            let output = query_engine::execute(&state.project, &query, max, &state.workspace, Some(&state.code_graph))?;
             let elapsed = start.elapsed();
 
             let formatted = crate::format::format_results(
@@ -269,7 +270,7 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 }
                 let index_ref = match selector {
                     PipelineSelector::Architecture | PipelineSelector::CodeStyle => {
-                        Some(&state.project_index)
+                        Some(&state.code_graph)
                     }
                     _ => None,
                 };
@@ -392,7 +393,7 @@ async fn handle_audit_category(
             }
 
             let index_ref = match selector {
-                PipelineSelector::Architecture => Some(&state.project_index),
+                PipelineSelector::Architecture => Some(&state.code_graph),
                 _ => None,
             };
             let engine = AuditEngine::new()
@@ -460,7 +461,7 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
             continue;
         }
         let index_ref = match selector {
-            PipelineSelector::CodeStyle => Some(&state.project_index),
+            PipelineSelector::CodeStyle => Some(&state.code_graph),
             _ => None,
         };
         let engine = AuditEngine::new()

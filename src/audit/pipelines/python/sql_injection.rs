@@ -5,7 +5,8 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
 
@@ -145,6 +146,81 @@ impl Pipeline for SqlInjectionPipeline {
 
         findings
     }
+
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        // When graph is available, use taint analysis for higher-confidence findings
+        if let Some(graph) = ctx.graph {
+            let graph_findings =
+                check_sql_injection_via_graph(graph, ctx.file_path);
+            if !graph_findings.is_empty() {
+                return graph_findings;
+            }
+        }
+        // Fallback to tree-sitter pattern matching
+        self.check_with_ids(ctx.tree, ctx.source, ctx.file_path, ctx.id_counts)
+    }
+}
+
+/// Query the CodeGraph for unsanitized taint paths to SQL sink calls in this file.
+fn check_sql_injection_via_graph(graph: &CodeGraph, file_path: &str) -> Vec<AuditFinding> {
+    use petgraph::visit::EdgeRef;
+    use petgraph::Direction;
+
+    let mut findings = Vec::new();
+
+    // Find all symbol nodes in this file
+    for sym_idx in graph.graph.node_indices() {
+        let (sym_file, sym_name, start_line) = match &graph.graph[sym_idx] {
+            NodeWeight::Symbol {
+                file_path: fp,
+                name,
+                start_line,
+                ..
+            } => (fp.as_str(), name.as_str(), *start_line),
+            _ => continue,
+        };
+
+        if sym_file != file_path {
+            continue;
+        }
+
+        // Check if this symbol has any incoming FlowsTo edges (tainted data flows in)
+        let has_taint_flow = graph
+            .graph
+            .edges_directed(sym_idx, Direction::Incoming)
+            .any(|e| matches!(e.weight(), EdgeWeight::FlowsTo));
+
+        if !has_taint_flow {
+            continue;
+        }
+
+        // Check if there's a SanitizedBy edge (data was sanitized)
+        let is_sanitized = graph
+            .graph
+            .edges_directed(sym_idx, Direction::Outgoing)
+            .any(|e| matches!(e.weight(), EdgeWeight::SanitizedBy { .. }));
+
+        if is_sanitized {
+            continue;
+        }
+
+        // This symbol has unsanitized taint flow — it's a potential SQL injection
+        findings.push(AuditFinding {
+            file_path: file_path.to_string(),
+            line: start_line,
+            column: 1,
+            severity: "error".to_string(),
+            pipeline: "sql_injection".to_string(),
+            pattern: "sql_taint_flow".to_string(),
+            message: format!(
+                "Unsanitized data flow to SQL sink via '{}' — use parameterized queries",
+                sym_name
+            ),
+            snippet: String::new(),
+        });
+    }
+
+    findings
 }
 
 /// Checks if a Python `string` node contains `interpolation` children (i.e., is an f-string).
