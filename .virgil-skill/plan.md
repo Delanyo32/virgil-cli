@@ -80,11 +80,11 @@ Research:
 Findings: All 6 locations updated. 4 individual subcommands now build their own graph. Combined modes (run_code_quality_summary_ws, run_full_audit_ws) build a single shared graph for all categories. Build clean, 1931 tests pass.
 
 ## Phase 2: Reduce Scalability Extras (96 → ~20)
-Status: pending
+Status: completed
 Goal: `memory_leak_indicators` and `n_plus_one_queries` use graph context to eliminate false positives
 
 ### Task 2.1: Graph-aware unbounded_growth in memory_leak_indicators
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/memory_leak_indicators.rs`:
 - Override `check_with_context()` instead of relying on `check()`
 - When graph is available, for each `.append()`/`.extend()` in a loop:
@@ -100,10 +100,10 @@ Research:
 - [code] Current detection: `.append()` inside `for_statement`/`while_statement` → finding (source: memory_leak_indicators.rs)
 - [code] `PipelineContext.graph.function_cfgs` — HashMap<NodeIndex, FunctionCfg> for control flow analysis
 - [code] Current `file_handle_leak`: only checks `with_statement` parent (source: memory_leak_indicators.rs)
-Findings:
+Findings: Overrode check_with_context() with result-builder detection (init as [] + returned), bounded loop iteration (for-loop over parameter), and try/finally for file_handle_leak. 6 new tests, all pass.
 
 ### Task 2.2: Graph-aware query_in_loop in n_plus_one_queries
-Status: pending
+Status: completed
 Change: In `src/audit/pipelines/python/n_plus_one_queries.rs`:
 - Override `check_with_context()`
 - When graph is available, for each flagged call in a loop:
@@ -119,7 +119,7 @@ Research:
 - [code] Current receiver validation: inclusive list (session, query, db, objects) + exclusive list (list, dict, set, cache) (source: n_plus_one_queries.rs)
 - [code] `graph.find_symbol(file_path, line)` → Option<NodeIndex> for symbol resolution
 - [code] `graph.traverse_callers()` for tracing data sources
-Findings:
+Findings: Overrode check_with_context() with receiver assignment tracing (suppresses dict/list/set literals, comprehensions, dict()/list()/set() calls) and .get() with default arg heuristic. 7 new tests, all pass.
 
 ## Phase 3: Reduce Type-Safety Extras (444 → ~50)
 Status: pending

@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{Pipeline, PipelineContext};
 use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
@@ -178,6 +178,230 @@ impl NPlusOneQueriesPipeline {
             snippet: extract_snippet(source, call_node, 1),
         }
     }
+
+    /// Find a `call` node at the given 0-indexed row in the tree.
+    fn find_call_node_at_row(
+        root: tree_sitter::Node,
+        row: usize,
+    ) -> Option<tree_sitter::Node> {
+        let mut cursor = root.walk();
+        let mut result = None;
+        Self::walk_tree_for_call(root, &mut cursor, row, &mut result);
+        result
+    }
+
+    fn walk_tree_for_call<'a>(
+        node: tree_sitter::Node<'a>,
+        cursor: &mut tree_sitter::TreeCursor<'a>,
+        row: usize,
+        result: &mut Option<tree_sitter::Node<'a>>,
+    ) {
+        if result.is_some() {
+            return;
+        }
+        if node.kind() == "call" && node.start_position().row == row {
+            *result = Some(node);
+            return;
+        }
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                // Only recurse if the child's row range overlaps our target
+                if child.start_position().row <= row && child.end_position().row >= row {
+                    Self::walk_tree_for_call(child, cursor, row, result);
+                    if result.is_some() {
+                        // Restore cursor position before returning
+                        cursor.goto_parent();
+                        return;
+                    }
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+            cursor.goto_parent();
+        }
+    }
+
+    /// Walk up from a node to find the enclosing function definition.
+    fn find_enclosing_function(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            if parent.kind() == "function_definition" {
+                return Some(parent);
+            }
+            current = parent.parent();
+        }
+        None
+    }
+
+    /// Check if a receiver variable is assigned from a non-DB source within the
+    /// enclosing function body. Returns `true` if the receiver is definitely
+    /// non-DB (i.e., the finding should be suppressed).
+    fn receiver_assigned_from_non_db(
+        func_node: tree_sitter::Node,
+        receiver_name: &str,
+        source: &[u8],
+    ) -> bool {
+        // Find the function body (block child)
+        let body = func_node.child_by_field_name("body");
+        let body = match body {
+            Some(b) => b,
+            None => return false,
+        };
+
+        let mut cursor = body.walk();
+        Self::scan_assignments_for_non_db(body, &mut cursor, receiver_name, source)
+    }
+
+    fn scan_assignments_for_non_db<'a>(
+        node: tree_sitter::Node<'a>,
+        cursor: &mut tree_sitter::TreeCursor<'a>,
+        receiver_name: &str,
+        source: &[u8],
+    ) -> bool {
+        if node.kind() == "assignment" {
+            // Check if the left side matches receiver_name
+            if let Some(left) = node.child_by_field_name("left") {
+                let left_text = left.utf8_text(source).unwrap_or("");
+                if left_text == receiver_name {
+                    // Check the right-hand side
+                    if let Some(right) = node.child_by_field_name("right") {
+                        if Self::is_non_db_expression(right, source) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Recurse into children
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                if Self::scan_assignments_for_non_db(child, cursor, receiver_name, source) {
+                    cursor.goto_parent();
+                    return true;
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+            cursor.goto_parent();
+        }
+        false
+    }
+
+    /// Returns true if the expression is clearly a non-DB value
+    /// (dict/list/set literal, comprehension, or dict()/list()/set() call).
+    fn is_non_db_expression(node: tree_sitter::Node, source: &[u8]) -> bool {
+        let kind = node.kind();
+        match kind {
+            // Literals: {}, [], set()
+            "dictionary" | "list" | "set" => true,
+            // Comprehensions
+            "dictionary_comprehension" | "list_comprehension" | "set_comprehension"
+            | "generator_expression" => true,
+            // Subscript on a variable (e.g. data[key]) — likely dict/list access
+            "subscript" => true,
+            // Call to dict(), list(), set()
+            "call" => {
+                if let Some(func) = node.child_by_field_name("function") {
+                    let func_text = func.utf8_text(source).unwrap_or("");
+                    matches!(func_text, "dict" | "list" | "set" | "tuple" | "frozenset")
+                } else {
+                    false
+                }
+            }
+            // Tuple literal
+            "tuple" => true,
+            _ => false,
+        }
+    }
+
+    /// Check if a `.get()` call has 2+ arguments (key + default), which is
+    /// a strong signal it's a dict `.get(key, default)`.
+    fn is_dict_get_with_default(
+        call_node: tree_sitter::Node,
+        source: &[u8],
+    ) -> bool {
+        // The call should be an attribute call where method is "get"
+        if let Some(func) = call_node.child_by_field_name("function") {
+            if func.kind() == "attribute" {
+                if let Some(attr) = func.child_by_field_name("attribute") {
+                    let method = attr.utf8_text(source).unwrap_or("");
+                    if method == "get" {
+                        // Count arguments in argument_list
+                        if let Some(args) = call_node.child_by_field_name("arguments") {
+                            let mut arg_count = 0;
+                            let mut arg_cursor = args.walk();
+                            if arg_cursor.goto_first_child() {
+                                loop {
+                                    let child = arg_cursor.node();
+                                    // Skip punctuation (parens, commas)
+                                    if child.is_named() {
+                                        arg_count += 1;
+                                    }
+                                    if !arg_cursor.goto_next_sibling() {
+                                        break;
+                                    }
+                                }
+                            }
+                            // .get(key, default) has 2 args
+                            return arg_count >= 2;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Apply tree-sitter-based assignment filtering to reduce false positives.
+    /// Returns findings with non-DB receivers suppressed.
+    fn filter_findings_via_tree(
+        findings: Vec<AuditFinding>,
+        tree: &Tree,
+        source: &[u8],
+    ) -> Vec<AuditFinding> {
+        findings
+            .into_iter()
+            .filter(|finding| {
+                let row = (finding.line - 1) as usize; // 0-indexed
+
+                // Find the call node at this line
+                let call_node = match Self::find_call_node_at_row(tree.root_node(), row) {
+                    Some(n) => n,
+                    None => return true, // Keep finding if we can't locate the call
+                };
+
+                // Check if it's a .get() with a default value — almost certainly a dict
+                if Self::is_dict_get_with_default(call_node, source) {
+                    return false; // Suppress
+                }
+
+                // Extract receiver
+                let receiver = extract_receiver_text(call_node, source);
+                if receiver.is_empty() {
+                    return true; // Keep: no receiver to check
+                }
+
+                // Find enclosing function and check assignments
+                if let Some(func_node) = Self::find_enclosing_function(call_node) {
+                    if Self::receiver_assigned_from_non_db(func_node, receiver, source) {
+                        return false; // Suppress: assigned from non-DB source
+                    }
+                }
+
+                // Check parameter names against NON_DB_RECEIVERS
+                if receiver_matches_any_word(receiver, NON_DB_RECEIVERS) {
+                    return false; // Suppress
+                }
+
+                true // Keep
+            })
+            .collect()
+    }
 }
 
 impl Pipeline for NPlusOneQueriesPipeline {
@@ -187,6 +411,14 @@ impl Pipeline for NPlusOneQueriesPipeline {
 
     fn description(&self) -> &str {
         "Detects DB/ORM/HTTP calls inside loops (N+1 query pattern)"
+    }
+
+    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+        let base_findings = self.check(ctx.tree, ctx.source, ctx.file_path);
+        // Apply tree-sitter-based assignment filtering regardless of graph availability.
+        // The graph could provide additional context in the future, but the
+        // assignment + dict-get heuristics work purely from the syntax tree.
+        Self::filter_findings_via_tree(base_findings, ctx.tree, ctx.source)
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
@@ -228,6 +460,7 @@ impl Pipeline for NPlusOneQueriesPipeline {
 mod tests {
     use super::*;
     use crate::language::Language;
+    use std::collections::HashMap;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
@@ -237,6 +470,24 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = NPlusOneQueriesPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.py")
+    }
+
+    fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::Python.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = NPlusOneQueriesPipeline::new().unwrap();
+        let id_counts = HashMap::new();
+        let ctx = PipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: None,
+        };
+        pipeline.check_with_context(&ctx)
     }
 
     #[test]
@@ -304,5 +555,136 @@ for item in items:
 ";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suppresses_dict_get_with_default_in_loop() {
+        // db.get(key, default) — .get() with 2 args is dict pattern even on DB-named receiver
+        let src = "\
+def process(data):
+    for key in keys:
+        value = db.get(key, None)
+";
+        // Base check() would flag this (db matches DB_RECEIVERS)
+        let base = parse_and_check(src);
+        assert_eq!(base.len(), 1, "base check should flag db.get()");
+        // But check_with_context suppresses because of 2-arg .get() heuristic
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "dict .get(key, default) should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn suppresses_variable_assigned_from_dict_literal() {
+        // db_lookup = {} then db_lookup.get(id) — receiver has "db" but assigned from dict literal
+        let src = "\
+def process(items):
+    db_lookup = {}
+    for item in items:
+        db_lookup.get(item.id)
+";
+        // Base check() would flag this (db_lookup contains "db" → matches DB_RECEIVERS)
+        let base = parse_and_check(src);
+        assert_eq!(base.len(), 1, "base check should flag db_lookup.get()");
+        // check_with_context suppresses because db_lookup is assigned from dict literal
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "variable assigned from dict literal should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn suppresses_variable_assigned_from_list_literal() {
+        let src = "\
+def process(data):
+    results = []
+    for item in data:
+        results.filter(lambda x: x > item)
+";
+        // results doesn't match DB or NON_DB, so check() skips it (conservative)
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "variable assigned from list literal should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn suppresses_variable_assigned_from_dict_call() {
+        // db_map = dict() then db_map.get(key) — receiver has "db" but assigned from dict()
+        let src = "\
+def process(items):
+    db_map = dict()
+    for item in items:
+        db_map.get(item.key)
+";
+        // Base check() would flag this (db_map contains "db" → matches DB_RECEIVERS)
+        let base = parse_and_check(src);
+        assert_eq!(base.len(), 1, "base check should flag db_map.get()");
+        // check_with_context suppresses because db_map is assigned from dict()
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "variable assigned from dict() call should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn suppresses_variable_assigned_from_comprehension() {
+        // db_index assigned from dict comprehension
+        let src = "\
+def process(data):
+    db_index = {item.id: item for item in data}
+    for key in keys:
+        db_index.get(key)
+";
+        // Base check() would flag this (db_index contains "db" → matches DB_RECEIVERS)
+        let base = parse_and_check(src);
+        assert_eq!(base.len(), 1, "base check should flag db_index.get()");
+        // check_with_context suppresses because db_index is assigned from comprehension
+        let findings = parse_and_check_with_context(src);
+        assert!(
+            findings.is_empty(),
+            "variable assigned from dict comprehension should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn still_flags_genuine_db_query_in_loop() {
+        let src = "\
+def fetch_users(user_ids):
+    for user_id in user_ids:
+        cursor.execute(\"SELECT * FROM users WHERE id = %s\", (user_id,))
+";
+        let findings = parse_and_check_with_context(src);
+        assert_eq!(
+            findings.len(),
+            1,
+            "genuine DB query should still be flagged"
+        );
+        assert!(findings[0].message.contains("cursor.execute"));
+    }
+
+    #[test]
+    fn still_flags_db_receiver_get_in_loop() {
+        let src = "\
+def fetch_data(ids):
+    for id in ids:
+        db.get(id)
+";
+        let findings = parse_and_check_with_context(src);
+        assert_eq!(
+            findings.len(),
+            1,
+            "db.get() with single arg should still be flagged"
+        );
     }
 }
