@@ -62,28 +62,28 @@ pub fn complexity_pipelines() -> Result<Vec<AnyPipeline>> {
 pub fn code_style_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
         AnyPipeline::Graph(Box::new(dead_code::DeadCodePipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(duplicate_code::DuplicateCodePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(duplicate_code::DuplicateCodePipeline::new()?)),
         AnyPipeline::Graph(Box::new(coupling::CouplingPipeline::new()?)),
     ])
 }
 
 pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Legacy(Box::new(command_injection::CommandInjectionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(code_injection::CodeInjectionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(command_injection::CommandInjectionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(code_injection::CodeInjectionPipeline::new()?)),
         AnyPipeline::Graph(Box::new(sql_injection::SqlInjectionPipeline::new()?)),
         AnyPipeline::Graph(Box::new(path_traversal::PathTraversalPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(ssrf::SsrfPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(xxe_format_string::XxeFormatStringPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(ssrf::SsrfPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(xxe_format_string::XxeFormatStringPipeline::new()?)),
     ])
 }
 
 pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
         AnyPipeline::Graph(Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?)),
         AnyPipeline::Graph(Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?)),
     ])
 }

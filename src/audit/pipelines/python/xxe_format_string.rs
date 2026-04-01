@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
 
@@ -33,7 +33,7 @@ impl XxeFormatStringPipeline {
     }
 }
 
-impl Pipeline for XxeFormatStringPipeline {
+impl GraphPipeline for XxeFormatStringPipeline {
     fn name(&self) -> &str {
         "xxe_format_string"
     }
@@ -42,7 +42,10 @@ impl Pipeline for XxeFormatStringPipeline {
         "Detects XXE risks from XML parsing with untrusted data, and format string injection"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.call_query, tree.root_node(), source);
@@ -144,13 +147,26 @@ mod tests {
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        use crate::audit::pipeline::GraphPipelineContext;
+        use crate::graph::CodeGraph;
+        use std::collections::HashMap;
+
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Python.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = XxeFormatStringPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        let graph = CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]

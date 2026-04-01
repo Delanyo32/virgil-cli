@@ -4,7 +4,7 @@ use anyhow::Result;
 use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{find_duplicate_bodies, hash_block_normalized};
 
 pub struct DuplicateCodePipeline;
@@ -149,7 +149,7 @@ fn collect_duplicate_branches(
     }
 }
 
-impl Pipeline for DuplicateCodePipeline {
+impl GraphPipeline for DuplicateCodePipeline {
     fn name(&self) -> &str {
         "duplicate_code"
     }
@@ -158,7 +158,10 @@ impl Pipeline for DuplicateCodePipeline {
         "Detects duplicate function bodies and duplicate if/elif branches"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
         let mut findings = Vec::new();
         findings.extend(self.check_duplicate_function_bodies(tree, source, file_path));
         findings.extend(self.check_duplicate_elif_branches(tree, source, file_path));
@@ -172,13 +175,26 @@ mod tests {
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        use crate::audit::pipeline::GraphPipelineContext;
+        use crate::graph::CodeGraph;
+        use std::collections::HashMap;
+
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Python.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = DuplicateCodePipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        let graph = CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     // ── duplicate_function_body ──
