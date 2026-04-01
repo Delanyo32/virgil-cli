@@ -2,7 +2,7 @@ use anyhow::Result;
 use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{body_has_member_access, count_nodes_of_kind};
 
 use super::primitives::{extract_snippet, node_text};
@@ -474,7 +474,7 @@ fn is_trivial_body(body: tree_sitter::Node, _source: &[u8]) -> bool {
     false
 }
 
-impl Pipeline for CouplingPipeline {
+impl GraphPipeline for CouplingPipeline {
     fn name(&self) -> &str {
         "coupling"
     }
@@ -483,18 +483,14 @@ impl Pipeline for CouplingPipeline {
         "Detects excessive imports, parameter overload, and low cohesion in Python"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
-        findings.extend(self.check_excessive_imports(tree, source, file_path));
-        findings.extend(self.check_parameter_overload(tree, source, file_path));
-        findings.extend(self.check_low_cohesion(tree, source, file_path));
+        findings.extend(self.check_excessive_imports(ctx.tree, ctx.source, ctx.file_path));
+        findings.extend(self.check_parameter_overload(ctx.tree, ctx.source, ctx.file_path));
+        findings.extend(self.check_low_cohesion(ctx.tree, ctx.source, ctx.file_path));
+
         findings
-    }
-
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
-
-        base.into_iter()
+            .into_iter()
             .filter(|f| {
                 if f.pattern != "low_cohesion" {
                     return true; // pass through non-cohesion findings
@@ -517,7 +513,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = CouplingPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        let id_counts = std::collections::HashMap::new();
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     // ── excessive_imports ──
@@ -703,14 +708,15 @@ class Foo:
         let tree = parser.parse(source, None).unwrap();
         let pipeline = CouplingPipeline::new().unwrap();
         let id_counts = std::collections::HashMap::new();
-        let ctx = PipelineContext {
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: None,
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]

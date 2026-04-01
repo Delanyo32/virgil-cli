@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::language::Language;
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
@@ -284,16 +284,8 @@ impl MemoryLeakIndicatorsPipeline {
     }
 }
 
-impl Pipeline for MemoryLeakIndicatorsPipeline {
-    fn name(&self) -> &str {
-        "memory_leak_indicators"
-    }
-
-    fn description(&self) -> &str {
-        "Detects potential memory leaks: open() without with, unbounded growth in loops, __del__ methods"
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl MemoryLeakIndicatorsPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
 
         // 1. Detect open() calls not inside `with` statements
@@ -403,8 +395,19 @@ impl Pipeline for MemoryLeakIndicatorsPipeline {
         findings
     }
 
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let findings = self.check(ctx.tree, ctx.source, ctx.file_path);
+}
+
+impl GraphPipeline for MemoryLeakIndicatorsPipeline {
+    fn name(&self) -> &str {
+        "memory_leak_indicators"
+    }
+
+    fn description(&self) -> &str {
+        "Detects potential memory leaks: open() without with, unbounded growth in loops, __del__ methods"
+    }
+
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let findings = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
         let root = ctx.tree.root_node();
 
         findings
@@ -460,7 +463,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MemoryLeakIndicatorsPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     #[test]
@@ -557,14 +560,15 @@ while True:
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MemoryLeakIndicatorsPipeline::new().unwrap();
         let id_counts = HashMap::new();
-        let ctx = PipelineContext {
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: None,
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]

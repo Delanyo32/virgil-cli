@@ -2,7 +2,7 @@ use anyhow::Result;
 use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
 use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_comment_ratio, is_test_file};
 
 fn py_config() -> ControlFlowConfig {
@@ -38,7 +38,7 @@ impl CommentToCodeRatioPipeline {
     }
 }
 
-impl Pipeline for CommentToCodeRatioPipeline {
+impl NodePipeline for CommentToCodeRatioPipeline {
     fn name(&self) -> &str {
         "comment_to_code_ratio"
     }

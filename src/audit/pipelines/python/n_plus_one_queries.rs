@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{extract_receiver_text, receiver_matches_any_word};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
@@ -399,24 +399,8 @@ impl NPlusOneQueriesPipeline {
     }
 }
 
-impl Pipeline for NPlusOneQueriesPipeline {
-    fn name(&self) -> &str {
-        "n_plus_one_queries"
-    }
-
-    fn description(&self) -> &str {
-        "Detects DB/ORM/HTTP calls inside loops (N+1 query pattern)"
-    }
-
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let base_findings = self.check(ctx.tree, ctx.source, ctx.file_path);
-        // Apply tree-sitter-based assignment filtering regardless of graph availability.
-        // The graph could provide additional context in the future, but the
-        // assignment + dict-get heuristics work purely from the syntax tree.
-        Self::filter_findings_via_tree(base_findings, ctx.tree, ctx.source)
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl NPlusOneQueriesPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.call_query, tree.root_node(), source);
@@ -451,6 +435,24 @@ impl Pipeline for NPlusOneQueriesPipeline {
     }
 }
 
+impl GraphPipeline for NPlusOneQueriesPipeline {
+    fn name(&self) -> &str {
+        "n_plus_one_queries"
+    }
+
+    fn description(&self) -> &str {
+        "Detects DB/ORM/HTTP calls inside loops (N+1 query pattern)"
+    }
+
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let base_findings = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
+        // Apply tree-sitter-based assignment filtering regardless of graph availability.
+        // The graph could provide additional context in the future, but the
+        // assignment + dict-get heuristics work purely from the syntax tree.
+        Self::filter_findings_via_tree(base_findings, ctx.tree, ctx.source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,7 +466,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = NPlusOneQueriesPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
@@ -475,14 +477,15 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = NPlusOneQueriesPipeline::new().unwrap();
         let id_counts = HashMap::new();
-        let ctx = PipelineContext {
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: None,
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]

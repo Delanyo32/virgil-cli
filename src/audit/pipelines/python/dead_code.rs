@@ -6,7 +6,7 @@ use petgraph::visit::EdgeRef;
 use tree_sitter::Tree;
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{count_all_identifier_occurrences, find_unreachable_after};
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 
@@ -280,7 +280,7 @@ impl DeadCodePipeline {
 
     /// Returns true if the import flagged in `finding` is actually used,
     /// meaning the finding is a false positive that should be suppressed.
-    fn is_import_actually_used(&self, finding: &AuditFinding, ctx: &PipelineContext) -> bool {
+    fn is_import_actually_used(&self, finding: &AuditFinding, ctx: &GraphPipelineContext) -> bool {
         // Extract the imported name from the message: import `NAME` appears unused
         let name = match extract_name_from_finding(finding) {
             Some(n) => n,
@@ -305,9 +305,7 @@ impl DeadCodePipeline {
         }
 
         // 4. Graph-based: check if the file exports a symbol with this name
-        if let Some(graph) = ctx.graph
-            && is_reexported_via_graph(graph, ctx.file_path, &name)
-        {
+        if is_reexported_via_graph(ctx.graph, ctx.file_path, &name) {
             return true;
         }
 
@@ -510,7 +508,7 @@ fn collect_unreachable_in_blocks(
     }
 }
 
-impl Pipeline for DeadCodePipeline {
+impl GraphPipeline for DeadCodePipeline {
     fn name(&self) -> &str {
         "dead_code"
     }
@@ -519,19 +517,15 @@ impl Pipeline for DeadCodePipeline {
         "Detects unused private functions, unused imports, and unreachable code in Python"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
-        findings.extend(self.check_unused_private_functions(tree, source, file_path));
-        findings.extend(self.check_unused_imports(tree, source, file_path));
-        findings.extend(self.check_unreachable_code(tree, source, file_path));
-        findings
-    }
-
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+        findings.extend(self.check_unused_private_functions(ctx.tree, ctx.source, ctx.file_path));
+        findings.extend(self.check_unused_imports(ctx.tree, ctx.source, ctx.file_path));
+        findings.extend(self.check_unreachable_code(ctx.tree, ctx.source, ctx.file_path));
 
         // Filter unused_import findings using tree-sitter + graph heuristics
-        base.into_iter()
+        findings
+            .into_iter()
             .filter(|f| {
                 if f.pattern != "unused_import" {
                     return true; // pass through non-import findings
@@ -545,6 +539,9 @@ impl Pipeline for DeadCodePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    use crate::graph::CodeGraph;
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
@@ -554,7 +551,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = DeadCodePipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        let id_counts = HashMap::new();
+        let graph = CodeGraph::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     // ── unused_private_function ──
@@ -749,8 +755,6 @@ def foo():
     // ── check_with_context tests ──
 
     fn parse_and_check_with_context(source: &str, file_path: &str) -> Vec<AuditFinding> {
-        use std::collections::HashMap;
-
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Python.tree_sitter_language())
@@ -758,14 +762,15 @@ def foo():
         let tree = parser.parse(source, None).unwrap();
         let pipeline = DeadCodePipeline::new().unwrap();
         let id_counts = HashMap::new();
-        let ctx = PipelineContext {
+        let graph = CodeGraph::new();
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path,
             id_counts: &id_counts,
-            graph: None,
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]

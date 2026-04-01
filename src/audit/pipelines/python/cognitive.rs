@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
 use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_cognitive};
 use crate::audit::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::language::Language;
@@ -55,7 +55,7 @@ impl CognitiveComplexityPipeline {
     }
 }
 
-impl Pipeline for CognitiveComplexityPipeline {
+impl NodePipeline for CognitiveComplexityPipeline {
     fn name(&self) -> &str {
         "cognitive_complexity"
     }

@@ -7,7 +7,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 
 use super::primitives::{compile_call_query, extract_snippet, find_capture_index, node_text};
@@ -26,16 +26,8 @@ impl SqlInjectionPipeline {
     }
 }
 
-impl Pipeline for SqlInjectionPipeline {
-    fn name(&self) -> &str {
-        "sql_injection"
-    }
-
-    fn description(&self) -> &str {
-        "Detects SQL injection risks: f-strings, format(), %, or concatenation in execute() calls"
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl SqlInjectionPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.call_query, tree.root_node(), source);
@@ -149,40 +141,48 @@ impl Pipeline for SqlInjectionPipeline {
         findings
     }
 
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let mut ts_findings = self.check(ctx.tree, ctx.source, ctx.file_path);
+}
 
-        // When graph is available, add graph-based findings and filter tree-sitter ones
-        if let Some(graph) = ctx.graph {
-            let graph_findings = check_sql_injection_via_graph(graph, ctx.file_path);
+impl GraphPipeline for SqlInjectionPipeline {
+    fn name(&self) -> &str {
+        "sql_injection"
+    }
 
-            // Filter sql_fstring findings — suppress when no external taint
-            ts_findings.retain(|f| {
-                if f.pattern != "sql_fstring" {
-                    return true;
-                }
-                // Always suppress constant interpolation (ALL_CAPS)
-                if is_constant_interpolation(ctx.tree, ctx.source, f.line) {
-                    return false; // suppress — safe constant interpolation
-                }
-                // Keep finding if file is API-facing (parameters are likely user-controlled)
-                if is_api_facing_file(ctx.file_path) {
-                    return true;
-                }
-                // Keep finding if enclosing function has user-input-like params
-                if function_has_user_input_params(ctx.tree, ctx.source, f.line) {
-                    return true;
-                }
-                // Fall back to graph-based check
-                if !function_has_external_input(graph, ctx.file_path, f.line) {
-                    return false; // suppress — no external input flows here
-                }
-                true
-            });
+    fn description(&self) -> &str {
+        "Detects SQL injection risks: f-strings, format(), %, or concatenation in execute() calls"
+    }
 
-            // Merge graph findings
-            ts_findings.extend(graph_findings);
-        }
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let mut ts_findings = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
+
+        let graph_findings = check_sql_injection_via_graph(ctx.graph, ctx.file_path);
+
+        // Filter sql_fstring findings — suppress when no external taint
+        ts_findings.retain(|f| {
+            if f.pattern != "sql_fstring" {
+                return true;
+            }
+            // Always suppress constant interpolation (ALL_CAPS)
+            if is_constant_interpolation(ctx.tree, ctx.source, f.line) {
+                return false; // suppress — safe constant interpolation
+            }
+            // Keep finding if file is API-facing (parameters are likely user-controlled)
+            if is_api_facing_file(ctx.file_path) {
+                return true;
+            }
+            // Keep finding if enclosing function has user-input-like params
+            if function_has_user_input_params(ctx.tree, ctx.source, f.line) {
+                return true;
+            }
+            // Fall back to graph-based check
+            if !function_has_external_input(ctx.graph, ctx.file_path, f.line) {
+                return false; // suppress — no external input flows here
+            }
+            true
+        });
+
+        // Merge graph findings
+        ts_findings.extend(graph_findings);
 
         ts_findings
     }
@@ -540,7 +540,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = SqlInjectionPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     #[test]
@@ -595,14 +595,14 @@ mod tests {
         let pipeline = SqlInjectionPipeline::new().unwrap();
         let id_counts = HashMap::new();
         let graph = CodeGraph::new();
-        let ctx = PipelineContext {
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: Some(&graph),
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -666,14 +666,14 @@ mod tests {
         });
         graph.graph.add_edge(ext_idx, sym_idx, EdgeWeight::FlowsTo);
 
-        let ctx = PipelineContext {
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: src.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: Some(&graph),
+            graph: &graph,
         };
-        let findings = pipeline.check_with_context(&ctx);
+        let findings = pipeline.check(&ctx);
         // Tree-sitter sql_fstring is kept (external input present) + graph sql_taint_flow is added
         assert!(
             findings.iter().any(|f| f.pattern == "sql_fstring"),

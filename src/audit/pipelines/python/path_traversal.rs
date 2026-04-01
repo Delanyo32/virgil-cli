@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 
 use super::primitives::{
     compile_call_query, compile_function_def_query, extract_snippet, find_capture_index, node_text,
@@ -25,16 +25,8 @@ impl PathTraversalPipeline {
     }
 }
 
-impl Pipeline for PathTraversalPipeline {
-    fn name(&self) -> &str {
-        "path_traversal"
-    }
-
-    fn description(&self) -> &str {
-        "Detects path traversal risks: open() or os.path.join() with function parameters"
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl PathTraversalPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
 
         let fn_name_idx = find_capture_index(&self.fn_query, "fn_name");
@@ -131,13 +123,24 @@ impl Pipeline for PathTraversalPipeline {
         findings
     }
 
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
+}
+
+impl GraphPipeline for PathTraversalPipeline {
+    fn name(&self) -> &str {
+        "path_traversal"
+    }
+
+    fn description(&self) -> &str {
+        "Detects path traversal risks: open() or os.path.join() with function parameters"
+    }
+
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
         // Suppress all findings in test files
         if is_test_file(ctx.file_path) {
             return Vec::new();
         }
 
-        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+        let base = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
 
         base.into_iter()
             .filter(|f| !is_path_validated(ctx.tree, ctx.source, f.line))
@@ -317,7 +320,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = PathTraversalPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
@@ -332,14 +335,15 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = PathTraversalPipeline::new().unwrap();
         let id_counts = HashMap::new();
-        let ctx = PipelineContext {
+        let graph = crate::graph::CodeGraph::new();
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path,
             id_counts: &id_counts,
-            graph: None,
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]

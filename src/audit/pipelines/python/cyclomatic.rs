@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
 use crate::audit::pipelines::helpers::{ControlFlowConfig, compute_cyclomatic};
 use crate::audit::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::language::Language;
@@ -55,7 +55,7 @@ impl CyclomaticComplexityPipeline {
     }
 }
 
-impl Pipeline for CyclomaticComplexityPipeline {
+impl NodePipeline for CyclomaticComplexityPipeline {
     fn name(&self) -> &str {
         "cyclomatic_complexity"
     }

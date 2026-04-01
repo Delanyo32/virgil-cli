@@ -8,7 +8,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use super::primitives::{find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::count_top_level_definitions;
 use crate::graph::CodeGraph;
 use crate::language::Language;
@@ -154,43 +154,8 @@ impl ApiSurfaceAreaPipeline {
     }
 }
 
-impl Pipeline for ApiSurfaceAreaPipeline {
-    fn name(&self) -> &str {
-        "api_surface_area"
-    }
-
-    fn description(&self) -> &str {
-        "Detects excessive public API and leaky abstraction boundaries"
-    }
-
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
-
-        if let Some(graph) = ctx.graph {
-            let is_init = ctx.file_path.ends_with("__init__.py");
-            let is_boundary_file = is_boundary_layer_file(ctx.file_path);
-
-            return base
-                .into_iter()
-                .filter(|f| match f.pattern.as_str() {
-                    // Never suppress __init__.py — it IS the API surface
-                    "excessive_public_api" => {
-                        is_init || !self.is_effective_api_small(ctx.file_path, graph)
-                    }
-                    // Keep leaky_abstraction_boundary for view/serializer files
-                    "leaky_abstraction_boundary" => {
-                        is_boundary_file
-                            || !self.is_internal_only_class(f, ctx.file_path, graph)
-                    }
-                    _ => true,
-                })
-                .collect();
-        }
-
-        base
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl ApiSurfaceAreaPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
@@ -304,6 +269,38 @@ impl Pipeline for ApiSurfaceAreaPipeline {
     }
 }
 
+impl GraphPipeline for ApiSurfaceAreaPipeline {
+    fn name(&self) -> &str {
+        "api_surface_area"
+    }
+
+    fn description(&self) -> &str {
+        "Detects excessive public API and leaky abstraction boundaries"
+    }
+
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let base = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
+
+        let is_init = ctx.file_path.ends_with("__init__.py");
+        let is_boundary_file = is_boundary_layer_file(ctx.file_path);
+
+        base.into_iter()
+            .filter(|f| match f.pattern.as_str() {
+                // Never suppress __init__.py — it IS the API surface
+                "excessive_public_api" => {
+                    is_init || !self.is_effective_api_small(ctx.file_path, ctx.graph)
+                }
+                // Keep leaky_abstraction_boundary for view/serializer files
+                "leaky_abstraction_boundary" => {
+                    is_boundary_file
+                        || !self.is_internal_only_class(f, ctx.file_path, ctx.graph)
+                }
+                _ => true,
+            })
+            .collect()
+    }
+}
+
 /// Check if the file is a boundary layer (views, serializers, forms, etc.)
 /// where leaky abstraction findings are especially relevant.
 fn is_boundary_layer_file(file_path: &str) -> bool {
@@ -404,7 +401,7 @@ mod tests {
         parser.set_language(&python_lang()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     #[test]
@@ -522,14 +519,14 @@ class SmallClass:
         let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
         let id_counts = std::collections::HashMap::new();
         let graph = crate::graph::CodeGraph::new();
-        let ctx = PipelineContext {
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: Some(&graph),
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -557,14 +554,14 @@ class SmallClass:
         let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
         let id_counts = std::collections::HashMap::new();
         let graph = crate::graph::CodeGraph::new();
-        let ctx = PipelineContext {
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: src.as_bytes(),
             file_path: "test.py",
             id_counts: &id_counts,
-            graph: Some(&graph),
+            graph: &graph,
         };
-        let findings = pipeline.check_with_context(&ctx);
+        let findings = pipeline.check(&ctx);
         assert!(
             !findings.iter().any(|f| f.pattern == "excessive_public_api"),
             "excessive_public_api should be suppressed when no cross-file callers exist"
@@ -603,29 +600,17 @@ class ConnectionPool:
     }
 
     #[test]
-    fn context_without_graph_returns_all_findings() {
+    fn tree_sitter_check_returns_all_findings() {
         let mut src = String::new();
         for i in 0..10 {
             src.push_str(&format!("def func_{}():\n    pass\n", i));
         }
         src.push_str("def _private_func():\n    pass\n");
 
-        let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&python_lang()).unwrap();
-        let tree = parser.parse(src.as_bytes(), None).unwrap();
-        let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
-        let id_counts = std::collections::HashMap::new();
-        let ctx = PipelineContext {
-            tree: &tree,
-            source: src.as_bytes(),
-            file_path: "test.py",
-            id_counts: &id_counts,
-            graph: None,
-        };
-        let findings = pipeline.check_with_context(&ctx);
+        let findings = parse_and_check(&src);
         assert!(
             findings.iter().any(|f| f.pattern == "excessive_public_api"),
-            "Without graph, all findings should be returned unchanged"
+            "Tree-sitter check should return all findings"
         );
     }
 }

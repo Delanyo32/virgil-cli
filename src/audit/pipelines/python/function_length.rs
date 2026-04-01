@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
 use crate::audit::pipelines::helpers::count_function_lines;
 use crate::audit::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::language::Language;
@@ -30,7 +30,7 @@ impl FunctionLengthPipeline {
     }
 }
 
-impl Pipeline for FunctionLengthPipeline {
+impl NodePipeline for FunctionLengthPipeline {
     fn name(&self) -> &str {
         "function_length"
     }

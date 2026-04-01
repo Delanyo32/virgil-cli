@@ -5,7 +5,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::graph::CodeGraph;
 
 use super::primitives::{compile_function_def_query, find_capture_index, node_text};
@@ -79,30 +79,8 @@ impl MissingTypeHintsPipeline {
     }
 }
 
-impl Pipeline for MissingTypeHintsPipeline {
-    fn name(&self) -> &str {
-        "missing_type_hints"
-    }
-
-    fn description(&self) -> &str {
-        "Detects public functions missing parameter or return type annotations"
-    }
-
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
-
-        // When graph is available, only keep findings for cross-module API functions
-        if let Some(graph) = ctx.graph {
-            return base
-                .into_iter()
-                .filter(|f| self.is_cross_module_api(f, ctx.file_path, graph))
-                .collect();
-        }
-
-        base
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl MissingTypeHintsPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.fn_query, tree.root_node(), source);
@@ -148,7 +126,7 @@ impl Pipeline for MissingTypeHintsPipeline {
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
                         severity: "info".to_string(),
-                        pipeline: self.name().to_string(),
+                        pipeline: "missing_type_hints".to_string(),
                         pattern: "missing_return_type".to_string(),
                         message: format!(
                             "function `{fn_name}` is missing a return type annotation"
@@ -195,7 +173,7 @@ impl Pipeline for MissingTypeHintsPipeline {
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
                         severity: "info".to_string(),
-                        pipeline: self.name().to_string(),
+                        pipeline: "missing_type_hints".to_string(),
                         pattern: "missing_param_type".to_string(),
                         message: format!(
                             "function `{fn_name}` has untyped parameters: {}",
@@ -211,6 +189,25 @@ impl Pipeline for MissingTypeHintsPipeline {
     }
 }
 
+impl GraphPipeline for MissingTypeHintsPipeline {
+    fn name(&self) -> &str {
+        "missing_type_hints"
+    }
+
+    fn description(&self) -> &str {
+        "Detects public functions missing parameter or return type annotations"
+    }
+
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let base = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
+
+        // Only keep findings for cross-module API functions
+        base.into_iter()
+            .filter(|f| self.is_cross_module_api(f, ctx.file_path, ctx.graph))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +215,7 @@ mod tests {
 
     use crate::language::Language;
 
+    /// Calls the raw tree-sitter detection without graph filtering.
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
@@ -225,25 +223,7 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MissingTypeHintsPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
-    }
-
-    fn parse_and_check_with_context(source: &str) -> Vec<AuditFinding> {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&Language::Python.tree_sitter_language())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        let pipeline = MissingTypeHintsPipeline::new().unwrap();
-        let id_counts = HashMap::new();
-        let ctx = PipelineContext {
-            tree: &tree,
-            source: source.as_bytes(),
-            file_path: "test.py",
-            id_counts: &id_counts,
-            graph: None,
-        };
-        pipeline.check_with_context(&ctx)
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     fn parse_and_check_with_graph(source: &str, file_path: &str) -> Vec<AuditFinding> {
@@ -256,14 +236,14 @@ mod tests {
         let id_counts = HashMap::new();
         // Create an empty graph — no callers for any symbol
         let graph = crate::graph::CodeGraph::new();
-        let ctx = PipelineContext {
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path,
             id_counts: &id_counts,
-            graph: Some(&graph),
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -304,10 +284,10 @@ mod tests {
     }
 
     #[test]
-    fn context_without_graph_returns_all_findings() {
-        // Without a graph, check_with_context should return the same results as check()
+    fn tree_sitter_check_returns_all_findings() {
+        // Base tree-sitter check should detect all missing type hints
         let src = "def foo(x, y):\n    pass\n";
-        let findings = parse_and_check_with_context(src);
+        let findings = parse_and_check(src);
         assert!(findings.iter().any(|f| f.pattern == "missing_return_type"));
         assert!(findings.iter().any(|f| f.pattern == "missing_param_type"));
     }

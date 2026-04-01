@@ -43,7 +43,7 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
         AnyPipeline::Legacy(Box::new(mutable_default_args::MutableDefaultArgsPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(magic_numbers::PythonMagicNumbersPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(god_functions::GodFunctionsPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(missing_type_hints::MissingTypeHintsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(missing_type_hints::MissingTypeHintsPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(deep_nesting::DeepNestingPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(duplicate_logic::DuplicateLogicPipeline::new()?)),
@@ -52,18 +52,18 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
 
 pub fn complexity_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Legacy(Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(function_length::FunctionLengthPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(cognitive::CognitiveComplexityPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?)),
+        AnyPipeline::Node(Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?)),
+        AnyPipeline::Node(Box::new(function_length::FunctionLengthPipeline::new()?)),
+        AnyPipeline::Node(Box::new(cognitive::CognitiveComplexityPipeline::new()?)),
+        AnyPipeline::Node(Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?)),
     ])
 }
 
 pub fn code_style_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Legacy(Box::new(dead_code::DeadCodePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(dead_code::DeadCodePipeline::new()?)),
         AnyPipeline::Legacy(Box::new(duplicate_code::DuplicateCodePipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(coupling::CouplingPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(coupling::CouplingPipeline::new()?)),
     ])
 }
 
@@ -71,8 +71,8 @@ pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
         AnyPipeline::Legacy(Box::new(command_injection::CommandInjectionPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(code_injection::CodeInjectionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(sql_injection::SqlInjectionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(path_traversal::PathTraversalPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(sql_injection::SqlInjectionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(path_traversal::PathTraversalPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(ssrf::SsrfPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?)),
@@ -82,15 +82,15 @@ pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
 
 pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Legacy(Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?)),
     ])
 }
 
 pub fn architecture_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Legacy(Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(api_surface_area::ApiSurfaceAreaPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(api_surface_area::ApiSurfaceAreaPipeline::new()?)),
     ])
 }

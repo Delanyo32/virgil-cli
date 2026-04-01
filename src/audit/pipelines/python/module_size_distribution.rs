@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::{Pipeline, PipelineContext};
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{count_top_level_definitions, is_entry_file, is_test_file};
 use crate::graph::CodeGraph;
 use crate::language::Language;
@@ -143,16 +143,8 @@ impl ModuleSizeDistributionPipeline {
     }
 }
 
-impl Pipeline for ModuleSizeDistributionPipeline {
-    fn name(&self) -> &str {
-        "module_size_distribution"
-    }
-
-    fn description(&self) -> &str {
-        "Detects oversized modules, monolithic export surfaces, and anemic modules"
-    }
-
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+impl ModuleSizeDistributionPipeline {
+    fn check_tree_sitter(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
         // Skip .pyi type stub files entirely
         if file_path.ends_with(".pyi") {
             return Vec::new();
@@ -261,25 +253,31 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         findings
     }
 
-    fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
-        let base = self.check(ctx.tree, ctx.source, ctx.file_path);
+}
 
-        if let Some(graph) = ctx.graph {
-            return base
-                .into_iter()
-                .filter(|f| match f.pattern.as_str() {
-                    "monolithic_export_surface" => {
-                        !self.is_effective_exports_small(ctx.file_path, graph)
-                    }
-                    "oversized_module" => {
-                        !self.is_barrel_module(ctx.tree, ctx.source, ctx.file_path)
-                    }
-                    _ => true,
-                })
-                .collect();
-        }
+impl GraphPipeline for ModuleSizeDistributionPipeline {
+    fn name(&self) -> &str {
+        "module_size_distribution"
+    }
 
-        base
+    fn description(&self) -> &str {
+        "Detects oversized modules, monolithic export surfaces, and anemic modules"
+    }
+
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let base = self.check_tree_sitter(ctx.tree, ctx.source, ctx.file_path);
+
+        base.into_iter()
+            .filter(|f| match f.pattern.as_str() {
+                "monolithic_export_surface" => {
+                    !self.is_effective_exports_small(ctx.file_path, ctx.graph)
+                }
+                "oversized_module" => {
+                    !self.is_barrel_module(ctx.tree, ctx.source, ctx.file_path)
+                }
+                _ => true,
+            })
+            .collect()
     }
 }
 
@@ -292,7 +290,7 @@ mod tests {
         parser.set_language(&python_lang()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        pipeline.check_tree_sitter(&tree, source.as_bytes(), "test.py")
     }
 
     #[test]
@@ -354,7 +352,7 @@ mod tests {
         let src = "def setup():\n    pass\n";
         let tree = parser.parse(src, None).unwrap();
         let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
-        let findings = pipeline.check(&tree, src.as_bytes(), "__init__.py");
+        let findings = pipeline.check_tree_sitter(&tree, src.as_bytes(), "__init__.py");
         assert!(!findings.iter().any(|f| f.pattern == "anemic_module"));
     }
 
@@ -374,14 +372,14 @@ mod tests {
         let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
         let id_counts = std::collections::HashMap::new();
         let graph = crate::graph::CodeGraph::new();
-        let ctx = PipelineContext {
+        let ctx = GraphPipelineContext {
             tree: &tree,
             source: source.as_bytes(),
             file_path,
             id_counts: &id_counts,
-            graph: Some(&graph),
+            graph: &graph,
         };
-        pipeline.check_with_context(&ctx)
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -443,30 +441,18 @@ mod tests {
     }
 
     #[test]
-    fn context_without_graph_returns_all_findings() {
-        // Without graph (None), check_with_context should return the same as check()
+    fn tree_sitter_check_returns_all_findings() {
+        // Base tree-sitter check should detect monolithic_export_surface
         let mut src = String::new();
         for i in 0..21 {
             src.push_str(&format!("def func_{}():\n    pass\n", i));
         }
-        let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&python_lang()).unwrap();
-        let tree = parser.parse(&src, None).unwrap();
-        let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
-        let id_counts = std::collections::HashMap::new();
-        let ctx = PipelineContext {
-            tree: &tree,
-            source: src.as_bytes(),
-            file_path: "test.py",
-            id_counts: &id_counts,
-            graph: None,
-        };
-        let findings = pipeline.check_with_context(&ctx);
+        let findings = parse_and_check(&src);
         assert!(
             findings
                 .iter()
                 .any(|f| f.pattern == "monolithic_export_surface"),
-            "without graph, monolithic_export_surface should not be suppressed"
+            "tree-sitter check should detect monolithic_export_surface"
         );
     }
 }
