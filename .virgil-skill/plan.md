@@ -1,149 +1,145 @@
-# Plan: Graph-Primary Audit Pipeline Architecture
+# Plan: Python Test Quality Detection Pipelines
 
 ## Config
 Auto-commit: yes
 Auto-proceed phases: no
+Max retries: 2
 
 ## Desired State
-Python audit pipelines use the CodeGraph as their primary analysis engine, not tree-sitter queries. The codebase has two explicit pipeline traits — `NodePipeline` for inherently per-node metrics (complexity, line counts) and `GraphPipeline` for everything else. Graph pipelines require a `&CodeGraph` (not `Option`), making graph availability a compile-time guarantee. The old `Pipeline` trait remains only for non-Python languages until they migrate.
+virgil-cli detects test quality issues in Python test files via `audit code-quality tech-debt`. Six patterns across three new GraphPipeline implementations detect: missing assertions, trivial assertions, test pollution (global mutable state), excessive mocking, sleep-in-tests, and empty test files. Testing category detection rate improves from 13.9% toward >50%.
 
 ### Criteria
-- [ ] `NodePipeline` trait defined with `check(&self, tree, source, file_path) -> Vec<AuditFinding>`
-- [ ] `GraphPipeline` trait defined with `check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding>` where `ctx.graph: &CodeGraph` (not Option)
-- [ ] `AnyPipeline` enum wraps `Node`, `Graph`, and `Legacy` variants with shared `name()` accessor
-- [ ] `AuditEngine::run()` dispatches correctly to all three variants
-- [ ] 4 Python complexity pipelines implement `NodePipeline`: cyclomatic, function_length, cognitive, comment_ratio
-- [ ] 9 already graph-filtered Python pipelines implement `GraphPipeline`: dead_code, coupling, missing_type_hints, memory_leak_indicators, n_plus_one_queries, sql_injection, path_traversal, api_surface_area, module_size_distribution
-- [ ] 15 pure tree-sitter Python pipelines implement `GraphPipeline`: bare_except, mutable_default_args, magic_numbers, god_functions, stringly_typed, deep_nesting, duplicate_logic, duplicate_code, command_injection, code_injection, insecure_deserialization, ssrf, resource_exhaustion, xxe_format_string, sync_blocking_in_async
-- [ ] Old `Pipeline` trait removed from all Python pipeline files
-- [ ] Python dispatch functions (`tech_debt_pipelines()`, etc.) return `Vec<AnyPipeline>`
-- [ ] Non-Python languages continue to work via `Legacy(Box<dyn Pipeline>)` with zero changes
-- [ ] All existing tests pass (`cargo test`)
-- [ ] No clippy warnings (`cargo clippy`)
+- [ ] `virgil-cli audit <target> code-quality tech-debt` detects missing assertions in test functions
+- [ ] `virgil-cli audit <target> code-quality tech-debt` detects trivial assertions (`assert True`)
+- [ ] `virgil-cli audit <target> code-quality tech-debt` detects global mutable state in test files
+- [ ] `virgil-cli audit <target> code-quality tech-debt` detects excessive mocking (>3 patches per test)
+- [ ] `virgil-cli audit <target> code-quality tech-debt` detects `time.sleep()` in test files
+- [ ] `virgil-cli audit <target> code-quality tech-debt` detects empty test files (no test functions)
+- [ ] All new pipelines implement `GraphPipeline` trait and return `Vec<AuditFinding>` with `--format json`
+- [ ] `cargo test` passes
+- [ ] `cargo clippy` passes
 
-## Phase 1: Introduce New Trait System + Engine Dispatch
+## Phase 1: Core Test Quality Pipelines
 Status: completed
-Goal: New traits exist, engine dispatches all three variants, all existing behavior unchanged
+Goal: Three new GraphPipeline implementations registered in Python tech-debt, detecting 6 test quality patterns
 
-### Task 1.1: Define NodePipeline, GraphPipeline traits and AnyPipeline enum
+Phase Rubric:
+- [ ] Running `cargo run -- audit code-quality tech-debt <dir> --language py --pipeline test_assertions,test_pollution,test_hygiene --format json` returns findings for each pattern
+- [ ] All three pipelines have unit tests covering positive detection and negative (clean code) cases
+- [ ] `cargo test` passes with no failures
+- [ ] `cargo clippy` passes with no warnings
+
+Criteria Gate:
+- [ ] Testing category detection rate > 13.9% (improved from baseline)
+
+### Task 1.1: Create `test_assertions.rs` pipeline
 Status: completed
-Change: In `src/audit/pipeline.rs`:
-- Add `GraphPipelineContext<'a>` struct — same fields as `PipelineContext` but `graph: &'a CodeGraph` (required, not Option)
-- Add `NodePipeline` trait: `name()`, `description()`, `check(tree, source, file_path) -> Vec<AuditFinding>`
-- Add `GraphPipeline` trait: `name()`, `description()`, `check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding>`
-- Add `AnyPipeline` enum with `Node(Box<dyn NodePipeline>)`, `Graph(Box<dyn GraphPipeline>)`, `Legacy(Box<dyn Pipeline>)` variants
-- Impl `AnyPipeline::name() -> &str` that delegates to the inner trait's `name()`
-- Keep existing `Pipeline` trait + `PipelineContext` untouched
+Change: Create `src/audit/pipelines/python/test_assertions.rs` implementing `GraphPipeline`. Detect two patterns in test files (files matching `is_test_file()` from helpers.rs):
+- `missing_assertion`: test functions (`def test_*`) whose body contains zero assertion-like statements (no `assert`, `self.assert*`, `pytest.raises`, `pytest.warns`, `pytest.approx`, `with raises`)
+- `trivial_assertion`: test functions containing `assert True`, `assert False`, `assert 1`, or `assert None` as standalone assert statements
+Use `compile_function_def_query()` from primitives.rs to find functions. Walk function body children to check for assertion statements. Severity: `warning`.
+Test: `cargo test test_assertions` — unit tests for both patterns plus negative cases
 Research:
-- [code] `PipelineContext<'a>` has fields: tree, source, file_path, id_counts, graph (Option) (source: pipeline.rs:13-19)
-- [code] `Pipeline` trait has: name(), description(), check(), check_with_ids(), check_with_context() (source: pipeline.rs:21-45)
-- [code] Engine uses `Vec<Arc<dyn Pipeline>>` and calls `pipeline.check_with_context(&ctx)` (source: engine.rs:96-97, 173)
-Test: `cargo build` — new types compile, no existing code broken
+- [code] `compile_function_def_query() -> Result<Arc<Query>>` — captures @fn_name, @params, @fn_body, @fn_def (source: src/audit/pipelines/python/primitives.rs:14)
+- [code] `is_test_file(file_path: &str) -> bool` — checks path for test dirs and naming patterns (source: src/audit/pipelines/helpers.rs:612)
+- [code] `extract_snippet(source: &[u8], node: Node, max_lines: usize) -> String` — truncated code excerpt (source: src/audit/primitives.rs)
+- [code] `GraphPipelineContext { tree, source, file_path, id_counts, graph }` (source: src/audit/pipeline.rs:22)
+- [code] Python assert statement: tree-sitter kind `assert_statement`, children include the expression being asserted
+- [code] Python call expressions for `self.assertEqual(...)` etc: tree-sitter kind `call` with `attribute` function
+Rubric:
+- [ ] File `src/audit/pipelines/python/test_assertions.rs` exists and compiles
+- [ ] `TestAssertionsPipeline` implements `GraphPipeline` with `name()` returning `"test_assertions"`
+- [ ] Pipeline only checks files where `is_test_file(file_path)` returns true (skips non-test files)
+- [ ] Detects `missing_assertion` in `def test_foo(): pass` and `def test_bar(): x = 1; print(x)`
+- [ ] Does NOT flag `def test_ok(): assert result == 1` or `def test_raises(): with pytest.raises(ValueError): ...`
+- [ ] Detects `trivial_assertion` in `def test_trivial(): assert True`
+- [ ] Does NOT flag `def test_real(): assert x == 1`
+- [ ] Unit tests pass: `cargo test test_assertions`
+Findings: All 9 rubric items pass. 16 unit tests. Detects missing_assertion and trivial_assertion patterns. Correctly skips non-test files and non-test functions.
+Attempts: 1/3
 
-### Task 1.2: Update engine to dispatch AnyPipeline variants
+### Task 1.2: Create `test_pollution.rs` pipeline
 Status: completed
-Change: In `src/audit/engine.rs`:
-- Change `pipeline_map` value type from `Vec<Arc<dyn Pipeline>>` to `Vec<Arc<AnyPipeline>>`
-- Update the per-file pipeline loop to match on `AnyPipeline` variants:
-  - `Node(p)` → call `p.check(tree, source, file_path)` (no graph needed)
-  - `Graph(p)` → if graph available, build `GraphPipelineContext` and call `p.check(&ctx)`, else skip
-  - `Legacy(p)` → call `p.check_with_context(&ctx)` as before (existing PipelineContext with Option graph)
-- Update pipeline dispatch functions to return `Vec<AnyPipeline>`:
-  - For Python: will eventually return Node/Graph variants (Phase 2+)
-  - For all other languages: wrap existing `Box<dyn Pipeline>` as `AnyPipeline::Legacy`
-- Update `pipeline_filter` to work with `AnyPipeline::name()`
+Change: Create `src/audit/pipelines/python/test_pollution.rs` implementing `GraphPipeline`. Detect two patterns in test files:
+- `global_mutable_test_state`: module-level (not inside any function or class) assignments to mutable containers (`[]`, `{}`, `set()`, `dict()`, `list()`, `defaultdict(...)`, `collections.OrderedDict()`) in test files. These cause cross-test pollution when mutated.
+- `mutable_class_fixture`: class-level (inside `class Test*` but not inside a method) assignments to mutable containers. Same detection logic but scoped to class body.
+Use `compile_function_def_query()` and `compile_class_def_query()` from primitives.rs. Walk module-level statements checking for assignment expressions with mutable RHS. Severity: `warning`.
+Test: `cargo test test_pollution` — unit tests for both patterns plus negative cases
 Research:
-- [code] `pipelines_for_language()` returns `Vec<Box<dyn Pipeline>>` — needs to return `Vec<AnyPipeline>` (source: pipeline.rs:47-63)
-- [code] 6 dispatch functions: pipelines_for_language, complexity_pipelines_for_language, code_style_pipelines_for_language, security_pipelines_for_language, scalability_pipelines_for_language, architecture_pipelines_for_language (source: pipeline.rs:47-247)
-- [code] Engine filter: `lang_pipelines.retain(|p| self.pipeline_filter.contains(&p.name().to_string()))` (source: engine.rs:92)
-- [code] Engine Arc wrapping: `lang_pipelines.into_iter().map(Arc::from).collect()` (source: engine.rs:96-97)
-Test: `cargo test` — all 1971+ existing tests pass, behavior identical
+- [code] `compile_class_def_query() -> Result<Arc<Query>>` — captures @class_name, @class_body, @class_def (source: src/audit/pipelines/python/primitives.rs:76)
+- [code] Python assignment: tree-sitter kind `expression_statement` containing `assignment` with `right` child
+- [code] Mutable literals: `list` kind = `list`, `dict` kind = `dictionary`, `set` kind = `set`
+- [code] Mutable calls: `call` with function `list`, `dict`, `set`, `defaultdict`, `OrderedDict`
+Rubric:
+- [ ] File `src/audit/pipelines/python/test_pollution.rs` exists and compiles
+- [ ] `TestPollutionPipeline` implements `GraphPipeline` with `name()` returning `"test_pollution"`
+- [ ] Pipeline only checks files where `is_test_file(file_path)` returns true
+- [ ] Detects `global_mutable_test_state` in `SHARED_DATA = []` at module level of a test file
+- [ ] Does NOT flag `CONSTANT = "immutable"` or `MAX_RETRIES = 3` (non-mutable types)
+- [ ] Detects `mutable_class_fixture` in `class TestFoo:\n    data = []` (class-level mutable)
+- [ ] Does NOT flag `class TestFoo:\n    timeout = 30` (immutable class attribute)
+- [ ] Unit tests pass: `cargo test test_pollution`
+Findings: All 10 rubric items pass. 22 unit tests. Detects global_mutable_test_state and mutable_class_fixture patterns. Build agent also added `pub mod test_assertions;` and `pub mod test_pollution;` to mod.rs (declarations only, no registration).
+Attempts: 1/3
 
-### Task 1.3: Update pipeline.rs dispatch functions for all languages
+### Task 1.3: Create `test_hygiene.rs` pipeline
 Status: completed
-Change: In `src/audit/pipeline.rs`:
-- Change all 6 `*_pipelines_for_language()` return types from `Vec<Box<dyn Pipeline>>` to `Vec<AnyPipeline>`
-- For non-Python languages: wrap each `Box::new(pipeline)` as `AnyPipeline::Legacy(Box::new(...))`
-- For Python: initially wrap as `AnyPipeline::Legacy` too (migration happens in Phase 2-4)
-- This is a mechanical change — every existing pipeline gets wrapped in `Legacy()`
-Test: `cargo test` + `cargo clippy` — all pass, no warnings
-
-## Phase 2: Migrate Complexity Pipelines to NodePipeline + Already Graph-Filtered to GraphPipeline
-Status: completed
-Goal: 4 complexity pipelines use NodePipeline, 9 graph-filtered pipelines use GraphPipeline, all return correct AnyPipeline variants
-
-### Task 2.1: Migrate 4 complexity pipelines to NodePipeline
-Status: completed
-Change: In `src/audit/pipelines/python/`:
-- `cyclomatic.rs`: Replace `impl Pipeline for CyclomaticComplexityPipeline` with `impl NodePipeline for ...`; keep `check()` signature as-is (it already matches NodePipeline::check)
-- `function_length.rs`: Same — `impl NodePipeline for FunctionLengthPipeline`
-- `cognitive.rs`: Same — `impl NodePipeline for CognitiveComplexityPipeline`
-- `comment_ratio.rs`: Same — `impl NodePipeline for CommentToCodeRatioPipeline`
-- Update `complexity_pipelines()` in `python/mod.rs` to return `Vec<AnyPipeline>` with `AnyPipeline::Node(Box::new(...))`
+Change: Create `src/audit/pipelines/python/test_hygiene.rs` implementing `GraphPipeline`. Detect two patterns in test files:
+- `excessive_mocking`: test functions (`def test_*`) decorated with more than 3 `@mock.patch`, `@patch`, `@patch.object`, `@patch.dict` decorators. Use `decorated_definition` tree-sitter node, count decorator children matching mock/patch patterns. Severity: `warning`.
+- `sleep_in_test`: calls to `time.sleep(...)` or `asyncio.sleep(...)` inside test functions. These slow down test suites and usually indicate timing-dependent tests. Use `compile_call_query()` from primitives.rs, filter by function name. Severity: `info`.
+Test: `cargo test test_hygiene` — unit tests for both patterns plus negative cases
 Research:
-- [code] CyclomaticComplexityPipeline::check() — only uses tree + source + file_path (source: cyclomatic.rs:67-116)
-- [code] FunctionLengthPipeline::check() — only uses tree + source + file_path (source: function_length.rs:42-106)
-- [code] CognitiveComplexityPipeline::check() — only uses tree + source + file_path (source: cognitive.rs:67-116)
-- [code] CommentToCodeRatioPipeline::check() — only uses tree + source + file_path (source: comment_ratio.rs:50-97)
-Test: `cargo test` — complexity pipeline tests pass, audit output identical
+- [code] `compile_call_query() -> Result<Arc<Query>>` — captures @fn_expr, @args, @call (source: src/audit/pipelines/python/primitives.rs:65)
+- [code] Python `decorated_definition` node: children are `decorator` nodes (each with `@` + expression) followed by the actual `function_definition` or `class_definition`
+- [code] `is_test_context_python(node, source, file_path) -> bool` — checks if node is inside test function/class (source: src/audit/pipelines/helpers.rs:970)
+- [code] Decorator tree-sitter node: kind `decorator`, child is the decorator expression (attribute/call)
+Rubric:
+- [ ] File `src/audit/pipelines/python/test_hygiene.rs` exists and compiles
+- [ ] `TestHygienePipeline` implements `GraphPipeline` with `name()` returning `"test_hygiene"`
+- [ ] Pipeline only checks files where `is_test_file(file_path)` returns true
+- [ ] Detects `excessive_mocking` when a test function has >3 patch decorators
+- [ ] Does NOT flag a test function with exactly 2 patch decorators
+- [ ] Detects `sleep_in_test` for `time.sleep(1)` inside a test function
+- [ ] Does NOT flag `time.sleep()` in non-test files
+- [ ] Unit tests pass: `cargo test test_hygiene`
+Findings: All 8 rubric items pass. 14 unit tests. Detects excessive_mocking (>3 patches) and sleep_in_test (time.sleep/asyncio.sleep). Correct severity levels (warning/info).
+Attempts: 1/3
 
-### Task 2.2: Migrate 9 already graph-filtered pipelines to GraphPipeline
+### Task 1.4: Create `empty_test_files.rs` pipeline
 Status: completed
-Change: In `src/audit/pipelines/python/`:
-- For each of: dead_code, coupling, missing_type_hints, memory_leak_indicators, n_plus_one_queries, sql_injection, path_traversal, api_surface_area, module_size_distribution:
-  1. Replace `impl Pipeline for XxxPipeline` with `impl GraphPipeline for XxxPipeline`
-  2. Move `check_with_context()` logic into `GraphPipeline::check()`, changing `ctx.graph` from `Option<&CodeGraph>` to `&CodeGraph` (remove Option unwrapping/fallback)
-  3. Remove old `check()` and `check_with_ids()` implementations (graph-only, no fallback)
-  4. Remove any `if let Some(graph) = ctx.graph` guards — graph is always present
-- Update corresponding dispatch functions in `python/mod.rs` to wrap as `AnyPipeline::Graph(Box::new(...))`
+Change: Create `src/audit/pipelines/python/empty_test_files.rs` implementing `GraphPipeline`. Detect one pattern:
+- `empty_test_file`: files matching `is_test_file()` that contain zero `def test_*` functions. These are test discovery files or abandoned test stubs that add clutter. Use `compile_function_def_query()` to find all functions, count those starting with `test_`. If count is 0 and file is a test file, emit finding at line 1. Severity: `info`.
+Exclude `conftest.py` and `__init__.py` from this check (they legitimately have no test functions).
+Test: `cargo test empty_test_files` — unit tests for detection and exclusion cases
 Research:
-- [code] All 9 pipelines follow pattern: `check_with_context()` checks `ctx.graph.is_some()`, uses graph if available, falls back to `self.check()` otherwise (source: various python/*.rs)
-- [code] Graph is now built in all 6 audit subcommands (Phase 1 of previous plan) — fallback path is dead code
-- [code] `PipelineContext.graph: Option<&CodeGraph>` → `GraphPipelineContext.graph: &CodeGraph` — removes all `if let Some(graph)` boilerplate
-Test: `cargo test` — all graph-aware pipeline tests pass, audit output identical
+- [code] `is_test_file(file_path: &str) -> bool` — already handles test file detection (source: src/audit/pipelines/helpers.rs:612)
+- [code] conftest.py is used for pytest fixtures, not tests — should be excluded
+- [code] `__init__.py` in test dirs is for package discovery — should be excluded
+Rubric:
+- [ ] File `src/audit/pipelines/python/empty_test_files.rs` exists and compiles
+- [ ] `EmptyTestFilesPipeline` implements `GraphPipeline` with `name()` returning `"empty_test_files"`
+- [ ] Detects `empty_test_file` in a test file containing only `import pytest` and no test functions
+- [ ] Does NOT flag `conftest.py` or `__init__.py`
+- [ ] Does NOT flag a test file containing `def test_something(): assert True`
+- [ ] Unit tests pass: `cargo test empty_test_files`
+Findings: All 6 rubric items pass. 10 unit tests. Detects empty_test_file, excludes conftest.py and __init__.py. Severity is info.
+Attempts: 1/3
 
-### Task 2.3: Update Python dispatch functions to return AnyPipeline
+### Task 1.5: Register pipelines and verify
 Status: completed
-Change: In `src/audit/pipelines/python/mod.rs`:
-- `tech_debt_pipelines()` → return `Vec<AnyPipeline>`: all 8 as `Graph` (they'll be migrated in Phase 3, but for now keep as `Legacy` until individually migrated)
-- `complexity_pipelines()` → return `Vec<AnyPipeline>`: all 4 as `Node`
-- `code_style_pipelines()` → return `Vec<AnyPipeline>`: dead_code/coupling as `Graph`, duplicate_code as `Legacy` (migrated in Phase 4)
-- `security_pipelines()` → return `Vec<AnyPipeline>`: sql_injection/path_traversal as `Graph`, rest as `Legacy` (migrated in Phase 4)
-- `scalability_pipelines()` → return `Vec<AnyPipeline>`: n_plus_one/memory_leak as `Graph`, sync_blocking as `Legacy`
-- `architecture_pipelines()` → return `Vec<AnyPipeline>`: both as `Graph`
-- Update return types in function signatures
-Test: `cargo test` + `cargo clippy`
-
-## Phase 3: Migrate Tech-Debt Pure Tree-Sitter Pipelines to GraphPipeline
-Status: completed
-Goal: 7 tech-debt pipelines (bare_except, mutable_default_args, magic_numbers, god_functions, stringly_typed, deep_nesting, duplicate_logic) implement GraphPipeline with graph-enhanced detection
-
-Outline: For each pipeline, replace `impl Pipeline` with `impl GraphPipeline`. Rewrite `check()` to accept `GraphPipelineContext` and use graph for enhanced analysis:
-- `bare_except`: use graph to check if caught exceptions flow from external/untrusted sources (higher severity)
-- `mutable_default_args`: use graph to check cross-module callers (higher severity for widely-called functions)
-- `magic_numbers`: use graph to check if the literal appears in multiple functions (should be a named constant)
-- `god_functions`: use graph call edges to count outgoing calls (god function = many callees + many lines)
-- `stringly_typed`: use graph to check if string-dispatched variables flow across function boundaries
-- `deep_nesting`: use graph to check if deeply nested code is in a hot call path
-- `duplicate_logic`: use graph call edges to detect functions with same signature AND same callees (true duplicates)
-
-## Phase 4: Migrate Security, Style, and Scalability Pure Tree-Sitter Pipelines to GraphPipeline
-Status: completed
-Goal: Remaining 8 pipelines implement GraphPipeline with graph-enhanced detection
-
-Outline: Migrate the remaining pure tree-sitter pipelines:
-- Security (6): command_injection, code_injection, insecure_deserialization, ssrf, resource_exhaustion, xxe_format_string — use graph taint analysis (FlowsTo/SanitizedBy edges) to suppress findings when inputs are proven safe
-- Style (1): duplicate_code — use graph to detect cross-file duplicated logic (not just same-file)
-- Scalability (1): sync_blocking_in_async — use graph to trace if blocking call is wrapped in executor or thread pool
-
-## Phase 5: Remove Legacy Pipeline from Python + Cleanup
-Status: not-started
-Goal: No Python pipeline implements the old `Pipeline` trait. Old trait only used by non-Python languages.
-
-Outline:
-- Verify no Python pipeline files import or implement `Pipeline`
-- Remove `Pipeline` import from all Python pipeline modules
-- Clean up any dead helper functions that only served the old `check()` path
-- Update Python `mod.rs` functions to assert no `Legacy` variants remain
-- Run full test suite + clippy
-- Consider: should `PipelineContext` (with Option graph) be removed if only `GraphPipelineContext` is used?
+Change: 
+1. Add `pub mod test_assertions;`, `pub mod test_pollution;`, `pub mod test_hygiene;`, `pub mod empty_test_files;` to `src/audit/pipelines/python/mod.rs`
+2. Add all four pipelines to `tech_debt_pipelines()` as `AnyPipeline::Graph(Box::new(...))` entries
+3. Run `cargo test` and `cargo clippy` to verify everything compiles and passes
+Test: `cargo test` (all tests), `cargo clippy` (no warnings)
+Research:
+- [code] Registration pattern in `tech_debt_pipelines()` — 8 existing entries, all `AnyPipeline::Graph(Box::new(...::new()?))` (source: src/audit/pipelines/python/mod.rs:40-51)
+- [code] Module declarations at top of mod.rs — one `pub mod` per pipeline file (source: src/audit/pipelines/python/mod.rs:1-8)
+Rubric:
+- [ ] `src/audit/pipelines/python/mod.rs` has `pub mod test_assertions;`, `pub mod test_pollution;`, `pub mod test_hygiene;`, `pub mod empty_test_files;`
+- [ ] `tech_debt_pipelines()` returns all four new pipelines as `AnyPipeline::Graph` entries
+- [ ] `cargo test` exits 0 with no failures
+- [ ] `cargo clippy` exits 0 with no warnings
+- [ ] Running `cargo run -- audit code-quality tech-debt <test-dir> --language py --format json` includes findings from the new pipelines when test quality issues are present
+Findings: All 5 rubric items pass. 2041 tests pass, 0 failures. Clippy clean (only pre-existing warnings). All 7 patterns detected in end-to-end CLI test with sample Python test files.
+Attempts: 1/3

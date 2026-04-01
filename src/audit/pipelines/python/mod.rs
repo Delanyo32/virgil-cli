@@ -34,6 +34,11 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
+pub mod empty_test_files;
+pub mod test_assertions;
+pub mod test_hygiene;
+pub mod test_pollution;
+
 use crate::audit::pipeline::AnyPipeline;
 use anyhow::Result;
 
@@ -47,6 +52,10 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
         AnyPipeline::Graph(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
         AnyPipeline::Graph(Box::new(deep_nesting::DeepNestingPipeline::new()?)),
         AnyPipeline::Graph(Box::new(duplicate_logic::DuplicateLogicPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(test_assertions::TestAssertionsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(test_pollution::TestPollutionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(test_hygiene::TestHygienePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(empty_test_files::EmptyTestFilesPipeline::new()?)),
     ])
 }
 
