@@ -1,8 +1,6 @@
 use anyhow::Result;
-use tree_sitter::Tree;
-
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 
 use super::primitives::extract_snippet;
 
@@ -57,7 +55,7 @@ impl DeepNestingPipeline {
     }
 }
 
-impl Pipeline for DeepNestingPipeline {
+impl GraphPipeline for DeepNestingPipeline {
     fn name(&self) -> &str {
         "deep_nesting"
     }
@@ -66,7 +64,10 @@ impl Pipeline for DeepNestingPipeline {
         "Detects deeply nested control flow (>4 levels) — arrow anti-pattern"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
         let mut findings = Vec::new();
         Self::walk_tree(tree.root_node(), 0, source, file_path, &mut findings);
         findings
@@ -85,7 +86,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = DeepNestingPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]

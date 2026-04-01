@@ -39,14 +39,14 @@ use anyhow::Result;
 
 pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Legacy(Box::new(bare_except::BareExceptPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(mutable_default_args::MutableDefaultArgsPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(magic_numbers::PythonMagicNumbersPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(god_functions::GodFunctionsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(bare_except::BareExceptPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(mutable_default_args::MutableDefaultArgsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(magic_numbers::PythonMagicNumbersPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(god_functions::GodFunctionsPipeline::new()?)),
         AnyPipeline::Graph(Box::new(missing_type_hints::MissingTypeHintsPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(deep_nesting::DeepNestingPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(duplicate_logic::DuplicateLogicPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(deep_nesting::DeepNestingPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(duplicate_logic::DuplicateLogicPipeline::new()?)),
     ])
 }
 

@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 
 use super::primitives::{compile_comparison_query, extract_snippet, find_capture_index, node_text};
 
@@ -32,7 +32,7 @@ impl StringlyTypedPipeline {
     }
 }
 
-impl Pipeline for StringlyTypedPipeline {
+impl GraphPipeline for StringlyTypedPipeline {
     fn name(&self) -> &str {
         "stringly_typed"
     }
@@ -41,7 +41,10 @@ impl Pipeline for StringlyTypedPipeline {
         "Detects string comparisons on field names that should be enums"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.comparison_query, tree.root_node(), source);
 
@@ -139,7 +142,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = StringlyTypedPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.py")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.py",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
