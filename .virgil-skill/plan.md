@@ -22,11 +22,11 @@ Python audit pipelines use the CodeGraph as their primary analysis engine, not t
 - [ ] No clippy warnings (`cargo clippy`)
 
 ## Phase 1: Introduce New Trait System + Engine Dispatch
-Status: not-started
+Status: completed
 Goal: New traits exist, engine dispatches all three variants, all existing behavior unchanged
 
 ### Task 1.1: Define NodePipeline, GraphPipeline traits and AnyPipeline enum
-Status: not-started
+Status: completed
 Change: In `src/audit/pipeline.rs`:
 - Add `GraphPipelineContext<'a>` struct — same fields as `PipelineContext` but `graph: &'a CodeGraph` (required, not Option)
 - Add `NodePipeline` trait: `name()`, `description()`, `check(tree, source, file_path) -> Vec<AuditFinding>`
@@ -41,7 +41,7 @@ Research:
 Test: `cargo build` — new types compile, no existing code broken
 
 ### Task 1.2: Update engine to dispatch AnyPipeline variants
-Status: not-started
+Status: completed
 Change: In `src/audit/engine.rs`:
 - Change `pipeline_map` value type from `Vec<Arc<dyn Pipeline>>` to `Vec<Arc<AnyPipeline>>`
 - Update the per-file pipeline loop to match on `AnyPipeline` variants:
@@ -60,7 +60,7 @@ Research:
 Test: `cargo test` — all 1971+ existing tests pass, behavior identical
 
 ### Task 1.3: Update pipeline.rs dispatch functions for all languages
-Status: not-started
+Status: completed
 Change: In `src/audit/pipeline.rs`:
 - Change all 6 `*_pipelines_for_language()` return types from `Vec<Box<dyn Pipeline>>` to `Vec<AnyPipeline>`
 - For non-Python languages: wrap each `Box::new(pipeline)` as `AnyPipeline::Legacy(Box::new(...))`
@@ -69,11 +69,11 @@ Change: In `src/audit/pipeline.rs`:
 Test: `cargo test` + `cargo clippy` — all pass, no warnings
 
 ## Phase 2: Migrate Complexity Pipelines to NodePipeline + Already Graph-Filtered to GraphPipeline
-Status: not-started
+Status: completed
 Goal: 4 complexity pipelines use NodePipeline, 9 graph-filtered pipelines use GraphPipeline, all return correct AnyPipeline variants
 
 ### Task 2.1: Migrate 4 complexity pipelines to NodePipeline
-Status: not-started
+Status: completed
 Change: In `src/audit/pipelines/python/`:
 - `cyclomatic.rs`: Replace `impl Pipeline for CyclomaticComplexityPipeline` with `impl NodePipeline for ...`; keep `check()` signature as-is (it already matches NodePipeline::check)
 - `function_length.rs`: Same — `impl NodePipeline for FunctionLengthPipeline`
@@ -88,7 +88,7 @@ Research:
 Test: `cargo test` — complexity pipeline tests pass, audit output identical
 
 ### Task 2.2: Migrate 9 already graph-filtered pipelines to GraphPipeline
-Status: not-started
+Status: completed
 Change: In `src/audit/pipelines/python/`:
 - For each of: dead_code, coupling, missing_type_hints, memory_leak_indicators, n_plus_one_queries, sql_injection, path_traversal, api_surface_area, module_size_distribution:
   1. Replace `impl Pipeline for XxxPipeline` with `impl GraphPipeline for XxxPipeline`
@@ -103,7 +103,7 @@ Research:
 Test: `cargo test` — all graph-aware pipeline tests pass, audit output identical
 
 ### Task 2.3: Update Python dispatch functions to return AnyPipeline
-Status: not-started
+Status: completed
 Change: In `src/audit/pipelines/python/mod.rs`:
 - `tech_debt_pipelines()` → return `Vec<AnyPipeline>`: all 8 as `Graph` (they'll be migrated in Phase 3, but for now keep as `Legacy` until individually migrated)
 - `complexity_pipelines()` → return `Vec<AnyPipeline>`: all 4 as `Node`
@@ -115,7 +115,7 @@ Change: In `src/audit/pipelines/python/mod.rs`:
 Test: `cargo test` + `cargo clippy`
 
 ## Phase 3: Migrate Tech-Debt Pure Tree-Sitter Pipelines to GraphPipeline
-Status: not-started
+Status: completed
 Goal: 7 tech-debt pipelines (bare_except, mutable_default_args, magic_numbers, god_functions, stringly_typed, deep_nesting, duplicate_logic) implement GraphPipeline with graph-enhanced detection
 
 Outline: For each pipeline, replace `impl Pipeline` with `impl GraphPipeline`. Rewrite `check()` to accept `GraphPipelineContext` and use graph for enhanced analysis:
@@ -128,7 +128,7 @@ Outline: For each pipeline, replace `impl Pipeline` with `impl GraphPipeline`. R
 - `duplicate_logic`: use graph call edges to detect functions with same signature AND same callees (true duplicates)
 
 ## Phase 4: Migrate Security, Style, and Scalability Pure Tree-Sitter Pipelines to GraphPipeline
-Status: not-started
+Status: completed
 Goal: Remaining 8 pipelines implement GraphPipeline with graph-enhanced detection
 
 Outline: Migrate the remaining pure tree-sitter pipelines:

@@ -85,7 +85,7 @@ impl AnyPipeline {
 fn wrap_legacy(pipelines: Result<Vec<Box<dyn Pipeline>>>) -> Result<Vec<AnyPipeline>> {
     Ok(pipelines?
         .into_iter()
-        .map(|p| AnyPipeline::Legacy(p))
+        .map(AnyPipeline::Legacy)
         .collect())
 }
 
