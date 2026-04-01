@@ -9,7 +9,7 @@ use crate::language::Language;
 use super::models::AuditFinding;
 use super::pipelines;
 
-/// Context passed to pipelines during graph-aware checking.
+/// Context passed to legacy pipelines during graph-aware checking.
 pub struct PipelineContext<'a> {
     pub tree: &'a Tree,
     pub source: &'a [u8],
@@ -18,14 +18,21 @@ pub struct PipelineContext<'a> {
     pub graph: Option<&'a CodeGraph>,
 }
 
+/// Context passed to graph-primary pipelines. Graph is required (not Option).
+pub struct GraphPipelineContext<'a> {
+    pub tree: &'a Tree,
+    pub source: &'a [u8],
+    pub file_path: &'a str,
+    pub id_counts: &'a HashMap<String, usize>,
+    pub graph: &'a CodeGraph,
+}
+
+/// Legacy pipeline trait — used by non-Python languages during migration.
 pub trait Pipeline: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding>;
 
-    /// Check with pre-computed identifier occurrence counts.
-    /// Pipelines that need identifier counts (e.g., dead_code) can override this
-    /// to avoid recomputing them per-pipeline.
     fn check_with_ids(
         &self,
         tree: &Tree,
@@ -36,46 +43,84 @@ pub trait Pipeline: Send + Sync {
         self.check(tree, source, file_path)
     }
 
-    /// Check with full pipeline context including CodeGraph access.
-    /// Default delegates to check_with_ids — pipelines that want graph access
-    /// override this method. Zero breakage across existing pipelines.
     fn check_with_context(&self, ctx: &PipelineContext) -> Vec<AuditFinding> {
         self.check_with_ids(ctx.tree, ctx.source, ctx.file_path, ctx.id_counts)
     }
 }
 
-pub fn pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
-    match language {
-        Language::Rust => pipelines::rust::tech_debt_pipelines(),
-        Language::Go => pipelines::go::tech_debt_pipelines(),
-        Language::Python => pipelines::python::tech_debt_pipelines(),
-        Language::Php => pipelines::php::tech_debt_pipelines(),
-        Language::Java => pipelines::java::tech_debt_pipelines(),
-        Language::JavaScript => pipelines::javascript::tech_debt_pipelines(),
-        Language::TypeScript | Language::Tsx => {
-            pipelines::typescript::tech_debt_pipelines(language)
+/// Per-node pipeline — inherently per-node metrics (complexity, line counts).
+/// No graph needed, always runs.
+pub trait NodePipeline: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding>;
+}
+
+/// Graph-primary pipeline — requires CodeGraph for analysis.
+/// Uses tree-sitter for AST access but graph is the primary analysis engine.
+pub trait GraphPipeline: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding>;
+}
+
+/// Unified pipeline wrapper for engine dispatch.
+pub enum AnyPipeline {
+    Node(Box<dyn NodePipeline>),
+    Graph(Box<dyn GraphPipeline>),
+    Legacy(Box<dyn Pipeline>),
+}
+
+impl AnyPipeline {
+    pub fn name(&self) -> &str {
+        match self {
+            AnyPipeline::Node(p) => p.name(),
+            AnyPipeline::Graph(p) => p.name(),
+            AnyPipeline::Legacy(p) => p.name(),
         }
-        Language::C => pipelines::c::tech_debt_pipelines(),
-        Language::Cpp => pipelines::cpp::tech_debt_pipelines(),
-        Language::CSharp => pipelines::csharp::tech_debt_pipelines(),
+    }
+}
+
+/// Wrap legacy `Box<dyn Pipeline>` results as `AnyPipeline::Legacy`.
+fn wrap_legacy(pipelines: Result<Vec<Box<dyn Pipeline>>>) -> Result<Vec<AnyPipeline>> {
+    Ok(pipelines?
+        .into_iter()
+        .map(|p| AnyPipeline::Legacy(p))
+        .collect())
+}
+
+pub fn pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
+    match language {
+        Language::Python => pipelines::python::tech_debt_pipelines(),
+        Language::Rust => wrap_legacy(pipelines::rust::tech_debt_pipelines()),
+        Language::Go => wrap_legacy(pipelines::go::tech_debt_pipelines()),
+        Language::Php => wrap_legacy(pipelines::php::tech_debt_pipelines()),
+        Language::Java => wrap_legacy(pipelines::java::tech_debt_pipelines()),
+        Language::JavaScript => wrap_legacy(pipelines::javascript::tech_debt_pipelines()),
+        Language::TypeScript | Language::Tsx => {
+            wrap_legacy(pipelines::typescript::tech_debt_pipelines(language))
+        }
+        Language::C => wrap_legacy(pipelines::c::tech_debt_pipelines()),
+        Language::Cpp => wrap_legacy(pipelines::cpp::tech_debt_pipelines()),
+        Language::CSharp => wrap_legacy(pipelines::csharp::tech_debt_pipelines()),
         _ => Ok(vec![]),
     }
 }
 
-pub fn complexity_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn complexity_pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
-        Language::Rust => pipelines::rust::complexity_pipelines(),
-        Language::Go => pipelines::go::complexity_pipelines(),
         Language::Python => pipelines::python::complexity_pipelines(),
-        Language::Php => pipelines::php::complexity_pipelines(),
-        Language::Java => pipelines::java::complexity_pipelines(),
-        Language::JavaScript => pipelines::javascript::complexity_pipelines(),
+        Language::Rust => wrap_legacy(pipelines::rust::complexity_pipelines()),
+        Language::Go => wrap_legacy(pipelines::go::complexity_pipelines()),
+        Language::Php => wrap_legacy(pipelines::php::complexity_pipelines()),
+        Language::Java => wrap_legacy(pipelines::java::complexity_pipelines()),
+        Language::JavaScript => wrap_legacy(pipelines::javascript::complexity_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            pipelines::typescript::complexity_pipelines(language)
+            wrap_legacy(pipelines::typescript::complexity_pipelines(language))
         }
-        Language::C => pipelines::c::complexity_pipelines(),
-        Language::Cpp => pipelines::cpp::complexity_pipelines(),
-        Language::CSharp => pipelines::csharp::complexity_pipelines(),
+        Language::C => wrap_legacy(pipelines::c::complexity_pipelines()),
+        Language::Cpp => wrap_legacy(pipelines::cpp::complexity_pipelines()),
+        Language::CSharp => wrap_legacy(pipelines::csharp::complexity_pipelines()),
         _ => Ok(vec![]),
     }
 }
@@ -112,20 +157,20 @@ pub fn supported_complexity_languages() -> Vec<Language> {
     ]
 }
 
-pub fn code_style_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn code_style_pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
-        Language::Rust => pipelines::rust::code_style_pipelines(),
-        Language::Go => pipelines::go::code_style_pipelines(),
         Language::Python => pipelines::python::code_style_pipelines(),
-        Language::Php => pipelines::php::code_style_pipelines(),
-        Language::Java => pipelines::java::code_style_pipelines(),
-        Language::JavaScript => pipelines::javascript::code_style_pipelines(),
+        Language::Rust => wrap_legacy(pipelines::rust::code_style_pipelines()),
+        Language::Go => wrap_legacy(pipelines::go::code_style_pipelines()),
+        Language::Php => wrap_legacy(pipelines::php::code_style_pipelines()),
+        Language::Java => wrap_legacy(pipelines::java::code_style_pipelines()),
+        Language::JavaScript => wrap_legacy(pipelines::javascript::code_style_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            pipelines::typescript::code_style_pipelines(language)
+            wrap_legacy(pipelines::typescript::code_style_pipelines(language))
         }
-        Language::C => pipelines::c::code_style_pipelines(),
-        Language::Cpp => pipelines::cpp::code_style_pipelines(),
-        Language::CSharp => pipelines::csharp::code_style_pipelines(),
+        Language::C => wrap_legacy(pipelines::c::code_style_pipelines()),
+        Language::Cpp => wrap_legacy(pipelines::cpp::code_style_pipelines()),
+        Language::CSharp => wrap_legacy(pipelines::csharp::code_style_pipelines()),
         _ => Ok(vec![]),
     }
 }
@@ -146,18 +191,22 @@ pub fn supported_code_style_languages() -> Vec<Language> {
     ]
 }
 
-pub fn security_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn security_pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
-        Language::Rust => pipelines::rust::security_pipelines(),
-        Language::Go => pipelines::go::security_pipelines(),
         Language::Python => pipelines::python::security_pipelines(),
-        Language::Php => pipelines::php::security_pipelines(),
-        Language::Java => pipelines::java::security_pipelines(),
-        Language::C => pipelines::c::security_pipelines(),
-        Language::CSharp => pipelines::csharp::security_pipelines(),
-        Language::JavaScript => pipelines::javascript::security_pipelines(Language::JavaScript),
-        Language::TypeScript | Language::Tsx => pipelines::typescript::security_pipelines(language),
-        Language::Cpp => pipelines::cpp::security_pipelines(),
+        Language::Rust => wrap_legacy(pipelines::rust::security_pipelines()),
+        Language::Go => wrap_legacy(pipelines::go::security_pipelines()),
+        Language::Php => wrap_legacy(pipelines::php::security_pipelines()),
+        Language::Java => wrap_legacy(pipelines::java::security_pipelines()),
+        Language::C => wrap_legacy(pipelines::c::security_pipelines()),
+        Language::CSharp => wrap_legacy(pipelines::csharp::security_pipelines()),
+        Language::JavaScript => {
+            wrap_legacy(pipelines::javascript::security_pipelines(Language::JavaScript))
+        }
+        Language::TypeScript | Language::Tsx => {
+            wrap_legacy(pipelines::typescript::security_pipelines(language))
+        }
+        Language::Cpp => wrap_legacy(pipelines::cpp::security_pipelines()),
         _ => Ok(vec![]),
     }
 }
@@ -178,20 +227,20 @@ pub fn supported_security_languages() -> Vec<Language> {
     ]
 }
 
-pub fn scalability_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn scalability_pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
-        Language::Rust => pipelines::rust::scalability_pipelines(),
-        Language::Go => pipelines::go::scalability_pipelines(),
         Language::Python => pipelines::python::scalability_pipelines(),
-        Language::Php => pipelines::php::scalability_pipelines(),
-        Language::Java => pipelines::java::scalability_pipelines(),
-        Language::JavaScript => pipelines::javascript::scalability_pipelines(),
+        Language::Rust => wrap_legacy(pipelines::rust::scalability_pipelines()),
+        Language::Go => wrap_legacy(pipelines::go::scalability_pipelines()),
+        Language::Php => wrap_legacy(pipelines::php::scalability_pipelines()),
+        Language::Java => wrap_legacy(pipelines::java::scalability_pipelines()),
+        Language::JavaScript => wrap_legacy(pipelines::javascript::scalability_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            pipelines::typescript::scalability_pipelines(language)
+            wrap_legacy(pipelines::typescript::scalability_pipelines(language))
         }
-        Language::C => pipelines::c::scalability_pipelines(),
-        Language::Cpp => pipelines::cpp::scalability_pipelines(),
-        Language::CSharp => pipelines::csharp::scalability_pipelines(),
+        Language::C => wrap_legacy(pipelines::c::scalability_pipelines()),
+        Language::Cpp => wrap_legacy(pipelines::cpp::scalability_pipelines()),
+        Language::CSharp => wrap_legacy(pipelines::csharp::scalability_pipelines()),
         _ => Ok(vec![]),
     }
 }
@@ -212,20 +261,20 @@ pub fn supported_scalability_languages() -> Vec<Language> {
     ]
 }
 
-pub fn architecture_pipelines_for_language(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn architecture_pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
-        Language::Rust => pipelines::rust::architecture_pipelines(),
-        Language::Go => pipelines::go::architecture_pipelines(),
         Language::Python => pipelines::python::architecture_pipelines(),
-        Language::Php => pipelines::php::architecture_pipelines(),
-        Language::Java => pipelines::java::architecture_pipelines(),
-        Language::JavaScript => pipelines::javascript::architecture_pipelines(),
+        Language::Rust => wrap_legacy(pipelines::rust::architecture_pipelines()),
+        Language::Go => wrap_legacy(pipelines::go::architecture_pipelines()),
+        Language::Php => wrap_legacy(pipelines::php::architecture_pipelines()),
+        Language::Java => wrap_legacy(pipelines::java::architecture_pipelines()),
+        Language::JavaScript => wrap_legacy(pipelines::javascript::architecture_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            pipelines::typescript::architecture_pipelines(language)
+            wrap_legacy(pipelines::typescript::architecture_pipelines(language))
         }
-        Language::C => pipelines::c::architecture_pipelines(),
-        Language::Cpp => pipelines::cpp::architecture_pipelines(),
-        Language::CSharp => pipelines::csharp::architecture_pipelines(),
+        Language::C => wrap_legacy(pipelines::c::architecture_pipelines()),
+        Language::Cpp => wrap_legacy(pipelines::cpp::architecture_pipelines()),
+        Language::CSharp => wrap_legacy(pipelines::csharp::architecture_pipelines()),
         _ => Ok(vec![]),
     }
 }

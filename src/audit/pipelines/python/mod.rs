@@ -34,63 +34,63 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::AnyPipeline;
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(bare_except::BareExceptPipeline::new()?),
-        Box::new(mutable_default_args::MutableDefaultArgsPipeline::new()?),
-        Box::new(magic_numbers::PythonMagicNumbersPipeline::new()?),
-        Box::new(god_functions::GodFunctionsPipeline::new()?),
-        Box::new(missing_type_hints::MissingTypeHintsPipeline::new()?),
-        Box::new(stringly_typed::StringlyTypedPipeline::new()?),
-        Box::new(deep_nesting::DeepNestingPipeline::new()?),
-        Box::new(duplicate_logic::DuplicateLogicPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(bare_except::BareExceptPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(mutable_default_args::MutableDefaultArgsPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(magic_numbers::PythonMagicNumbersPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(god_functions::GodFunctionsPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(missing_type_hints::MissingTypeHintsPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(deep_nesting::DeepNestingPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(duplicate_logic::DuplicateLogicPipeline::new()?)),
     ])
 }
 
-pub fn complexity_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn complexity_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?),
-        Box::new(function_length::FunctionLengthPipeline::new()?),
-        Box::new(cognitive::CognitiveComplexityPipeline::new()?),
-        Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(function_length::FunctionLengthPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(cognitive::CognitiveComplexityPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?)),
     ])
 }
 
-pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn code_style_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(dead_code::DeadCodePipeline::new()?),
-        Box::new(duplicate_code::DuplicateCodePipeline::new()?),
-        Box::new(coupling::CouplingPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(dead_code::DeadCodePipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(duplicate_code::DuplicateCodePipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(coupling::CouplingPipeline::new()?)),
     ])
 }
 
-pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(command_injection::CommandInjectionPipeline::new()?),
-        Box::new(code_injection::CodeInjectionPipeline::new()?),
-        Box::new(sql_injection::SqlInjectionPipeline::new()?),
-        Box::new(path_traversal::PathTraversalPipeline::new()?),
-        Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?),
-        Box::new(ssrf::SsrfPipeline::new()?),
-        Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?),
-        Box::new(xxe_format_string::XxeFormatStringPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(command_injection::CommandInjectionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(code_injection::CodeInjectionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(sql_injection::SqlInjectionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(path_traversal::PathTraversalPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(ssrf::SsrfPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(xxe_format_string::XxeFormatStringPipeline::new()?)),
     ])
 }
 
-pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
-        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
-        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?)),
     ])
 }
 
-pub fn architecture_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn architecture_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new()?),
-        Box::new(api_surface_area::ApiSurfaceAreaPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(api_surface_area::ApiSurfaceAreaPipeline::new()?)),
     ])
 }

@@ -11,7 +11,7 @@ use crate::workspace::Workspace;
 
 use super::analyzers;
 use super::models::{AuditFinding, AuditSummary};
-use super::pipeline::{self, Pipeline, PipelineContext};
+use super::pipeline::{self, AnyPipeline, GraphPipelineContext, PipelineContext};
 use super::pipelines::helpers::count_all_identifier_occurrences;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +73,7 @@ impl AuditEngine {
         graph: Option<&CodeGraph>,
     ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Build pipelines per language, apply filter
-        let mut pipeline_map: HashMap<Language, Vec<Arc<dyn Pipeline>>> = HashMap::new();
+        let mut pipeline_map: HashMap<Language, Vec<Arc<AnyPipeline>>> = HashMap::new();
         for lang in &self.languages {
             let mut lang_pipelines = match self.pipeline_selector {
                 PipelineSelector::TechDebt => pipeline::pipelines_for_language(*lang)?,
@@ -93,8 +93,8 @@ impl AuditEngine {
             }
 
             if !lang_pipelines.is_empty() {
-                let arced: Vec<Arc<dyn Pipeline>> =
-                    lang_pipelines.into_iter().map(Arc::from).collect();
+                let arced: Vec<Arc<AnyPipeline>> =
+                    lang_pipelines.into_iter().map(Arc::new).collect();
                 pipeline_map.insert(*lang, arced);
             }
         }
@@ -160,17 +160,39 @@ impl AuditEngine {
                         let id_counts =
                             count_all_identifier_occurrences(tree.root_node(), source.as_bytes());
 
-                        let ctx = PipelineContext {
-                            tree: &tree,
-                            source: source.as_bytes(),
-                            file_path: rel_path,
-                            id_counts: &id_counts,
-                            graph: graph_ref,
-                        };
-
                         let mut file_findings = Vec::new();
                         for pipeline in pipelines {
-                            file_findings.extend(pipeline.check_with_context(&ctx));
+                            match pipeline.as_ref() {
+                                AnyPipeline::Node(p) => {
+                                    file_findings.extend(p.check(
+                                        &tree,
+                                        source.as_bytes(),
+                                        rel_path,
+                                    ));
+                                }
+                                AnyPipeline::Graph(p) => {
+                                    if let Some(graph) = graph_ref {
+                                        let ctx = GraphPipelineContext {
+                                            tree: &tree,
+                                            source: source.as_bytes(),
+                                            file_path: rel_path,
+                                            id_counts: &id_counts,
+                                            graph,
+                                        };
+                                        file_findings.extend(p.check(&ctx));
+                                    }
+                                }
+                                AnyPipeline::Legacy(p) => {
+                                    let ctx = PipelineContext {
+                                        tree: &tree,
+                                        source: source.as_bytes(),
+                                        file_path: rel_path,
+                                        id_counts: &id_counts,
+                                        graph: graph_ref,
+                                    };
+                                    file_findings.extend(p.check_with_context(&ctx));
+                                }
+                            }
                         }
 
                         Some(file_findings)
