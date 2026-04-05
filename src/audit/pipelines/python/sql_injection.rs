@@ -441,7 +441,7 @@ fn function_has_user_input_params(tree: &Tree, source: &[u8], finding_line: u32)
 
 /// Find the innermost function_definition containing the target row.
 fn find_enclosing_function(
-    node: tree_sitter::Node,
+    node: tree_sitter::Node<'_>,
     target_row: u32,
 ) -> Option<tree_sitter::Node<'_>> {
     let mut result = None;
@@ -454,15 +454,12 @@ fn find_enclosing_function(
     }
 
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
-            if child.start_position().row as u32 <= target_row
+        if let Some(child) = node.child(i)
+            && child.start_position().row as u32 <= target_row
                 && child.end_position().row as u32 >= target_row
-            {
-                if let Some(inner) = find_enclosing_function(child, target_row) {
+                && let Some(inner) = find_enclosing_function(child, target_row) {
                     result = Some(inner);
                 }
-            }
-        }
     }
 
     result

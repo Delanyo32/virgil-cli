@@ -38,22 +38,22 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(god_class::GodClassPipeline::new()?),
-        Box::new(null_returns::NullReturnsPipeline::new()?),
-        Box::new(exception_swallowing::ExceptionSwallowingPipeline::new()?),
-        Box::new(mutable_public_fields::MutablePublicFieldsPipeline::new()?),
-        Box::new(string_concat_in_loops::StringConcatInLoopsPipeline::new()?),
-        Box::new(instanceof_chains::InstanceofChainsPipeline::new()?),
-        Box::new(resource_leaks::ResourceLeaksPipeline::new()?),
-        Box::new(static_utility_sprawl::StaticUtilitySprawlPipeline::new()?),
-        Box::new(magic_strings::MagicStringsPipeline::new()?),
-        Box::new(raw_types::RawTypesPipeline::new()?),
-        Box::new(missing_final::MissingFinalPipeline::new()?),
+        AnyPipeline::Graph(Box::new(god_class::GodClassPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(null_returns::NullReturnsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(exception_swallowing::ExceptionSwallowingPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(mutable_public_fields::MutablePublicFieldsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(string_concat_in_loops::StringConcatInLoopsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(instanceof_chains::InstanceofChainsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(resource_leaks::ResourceLeaksPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(static_utility_sprawl::StaticUtilitySprawlPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(magic_strings::MagicStringsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(raw_types::RawTypesPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(missing_final::MissingFinalPipeline::new()?)),
     ])
 }
 

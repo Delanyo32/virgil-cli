@@ -39,23 +39,23 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(buffer_overflows::BufferOverflowsPipeline::new()?),
-        Box::new(unchecked_malloc::UncheckedMallocPipeline::new()?),
-        Box::new(memory_leaks::MemoryLeaksPipeline::new()?),
-        Box::new(signed_unsigned_mismatch::SignedUnsignedMismatchPipeline::new()?),
-        Box::new(magic_numbers::CMagicNumbersPipeline::new()?),
-        Box::new(global_mutable_state::GlobalMutableStatePipeline::new()?),
-        Box::new(typedef_pointer_hiding::TypedefPointerHidingPipeline::new()?),
-        Box::new(define_instead_of_inline::DefineInsteadOfInlinePipeline::new()?),
-        Box::new(ignored_return_values::IgnoredReturnValuesPipeline::new()?),
-        Box::new(void_pointer_abuse::VoidPointerAbusePipeline::new()?),
-        Box::new(missing_const::MissingConstPipeline::new()?),
-        Box::new(raw_struct_serialization::RawStructSerializationPipeline::new()?),
+        AnyPipeline::Graph(Box::new(buffer_overflows::BufferOverflowsPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(unchecked_malloc::UncheckedMallocPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(memory_leaks::MemoryLeaksPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(signed_unsigned_mismatch::SignedUnsignedMismatchPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(magic_numbers::CMagicNumbersPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(global_mutable_state::GlobalMutableStatePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(typedef_pointer_hiding::TypedefPointerHidingPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(define_instead_of_inline::DefineInsteadOfInlinePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(ignored_return_values::IgnoredReturnValuesPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(void_pointer_abuse::VoidPointerAbusePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(missing_const::MissingConstPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(raw_struct_serialization::RawStructSerializationPipeline::new()?)),
     ])
 }
 

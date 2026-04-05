@@ -5,7 +5,8 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use crate::audit::pipelines::helpers::COMMON_ALLOWED_NUMBERS;
 
@@ -27,6 +28,9 @@ const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
     "field_declaration",
     "array_declarator",
     "initializer_list",
+    "static_assert",
+    "case_statement",
+    "condition_clause",
 ];
 
 pub struct CppMagicNumbersPipeline {
@@ -38,6 +42,28 @@ impl CppMagicNumbersPipeline {
         Ok(Self {
             numeric_query: compile_numeric_literal_query()?,
         })
+    }
+
+    fn strip_numeric_suffix(value: &str) -> &str {
+        let v = value.trim();
+        // Handle float suffixes (only if value looks like a float)
+        if v.contains('.') || v.contains('e') || v.contains('E') {
+            for suffix in &["f", "F", "l", "L"] {
+                if let Some(stripped) = v.strip_suffix(suffix) {
+                    return stripped;
+                }
+            }
+            return v;
+        }
+        // Handle integer suffixes (check longer ones first)
+        for suffix in &[
+            "ull", "ULL", "Ull", "uLL", "ul", "UL", "Ul", "uL", "ll", "LL", "u", "U", "l", "L",
+        ] {
+            if let Some(stripped) = v.strip_suffix(suffix) {
+                return stripped;
+            }
+        }
+        v
     }
 
     fn is_exempt_context(node: tree_sitter::Node, source: &[u8]) -> bool {
@@ -68,9 +94,14 @@ impl CppMagicNumbersPipeline {
 
         false
     }
+
+    fn is_test_file(file_path: &str) -> bool {
+        let lower = file_path.to_lowercase();
+        lower.contains("_test.") || lower.contains("test_") || lower.contains("/tests/") || lower.contains("/spec/")
+    }
 }
 
-impl Pipeline for CppMagicNumbersPipeline {
+impl NodePipeline for CppMagicNumbersPipeline {
     fn name(&self) -> &str {
         "magic_numbers"
     }
@@ -80,6 +111,10 @@ impl Pipeline for CppMagicNumbersPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if Self::is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
@@ -96,8 +131,15 @@ impl Pipeline for CppMagicNumbersPipeline {
 
             if let Some(num_cap) = num_cap {
                 let value = num_cap.node.utf8_text(source).unwrap_or("");
+                let normalized = Self::strip_numeric_suffix(value);
 
-                if EXCLUDED_VALUES.contains(&value) || COMMON_ALLOWED_NUMBERS.contains(&value) {
+                if EXCLUDED_VALUES.contains(&normalized) || COMMON_ALLOWED_NUMBERS.contains(&normalized) {
+                    continue;
+                }
+
+                // Also check case-insensitive hex
+                let lower = normalized.to_lowercase();
+                if EXCLUDED_VALUES.iter().any(|v| v.to_lowercase() == lower) {
                     continue;
                 }
 
@@ -105,12 +147,25 @@ impl Pipeline for CppMagicNumbersPipeline {
                     continue;
                 }
 
+                if is_nolint_suppressed(source, num_cap.node, self.name()) {
+                    continue;
+                }
+
+                // Graduate severity: array sizes get "warning"
+                let severity = if let Some(parent) = num_cap.node.parent()
+                    && parent.kind() == "array_declarator"
+                {
+                    "warning"
+                } else {
+                    "info"
+                };
+
                 let start = num_cap.node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: start.row as u32 + 1,
                     column: start.column as u32 + 1,
-                    severity: "info".to_string(),
+                    severity: severity.to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "magic_number".to_string(),
                     message: format!(
@@ -131,13 +186,17 @@ mod tests {
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_file(source, "test.cpp")
+    }
+
+    fn parse_and_check_file(source: &str, file_path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Cpp.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = CppMagicNumbersPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.cpp")
+        pipeline.check(&tree, source.as_bytes(), file_path)
     }
 
     #[test]
@@ -194,6 +253,41 @@ mod tests {
     #[test]
     fn skips_template_argument() {
         let src = "std::array<int, 10> arr;";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn number_with_suffix_excluded() {
+        let src = "void f() { unsigned x = 100U; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn switch_case_exempt() {
+        let src = "void f(int x) { switch(x) { case 42: break; } }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn nolint_suppression() {
+        let src = "void f() { int x = 42; // NOLINT }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_file_skipped() {
+        let src = "void f() { int x = 42; }";
+        let findings = parse_and_check_file(src, "test_math.cpp");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn hex_case_insensitive() {
+        let src = "void f() { int x = 0XFF; }";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }

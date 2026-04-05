@@ -36,21 +36,21 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(error_swallowing::ErrorSwallowingPipeline::new()?),
-        Box::new(god_struct::GodStructPipeline::new()?),
-        Box::new(naked_interface::NakedInterfacePipeline::new()?),
-        Box::new(context_not_propagated::ContextNotPropagatedPipeline::new()?),
-        Box::new(init_abuse::InitAbusePipeline::new()?),
-        Box::new(mutex_misuse::MutexMisusePipeline::new()?),
-        Box::new(goroutine_leak::GoroutineLeakPipeline::new()?),
-        Box::new(stringly_typed_config::StringlyTypedConfigPipeline::new()?),
-        Box::new(concrete_return_type::ConcreteReturnTypePipeline::new()?),
-        Box::new(magic_numbers::GoMagicNumbersPipeline::new()?),
+        AnyPipeline::Graph(Box::new(error_swallowing::ErrorSwallowingPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(god_struct::GodStructPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(naked_interface::NakedInterfacePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(context_not_propagated::ContextNotPropagatedPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(init_abuse::InitAbusePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(mutex_misuse::MutexMisusePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(goroutine_leak::GoroutineLeakPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(stringly_typed_config::StringlyTypedConfigPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(concrete_return_type::ConcreteReturnTypePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(magic_numbers::GoMagicNumbersPipeline::new()?)),
     ])
 }
 

@@ -2,14 +2,16 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_test_file;
 
 use super::primitives::{
     compile_invocation_query, compile_member_access_query, compile_method_decl_query,
-    extract_snippet, find_capture_index, has_modifier, node_text,
+    extract_snippet, find_capture_index, has_modifier, is_csharp_suppressed,
+    is_event_handler_signature, node_text,
 };
 
 pub struct SyncOverAsyncPipeline {
@@ -28,7 +30,41 @@ impl SyncOverAsyncPipeline {
     }
 }
 
-impl Pipeline for SyncOverAsyncPipeline {
+/// Check if a node is inside a method named "Main" (entry point).
+fn is_in_main_method(node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "method_declaration" {
+            if let Some(name) = n.child_by_field_name("name") {
+                return node_text(name, source) == "Main";
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Check if a node is inside an async method.
+fn is_in_async_method(node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "method_declaration" || n.kind() == "local_function_statement" {
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if child.kind() == "modifier"
+                    && child.utf8_text(source).unwrap_or("") == "async"
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        current = n.parent();
+    }
+    false
+}
+
+impl GraphPipeline for SyncOverAsyncPipeline {
     fn name(&self) -> &str {
         "sync_over_async"
     }
@@ -37,7 +73,13 @@ impl Pipeline for SyncOverAsyncPipeline {
         "Detects blocking calls on async code (.Result, .Wait()) and async void methods"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
+
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
 
         // Pattern 1: blocking .Result access
@@ -62,22 +104,37 @@ impl Pipeline for SyncOverAsyncPipeline {
                 if let (Some(name_node), Some(access_node)) = (name_node, access_node)
                     && node_text(name_node, source) == "Result"
                 {
+                    if is_csharp_suppressed(source, access_node, "sync_over_async") {
+                        continue;
+                    }
+
+                    // Skip .Result in Main method (entry point)
+                    if is_in_main_method(access_node, source) {
+                        continue;
+                    }
+
+                    let severity = if is_in_async_method(access_node, source) {
+                        "error"
+                    } else {
+                        "warning"
+                    };
+
                     let start = access_node.start_position();
                     findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "blocking_result_access".to_string(),
-                            message: "accessing `.Result` blocks the calling thread \u{2014} use `await` instead".to_string(),
-                            snippet: extract_snippet(source, access_node, 3),
-                        });
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: severity.to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "blocking_result_access".to_string(),
+                        message: "accessing `.Result` blocks the calling thread \u{2014} use `await` instead".to_string(),
+                        snippet: extract_snippet(source, access_node, 3),
+                    });
                 }
             }
         }
 
-        // Pattern 2: blocking .Wait() call
+        // Pattern 2: blocking .Wait() / .WaitAll() / .WaitAny() / .GetAwaiter().GetResult()
         {
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&self.invocation_query, tree.root_node(), source);
@@ -98,24 +155,47 @@ impl Pipeline for SyncOverAsyncPipeline {
 
                 if let (Some(fn_node), Some(inv_node)) = (fn_node, inv_node) {
                     let fn_text = node_text(fn_node, source);
-                    if fn_text.ends_with(".Wait")
+                    let is_blocking = fn_text.ends_with(".Wait")
                         || fn_text.ends_with(".WaitAll")
                         || fn_text.ends_with(".WaitAny")
-                    {
-                        let start = inv_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "blocking_wait_call".to_string(),
-                            message:
-                                "`.Wait()` blocks the calling thread \u{2014} use `await` instead"
-                                    .to_string(),
-                            snippet: extract_snippet(source, inv_node, 3),
-                        });
+                        || fn_text == "Task.WaitAll"
+                        || fn_text == "Task.WaitAny"
+                        || fn_text.ends_with(".GetResult");
+
+                    if !is_blocking {
+                        continue;
                     }
+
+                    if is_csharp_suppressed(source, inv_node, "sync_over_async") {
+                        continue;
+                    }
+
+                    let severity = if is_in_async_method(inv_node, source) {
+                        "error"
+                    } else {
+                        "warning"
+                    };
+
+                    let pattern = if fn_text.ends_with(".GetResult") {
+                        "blocking_get_result"
+                    } else {
+                        "blocking_wait_call"
+                    };
+
+                    let start = inv_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: severity.to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: pattern.to_string(),
+                        message: format!(
+                            "`{}()` blocks the calling thread \u{2014} use `await` instead",
+                            fn_text
+                        ),
+                        snippet: extract_snippet(source, inv_node, 3),
+                    });
                 }
             }
         }
@@ -150,20 +230,29 @@ impl Pipeline for SyncOverAsyncPipeline {
                     && has_modifier(decl_node, source, "async")
                     && node_text(type_node, source) == "void"
                 {
+                    // Skip event handlers — async void is idiomatic for them
+                    if is_event_handler_signature(decl_node, source) {
+                        continue;
+                    }
+
+                    if is_csharp_suppressed(source, decl_node, "sync_over_async") {
+                        continue;
+                    }
+
                     let method_name = node_text(name_node, source);
                     let start = decl_node.start_position();
                     findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "async_void".to_string(),
-                            message: format!(
-                                "`async void {method_name}` cannot be awaited and exceptions crash the process \u{2014} use `async Task` instead"
-                            ),
-                            snippet: extract_snippet(source, decl_node, 3),
-                        });
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "error".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "async_void".to_string(),
+                        message: format!(
+                            "`async void {method_name}` cannot be awaited and exceptions crash the process \u{2014} use `async Task` instead"
+                        ),
+                        snippet: extract_snippet(source, decl_node, 3),
+                    });
                 }
             }
         }
@@ -175,16 +264,31 @@ impl Pipeline for SyncOverAsyncPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
+    use std::collections::HashMap;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_with_path(source, "Service.cs")
+    }
+
+    fn parse_and_check_with_path(source: &str, file_path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::CSharp.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = SyncOverAsyncPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "Test.cs")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -202,6 +306,7 @@ class Foo {
             .filter(|f| f.pattern == "blocking_result_access")
             .collect();
         assert_eq!(result_findings.len(), 1);
+        assert_eq!(result_findings[0].severity, "warning");
     }
 
     #[test]
@@ -236,6 +341,7 @@ class Foo {
             .filter(|f| f.pattern == "async_void")
             .collect();
         assert_eq!(async_void.len(), 1);
+        assert_eq!(async_void[0].severity, "error");
     }
 
     #[test]
@@ -262,5 +368,87 @@ class Foo {
 "#;
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn event_handler_excluded() {
+        let src = r#"
+class Foo {
+    async void OnClick(object sender, EventArgs e) {
+        await DoWork();
+    }
+}
+"#;
+        let findings = parse_and_check(src);
+        let async_void: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "async_void")
+            .collect();
+        assert!(async_void.is_empty());
+    }
+
+    #[test]
+    fn result_in_async_is_error() {
+        let src = r#"
+class Foo {
+    async Task Bar() {
+        var x = someTask.Result;
+    }
+}
+"#;
+        let findings = parse_and_check(src);
+        let result_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "blocking_result_access")
+            .collect();
+        assert_eq!(result_findings.len(), 1);
+        assert_eq!(result_findings[0].severity, "error");
+    }
+
+    #[test]
+    fn test_file_excluded() {
+        let src = r#"
+class Foo {
+    void Bar() {
+        someTask.Wait();
+    }
+}
+"#;
+        let findings = parse_and_check_with_path(src, "FooTests.cs");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detects_get_result() {
+        let src = r#"
+class Foo {
+    void Bar() {
+        var x = someTask.GetAwaiter().GetResult();
+    }
+}
+"#;
+        let findings = parse_and_check(src);
+        let gr: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "blocking_get_result")
+            .collect();
+        assert_eq!(gr.len(), 1);
+    }
+
+    #[test]
+    fn detects_task_wait_all() {
+        let src = r#"
+class Foo {
+    void Bar() {
+        Task.WaitAll(t1, t2);
+    }
+}
+"#;
+        let findings = parse_and_check(src);
+        let waits: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern == "blocking_wait_call")
+            .collect();
+        assert_eq!(waits.len(), 1);
     }
 }

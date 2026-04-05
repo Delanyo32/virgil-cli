@@ -39,23 +39,23 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(sync_over_async::SyncOverAsyncPipeline::new()?),
-        Box::new(null_reference_risk::NullReferenceRiskPipeline::new()?),
-        Box::new(exception_control_flow::ExceptionControlFlowPipeline::new()?),
-        Box::new(static_global_state::StaticGlobalStatePipeline::new()?),
-        Box::new(disposable_not_disposed::DisposableNotDisposedPipeline::new()?),
-        Box::new(god_class::GodClassPipeline::new()?),
-        Box::new(stringly_typed::StringlyTypedPipeline::new()?),
-        Box::new(god_controller::GodControllerPipeline::new()?),
-        Box::new(thread_sleep::ThreadSleepPipeline::new()?),
-        Box::new(missing_cancellation_token::MissingCancellationTokenPipeline::new()?),
-        Box::new(hardcoded_config::HardcodedConfigPipeline::new()?),
-        Box::new(anemic_domain_model::AnemicDomainModelPipeline::new()?),
+        AnyPipeline::Graph(Box::new(sync_over_async::SyncOverAsyncPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(null_reference_risk::NullReferenceRiskPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(exception_control_flow::ExceptionControlFlowPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(static_global_state::StaticGlobalStatePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(disposable_not_disposed::DisposableNotDisposedPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(god_class::GodClassPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(god_controller::GodControllerPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(thread_sleep::ThreadSleepPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(missing_cancellation_token::MissingCancellationTokenPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(hardcoded_config::HardcodedConfigPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(anemic_domain_model::AnemicDomainModelPipeline::new()?)),
     ])
 }
 

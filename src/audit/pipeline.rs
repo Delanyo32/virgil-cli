@@ -93,16 +93,16 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
         Language::Python => pipelines::python::tech_debt_pipelines(),
         Language::Rust => wrap_legacy(pipelines::rust::tech_debt_pipelines()),
-        Language::Go => wrap_legacy(pipelines::go::tech_debt_pipelines()),
+        Language::Go => pipelines::go::tech_debt_pipelines(),
         Language::Php => wrap_legacy(pipelines::php::tech_debt_pipelines()),
-        Language::Java => wrap_legacy(pipelines::java::tech_debt_pipelines()),
+        Language::Java => pipelines::java::tech_debt_pipelines(),
         Language::JavaScript => wrap_legacy(pipelines::javascript::tech_debt_pipelines()),
         Language::TypeScript | Language::Tsx => {
             wrap_legacy(pipelines::typescript::tech_debt_pipelines(language))
         }
-        Language::C => wrap_legacy(pipelines::c::tech_debt_pipelines()),
-        Language::Cpp => wrap_legacy(pipelines::cpp::tech_debt_pipelines()),
-        Language::CSharp => wrap_legacy(pipelines::csharp::tech_debt_pipelines()),
+        Language::C => pipelines::c::tech_debt_pipelines(),
+        Language::Cpp => pipelines::cpp::tech_debt_pipelines(),
+        Language::CSharp => pipelines::csharp::tech_debt_pipelines(),
         _ => Ok(vec![]),
     }
 }

@@ -644,6 +644,13 @@ pub fn is_test_file(file_path: &str) -> bool {
     {
         return true;
     }
+    // C#: *Tests.cs, *Test.cs, *Spec.cs
+    if file_name.ends_with("Tests.cs")
+        || file_name.ends_with("Test.cs")
+        || file_name.ends_with("Spec.cs")
+    {
+        return true;
+    }
     // JS/TS: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx
     let lower = file_name.to_lowercase();
     if lower.contains(".test.") || lower.contains(".spec.") {
@@ -880,6 +887,27 @@ pub fn is_go_constructor(node: Node, source: &[u8]) -> bool {
     false
 }
 
+/// Check if a Go file is generated code (protobuf, code generators, etc.).
+pub fn is_generated_go_file(file_path: &str, source: &[u8]) -> bool {
+    if file_path.ends_with(".pb.go")
+        || file_path.ends_with("_gen.go")
+        || file_path.ends_with("_generated.go")
+        || file_path.contains("/generated/")
+    {
+        return true;
+    }
+    // Check first 512 bytes for "// Code generated" header
+    let len = source.len().min(512);
+    if let Ok(s) = std::str::from_utf8(&source[..len]) {
+        for line in s.lines().take(3) {
+            if line.contains("// Code generated") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 // ── Java-specific helpers ─────────────────────────────────────────────
 
 /// Check if a Java node has a specific annotation (e.g., @Test, @Override).
@@ -919,6 +947,67 @@ pub fn has_annotation(node: Node, source: &[u8], name: &str) -> bool {
                     }
                 }
             }
+        }
+    }
+    false
+}
+
+/// Check if a Java node (or its enclosing declaration) has `@SuppressWarnings("tag")`
+/// or `@Generated`. Returns true if the finding should be suppressed.
+pub fn has_suppress_warnings(node: Node, source: &[u8], tag: &str) -> bool {
+    // First check for @Generated (universal suppression)
+    if has_annotation(node, source, "Generated") {
+        return true;
+    }
+    // Walk up to the enclosing declaration
+    let target = if matches!(
+        node.kind(),
+        "method_declaration" | "class_declaration" | "field_declaration"
+    ) {
+        Some(node)
+    } else {
+        let mut current = node.parent();
+        loop {
+            match current {
+                Some(n)
+                    if matches!(
+                        n.kind(),
+                        "method_declaration" | "class_declaration" | "field_declaration"
+                    ) =>
+                {
+                    break Some(n);
+                }
+                Some(n) => current = n.parent(),
+                None => break None,
+            }
+        }
+    };
+    let Some(target) = target else {
+        return false;
+    };
+    // Check for @SuppressWarnings containing the tag
+    let mut cursor = target.walk();
+    for child in target.children(&mut cursor) {
+        if child.kind() == "modifiers" {
+            let mut inner_cursor = child.walk();
+            for modifier_child in child.children(&mut inner_cursor) {
+                if modifier_child.kind() == "annotation" {
+                    let text = modifier_child.utf8_text(source).unwrap_or("");
+                    if text.contains("SuppressWarnings") && text.contains(tag) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    // Also check enclosing class if we found a method/field
+    if target.kind() != "class_declaration" {
+        let mut parent = target.parent();
+        while let Some(p) = parent {
+            if p.kind() == "class_declaration" {
+                return has_suppress_warnings(p, source, tag);
+            }
+            parent = p.parent();
         }
     }
     false
@@ -1307,6 +1396,78 @@ fn identifiers_reference_names(node: tree_sitter::Node, names: &[String], source
     false
 }
 
+/// Check if a source line (or the line above) has a NOLINT comment suppressing findings.
+///
+/// Supports: `// NOLINT`, `/* NOLINT */`, `// NOLINT(pipeline_name)`, `/* NOLINT(name1,name2) */`
+/// A blanket `NOLINT` (no parenthesized list) suppresses all pipelines.
+/// A targeted `NOLINT(name1,name2)` only suppresses the listed pipeline names.
+pub fn is_nolint_suppressed(source: &[u8], node: tree_sitter::Node, pipeline_name: &str) -> bool {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let lines: Vec<&str> = source_str.lines().collect();
+    let row = node.start_position().row;
+
+    for offset in 0..=1 {
+        if row < offset {
+            continue;
+        }
+        let line_idx = row - offset;
+        if line_idx >= lines.len() {
+            continue;
+        }
+        let line = lines[line_idx];
+        if let Some(pos) = line.find("NOLINT") {
+            let after = &line[pos + 6..];
+            if after.starts_with('(') {
+                // Targeted: NOLINT(name1,name2)
+                if let Some(end) = after.find(')') {
+                    let names = &after[1..end];
+                    if names
+                        .split(',')
+                        .any(|n| n.trim() == pipeline_name)
+                    {
+                        return true;
+                    }
+                }
+            } else {
+                // Blanket NOLINT — suppresses everything
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check if `name` appears in `text` as a whole identifier (not a substring of another identifier).
+///
+/// An identifier boundary is any character that is NOT alphanumeric or underscore.
+/// For example, `contains_identifier("if (!pp)", "p")` returns false because "p" is a
+/// substring of "pp", but `contains_identifier("if (!p)", "p")` returns true.
+pub fn contains_identifier(text: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(name) {
+        let abs_pos = start + pos;
+        let before_ok = abs_pos == 0
+            || !text.as_bytes()[abs_pos - 1]
+                .is_ascii_alphanumeric()
+                && text.as_bytes()[abs_pos - 1] != b'_';
+        let end_pos = abs_pos + name.len();
+        let after_ok = end_pos >= text.len()
+            || !text.as_bytes()[end_pos].is_ascii_alphanumeric()
+                && text.as_bytes()[end_pos] != b'_';
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs_pos + 1;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1470,5 +1631,86 @@ mod tests {
         // Edge cases
         assert!(receiver_matches_any_word("DB", &["db"]));
         assert!(!receiver_matches_any_word("myList", &["db", "conn"]));
+    }
+
+    #[test]
+    fn test_is_nolint_suppressed_blanket() {
+        let src = b"int x = 42; // NOLINT\n";
+        let mut parser = tree_sitter::Parser::new();
+        let lang: tree_sitter::Language = tree_sitter_c::LANGUAGE.into();
+        parser.set_language(&lang).unwrap();
+        let tree = parser.parse(src.as_slice(), None).unwrap();
+        // The number_literal node is on line 0
+        let root = tree.root_node();
+        // Find the number_literal
+        fn find_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+            if node.kind() == kind {
+                return Some(node);
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(n) = find_kind(child, kind) {
+                    return Some(n);
+                }
+            }
+            None
+        }
+        let num = find_kind(root, "number_literal").unwrap();
+        assert!(is_nolint_suppressed(src.as_slice(), num, "magic_numbers"));
+        assert!(is_nolint_suppressed(src.as_slice(), num, "any_pipeline"));
+    }
+
+    #[test]
+    fn test_is_nolint_suppressed_targeted() {
+        let src = b"int x = 42; // NOLINT(magic_numbers)\n";
+        let mut parser = tree_sitter::Parser::new();
+        let lang: tree_sitter::Language = tree_sitter_c::LANGUAGE.into();
+        parser.set_language(&lang).unwrap();
+        let tree = parser.parse(src.as_slice(), None).unwrap();
+        fn find_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+            if node.kind() == kind { return Some(node); }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(n) = find_kind(child, kind) { return Some(n); }
+            }
+            None
+        }
+        let num = find_kind(tree.root_node(), "number_literal").unwrap();
+        assert!(is_nolint_suppressed(src.as_slice(), num, "magic_numbers"));
+        assert!(!is_nolint_suppressed(src.as_slice(), num, "other_pipeline"));
+    }
+
+    #[test]
+    fn test_is_nolint_suppressed_no_comment() {
+        let src = b"int x = 42;\n";
+        let mut parser = tree_sitter::Parser::new();
+        let lang: tree_sitter::Language = tree_sitter_c::LANGUAGE.into();
+        parser.set_language(&lang).unwrap();
+        let tree = parser.parse(src.as_slice(), None).unwrap();
+        fn find_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+            if node.kind() == kind { return Some(node); }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(n) = find_kind(child, kind) { return Some(n); }
+            }
+            None
+        }
+        let num = find_kind(tree.root_node(), "number_literal").unwrap();
+        assert!(!is_nolint_suppressed(src.as_slice(), num, "magic_numbers"));
+    }
+
+    #[test]
+    fn test_contains_identifier_exact() {
+        assert!(contains_identifier("if (!p)", "p"));
+        assert!(!contains_identifier("if (!pp)", "p"));
+        assert!(!contains_identifier("if (!printf)", "p"));
+        assert!(contains_identifier("if (p == NULL)", "p"));
+        assert!(!contains_identifier("if (ptr == NULL)", "p"));
+        assert!(contains_identifier("x + p + y", "p"));
+        assert!(contains_identifier("p", "p"));
+        assert!(!contains_identifier("", "p"));
+        assert!(!contains_identifier("abc", ""));
+        assert!(contains_identifier("p[0]", "p"));
+        assert!(!contains_identifier("pp[0]", "p"));
     }
 }

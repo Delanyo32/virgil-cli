@@ -2,14 +2,15 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
     compile_class_specifier_query, compile_struct_specifier_query, extract_snippet,
-    find_capture_index, node_text,
+    find_capture_index, find_identifier_in_declarator, node_text,
 };
 
 pub struct RuleOfFivePipeline {
@@ -25,6 +26,138 @@ impl RuleOfFivePipeline {
         })
     }
 
+    fn has_virtual_specifier(node: tree_sitter::Node, _source: &[u8]) -> bool {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "virtual_function_specifier"
+                || child.kind() == "virtual"
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_destructor(node: tree_sitter::Node, _source: &[u8]) -> bool {
+        // Check for destructor_name in the declarator tree
+        fn find_destructor_name(n: tree_sitter::Node) -> bool {
+            if n.kind() == "destructor_name" {
+                return true;
+            }
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if find_destructor_name(child) {
+                    return true;
+                }
+            }
+            false
+        }
+        find_destructor_name(node)
+    }
+
+    fn is_defaulted_or_deleted(node: tree_sitter::Node, source: &[u8]) -> bool {
+        let text = node_text(node, source);
+        // Look for = default or = delete at the end of declaration
+        text.ends_with("= default;") || text.ends_with("= delete;")
+            || text.contains("= default") || text.contains("= delete")
+    }
+
+    fn is_copy_constructor(node: tree_sitter::Node, class_name: &str, source: &[u8]) -> bool {
+        // Get function name from declarator
+        if let Some(declarator) = node.child_by_field_name("declarator") {
+            if let Some(name) = find_identifier_in_declarator(declarator, source) {
+                if name != class_name {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Check parameters for const ClassName&
+        let text = node_text(node, source);
+        text.contains(&format!("const {class_name}&"))
+            || text.contains(&format!("const {class_name} &"))
+    }
+
+    fn is_move_constructor(node: tree_sitter::Node, class_name: &str, source: &[u8]) -> bool {
+        if let Some(declarator) = node.child_by_field_name("declarator") {
+            if let Some(name) = find_identifier_in_declarator(declarator, source) {
+                if name != class_name {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        let text = node_text(node, source);
+        (text.contains(&format!("{class_name}&&")) || text.contains(&format!("{class_name} &&")))
+            && !text.contains("const")
+    }
+
+    fn is_copy_assignment(node: tree_sitter::Node, class_name: &str, source: &[u8]) -> bool {
+        // Check for operator= with const ref parameter
+        fn has_operator_name(n: tree_sitter::Node) -> bool {
+            if n.kind() == "operator_name" {
+                return true;
+            }
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if has_operator_name(child) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        if let Some(declarator) = node.child_by_field_name("declarator") {
+            if !has_operator_name(declarator) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        let text = node_text(node, source);
+        text.contains("operator=")
+            && (text.contains(&format!("const {class_name}&"))
+                || text.contains(&format!("const {class_name} &")))
+    }
+
+    fn is_move_assignment(node: tree_sitter::Node, class_name: &str, source: &[u8]) -> bool {
+        fn has_operator_name(n: tree_sitter::Node) -> bool {
+            if n.kind() == "operator_name" {
+                return true;
+            }
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if has_operator_name(child) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        if let Some(declarator) = node.child_by_field_name("declarator") {
+            if !has_operator_name(declarator) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        let text = node_text(node, source);
+        text.contains("operator=")
+            && (text.contains(&format!("{class_name}&&"))
+                || text.contains(&format!("{class_name} &&")))
+            && !text.contains(&format!("const {class_name}"))
+    }
+
     fn check_class_body(
         class_name: &str,
         body: tree_sitter::Node,
@@ -38,53 +171,47 @@ impl RuleOfFivePipeline {
         let mut has_copy_assignment = false;
         let mut has_move_constructor = false;
         let mut has_move_assignment = false;
+        let mut destructor_is_virtual_default = false;
 
-        // Walk the field_declaration_list children
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
-            if child.kind() == "function_definition" || child.kind() == "declaration" {
-                let text = node_text(child, source);
-
-                // Destructor: ~ClassName
-                if text.contains(&format!("~{class_name}")) {
-                    has_destructor = true;
-                }
-
-                // Copy constructor: ClassName(const ClassName&)
-                if text.contains(&format!("{class_name}(const {class_name}"))
-                    || text.contains(&format!("{class_name}(const {class_name}&"))
-                {
-                    has_copy_constructor = true;
-                }
-
-                // Copy assignment: operator=(const ClassName&)
-                if text.contains("operator=") && text.contains(&format!("const {class_name}")) {
-                    has_copy_assignment = true;
-                }
-
-                // Move constructor: ClassName(ClassName&&)
-                if text.contains(&format!("{class_name}({class_name}&&"))
-                    || text.contains(&format!("{class_name}({class_name} &&"))
-                {
-                    has_move_constructor = true;
-                }
-
-                // Move assignment: operator=(ClassName&&)
-                if text.contains("operator=") && text.contains(&format!("{class_name}&&")) {
-                    has_move_assignment = true;
-                }
-
-                // Also check for = default / = delete patterns
-                if text.contains(&format!("~{class_name}"))
-                    && (text.contains("default") || text.contains("delete"))
-                {
-                    has_destructor = true;
-                }
+            let is_func = child.kind() == "function_definition" || child.kind() == "declaration";
+            if !is_func {
+                continue;
             }
 
-            // Also handle access specifiers wrapping declarations
-            if child.kind() == "access_specifier" {
+            // Destructor detection via AST
+            if Self::is_destructor(child, source) {
+                has_destructor = true;
+                // Check for virtual ~Foo() = default (polymorphic, no resources)
+                if Self::has_virtual_specifier(child, source)
+                    && Self::is_defaulted_or_deleted(child, source)
+                {
+                    destructor_is_virtual_default = true;
+                }
                 continue;
+            }
+
+            // Check for = default or = delete on special members (count them as defined)
+            let is_defaulted_or_deleted = Self::is_defaulted_or_deleted(child, source);
+
+            if Self::is_copy_constructor(child, class_name, source) || (is_defaulted_or_deleted && {
+                let text = node_text(child, source);
+                text.contains(class_name) && text.contains("const") && !text.contains("operator")
+            }) {
+                has_copy_constructor = true;
+            }
+
+            if Self::is_copy_assignment(child, class_name, source) {
+                has_copy_assignment = true;
+            }
+
+            if Self::is_move_constructor(child, class_name, source) {
+                has_move_constructor = true;
+            }
+
+            if Self::is_move_assignment(child, class_name, source) {
+                has_move_assignment = true;
             }
         }
 
@@ -102,10 +229,21 @@ impl RuleOfFivePipeline {
         .filter(|&&b| b)
         .count();
 
-        // If all four are present, rule of five is satisfied
         if special_count == 4 {
             return None;
         }
+
+        // NOLINT check
+        if is_nolint_suppressed(source, class_node, pipeline_name) {
+            return None;
+        }
+
+        // Virtual default destructor (polymorphic but no resources) gets lower severity
+        let severity = if destructor_is_virtual_default {
+            "info"
+        } else {
+            "warning"
+        };
 
         let mut missing = Vec::new();
         if !has_copy_constructor {
@@ -126,7 +264,7 @@ impl RuleOfFivePipeline {
             file_path: file_path.to_string(),
             line: start.row as u32 + 1,
             column: start.column as u32 + 1,
-            severity: "warning".to_string(),
+            severity: severity.to_string(),
             pipeline: pipeline_name.to_string(),
             pattern: "missing_rule_of_five".to_string(),
             message: format!(
@@ -138,7 +276,7 @@ impl RuleOfFivePipeline {
     }
 }
 
-impl Pipeline for RuleOfFivePipeline {
+impl GraphPipeline for RuleOfFivePipeline {
     fn name(&self) -> &str {
         "rule_of_five"
     }
@@ -147,7 +285,8 @@ impl Pipeline for RuleOfFivePipeline {
         "Detects classes with destructor but missing copy/move constructors or assignment operators (Rule of Five)"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
         let mut findings = Vec::new();
 
         // Check classes
@@ -219,7 +358,9 @@ impl Pipeline for RuleOfFivePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
+    use std::collections::HashMap;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
@@ -228,7 +369,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = RuleOfFivePipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.cpp")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.cpp",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -304,5 +454,30 @@ public:
         let findings = parse_and_check(src);
         assert_eq!(findings[0].severity, "warning");
         assert_eq!(findings[0].pipeline, "rule_of_five");
+    }
+
+    #[test]
+    fn nolint_suppression() {
+        let src = r#"
+class Foo { // NOLINT
+public:
+    ~Foo() {}
+};
+"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn virtual_default_destructor_info() {
+        let src = r#"
+class Base {
+public:
+    virtual ~Base() = default;
+};
+"#;
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "info");
     }
 }

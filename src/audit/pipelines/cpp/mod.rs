@@ -39,23 +39,23 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(raw_memory_management::RawMemoryManagementPipeline::new()?),
-        Box::new(rule_of_five::RuleOfFivePipeline::new()?),
-        Box::new(c_style_cast::CStyleCastPipeline::new()?),
-        Box::new(large_object_by_value::LargeObjectByValuePipeline::new()?),
-        Box::new(endl_flush::EndlFlushPipeline::new()?),
-        Box::new(missing_override::MissingOverridePipeline::new()?),
-        Box::new(raw_union::RawUnionPipeline::new()?),
-        Box::new(excessive_includes::ExcessiveIncludesPipeline::new()?),
-        Box::new(exception_across_boundary::ExceptionAcrossBoundaryPipeline::new()?),
-        Box::new(uninitialized_member::UninitializedMemberPipeline::new()?),
-        Box::new(shared_ptr_cycle_risk::SharedPtrCycleRiskPipeline::new()?),
-        Box::new(magic_numbers::CppMagicNumbersPipeline::new()?),
+        AnyPipeline::Graph(Box::new(raw_memory_management::RawMemoryManagementPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(rule_of_five::RuleOfFivePipeline::new()?)),
+        AnyPipeline::Node(Box::new(c_style_cast::CStyleCastPipeline::new()?)),
+        AnyPipeline::Node(Box::new(large_object_by_value::LargeObjectByValuePipeline::new()?)),
+        AnyPipeline::Graph(Box::new(endl_flush::EndlFlushPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(missing_override::MissingOverridePipeline::new()?)),
+        AnyPipeline::Node(Box::new(raw_union::RawUnionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(excessive_includes::ExcessiveIncludesPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(exception_across_boundary::ExceptionAcrossBoundaryPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(uninitialized_member::UninitializedMemberPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(shared_ptr_cycle_risk::SharedPtrCycleRiskPipeline::new()?)),
+        AnyPipeline::Node(Box::new(magic_numbers::CppMagicNumbersPipeline::new()?)),
     ])
 }
 

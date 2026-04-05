@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::{is_generated_go_file, is_nolint_suppressed};
 
 use super::primitives::{
     compile_method_decl_query, compile_struct_type_query, extract_snippet, find_capture_index,
@@ -32,7 +33,7 @@ impl GodStructPipeline {
     }
 }
 
-impl Pipeline for GodStructPipeline {
+impl GraphPipeline for GodStructPipeline {
     fn name(&self) -> &str {
         "god_struct"
     }
@@ -41,7 +42,13 @@ impl Pipeline for GodStructPipeline {
         "Detects structs with too many fields (>=15) or too many methods (>=10)"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
+
+        if is_generated_go_file(file_path, source) {
+            return vec![];
+        }
+
         let mut findings = Vec::new();
 
         // Check large structs
@@ -98,12 +105,22 @@ impl Pipeline for GodStructPipeline {
                             continue;
                         }
 
+                        if is_nolint_suppressed(source, decl_node, self.name()) {
+                            continue;
+                        }
+
+                        let severity = if field_count >= 25 {
+                            "error"
+                        } else {
+                            "warning"
+                        };
+
                         let start = decl_node.start_position();
                         findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: start.row as u32 + 1,
                             column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
+                            severity: severity.to_string(),
                             pipeline: self.name().to_string(),
                             pattern: "large_struct".to_string(),
                             message: format!(
@@ -165,11 +182,16 @@ impl Pipeline for GodStructPipeline {
             for (struct_name, count) in &method_counts {
                 if *count >= METHOD_THRESHOLD {
                     let (line, column, snippet) = first_method.get(struct_name).unwrap();
+                    let severity = if *count >= 20 {
+                        "error"
+                    } else {
+                        "warning"
+                    };
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: *line,
                         column: *column,
-                        severity: "warning".to_string(),
+                        severity: severity.to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "large_method_set".to_string(),
                         message: format!(
@@ -188,16 +210,30 @@ impl Pipeline for GodStructPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_file(source, "test.go")
+    }
+
+    fn parse_and_check_file(source: &str, file_path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Go.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = GodStructPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.go")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     fn gen_fields(n: usize) -> String {
@@ -252,6 +288,52 @@ mod tests {
             "package main\ntype Svc struct {{}}\n{}\n",
             gen_methods("Svc", 3)
         );
+        let findings = parse_and_check(&src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn nolint_suppression_skips_finding() {
+        // Struct with 16 fields but NOLINT comment
+        let mut src = String::from("package main\n// NOLINT(god_struct)\ntype Big struct {\n");
+        for i in 0..16 {
+            src.push_str(&format!("\tF{i} int\n"));
+        }
+        src.push_str("}\n");
+        let findings = parse_and_check(&src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn generated_file_skipped() {
+        let mut src = String::from("package main\ntype Big struct {\n");
+        for i in 0..16 {
+            src.push_str(&format!("\tF{i} int\n"));
+        }
+        src.push_str("}\n");
+        let findings = parse_and_check_file(&src, "model.pb.go");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn severity_error_for_very_large_struct() {
+        let mut src = String::from("package main\ntype Huge struct {\n");
+        for i in 0..26 {
+            src.push_str(&format!("\tF{i} int\n"));
+        }
+        src.push_str("}\n");
+        let findings = parse_and_check(&src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "error");
+    }
+
+    #[test]
+    fn boundary_14_fields_not_flagged() {
+        let mut src = String::from("package main\ntype Small struct {\n");
+        for i in 0..14 {
+            src.push_str(&format!("\tF{i} int\n"));
+        }
+        src.push_str("}\n");
         let findings = parse_and_check(&src);
         assert!(findings.is_empty());
     }

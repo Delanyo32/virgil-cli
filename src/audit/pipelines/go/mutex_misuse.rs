@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::{is_nolint_suppressed, is_generated_go_file};
 
 use super::primitives::{
     compile_method_call_query, extract_snippet, find_capture_index, node_text,
@@ -93,7 +94,7 @@ impl MutexMisusePipeline {
     }
 }
 
-impl Pipeline for MutexMisusePipeline {
+impl GraphPipeline for MutexMisusePipeline {
     fn name(&self) -> &str {
         "mutex_misuse"
     }
@@ -102,7 +103,11 @@ impl Pipeline for MutexMisusePipeline {
         "Detects .Lock() not immediately followed by defer .Unlock()"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
+        if is_generated_go_file(file_path, source) {
+            return vec![];
+        }
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.call_query, tree.root_node(), source);
@@ -123,15 +128,18 @@ impl Pipeline for MutexMisusePipeline {
                 .map(|c| c.node);
 
             if let (Some(method_node), Some(call_node)) = (method_node, call_node) {
+                if is_nolint_suppressed(source, call_node, self.name()) {
+                    continue;
+                }
                 let method_name = node_text(method_node, source);
-                if method_name != "Lock" && method_name != "RLock" {
+                if method_name != "Lock" && method_name != "RLock" && method_name != "TryLock" {
                     continue;
                 }
 
                 let expected_unlock = if method_name == "RLock" {
                     "RUnlock"
                 } else {
-                    "Unlock"
+                    "Unlock" // covers both Lock and TryLock
                 };
 
                 // Extract receiver of the Lock call
@@ -169,16 +177,30 @@ impl Pipeline for MutexMisusePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_file(source, "test.go")
+    }
+
+    fn parse_and_check_file(source: &str, file_path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Go.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MutexMisusePipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.go")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -209,5 +231,35 @@ mod tests {
         let src = "package main\nfunc doWork() {\n\tmu.Lock()\n\tdefer fmt.Println(\"done\")\n}\n";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn nolint_suppression_skips_finding() {
+        let src = "package main\nfunc doWork() {\n\tmu.Lock() // NOLINT(mutex_misuse)\n\tfmt.Println(\"done\")\n}\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn generated_file_skipped() {
+        let src = "package main\nfunc doWork() {\n\tmu.Lock()\n\tfmt.Println(\"done\")\n}\n";
+        let findings = parse_and_check_file(src, "model.pb.go");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detects_trylock_without_unlock() {
+        let src = "package main\nfunc doWork() {\n\tmu.TryLock()\n\tfmt.Println(\"done\")\n}\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("TryLock"));
+    }
+
+    #[test]
+    fn detects_rlock_without_runlock() {
+        let src = "package main\nfunc doWork() {\n\tmu.RLock()\n\tfmt.Println(\"done\")\n}\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("RLock"));
     }
 }

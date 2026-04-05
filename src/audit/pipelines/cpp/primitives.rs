@@ -285,6 +285,49 @@ pub fn find_identifier_in_declarator(node: tree_sitter::Node, source: &[u8]) -> 
     None
 }
 
+// ── Shared analysis helpers ──
+
+/// Check if a node is inside a loop (for, while, do, range-for).
+pub fn is_inside_loop(node: tree_sitter::Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "for_statement" | "while_statement" | "do_statement" | "for_range_loop" => {
+                return true;
+            }
+            _ => {}
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+/// Check if a node is inside a try block.
+pub fn is_inside_try_block(node: tree_sitter::Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "try_statement" {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+/// Check if the translation unit has a `using namespace std;` directive.
+pub fn has_using_namespace_std(root: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() == "using_declaration" {
+            let text = node_text(child, source);
+            if text.contains("namespace") && text.contains("std") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

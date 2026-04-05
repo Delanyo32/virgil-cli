@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
     compile_class_specifier_query, compile_struct_specifier_query, extract_snippet,
@@ -35,10 +36,69 @@ impl MissingOverridePipeline {
         false
     }
 
+    fn has_virtual_specifier(node: tree_sitter::Node) -> bool {
+        // Check for virtual_function_specifier child node (the `virtual` keyword)
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "virtual_function_specifier" || child.kind() == "virtual" {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn has_override_or_final(node: tree_sitter::Node) -> bool {
+        // Check for virtual_specifier child (override/final) in the declarator tree
+        fn find_specifier(n: tree_sitter::Node) -> bool {
+            if n.kind() == "virtual_specifier" {
+                return true;
+            }
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if find_specifier(child) {
+                    return true;
+                }
+            }
+            false
+        }
+        find_specifier(node)
+    }
+
+    fn is_destructor(node: tree_sitter::Node) -> bool {
+        fn find_destructor_name(n: tree_sitter::Node) -> bool {
+            if n.kind() == "destructor_name" {
+                return true;
+            }
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if find_destructor_name(child) {
+                    return true;
+                }
+            }
+            false
+        }
+        find_destructor_name(node)
+    }
+
+    fn has_pure_virtual_clause(node: tree_sitter::Node) -> bool {
+        fn find_pure_virtual(n: tree_sitter::Node) -> bool {
+            if n.kind() == "pure_virtual_clause" {
+                return true;
+            }
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if find_pure_virtual(child) {
+                    return true;
+                }
+            }
+            false
+        }
+        find_pure_virtual(node)
+    }
+
     fn check_body_for_missing_override(
         body: tree_sitter::Node,
         class_name: &str,
-        _class_node: tree_sitter::Node,
         source: &[u8],
         file_path: &str,
         pipeline_name: &str,
@@ -47,42 +107,32 @@ impl MissingOverridePipeline {
 
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
-            // Look for function definitions and declarations with virtual
             let is_func = child.kind() == "function_definition" || child.kind() == "declaration";
             if !is_func {
                 continue;
             }
 
-            let text = node_text(child, source);
-
-            // Must have "virtual" keyword
-            if !text.starts_with("virtual") && !text.contains(" virtual ") {
-                // Also check for virtual as a child node
-                let mut has_virtual = false;
-                let mut inner = child.walk();
-                for c in child.children(&mut inner) {
-                    if c.kind() == "virtual" || node_text(c, source) == "virtual" {
-                        has_virtual = true;
-                        break;
-                    }
-                }
-                if !has_virtual {
-                    continue;
-                }
-            }
-
-            // Skip if it's a destructor (virtual destructors don't need override)
-            if text.contains(&format!("~{class_name}")) || text.contains("~") {
+            // Must have virtual keyword (via AST node kind, not string matching)
+            if !Self::has_virtual_specifier(child) {
                 continue;
             }
 
-            // Check if override or final is present
-            if text.contains("override") || text.contains("final") {
+            // Skip destructors (via AST node kind)
+            if Self::is_destructor(child) {
                 continue;
             }
 
-            // Skip pure virtual declarations (= 0)
-            if text.contains("= 0") {
+            // Skip if override or final is present (via AST node kind)
+            if Self::has_override_or_final(child) {
+                continue;
+            }
+
+            // Skip pure virtual (= 0) declarations
+            if Self::has_pure_virtual_clause(child) {
+                continue;
+            }
+
+            if is_nolint_suppressed(source, child, pipeline_name) {
                 continue;
             }
 
@@ -105,7 +155,7 @@ impl MissingOverridePipeline {
     }
 }
 
-impl Pipeline for MissingOverridePipeline {
+impl GraphPipeline for MissingOverridePipeline {
     fn name(&self) -> &str {
         "missing_override"
     }
@@ -114,7 +164,8 @@ impl Pipeline for MissingOverridePipeline {
         "Detects virtual methods in derived classes without the override specifier"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
         let mut findings = Vec::new();
 
         // Check classes
@@ -141,7 +192,6 @@ impl Pipeline for MissingOverridePipeline {
                     findings.extend(Self::check_body_for_missing_override(
                         body_cap.node,
                         class_name,
-                        def_cap.node,
                         source,
                         file_path,
                         self.name(),
@@ -150,7 +200,7 @@ impl Pipeline for MissingOverridePipeline {
             }
         }
 
-        // Check structs (can also inherit in C++)
+        // Check structs
         {
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&self.struct_query, tree.root_node(), source);
@@ -174,7 +224,6 @@ impl Pipeline for MissingOverridePipeline {
                     findings.extend(Self::check_body_for_missing_override(
                         body_cap.node,
                         struct_name,
-                        def_cap.node,
                         source,
                         file_path,
                         self.name(),
@@ -190,7 +239,9 @@ impl Pipeline for MissingOverridePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
+    use std::collections::HashMap;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
@@ -199,7 +250,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MissingOverridePipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.cpp")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.cpp",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -213,7 +273,6 @@ class Derived : public Base {
 };
 "#;
         let findings = parse_and_check(src);
-        // Should detect in Derived (has base class, virtual without override)
         assert!(!findings.is_empty());
         assert_eq!(findings[0].pattern, "missing_override");
         assert!(findings[0].message.contains("Derived"));
@@ -241,7 +300,6 @@ class Base {
 };
 "#;
         let findings = parse_and_check(src);
-        // Base has no base_class_clause, should not trigger
         assert!(findings.is_empty());
     }
 
@@ -284,5 +342,17 @@ class D : public Base { virtual void f() {} };
             assert_eq!(findings[0].severity, "warning");
             assert_eq!(findings[0].pipeline, "missing_override");
         }
+    }
+
+    #[test]
+    fn nolint_suppression() {
+        let src = r#"
+class Base { virtual void f() {} };
+class D : public Base {
+    virtual void f() {} // NOLINT
+};
+"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 }

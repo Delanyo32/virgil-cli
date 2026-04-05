@@ -2,14 +2,15 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_test_file;
 
 use super::primitives::{
     compile_field_decl_query, compile_parameter_query, compile_property_decl_query,
-    extract_snippet, find_capture_index, node_text,
+    extract_snippet, find_capture_index, is_csharp_suppressed, is_dto_or_data_class, node_text,
 };
 
 const SUSPICIOUS_NAMES: &[&str] = &[
@@ -30,6 +31,17 @@ const SUSPICIOUS_NAMES: &[&str] = &[
     "color",
     "currency",
     "country",
+    "payment_method",
+    "http_method",
+    "error_code",
+    "day_of_week",
+    "gender",
+    "order_state",
+    "user_role",
+    "direction",
+    "environment",
+    "protocol",
+    "encoding",
 ];
 
 pub struct StringlyTypedPipeline {
@@ -48,7 +60,7 @@ impl StringlyTypedPipeline {
     }
 }
 
-impl Pipeline for StringlyTypedPipeline {
+impl GraphPipeline for StringlyTypedPipeline {
     fn name(&self) -> &str {
         "stringly_typed"
     }
@@ -57,7 +69,13 @@ impl Pipeline for StringlyTypedPipeline {
         "Detects string-typed parameters, fields, and properties with names suggesting an enum"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
+
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
 
         // Check parameters
@@ -91,21 +109,32 @@ impl Pipeline for StringlyTypedPipeline {
                     let type_text = node_text(type_node, source);
                     let param_name = node_text(name_node, source);
 
-                    if is_string_type(type_text) && is_suspicious_name(param_name) {
-                        let start = param_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "stringly_typed".to_string(),
-                            message: format!(
-                                "parameter `{param_name}` is string-typed but its name suggests an enum \u{2014} consider a strongly-typed alternative"
-                            ),
-                            snippet: extract_snippet(source, param_node, 3),
-                        });
+                    if !is_string_type(type_text) || !is_suspicious_name(param_name) {
+                        continue;
                     }
+
+                    // Skip if inside a DTO/data class
+                    if is_in_dto_class(param_node, source, file_path) {
+                        continue;
+                    }
+
+                    if is_csharp_suppressed(source, param_node, "stringly_typed") {
+                        continue;
+                    }
+
+                    let start = param_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "stringly_typed".to_string(),
+                        message: format!(
+                            "parameter `{param_name}` is string-typed but its name suggests an enum \u{2014} consider a strongly-typed alternative"
+                        ),
+                        snippet: extract_snippet(source, param_node, 3),
+                    });
                 }
             }
         }
@@ -131,23 +160,33 @@ impl Pipeline for StringlyTypedPipeline {
 
                 if let (Some(name_node), Some(decl_node)) = (name_node, decl_node) {
                     let field_name = node_text(name_node, source);
-                    // Get type from variable_declaration child
                     let type_text = get_field_type(decl_node, source).unwrap_or("");
-                    if is_string_type(type_text) && is_suspicious_name(field_name) {
-                        let start = decl_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "stringly_typed".to_string(),
-                            message: format!(
-                                "field `{field_name}` is string-typed but its name suggests an enum \u{2014} consider a strongly-typed alternative"
-                            ),
-                            snippet: extract_snippet(source, decl_node, 3),
-                        });
+
+                    if !is_string_type(type_text) || !is_suspicious_name(field_name) {
+                        continue;
                     }
+
+                    if is_in_dto_class(decl_node, source, file_path) {
+                        continue;
+                    }
+
+                    if is_csharp_suppressed(source, decl_node, "stringly_typed") {
+                        continue;
+                    }
+
+                    let start = decl_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "stringly_typed".to_string(),
+                        message: format!(
+                            "field `{field_name}` is string-typed but its name suggests an enum \u{2014} consider a strongly-typed alternative"
+                        ),
+                        snippet: extract_snippet(source, decl_node, 3),
+                    });
                 }
             }
         }
@@ -183,21 +222,31 @@ impl Pipeline for StringlyTypedPipeline {
                     let type_text = node_text(type_node, source);
                     let prop_name = node_text(name_node, source);
 
-                    if is_string_type(type_text) && is_suspicious_name(prop_name) {
-                        let start = decl_node.start_position();
-                        findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "info".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "stringly_typed".to_string(),
-                            message: format!(
-                                "property `{prop_name}` is string-typed but its name suggests an enum \u{2014} consider a strongly-typed alternative"
-                            ),
-                            snippet: extract_snippet(source, decl_node, 3),
-                        });
+                    if !is_string_type(type_text) || !is_suspicious_name(prop_name) {
+                        continue;
                     }
+
+                    if is_in_dto_class(decl_node, source, file_path) {
+                        continue;
+                    }
+
+                    if is_csharp_suppressed(source, decl_node, "stringly_typed") {
+                        continue;
+                    }
+
+                    let start = decl_node.start_position();
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "info".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "stringly_typed".to_string(),
+                        message: format!(
+                            "property `{prop_name}` is string-typed but its name suggests an enum \u{2014} consider a strongly-typed alternative"
+                        ),
+                        snippet: extract_snippet(source, decl_node, 3),
+                    });
                 }
             }
         }
@@ -207,14 +256,18 @@ impl Pipeline for StringlyTypedPipeline {
 }
 
 fn is_string_type(type_text: &str) -> bool {
-    type_text == "string" || type_text == "String"
+    matches!(type_text, "string" | "String" | "string?" | "String?")
 }
 
 fn is_suspicious_name(name: &str) -> bool {
     let lower = name.to_lowercase();
-    SUSPICIOUS_NAMES
-        .iter()
-        .any(|&s| lower == s || lower.ends_with(&format!("_{s}")) || name.ends_with(&capitalize(s)))
+    SUSPICIOUS_NAMES.iter().any(|&s| {
+        lower == s
+            || lower == s.replace('_', "")
+            || lower.ends_with(&format!("_{s}"))
+            || name.ends_with(&capitalize(s))
+            || name.ends_with(&to_pascal_case(s))
+    })
 }
 
 fn get_field_type<'a>(field_decl: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
@@ -237,19 +290,52 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+fn to_pascal_case(s: &str) -> String {
+    s.split('_').map(|part| capitalize(part)).collect()
+}
+
+fn is_in_dto_class(node: tree_sitter::Node, source: &[u8], file_path: &str) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "class_declaration" {
+            if let Some(name_node) = n.child_by_field_name("name") {
+                let class_name = node_text(name_node, source);
+                return is_dto_or_data_class(class_name, file_path);
+            }
+        }
+        current = n.parent();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
+    use std::collections::HashMap;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_with_path(source, "Service.cs")
+    }
+
+    fn parse_and_check_with_path(source: &str, file_path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::CSharp.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = StringlyTypedPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "Test.cs")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path,
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -307,5 +393,49 @@ class Foo {
 "#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn dto_class_excluded() {
+        let src = r#"
+class OrderDto {
+    public string Status { get; set; }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn nullable_string_detected() {
+        let src = r#"
+class Foo {
+    void M(string? status) { }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn expanded_names_detected() {
+        let src = r#"
+class Foo {
+    void M(string paymentMethod) { }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn test_file_excluded() {
+        let src = r#"
+class Foo {
+    void SetStatus(string status) { }
+}
+"#;
+        let findings = parse_and_check_with_path(src, "FooTests.cs");
+        assert!(findings.is_empty());
     }
 }

@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
     compile_throw_statement_query, extract_snippet, find_capture_index, node_text,
@@ -26,7 +27,6 @@ impl ExceptionAcrossBoundaryPipeline {
         let mut current = node.parent();
         while let Some(parent) = current {
             if parent.kind() == "linkage_specification" {
-                // Check if the linkage string is "C"
                 let mut cursor = parent.walk();
                 for child in parent.children(&mut cursor) {
                     if child.kind() == "string_literal" {
@@ -41,9 +41,27 @@ impl ExceptionAcrossBoundaryPipeline {
         }
         false
     }
+
+    fn is_inside_try_catch(node: tree_sitter::Node) -> bool {
+        // Walk up to find if inside a try block's compound_statement
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            if parent.kind() == "compound_statement"
+                && let Some(grandparent) = parent.parent()
+                    && grandparent.kind() == "try_statement" {
+                        return true;
+                    }
+            // Stop at function boundary
+            if parent.kind() == "function_definition" {
+                return false;
+            }
+            current = parent.parent();
+        }
+        false
+    }
 }
 
-impl Pipeline for ExceptionAcrossBoundaryPipeline {
+impl GraphPipeline for ExceptionAcrossBoundaryPipeline {
     fn name(&self) -> &str {
         "exception_across_boundary"
     }
@@ -52,7 +70,8 @@ impl Pipeline for ExceptionAcrossBoundaryPipeline {
         "Detects throw statements inside extern \"C\" blocks — exceptions cannot cross C linkage boundaries"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let (tree, source, file_path) = (ctx.tree, ctx.source, ctx.file_path);
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.throw_query, tree.root_node(), source);
@@ -67,12 +86,23 @@ impl Pipeline for ExceptionAcrossBoundaryPipeline {
                     continue;
                 }
 
+                if is_nolint_suppressed(source, throw_cap.node, self.name()) {
+                    continue;
+                }
+
+                // If throw is inside a try-catch, downgrade severity (exception is caught before boundary)
+                let severity = if Self::is_inside_try_catch(throw_cap.node) {
+                    "warning"
+                } else {
+                    "error"
+                };
+
                 let start = throw_cap.node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: start.row as u32 + 1,
                     column: start.column as u32 + 1,
-                    severity: "error".to_string(),
+                    severity: severity.to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "exception_across_boundary".to_string(),
                     message: "throwing inside `extern \"C\"` — exceptions cannot propagate across C linkage boundaries (undefined behavior)".to_string(),
@@ -88,7 +118,9 @@ impl Pipeline for ExceptionAcrossBoundaryPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::pipeline::GraphPipelineContext;
     use crate::language::Language;
+    use std::collections::HashMap;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
@@ -97,7 +129,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ExceptionAcrossBoundaryPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.cpp")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = HashMap::new();
+        let ctx = GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.cpp",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -164,5 +205,34 @@ extern "C" {
         let findings = parse_and_check(src);
         assert_eq!(findings[0].pipeline, "exception_across_boundary");
         assert_eq!(findings[0].severity, "error");
+    }
+
+    #[test]
+    fn throw_in_try_catch_downgraded() {
+        let src = r#"
+extern "C" {
+    void foo() {
+        try {
+            throw 42;
+        } catch(...) {}
+    }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "warning");
+    }
+
+    #[test]
+    fn nolint_suppression() {
+        let src = r#"
+extern "C" {
+    void foo() {
+        throw 42; // NOLINT
+    }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 }

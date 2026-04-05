@@ -5,7 +5,8 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
     compile_parameter_declaration_query, extract_snippet, find_capture_index,
@@ -31,10 +32,6 @@ const LARGE_TYPES: &[&str] = &[
     "std::deque",
     "array",
     "std::array",
-    "shared_ptr",
-    "std::shared_ptr",
-    "unique_ptr",
-    "std::unique_ptr",
 ];
 
 pub struct LargeObjectByValuePipeline {
@@ -49,13 +46,12 @@ impl LargeObjectByValuePipeline {
     }
 
     fn is_large_type(type_text: &str) -> bool {
-        // Check if the base type (before any template args) is in our list
         let base = type_text.split('<').next().unwrap_or(type_text).trim();
-        LARGE_TYPES.iter().any(|t| base == *t || base.ends_with(t))
+        LARGE_TYPES.contains(&base)
     }
 }
 
-impl Pipeline for LargeObjectByValuePipeline {
+impl NodePipeline for LargeObjectByValuePipeline {
     fn name(&self) -> &str {
         "large_object_by_value"
     }
@@ -105,6 +101,10 @@ impl Pipeline for LargeObjectByValuePipeline {
                 // Also check if the type itself contains & (e.g., `const std::string&`)
                 let full_text = node_text(decl_cap.node, source);
                 if full_text.contains('&') || full_text.contains('*') {
+                    continue;
+                }
+
+                if is_nolint_suppressed(source, decl_cap.node, self.name()) {
                     continue;
                 }
 
@@ -192,5 +192,33 @@ mod tests {
         let findings = parse_and_check(src);
         assert_eq!(findings[0].severity, "info");
         assert_eq!(findings[0].pipeline, "large_object_by_value");
+    }
+
+    #[test]
+    fn unique_ptr_by_value_ok() {
+        let src = "void take(std::unique_ptr<Foo> p) {}";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn shared_ptr_by_value_ok() {
+        let src = "void share(std::shared_ptr<Foo> p) {}";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn custom_type_not_matched() {
+        let src = "void f(my_vector v) {}";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn nolint_suppression() {
+        let src = "void f(std::string s) {} // NOLINT";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 }

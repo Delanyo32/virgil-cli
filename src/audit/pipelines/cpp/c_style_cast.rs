@@ -5,11 +5,18 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
     compile_cast_expression_query, extract_snippet, find_capture_index, node_text,
 };
+
+const NUMERIC_TYPES: &[&str] = &[
+    "int", "float", "double", "char", "short", "long", "unsigned", "signed", "bool", "size_t",
+    "uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "int32_t", "uint64_t", "int64_t",
+    "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t",
+];
 
 pub struct CStyleCastPipeline {
     cast_query: Arc<Query>,
@@ -21,9 +28,31 @@ impl CStyleCastPipeline {
             cast_query: compile_cast_expression_query()?,
         })
     }
+
+    fn classify_severity(cast_type: &str) -> Option<&'static str> {
+        let trimmed = cast_type.trim();
+
+        // (void)x is idiomatic for suppressing unused-var warnings — skip
+        if trimmed == "void" {
+            return None;
+        }
+
+        // Pointer casts are most dangerous
+        if trimmed.contains('*') {
+            return Some("error");
+        }
+
+        // Numeric casts are lower risk
+        if NUMERIC_TYPES.contains(&trimmed) {
+            return Some("info");
+        }
+
+        // Default
+        Some("warning")
+    }
 }
 
-impl Pipeline for CStyleCastPipeline {
+impl NodePipeline for CStyleCastPipeline {
     fn name(&self) -> &str {
         "c_style_cast"
     }
@@ -52,12 +81,22 @@ impl Pipeline for CStyleCastPipeline {
 
             if let (Some(expr_cap), Some(type_cap)) = (expr_cap, type_cap) {
                 let cast_type = node_text(type_cap.node, source);
+
+                let severity = match Self::classify_severity(cast_type) {
+                    Some(s) => s,
+                    None => continue, // void cast — skip
+                };
+
+                if is_nolint_suppressed(source, expr_cap.node, self.name()) {
+                    continue;
+                }
+
                 let start = expr_cap.node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: start.row as u32 + 1,
                     column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
+                    severity: severity.to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "c_style_cast".to_string(),
                     message: format!(
@@ -108,6 +147,7 @@ mod tests {
         let src = "void f(void* p) { int* ip = (int*)p; }";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "error");
     }
 
     #[test]
@@ -115,7 +155,37 @@ mod tests {
         let src = "void f() { char c = (char)65; }";
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, "warning");
+        assert_eq!(findings[0].severity, "info");
         assert_eq!(findings[0].pipeline, "c_style_cast");
+    }
+
+    #[test]
+    fn void_cast_skipped() {
+        let src = "void f(int x) { (void)x; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn pointer_cast_error() {
+        let src = "void f(void* p) { int* ip = (int*)p; }";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "error");
+    }
+
+    #[test]
+    fn numeric_cast_info() {
+        let src = "void f() { int x = (int)3.14; }";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "info");
+    }
+
+    #[test]
+    fn nolint_suppression() {
+        let src = "void f() { int x = (int)3.14; // NOLINT }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
     }
 }
