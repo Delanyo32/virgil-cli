@@ -9,7 +9,8 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{
-    compile_enum_declaration_query, extract_snippet, find_capture_index, node_text,
+    compile_enum_declaration_query, extract_snippet, find_capture_index, is_dts_file, is_test_file,
+    is_ts_suppressed, node_text,
 };
 
 pub struct EnumUsagePipeline {
@@ -41,6 +42,11 @@ impl Pipeline for EnumUsagePipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_dts_file(file_path) {
+            return Vec::new();
+        }
+        let in_test = is_test_file(file_path);
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
@@ -62,6 +68,18 @@ impl Pipeline for EnumUsagePipeline {
                 None => continue,
             };
 
+            let decl_node = m.captures.first().map(|c| c.node).unwrap_or(body_node);
+
+            if is_const_enum(decl_node, source) {
+                continue;
+            }
+            if is_bitflag_enum(body_node, source) {
+                continue;
+            }
+            if is_ts_suppressed(source, decl_node) {
+                continue;
+            }
+
             let mut has_string_value = false;
             let mut body_cursor = body_node.walk();
 
@@ -75,7 +93,6 @@ impl Pipeline for EnumUsagePipeline {
                 }
             }
 
-            let decl_node = m.captures.first().map(|c| c.node).unwrap_or(body_node);
             let start = decl_node.start_position();
 
             if has_string_value {
@@ -92,11 +109,12 @@ impl Pipeline for EnumUsagePipeline {
                     snippet: extract_snippet(source, decl_node, 3),
                 });
             } else {
+                let severity = if in_test { "info" } else { "warning" };
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: start.row as u32 + 1,
                     column: start.column as u32 + 1,
-                    severity: "warning".to_string(),
+                    severity: severity.to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "numeric_enum".to_string(),
                     message: format!(
@@ -111,6 +129,31 @@ impl Pipeline for EnumUsagePipeline {
     }
 }
 
+fn is_const_enum(decl_node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut cursor = decl_node.walk();
+    for child in decl_node.children(&mut cursor) {
+        if !child.is_named() && node_text(child, source) == "const" {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_bitflag_enum(body_node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut cursor = body_node.walk();
+    for child in body_node.named_children(&mut cursor) {
+        if child.kind() == "enum_assignment" {
+            if let Some(value_node) = child.child_by_field_name("value") {
+                let text = node_text(value_node, source);
+                if text.contains("<<") || text.contains('|') {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +166,16 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = EnumUsagePipeline::new(Language::TypeScript).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.ts")
+    }
+
+    fn parse_and_check_path(source: &str, path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::TypeScript.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = EnumUsagePipeline::new(Language::TypeScript).unwrap();
+        pipeline.check(&tree, source.as_bytes(), path)
     }
 
     #[test]
@@ -145,6 +198,43 @@ mod tests {
     #[test]
     fn no_enum_clean() {
         let findings = parse_and_check("type Color = 'red' | 'green' | 'blue';");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_const_enum() {
+        let findings = parse_and_check("const enum Direction { Up, Down, Left, Right }");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_bitflag_enum_left_shift() {
+        let findings = parse_and_check("enum Flags { Read = 1 << 0, Write = 1 << 1 }");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_bitflag_enum_pipe_operator() {
+        let findings = parse_and_check("enum Combo { ReadWrite = 1 | 2 }");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_dts_file() {
+        let findings = parse_and_check_path("enum Color { Red, Green }", "src/types.d.ts");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_file_downgrades_severity() {
+        let findings = parse_and_check_path("enum Color { Red, Green }", "src/color.test.ts");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "info");
+    }
+
+    #[test]
+    fn suppression_skips_enum() {
+        let findings = parse_and_check("// @ts-ignore\nenum Color { Red, Green }");
         assert!(findings.is_empty());
     }
 
