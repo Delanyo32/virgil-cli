@@ -613,22 +613,7 @@ pub fn body_has_member_access(
 
 /// Check if a file path indicates test code (language-agnostic).
 pub fn is_test_file(file_path: &str) -> bool {
-    let path = file_path.replace('\\', "/");
-    // Directory patterns — also match paths that start with these prefixes (no leading slash)
-    if path.contains("/tests/")
-        || path.starts_with("tests/")
-        || path.contains("/test/")
-        || path.starts_with("test/")
-        || path.contains("/__tests__/")
-        || path.starts_with("__tests__/")
-        || path.contains("/testing/")
-        || path.starts_with("testing/")
-        || path.contains("/testdata/")
-        || path.starts_with("testdata/")
-    {
-        return true;
-    }
-    // File name patterns
+    // File name patterns first — no allocation needed, short-circuits the common cases.
     let file_name = std::path::Path::new(file_path)
         .file_name()
         .and_then(|f| f.to_str())
@@ -639,7 +624,7 @@ pub fn is_test_file(file_path: &str) -> bool {
     }
     // Python: test_*.py, *_test.py, conftest.py
     if (file_name.starts_with("test_") && file_name.ends_with(".py"))
-        || (file_name.ends_with("_test.py"))
+        || file_name.ends_with("_test.py")
         || file_name == "conftest.py"
     {
         return true;
@@ -662,9 +647,42 @@ pub fn is_test_file(file_path: &str) -> bool {
     if file_name.ends_with("Test.php") {
         return true;
     }
+    // C++: *_test.cpp / *_test.cc (GoogleTest / Catch2 suffix)
+    if file_name.ends_with("_test.cpp")
+        || file_name.ends_with("_test.cc")
+        || file_name.ends_with("_unittest.cpp")
+    {
+        return true;
+    }
+    // C++: *Test.cpp (CppUnit / GoogleTest class-name convention) — length guard avoids
+    // matching a file literally named "Test.cpp"
+    if file_name.ends_with("Test.cpp") && file_name.len() > "Test.cpp".len() {
+        return true;
+    }
+    // C++: test_*.cpp / test_*.cc (prefix pattern)
+    if (file_name.starts_with("test_") && file_name.ends_with(".cpp"))
+        || (file_name.starts_with("test_") && file_name.ends_with(".cc"))
+    {
+        return true;
+    }
     // JS/TS: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx
     let lower = file_name.to_lowercase();
     if lower.contains(".test.") || lower.contains(".spec.") {
+        return true;
+    }
+    // Directory patterns — normalize separators only if filename checks didn't match.
+    let path = file_path.replace('\\', "/");
+    if path.contains("/tests/")
+        || path.starts_with("tests/")
+        || path.contains("/test/")
+        || path.starts_with("test/")
+        || path.contains("/__tests__/")
+        || path.starts_with("__tests__/")
+        || path.contains("/testing/")
+        || path.starts_with("testing/")
+        || path.contains("/testdata/")
+        || path.starts_with("testdata/")
+    {
         return true;
     }
     false
@@ -1417,18 +1435,19 @@ pub fn is_nolint_suppressed(source: &[u8], node: tree_sitter::Node, pipeline_nam
         Ok(s) => s,
         Err(_) => return false,
     };
-    let lines: Vec<&str> = source_str.lines().collect();
     let row = node.start_position().row;
+    // Collect only the two lines we need (row-1 and row) without allocating all lines.
+    let mut prev: Option<&str> = None;
+    let mut cur: Option<&str> = None;
+    for (i, l) in source_str.lines().enumerate() {
+        if i == row {
+            cur = Some(l);
+            break;
+        }
+        prev = Some(l);
+    }
 
-    for offset in 0..=1 {
-        if row < offset {
-            continue;
-        }
-        let line_idx = row - offset;
-        if line_idx >= lines.len() {
-            continue;
-        }
-        let line = lines[line_idx];
+    for line in [cur, if row > 0 { prev } else { None }].into_iter().flatten() {
         if let Some(pos) = line.find("NOLINT") {
             let after = &line[pos + 6..];
             if after.starts_with('(') {
@@ -1462,12 +1481,11 @@ pub fn is_noqa_suppressed(source: &[u8], node: tree_sitter::Node, pipeline_name:
         Ok(s) => s,
         Err(_) => return false,
     };
-    let lines: Vec<&str> = source_str.lines().collect();
     let row = node.start_position().row;
-    if row >= lines.len() {
-        return false;
-    }
-    let line = lines[row];
+    let line = match source_str.lines().nth(row) {
+        Some(l) => l,
+        None => return false,
+    };
 
     // Check for # noqa (blanket or targeted — both suppress)
     if line.contains("# noqa") {
@@ -1791,5 +1809,22 @@ mod tests {
         assert!(!contains_identifier("abc", ""));
         assert!(contains_identifier("p[0]", "p"));
         assert!(!contains_identifier("pp[0]", "p"));
+    }
+
+    #[test]
+    fn test_is_test_file_cpp() {
+        // Suffix patterns
+        assert!(is_test_file("network_handler_test.cpp"));
+        assert!(is_test_file("network_handler_test.cc"));
+        assert!(is_test_file("network_handler_unittest.cpp"));
+        assert!(is_test_file("NetworkHandlerTest.cpp")); // *Test.cpp
+        // Prefix patterns
+        assert!(is_test_file("test_network_handler.cpp"));
+        assert!(is_test_file("test_network_handler.cc"));
+        // Already covered by .test. — ensure still passes
+        assert!(is_test_file("network.test.cpp"));
+        // Negative — "test" as substring is not enough
+        assert!(!is_test_file("attestation.cpp"));
+        assert!(!is_test_file("latest_data.cpp"));
     }
 }
