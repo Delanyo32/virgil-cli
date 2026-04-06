@@ -128,6 +128,13 @@ pub fn compile_function_item_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+pub fn compile_async_block_query() -> Result<Arc<Query>> {
+    let query_str = r#"(async_block) @async_block"#;
+    let query = Query::new(&rust_lang(), query_str)
+        .with_context(|| "failed to compile async block query for Rust")?;
+    Ok(Arc::new(query))
+}
+
 pub fn compile_numeric_literal_query() -> Result<Arc<Query>> {
     let query_str = r#"
 [(integer_literal) @number (float_literal) @number]

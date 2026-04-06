@@ -45,11 +45,11 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
         AnyPipeline::Graph(Box::new(clone_detection::CloneDetectionPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(god_object_detection::GodObjectDetectionPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(must_use_ignored::MustUseIgnoredPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(must_use_ignored::MustUseIgnoredPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(mutex_overuse::MutexOverusePipeline::new()?)),
         AnyPipeline::Legacy(Box::new(pub_field_leakage::PubFieldLeakagePipeline::new()?)),
         AnyPipeline::Legacy(Box::new(missing_trait_abstraction::MissingTraitAbstractionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(async_blocking::AsyncBlockingPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(async_blocking::AsyncBlockingPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(magic_numbers::MagicNumbersPipeline::new()?)),
     ])
 }
