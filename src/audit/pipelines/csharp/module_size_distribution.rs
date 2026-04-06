@@ -44,7 +44,7 @@ fn count_exported_type_definitions(node: tree_sitter::Node, source: &[u8]) -> us
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if CSHARP_TYPE_KINDS.contains(&child.kind())
-            && (has_modifier(child, source, "public") || has_modifier(child, source, "internal"))
+            && has_modifier(child, source, "public")
         {
             count += 1;
         }
@@ -262,6 +262,20 @@ namespace MyApp {
 "#;
         let findings = parse_and_check(src);
         assert!(!findings.iter().any(|f| f.pattern == "anemic_module"));
+    }
+
+    #[test]
+    fn test_internal_types_not_monolithic_export() {
+        let mut src = String::from("namespace MyApp {\n");
+        for i in 0..25 {
+            src.push_str(&format!("internal class Helper_{} {{ }}\n", i));
+        }
+        src.push_str("}\n");
+        let findings = parse_and_check(&src);
+        assert!(
+            !findings.iter().any(|f| f.pattern == "monolithic_export_surface"),
+            "internal types are assembly-scoped and must not count as exported"
+        );
     }
 
     #[test]
