@@ -8,7 +8,8 @@ use super::primitives::{extract_snippet, find_capture_index, node_text};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::{
-    count_top_level_definitions, is_entry_file, is_generated_go_file, is_test_file,
+    count_top_level_definitions, is_entry_file, is_generated_go_file, is_nolint_suppressed,
+    is_test_file,
 };
 use crate::language::Language;
 
@@ -123,18 +124,37 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         let mut findings = Vec::new();
         let root = tree.root_node();
 
+        // Check for NOLINT suppression on the package declaration line
+        {
+            let mut cursor = root.walk();
+            let suppressed = root
+                .children(&mut cursor)
+                .find(|c| c.kind() == "package_clause")
+                .is_some_and(|pkg| is_nolint_suppressed(source, pkg, self.name()));
+            if suppressed {
+                return Vec::new();
+            }
+        }
+
         let total_definitions = count_top_level_definitions(root, GO_DEFINITION_KINDS);
         let total_lines = source.split(|&b| b == b'\n').count();
 
-        // Pattern 1: Oversized module
+        // Pattern 1: Oversized module — severity graduated by definition count
         if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD
             || total_lines >= OVERSIZED_LINE_THRESHOLD
         {
+            let severity = if total_definitions >= 100 {
+                "error"
+            } else if total_definitions >= 50 || total_lines >= OVERSIZED_LINE_THRESHOLD {
+                "warning"
+            } else {
+                "info"
+            };
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: 1,
                 column: 1,
-                severity: "warning".to_string(),
+                severity: severity.to_string(),
                 pipeline: "module_size_distribution".to_string(),
                 pattern: "oversized_module".to_string(),
                 message: format!(
@@ -352,6 +372,48 @@ mod tests {
         let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
         let findings = pipeline.check(&tree, src.as_bytes(), "proto/user.pb.go");
         assert!(findings.is_empty(), ".pb.go file should produce no findings, got: {:?}", findings);
+    }
+
+    #[test]
+    fn test_oversized_at_threshold_is_info() {
+        let mut src = String::from("package main\n");
+        for i in 0..30 { src.push_str(&format!("func func_{}() {{}}\n", i)); }
+        let findings = parse_and_check(&src);
+        let f = findings.iter().find(|f| f.pattern == "oversized_module");
+        assert!(f.is_some(), "30 definitions should trigger oversized_module");
+        assert_eq!(f.unwrap().severity, "info", "30-49 definitions should be 'info'");
+    }
+
+    #[test]
+    fn test_oversized_50_defs_is_warning() {
+        let mut src = String::from("package main\n");
+        for i in 0..50 { src.push_str(&format!("func func_{}() {{}}\n", i)); }
+        let findings = parse_and_check(&src);
+        let f = findings.iter().find(|f| f.pattern == "oversized_module");
+        assert!(f.is_some());
+        assert_eq!(f.unwrap().severity, "warning", "50-99 definitions should be 'warning'");
+    }
+
+    #[test]
+    fn test_oversized_100_defs_is_error() {
+        let mut src = String::from("package main\n");
+        for i in 0..100 { src.push_str(&format!("func func_{}() {{}}\n", i)); }
+        let findings = parse_and_check(&src);
+        let f = findings.iter().find(|f| f.pattern == "oversized_module");
+        assert!(f.is_some());
+        assert_eq!(f.unwrap().severity, "error", "100+ definitions should be 'error'");
+    }
+
+    #[test]
+    fn test_nolint_suppresses_all_findings() {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&go_lang()).unwrap();
+        let mut src = String::from("// NOLINT(module_size_distribution)\npackage main\n");
+        for i in 0..40 { src.push_str(&format!("func Func{}() {{}}\n", i)); }
+        let tree = parser.parse(&src, None).unwrap();
+        let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
+        let findings = pipeline.check(&tree, src.as_bytes(), "test.go");
+        assert!(findings.is_empty(), "NOLINT should suppress all findings, got: {:?}", findings);
     }
 
     #[test]
