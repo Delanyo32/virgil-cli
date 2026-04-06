@@ -10,6 +10,8 @@ use crate::audit::pipelines::helpers::is_test_file;
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
+const EXCESSIVE_API_WARNING_RATIO: f64 = 0.90;
+const LEAKY_FIELD_ERROR_COUNT: usize = 5;
 
 /// Member kinds counted for API surface area analysis inside class bodies.
 const MEMBER_KINDS: &[&str] = &[
@@ -126,11 +128,16 @@ fn check_classes_recursive(
             if !skip_api_ratio && total_members >= EXCESSIVE_API_MIN_SYMBOLS {
                 let ratio = exported_members as f64 / total_members as f64;
                 if ratio > EXCESSIVE_API_EXPORT_RATIO {
+                    let severity = if ratio > EXCESSIVE_API_WARNING_RATIO {
+                        "warning"
+                    } else {
+                        "info"
+                    };
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: class_line,
                         column: 1,
-                        severity: "info".to_string(),
+                        severity: severity.to_string(),
                         pipeline: "api_surface_area".to_string(),
                         pattern: "excessive_public_api".to_string(),
                         message: format!(
@@ -149,11 +156,16 @@ fn check_classes_recursive(
             // Pattern 2: leaky_abstraction_boundary
             if is_public_class && !public_non_readonly_fields.is_empty() {
                 let field_list = public_non_readonly_fields.join(", ");
+                let leaky_severity = if public_non_readonly_fields.len() > LEAKY_FIELD_ERROR_COUNT {
+                    "error"
+                } else {
+                    "warning"
+                };
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: class_line,
                     column: 1,
-                    severity: "warning".to_string(),
+                    severity: leaky_severity.to_string(),
                     pipeline: "api_surface_area".to_string(),
                     pattern: "leaky_abstraction_boundary".to_string(),
                     message: format!(
@@ -290,6 +302,81 @@ class InternalRepo {
                 .iter()
                 .any(|f| f.pattern == "leaky_abstraction_boundary")
         );
+    }
+
+    #[test]
+    fn test_excessive_api_severity_graduation() {
+        // 10/10 public (100%) => "warning"
+        let mut all_public = String::new();
+        for i in 0..10 {
+            all_public.push_str(&format!("    public void Method_{}() {{ }}\n", i));
+        }
+        let src_warn = format!("public class OrderService {{\n{}}}\n", all_public);
+        let warn_findings = parse_and_check(&src_warn);
+        let finding = warn_findings
+            .iter()
+            .find(|f| f.pattern == "excessive_public_api")
+            .expect("10/10 public must trigger excessive_public_api");
+        assert_eq!(finding.severity, "warning", "100% exported must be severity 'warning'");
+
+        // 9/11 (81.8%) => "info"
+        let src_info = r#"
+public class OrderService {
+    public void A() { }
+    public void B() { }
+    public void C() { }
+    public void D() { }
+    public void E() { }
+    public void F() { }
+    public void G() { }
+    public void H() { }
+    public void I() { }
+    private void P1() { }
+    private void P2() { }
+}
+"#;
+        let info_findings = parse_and_check(src_info);
+        let info_finding = info_findings
+            .iter()
+            .find(|f| f.pattern == "excessive_public_api")
+            .expect("9/11 (81.8%) must trigger excessive_public_api");
+        assert_eq!(info_finding.severity, "info", "81.8% exported must be severity 'info'");
+    }
+
+    #[test]
+    fn test_leaky_abstraction_severity_graduation() {
+        // 6 public fields => "error"
+        let src_error = r#"
+public class OrderRepository {
+    public string Field1;
+    public string Field2;
+    public string Field3;
+    public string Field4;
+    public string Field5;
+    public string Field6;
+}
+"#;
+        let error_findings = parse_and_check(src_error);
+        let finding = error_findings
+            .iter()
+            .find(|f| f.pattern == "leaky_abstraction_boundary")
+            .expect("6 public fields must trigger leaky_abstraction_boundary");
+        assert_eq!(finding.severity, "error", "6 public mutable fields must be severity 'error'");
+
+        // 2 public fields => "warning"
+        let src_warn = r#"
+public class OrderRepository {
+    public string ConnectionString;
+    public int RetryCount;
+    public void Save() { }
+}
+"#;
+        let warn_findings = parse_and_check(src_warn);
+        let warn_finding = warn_findings
+            .iter()
+            .find(|f| f.pattern == "leaky_abstraction_boundary")
+            .expect("2 public fields must trigger leaky_abstraction_boundary");
+        assert_eq!(warn_finding.severity, "warning", "2 public mutable fields must be severity 'warning'");
     }
 
     #[test]
