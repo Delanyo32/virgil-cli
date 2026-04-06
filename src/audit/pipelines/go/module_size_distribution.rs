@@ -29,6 +29,52 @@ fn go_lang() -> tree_sitter::Language {
     Language::Go.tree_sitter_language()
 }
 
+/// Like `count_top_level_definitions` but expands `const_declaration` and `var_declaration`
+/// groups by counting their individual `const_spec`/`var_spec` children.
+/// This prevents false-positive `anemic_module` findings for files like:
+///   const ( A=1; B=2; C=3 )   <- one const_declaration node, three specs
+fn count_expanded_top_level_defs(root: tree_sitter::Node) -> usize {
+    let mut count = 0;
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "function_declaration" | "method_declaration" | "type_declaration" => {
+                count += 1;
+            }
+            "const_declaration" => {
+                // Grammar may wrap specs in const_spec_list or put them directly
+                let mut c = child.walk();
+                let mut specs = 0usize;
+                for sub in child.children(&mut c) {
+                    if sub.kind() == "const_spec" {
+                        specs += 1;
+                    } else if sub.kind() == "const_spec_list" {
+                        let mut c2 = sub.walk();
+                        specs += sub.children(&mut c2).filter(|n| n.kind() == "const_spec").count();
+                    }
+                }
+                count += specs.max(1);
+            }
+            "var_declaration" => {
+                // Grammar wraps specs in var_spec_list or puts them directly
+                let mut c = child.walk();
+                let mut specs = 0usize;
+                for sub in child.children(&mut c) {
+                    if sub.kind() == "var_spec" {
+                        specs += 1;
+                    } else if sub.kind() == "var_spec_list" {
+                        let mut c2 = sub.walk();
+                        specs += sub.children(&mut c2).filter(|n| n.kind() == "var_spec").count();
+                    }
+                }
+                count += specs.max(1);
+            }
+            _ => {}
+        }
+    }
+    count
+}
+
 pub struct ModuleSizeDistributionPipeline {
     exported_query: Arc<Query>,
 }
@@ -147,9 +193,10 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         }
 
         // Pattern 3: Anemic module
-        // Exclude main.go and _test.go files
-        let is_test_file = file_path.ends_with("_test.go");
-        if total_definitions == 1 && !is_entry_file(file_path, ANEMIC_ENTRY_FILES) && !is_test_file
+        // Use expanded count so const/var blocks with multiple identifiers are not anemic
+        let expanded_defs = count_expanded_top_level_defs(root);
+        let is_test_file_path = file_path.ends_with("_test.go");
+        if expanded_defs == 1 && !is_entry_file(file_path, ANEMIC_ENTRY_FILES) && !is_test_file_path
         {
             let snippet = {
                 let mut cursor = root.walk();
@@ -306,4 +353,41 @@ mod tests {
         let findings = pipeline.check(&tree, src.as_bytes(), "proto/user.pb.go");
         assert!(findings.is_empty(), ".pb.go file should produce no findings, got: {:?}", findings);
     }
+
+    #[test]
+    fn test_const_block_not_anemic() {
+        let src = r#"package app
+
+const (
+    StatusOK    = 0
+    StatusError = 1
+    StatusPending = 2
+    StatusCancelled = 3
+    StatusDone = 4
+)
+"#;
+        let findings = parse_and_check(src);
+        assert!(
+            !findings.iter().any(|f| f.pattern == "anemic_module"),
+            "const block with multiple specs should not be flagged as anemic_module"
+        );
+    }
+
+    #[test]
+    fn test_var_block_not_anemic() {
+        let src = r#"package app
+
+var (
+    defaultHost = "localhost"
+    defaultPort = 8080
+    defaultTimeout = 30
+)
+"#;
+        let findings = parse_and_check(src);
+        assert!(
+            !findings.iter().any(|f| f.pattern == "anemic_module"),
+            "var block with multiple specs should not be flagged as anemic_module"
+        );
+    }
 }
+
