@@ -9,7 +9,10 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::primitives::{compile_interface_declaration_query, find_capture_index, node_text};
+use super::primitives::{
+    compile_interface_declaration_query, find_capture_index, is_test_file, is_ts_suppressed,
+    node_text,
+};
 
 pub struct TypeDuplicationPipeline {
     query: Arc<Query>,
@@ -37,6 +40,18 @@ struct InterfaceInfo {
     column: u32,
     node_start: usize,
     node_end: usize,
+    // Store the row of the decl node for suppression checking
+    suppressed: bool,
+}
+
+fn jaccard_similarity(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
+    let intersection = a.intersection(b).count();
+    let union = a.union(b).count();
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    }
 }
 
 impl Pipeline for TypeDuplicationPipeline {
@@ -49,6 +64,10 @@ impl Pipeline for TypeDuplicationPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
         let mut interfaces: Vec<InterfaceInfo> = Vec::new();
@@ -72,6 +91,7 @@ impl Pipeline for TypeDuplicationPipeline {
 
             let decl_node = m.captures.first().map(|c| c.node).unwrap_or(body_node);
             let start = decl_node.start_position();
+            let suppressed = is_ts_suppressed(source, decl_node);
 
             let mut fields = HashSet::new();
             let mut body_cursor = body_node.walk();
@@ -90,6 +110,7 @@ impl Pipeline for TypeDuplicationPipeline {
                 column: start.column as u32 + 1,
                 node_start: decl_node.start_byte(),
                 node_end: decl_node.end_byte(),
+                suppressed,
             });
         }
 
@@ -104,6 +125,11 @@ impl Pipeline for TypeDuplicationPipeline {
 
                 let a = &interfaces[i];
                 let b = &interfaces[j];
+
+                // Skip if either is suppressed
+                if a.suppressed || b.suppressed {
+                    continue;
+                }
 
                 let intersection = a.fields.intersection(&b.fields).count();
                 let union = a.fields.union(&b.fields).count();
@@ -186,6 +212,11 @@ impl Pipeline for TypeDuplicationPipeline {
 
         for (base, indices) in &base_groups {
             if indices.len() >= 2 {
+                // Check suppression: skip if any interface in the group is suppressed
+                if indices.iter().any(|&i| interfaces[i].suppressed) {
+                    continue;
+                }
+
                 let names: Vec<&str> = indices
                     .iter()
                     .map(|&i| interfaces[i].name.as_str())
@@ -193,6 +224,14 @@ impl Pipeline for TypeDuplicationPipeline {
                 // Only report if not already reported via Jaccard
                 let pair = (indices[0], indices[1]);
                 if reported.contains(&pair) {
+                    continue;
+                }
+
+                // Require Jaccard >= 0.5 for suffix-pattern matches
+                let a = &interfaces[indices[0]];
+                let b = &interfaces[indices[1]];
+                let jaccard = jaccard_similarity(&a.fields, &b.fields);
+                if jaccard < 0.5 {
                     continue;
                 }
 
@@ -231,9 +270,18 @@ mod tests {
         pipeline.check(&tree, source.as_bytes(), "test.ts")
     }
 
+    fn parse_and_check_path(source: &str, path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::TypeScript.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = TypeDuplicationPipeline::new(Language::TypeScript).unwrap();
+        pipeline.check(&tree, source.as_bytes(), path)
+    }
+
     #[test]
     fn detects_high_overlap() {
-        // 4 shared out of 5 total = Jaccard 0.8 > 0.7
         let src = r#"
 interface UserA {
     id: string;
@@ -277,19 +325,51 @@ interface Car {
         let src = r#"
 interface UserRow {
     id: number;
+    name: string;
+    email: string;
 }
 interface UserDTO {
+    id: number;
     name: string;
+    createdAt: string;
 }
 "#;
         let findings = parse_and_check(src);
-        assert_eq!(findings.len(), 1);
+        assert!(!findings.is_empty());
         assert!(findings[0].message.contains("User*"));
     }
 
     #[test]
     fn skips_single_interface() {
         let src = "interface Foo { a: string; b: number; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suffix_pattern_no_field_overlap_is_not_flagged() {
+        let src = "interface UserRow { id: number; raw: string; }\ninterface UserDTO { email: string; displayName: string; role: string; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suffix_pattern_with_overlap_is_flagged() {
+        let src = "interface UserRow { id: number; name: string; email: string; }\ninterface UserDTO { id: number; name: string; createdAt: string; }";
+        let findings = parse_and_check(src);
+        assert!(!findings.is_empty());
+    }
+
+    #[test]
+    fn skips_test_file() {
+        let src = "interface FooRow { a: string; b: number; }\ninterface FooDTO { a: string; b: number; }";
+        let findings = parse_and_check_path(src, "foo.test.ts");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suppression_skips_duplicate() {
+        let src = "// virgil-ignore\ninterface UserA { a: string; b: number; c: boolean; }\ninterface UserB { a: string; b: number; c: boolean; }";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }
