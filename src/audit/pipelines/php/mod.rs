@@ -33,18 +33,18 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(deprecated_mysql_api::DeprecatedMysqlApiPipeline::new()?),
-        Box::new(error_suppression::ErrorSuppressionPipeline::new()?),
-        Box::new(missing_type_declarations::MissingTypeDeclarationsPipeline::new()?),
-        Box::new(god_class::GodClassPipeline::new()?),
-        Box::new(extract_usage::ExtractUsagePipeline::new()?),
-        Box::new(silent_exception::SilentExceptionPipeline::new()?),
-        Box::new(logic_in_views::LogicInViewsPipeline::new()?),
+        AnyPipeline::Node(Box::new(deprecated_mysql_api::DeprecatedMysqlApiPipeline::new()?)),
+        AnyPipeline::Node(Box::new(error_suppression::ErrorSuppressionPipeline::new()?)),
+        AnyPipeline::Node(Box::new(missing_type_declarations::MissingTypeDeclarationsPipeline::new()?)),
+        AnyPipeline::Node(Box::new(god_class::GodClassPipeline::new()?)),
+        AnyPipeline::Node(Box::new(extract_usage::ExtractUsagePipeline::new()?)),
+        AnyPipeline::Node(Box::new(silent_exception::SilentExceptionPipeline::new()?)),
+        AnyPipeline::Node(Box::new(logic_in_views::LogicInViewsPipeline::new()?)),
     ])
 }
 

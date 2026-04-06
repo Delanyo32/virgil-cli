@@ -5,10 +5,12 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
-    compile_function_def_query, compile_method_decl_query, find_capture_index, node_text,
+    compile_function_def_query, compile_method_decl_query, find_capture_index,
+    node_text,
 };
 
 const MAGIC_METHODS: &[&str] = &[
@@ -23,6 +25,19 @@ const MAGIC_METHODS: &[&str] = &[
     "__serialize",
     "__unserialize",
     "__set_state",
+    "__get",
+    "__set",
+    "__isset",
+    "__unset",
+    "__call",
+    "__callStatic",
+];
+
+/// Parameter node kinds that should have type declarations.
+const TYPED_PARAM_KINDS: &[&str] = &[
+    "simple_parameter",
+    "variadic_parameter",
+    "property_promotion_parameter",
 ];
 
 pub struct MissingTypeDeclarationsPipeline {
@@ -39,7 +54,7 @@ impl MissingTypeDeclarationsPipeline {
     }
 }
 
-impl Pipeline for MissingTypeDeclarationsPipeline {
+impl NodePipeline for MissingTypeDeclarationsPipeline {
     fn name(&self) -> &str {
         "missing_type_declarations"
     }
@@ -92,24 +107,20 @@ impl MissingTypeDeclarationsPipeline {
                 (name_node, params_node, def_node)
             {
                 let fn_name = node_text(name_node, source);
-                let start = def_node.start_position();
 
+                if is_nolint_suppressed(source, def_node, "missing_type_declarations") {
+                    continue;
+                }
+
+                let start = def_node.start_position();
+                // Functions are always "info" severity (not methods)
                 check_return_type(
-                    def_node,
-                    fn_name,
-                    file_path,
-                    start,
-                    "missing_type_declarations",
+                    def_node, fn_name, file_path, start, "missing_type_declarations", "info",
                     findings,
                 );
                 check_param_types(
-                    params_node,
-                    fn_name,
-                    file_path,
-                    start,
-                    "missing_type_declarations",
-                    source,
-                    findings,
+                    params_node, fn_name, file_path, start, "missing_type_declarations", "info",
+                    source, findings,
                 );
             }
         }
@@ -156,28 +167,40 @@ impl MissingTypeDeclarationsPipeline {
                     continue;
                 }
 
-                let start = decl_node.start_position();
+                if is_nolint_suppressed(source, decl_node, "missing_type_declarations") {
+                    continue;
+                }
 
+                // Graduate severity by visibility: public = warning, private/protected = info
+                let severity = get_method_severity(decl_node, source);
+
+                let start = decl_node.start_position();
                 check_return_type(
-                    decl_node,
-                    method_name,
-                    file_path,
-                    start,
-                    "missing_type_declarations",
-                    findings,
+                    decl_node, method_name, file_path, start, "missing_type_declarations",
+                    severity, findings,
                 );
                 check_param_types(
-                    params_node,
-                    method_name,
-                    file_path,
-                    start,
-                    "missing_type_declarations",
-                    source,
-                    findings,
+                    params_node, method_name, file_path, start, "missing_type_declarations",
+                    severity, source, findings,
                 );
             }
         }
     }
+}
+
+/// Determine severity based on method visibility. Public = "warning", otherwise "info".
+fn get_method_severity<'a>(decl_node: tree_sitter::Node<'a>, source: &[u8]) -> &'static str {
+    let mut cursor = decl_node.walk();
+    for child in decl_node.children(&mut cursor) {
+        if child.kind() == "visibility_modifier" {
+            let vis = node_text(child, source);
+            if vis == "public" {
+                return "warning";
+            }
+            return "info";
+        }
+    }
+    "info" // no modifier = default (info)
 }
 
 fn check_return_type(
@@ -186,20 +209,20 @@ fn check_return_type(
     file_path: &str,
     start: tree_sitter::Point,
     pipeline_name: &str,
+    severity: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    // In PHP tree-sitter, return type is in a `return_type` field
     let has_return_type = def_node.child_by_field_name("return_type").is_some();
     if !has_return_type {
         findings.push(AuditFinding {
             file_path: file_path.to_string(),
             line: start.row as u32 + 1,
             column: start.column as u32 + 1,
-            severity: "info".to_string(),
+            severity: severity.to_string(),
             pipeline: pipeline_name.to_string(),
             pattern: "missing_return_type".to_string(),
             message: format!("`{name}` is missing a return type declaration"),
-            snippet: format!("function {name}(...)"),
+            snippet: make_snippet(name),
         });
     }
 }
@@ -210,12 +233,13 @@ fn check_param_types(
     file_path: &str,
     start: tree_sitter::Point,
     pipeline_name: &str,
+    severity: &str,
     source: &[u8],
     findings: &mut Vec<AuditFinding>,
 ) {
     let untyped_params: Vec<String> = (0..params_node.named_child_count())
         .filter_map(|i| params_node.named_child(i))
-        .filter(|child| child.kind() == "simple_parameter")
+        .filter(|child| TYPED_PARAM_KINDS.contains(&child.kind()))
         .filter(|child| child.child_by_field_name("type").is_none())
         .filter_map(|child| {
             child
@@ -229,16 +253,20 @@ fn check_param_types(
             file_path: file_path.to_string(),
             line: start.row as u32 + 1,
             column: start.column as u32 + 1,
-            severity: "info".to_string(),
+            severity: severity.to_string(),
             pipeline: pipeline_name.to_string(),
             pattern: "missing_param_type".to_string(),
             message: format!(
                 "`{name}` has untyped parameters: {}",
                 untyped_params.join(", ")
             ),
-            snippet: format!("function {name}(...)"),
+            snippet: make_snippet(name),
         });
     }
+}
+
+fn make_snippet(name: &str) -> String {
+    format!("function {name}(...)")
 }
 
 #[cfg(test)]
@@ -297,6 +325,43 @@ mod tests {
     #[test]
     fn clean_fully_typed_method() {
         let src = "<?php\nclass Foo {\n    public function bar(int $x): void { }\n}\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    // --- New tests ---
+
+    #[test]
+    fn skips_magic_get_set() {
+        let src = "<?php\nclass Foo {\n    public function __get($name) { }\n    public function __set($name, $value) { }\n}\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn public_method_warning_severity() {
+        let src = "<?php\nclass Foo {\n    public function bar($x) { }\n}\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.iter().all(|f| f.severity == "warning"),
+            "public method should have warning severity"
+        );
+    }
+
+    #[test]
+    fn private_method_info_severity() {
+        let src = "<?php\nclass Foo {\n    private function baz($x) { }\n}\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.iter().all(|f| f.severity == "info"),
+            "private method should have info severity"
+        );
+    }
+
+    #[test]
+    fn nolint_suppresses_finding() {
+        let src =
+            "<?php\n// NOLINT(missing_type_declarations)\nfunction foo($x) { return $x; }\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }
