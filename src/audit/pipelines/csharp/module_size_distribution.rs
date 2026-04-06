@@ -9,7 +9,23 @@ use crate::audit::pipelines::helpers::{is_entry_file, is_test_file};
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
 const MONOLITHIC_EXPORT_THRESHOLD: usize = 20;
-const ANEMIC_ENTRY_FILES: &[&str] = &["Program.cs"];
+const ANEMIC_ENTRY_FILES: &[&str] = &[
+    "Program.cs",
+    "GlobalUsings.cs",
+    "AssemblyInfo.cs",
+    "Startup.cs",
+];
+
+const ANEMIC_ENTRY_SUFFIXES: &[&str] = &["Extensions.cs", "Configuration.cs"];
+
+fn is_csharp_anemic_exempt(file_path: &str) -> bool {
+    if is_entry_file(file_path, ANEMIC_ENTRY_FILES) {
+        return true;
+    }
+    let path = file_path.replace('\\', "/");
+    let filename = path.split('/').next_back().unwrap_or(file_path);
+    ANEMIC_ENTRY_SUFFIXES.iter().any(|s| filename.ends_with(s))
+}
 
 /// Type declarations used for counting definitions. C# typically nests
 /// these inside namespace bodies, so we walk into them.
@@ -126,7 +142,7 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         }
 
         // Pattern 3: Anemic module
-        if total_definitions == 1 && !is_entry_file(file_path, ANEMIC_ENTRY_FILES) {
+        if total_definitions == 1 && !is_csharp_anemic_exempt(file_path) {
             let snippet = find_first_type_snippet(root, source);
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
@@ -262,6 +278,34 @@ namespace MyApp {
 "#;
         let findings = parse_and_check(src);
         assert!(!findings.iter().any(|f| f.pattern == "anemic_module"));
+    }
+
+    #[test]
+    fn test_startup_not_anemic() {
+        let src = r#"
+namespace MyApp {
+    public class Startup { }
+}
+"#;
+        let findings = parse_and_check_file(src, "Startup.cs");
+        assert!(
+            !findings.iter().any(|f| f.pattern == "anemic_module"),
+            "Startup.cs is an entry-point file and must not be flagged as anemic"
+        );
+    }
+
+    #[test]
+    fn test_extensions_class_not_anemic() {
+        let src = r#"
+namespace MyApp {
+    public static class ServiceCollectionExtensions { }
+}
+"#;
+        let findings = parse_and_check_file(src, "ServiceCollectionExtensions.cs");
+        assert!(
+            !findings.iter().any(|f| f.pattern == "anemic_module"),
+            "files ending in Extensions.cs are single-class by convention and must not be flagged"
+        );
     }
 
     #[test]
