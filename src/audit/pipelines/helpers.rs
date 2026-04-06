@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use tree_sitter::Node;
 
+use crate::graph::{CodeGraph, NodeWeight};
+
 /// Language-specific configuration for control flow analysis.
 pub struct ControlFlowConfig {
     /// Node kinds that count as decision points for cyclomatic complexity
@@ -612,12 +614,17 @@ pub fn body_has_member_access(
 /// Check if a file path indicates test code (language-agnostic).
 pub fn is_test_file(file_path: &str) -> bool {
     let path = file_path.replace('\\', "/");
-    // Directory patterns
+    // Directory patterns — also match paths that start with these prefixes (no leading slash)
     if path.contains("/tests/")
+        || path.starts_with("tests/")
         || path.contains("/test/")
+        || path.starts_with("test/")
         || path.contains("/__tests__/")
+        || path.starts_with("__tests__/")
         || path.contains("/testing/")
+        || path.starts_with("testing/")
         || path.contains("/testdata/")
+        || path.starts_with("testdata/")
     {
         return true;
     }
@@ -649,6 +656,10 @@ pub fn is_test_file(file_path: &str) -> bool {
         || file_name.ends_with("Test.cs")
         || file_name.ends_with("Spec.cs")
     {
+        return true;
+    }
+    // PHP: *Test.php (PHPUnit convention)
+    if file_name.ends_with("Test.php") {
         return true;
     }
     // JS/TS: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx
@@ -1438,6 +1449,74 @@ pub fn is_nolint_suppressed(source: &[u8], node: tree_sitter::Node, pipeline_nam
         }
     }
     false
+}
+
+/// Check if a Python `# noqa` or `# type: ignore` comment suppresses a finding on this node's line.
+///
+/// Recognised patterns (same-line only):
+/// - `# noqa`          — blanket suppression (all pipelines)
+/// - `# noqa: E722`    — treated as blanket (no virgil↔flake8 code mapping)
+/// - `# type: ignore`  — suppresses `missing_type_hints` pipeline only
+pub fn is_noqa_suppressed(source: &[u8], node: tree_sitter::Node, pipeline_name: &str) -> bool {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let lines: Vec<&str> = source_str.lines().collect();
+    let row = node.start_position().row;
+    if row >= lines.len() {
+        return false;
+    }
+    let line = lines[row];
+
+    // Check for # noqa (blanket or targeted — both suppress)
+    if line.contains("# noqa") {
+        return true;
+    }
+
+    // Check for # type: ignore (only suppresses type-hint pipelines)
+    if line.contains("# type: ignore") && pipeline_name == "missing_type_hints" {
+        return true;
+    }
+
+    false
+}
+
+/// Find the enclosing function for a given line and count its direct callers in the graph.
+///
+/// Returns `Some((node_index, caller_count))` for the narrowest enclosing `Symbol` node,
+/// or `None` if no enclosing symbol is found.  Useful for severity graduation: functions
+/// with many callers deserve higher-severity findings.
+pub fn find_enclosing_function_callers(
+    graph: &CodeGraph,
+    file_path: &str,
+    line: u32,
+) -> Option<(petgraph::graph::NodeIndex, usize)> {
+    let mut best_idx = None;
+    let mut best_range = u32::MAX;
+
+    for idx in graph.graph.node_indices() {
+        if let NodeWeight::Symbol {
+            file_path: fp,
+            start_line,
+            end_line,
+            ..
+        } = &graph.graph[idx]
+        {
+            if fp == file_path && *start_line <= line && line <= *end_line {
+                let range = end_line - start_line;
+                if range < best_range {
+                    best_range = range;
+                    best_idx = Some(idx);
+                }
+            }
+        }
+    }
+
+    best_idx.map(|idx| {
+        let callers = graph.traverse_callers(&[idx], 1);
+        (idx, callers.len())
+    })
 }
 
 /// Check if `name` appears in `text` as a whole identifier (not a substring of another identifier).
