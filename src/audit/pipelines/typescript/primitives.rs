@@ -119,18 +119,27 @@ pub fn is_test_file(path: &str) -> bool {
     lower.contains(".test.") || lower.contains(".spec.") || lower.contains("__tests__")
 }
 
-/// Returns true if the line preceding the node contains a TS/ESLint suppression marker.
+/// Returns true if the node's line or the preceding line contains a TS/ESLint suppression marker.
 pub fn is_ts_suppressed(source: &[u8], node: tree_sitter::Node) -> bool {
-    let line = node.start_position().row;
-    if line == 0 {
-        return false;
+    let src_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let lines: Vec<&str> = src_str.lines().collect();
+    let row = node.start_position().row;
+    // Check same line and preceding line
+    let start = if row > 0 { row - 1 } else { row };
+    for &line in &lines[start..=row.min(lines.len().saturating_sub(1))] {
+        let trimmed = line.trim();
+        if trimmed.contains("@ts-ignore")
+            || trimmed.contains("@ts-expect-error")
+            || trimmed.contains("eslint-disable-next-line")
+            || trimmed.contains("virgil-ignore")
+        {
+            return true;
+        }
     }
-    let src_str = std::str::from_utf8(source).unwrap_or("");
-    let prev_line = src_str.lines().nth(line - 1).unwrap_or("").trim();
-    prev_line.contains("@ts-ignore")
-        || prev_line.contains("@ts-expect-error")
-        || prev_line.contains("eslint-disable-next-line")
-        || prev_line.contains("virgil-ignore")
+    false
 }
 
 /// Returns true if this is a TypeScript declaration file (`.d.ts`).
@@ -294,13 +303,27 @@ mod tests {
 
     #[test]
     fn is_ts_suppressed_false_when_no_comment() {
-        let src = "let x: any = 1;";
+        // Node is on line 1, preceding line has a regular comment (not a suppression marker)
+        let src = "// some unrelated comment\nlet x: any = 1;";
         let (tree, source) = parse_ts(src);
         let query = compile_predefined_type_query(Language::TypeScript).unwrap();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
         let node = matches.next().unwrap().captures[0].node;
-        assert!(!is_ts_suppressed(&source, node));
+        assert_eq!(node.start_position().row, 1); // verify node is on line 1
+        assert!(!is_ts_suppressed(source.as_slice(), node));
+    }
+
+    #[test]
+    fn is_ts_suppressed_detects_inline_virgil_ignore() {
+        // virgil-ignore can appear inline on the same line
+        let src = "let x: any = 1; // virgil-ignore";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert!(is_ts_suppressed(source.as_slice(), node));
     }
 
     #[test]
