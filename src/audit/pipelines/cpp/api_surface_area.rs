@@ -5,10 +5,13 @@ use anyhow::{Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
-use super::primitives::{find_capture_index, has_storage_class, node_text};
+use super::primitives::{
+    compile_struct_specifier_query, find_capture_index, has_storage_class, is_cpp_header,
+    is_generated_cpp_file, node_text,
+};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
-use crate::audit::pipelines::helpers::count_top_level_definitions;
+use crate::audit::pipelines::helpers::{count_top_level_definitions, is_test_file};
 use crate::language::Language;
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
@@ -32,6 +35,7 @@ fn cpp_lang() -> tree_sitter::Language {
 pub struct ApiSurfaceAreaPipeline {
     exported_query: Arc<Query>,
     class_query: Arc<Query>,
+    struct_query: Arc<Query>,
 }
 
 impl ApiSurfaceAreaPipeline {
@@ -61,9 +65,13 @@ impl ApiSurfaceAreaPipeline {
         let class_query = Query::new(&cpp_lang(), class_query_str)
             .with_context(|| "failed to compile class query for C++ API surface")?;
 
+        let struct_query = compile_struct_specifier_query()
+            .with_context(|| "failed to compile struct query for C++ API surface")?;
+
         Ok(Self {
             exported_query: Arc::new(exported_query),
             class_query: Arc::new(class_query),
+            struct_query,
         })
     }
 }
@@ -78,69 +86,77 @@ impl Pipeline for ApiSurfaceAreaPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) {
+            return vec![];
+        }
+        if is_generated_cpp_file(file_path, source) {
+            return vec![];
+        }
+
+        let is_header = is_cpp_header(file_path);
         let mut findings = Vec::new();
         let root = tree.root_node();
 
-        // Pattern 1: excessive_public_api
-        let total_symbols = count_top_level_definitions(root, CPP_SYMBOL_KINDS);
-
-        let mut exported_count = 0usize;
-        {
-            let mut cursor = QueryCursor::new();
-            let def_idx = find_capture_index(&self.exported_query, "def");
-            let mut matches = cursor.matches(&self.exported_query, root, source);
-            while let Some(m) = matches.next() {
-                for cap in m.captures {
-                    if cap.index as usize == def_idx {
-                        let is_top_level = cap
-                            .node
-                            .parent()
-                            .is_some_and(|p| p.kind() == "translation_unit");
-                        if is_top_level && !has_storage_class(cap.node, source, "static") {
-                            exported_count += 1;
+        // Pattern 1: excessive_public_api — skip for header files
+        if !is_header {
+            let total_symbols = count_top_level_definitions(root, CPP_SYMBOL_KINDS);
+            let mut exported_count = 0usize;
+            {
+                let mut cursor = QueryCursor::new();
+                let def_idx = find_capture_index(&self.exported_query, "def");
+                let mut matches = cursor.matches(&self.exported_query, root, source);
+                while let Some(m) = matches.next() {
+                    for cap in m.captures {
+                        if cap.index as usize == def_idx {
+                            let is_top_level = cap
+                                .node
+                                .parent()
+                                .is_some_and(|p| p.kind() == "translation_unit");
+                            if is_top_level && !has_storage_class(cap.node, source, "static") {
+                                exported_count += 1;
+                            }
                         }
                     }
                 }
             }
-        }
-
-        if total_symbols >= EXCESSIVE_API_MIN_SYMBOLS {
-            let ratio = exported_count as f64 / total_symbols as f64;
-            if ratio > EXCESSIVE_API_EXPORT_RATIO {
-                findings.push(AuditFinding {
-                    file_path: file_path.to_string(),
-                    line: 1,
-                    column: 1,
-                    severity: "info".to_string(),
-                    pipeline: "api_surface_area".to_string(),
-                    pattern: "excessive_public_api".to_string(),
-                    message: format!(
-                        "Module exports {}/{} symbols ({:.0}% exported, threshold: >{}%)",
-                        exported_count,
-                        total_symbols,
-                        ratio * 100.0,
-                        (EXCESSIVE_API_EXPORT_RATIO * 100.0) as u32
-                    ),
-                    snippet: String::new(),
-                });
+            if total_symbols >= EXCESSIVE_API_MIN_SYMBOLS {
+                let ratio = exported_count as f64 / total_symbols as f64;
+                if ratio > EXCESSIVE_API_EXPORT_RATIO {
+                    findings.push(AuditFinding {
+                        file_path: file_path.to_string(),
+                        line: 1,
+                        column: 1,
+                        severity: "info".to_string(),
+                        pipeline: "api_surface_area".to_string(),
+                        pattern: "excessive_public_api".to_string(),
+                        message: format!(
+                            "Module exports {}/{} symbols ({:.0}% exported, threshold: >{}%)",
+                            exported_count,
+                            total_symbols,
+                            ratio * 100.0,
+                            (EXCESSIVE_API_EXPORT_RATIO * 100.0) as u32
+                        ),
+                        snippet: String::new(),
+                    });
+                }
             }
         }
 
         // Pattern 2: leaky_abstraction_boundary
-        // Find classes with public data members (field declarations under public access)
+        // Dedup key: (class_name, start_line) — handles same name in different namespaces.
+        let mut reported: HashSet<(String, u32)> = HashSet::new();
+
+        // --- class_specifier pass (default access: private) ---
         {
             let mut cursor = QueryCursor::new();
             let class_name_idx = find_capture_index(&self.class_query, "class_name");
             let class_body_idx = find_capture_index(&self.class_query, "class_body");
-
             let mut matches = cursor.matches(&self.class_query, root, source);
-            let mut reported_classes = HashSet::new();
 
             while let Some(m) = matches.next() {
                 let mut class_name = "";
                 let mut class_line = 0u32;
                 let mut body_node = None;
-
                 for cap in m.captures {
                     if cap.index as usize == class_name_idx {
                         class_name = node_text(cap.node, source);
@@ -150,28 +166,95 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                         body_node = Some(cap.node);
                     }
                 }
-
-                if class_name.is_empty() || reported_classes.contains(class_name) {
+                if class_name.is_empty() {
                     continue;
                 }
-
-                if let Some(body) = body_node
-                    && let Some(field_name) = find_public_data_member(body, source)
-                {
-                    reported_classes.insert(class_name.to_string());
-                    findings.push(AuditFinding {
+                let key = (class_name.to_string(), class_line);
+                if reported.contains(&key) {
+                    continue;
+                }
+                if let Some(body) = body_node {
+                    let (count, first_name) = count_public_data_members(body, source, false);
+                    if count > 0 {
+                        let severity = if count >= 10 {
+                            "error"
+                        } else if count >= 3 {
+                            "warning"
+                        } else {
+                            "info"
+                        };
+                        reported.insert(key);
+                        findings.push(AuditFinding {
                             file_path: file_path.to_string(),
                             line: class_line,
                             column: 1,
-                            severity: "warning".to_string(),
+                            severity: severity.to_string(),
                             pipeline: "api_surface_area".to_string(),
                             pattern: "leaky_abstraction_boundary".to_string(),
                             message: format!(
                                 "Class `{}` has public data member `{}` — consider encapsulating with accessor methods",
-                                class_name, field_name
+                                class_name,
+                                first_name.as_deref().unwrap_or("<unknown>")
                             ),
                             snippet: String::new(),
                         });
+                    }
+                }
+            }
+        }
+
+        // --- struct_specifier pass (default access: public) ---
+        {
+            let mut cursor = QueryCursor::new();
+            let struct_name_idx = find_capture_index(&self.struct_query, "struct_name");
+            let struct_body_idx = find_capture_index(&self.struct_query, "struct_body");
+            let mut matches = cursor.matches(&self.struct_query, root, source);
+
+            while let Some(m) = matches.next() {
+                let mut struct_name = "";
+                let mut struct_line = 0u32;
+                let mut body_node = None;
+                for cap in m.captures {
+                    if cap.index as usize == struct_name_idx {
+                        struct_name = node_text(cap.node, source);
+                        struct_line = cap.node.start_position().row as u32 + 1;
+                    }
+                    if cap.index as usize == struct_body_idx {
+                        body_node = Some(cap.node);
+                    }
+                }
+                if struct_name.is_empty() {
+                    continue;
+                }
+                let key = (struct_name.to_string(), struct_line);
+                if reported.contains(&key) {
+                    continue;
+                }
+                if let Some(body) = body_node {
+                    let (count, first_name) = count_public_data_members(body, source, true);
+                    if count > 0 {
+                        let severity = if count >= 10 {
+                            "error"
+                        } else if count >= 3 {
+                            "warning"
+                        } else {
+                            "info"
+                        };
+                        reported.insert(key);
+                        findings.push(AuditFinding {
+                            file_path: file_path.to_string(),
+                            line: struct_line,
+                            column: 1,
+                            severity: severity.to_string(),
+                            pipeline: "api_surface_area".to_string(),
+                            pattern: "leaky_abstraction_boundary".to_string(),
+                            message: format!(
+                                "Struct `{}` has {} public data member(s) — consider encapsulating with accessor methods",
+                                struct_name, count
+                            ),
+                            snippet: String::new(),
+                        });
+                    }
                 }
             }
         }
@@ -180,19 +263,21 @@ impl Pipeline for ApiSurfaceAreaPipeline {
     }
 }
 
-/// Walk the field_declaration_list of a class to find public data members.
-/// In tree-sitter-cpp, access_specifier nodes (e.g., `public:`) are siblings
-/// to actual member declarations. The default access for `class` is private.
-/// We track the current access level and look for field_declaration nodes
-/// (non-function data members) under public access.
-fn find_public_data_member(body: tree_sitter::Node, source: &[u8]) -> Option<String> {
-    // Default access for class is private
-    let mut current_access = "private";
+/// Walk a `field_declaration_list` and count public data members (non-method fields).
+/// `default_public`: true for `struct` (default access = public), false for `class` (private).
+/// Returns `(count, first_field_name)`.
+fn count_public_data_members(
+    body: tree_sitter::Node,
+    source: &[u8],
+    default_public: bool,
+) -> (usize, Option<String>) {
+    let mut current_access = if default_public { "public" } else { "private" };
+    let mut count = 0usize;
+    let mut first_name: Option<String> = None;
     let mut cursor = body.walk();
 
     for child in body.children(&mut cursor) {
         if child.kind() == "access_specifier" {
-            // Extract the access keyword: "public", "private", "protected"
             let text = node_text(child, source).trim_end_matches(':').trim();
             current_access = match text {
                 "public" => "public",
@@ -202,21 +287,19 @@ fn find_public_data_member(body: tree_sitter::Node, source: &[u8]) -> Option<Str
             };
             continue;
         }
-
-        // Only check field_declaration under public access
         if current_access == "public" && child.kind() == "field_declaration" {
-            // Check if this is a data member (not a method declaration)
-            // Method declarations have a function_declarator child
             if !has_function_declarator(child) {
-                // Extract the field name from the declarator
                 if let Some(name) = extract_field_name(child, source) {
-                    return Some(name);
+                    if first_name.is_none() {
+                        first_name = Some(name);
+                    }
+                    count += 1;
                 }
             }
         }
     }
 
-    None
+    (count, first_name)
 }
 
 /// Check if a field_declaration contains a function_declarator (i.e., it's a method declaration)
@@ -270,6 +353,14 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.cpp")
+    }
+
+    fn parse_and_check_file(source: &str, file_path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&cpp_lang()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
+        pipeline.check(&tree, source.as_bytes(), file_path)
     }
 
     #[test]
@@ -368,6 +459,106 @@ public:
             !findings
                 .iter()
                 .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
+    }
+
+    #[test]
+    fn test_struct_with_public_fields_detected() {
+        // structs default to public — all fields are public by default
+        let src = r#"
+struct Config {
+    std::string host;
+    int port;
+};
+"#;
+        let findings = parse_and_check_file(src, "config.cpp");
+        assert!(
+            findings.iter().any(|f| f.pattern == "leaky_abstraction_boundary"),
+            "Struct with public fields should trigger leaky_abstraction_boundary"
+        );
+    }
+
+    #[test]
+    fn test_header_file_excessive_api_suppressed() {
+        // .hpp with 15 declarations — excessive_public_api skipped for headers
+        let mut src = String::new();
+        for i in 0..15 {
+            src.push_str(&format!("void func_{}(int x);\n", i));
+        }
+        let findings = parse_and_check_file(&src, "api.hpp");
+        assert!(
+            !findings.iter().any(|f| f.pattern == "excessive_public_api"),
+            "Header files should not trigger excessive_public_api"
+        );
+    }
+
+    #[test]
+    fn test_generated_protobuf_excluded() {
+        let src = r#"
+class UserMessage {
+public:
+    int id;
+    std::string name;
+};
+"#;
+        let findings = parse_and_check_file(src, "user.pb.h");
+        assert!(findings.is_empty(), "Protobuf header should produce 0 findings");
+    }
+
+    #[test]
+    fn test_two_classes_same_name_different_namespaces_both_reported() {
+        let src = r#"
+namespace A {
+class Foo {
+public:
+    int x;
+};
+}
+namespace B {
+class Foo {
+public:
+    int y;
+};
+}
+"#;
+        let findings = parse_and_check_file(src, "multi_ns.cpp");
+        let count = findings
+            .iter()
+            .filter(|f| f.pattern == "leaky_abstraction_boundary")
+            .count();
+        assert_eq!(
+            count, 2,
+            "Two classes named Foo in different namespaces should each be reported"
+        );
+    }
+
+    #[test]
+    fn test_severity_escalation_many_public_fields() {
+        // Class with 12 public data members → severity "error"
+        let mut src = String::from("class BigData {\npublic:\n");
+        for i in 0..12 {
+            src.push_str(&format!("    int field_{};\n", i));
+        }
+        src.push_str("};\n");
+        let findings = parse_and_check_file(&src, "bigdata.cpp");
+        let f = findings
+            .iter()
+            .find(|f| f.pattern == "leaky_abstraction_boundary")
+            .expect("12 public data members should trigger leaky_abstraction_boundary");
+        assert_eq!(f.severity, "error", "12 public members should be 'error' severity");
+    }
+
+    #[test]
+    fn test_test_file_excluded() {
+        let mut src = String::new();
+        for i in 0..15 {
+            src.push_str(&format!("void func_{}() {{}}\n", i));
+        }
+        let findings = parse_and_check_file(&src, "connection_test.cpp");
+        assert!(
+            findings.is_empty(),
+            "Test files should produce 0 findings, got: {:?}",
+            findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
         );
     }
 }
