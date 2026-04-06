@@ -42,7 +42,7 @@ use anyhow::Result;
 pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
         AnyPipeline::Legacy(Box::new(panic_detection::PanicDetectionPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(clone_detection::CloneDetectionPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(clone_detection::CloneDetectionPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(god_object_detection::GodObjectDetectionPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
         AnyPipeline::Legacy(Box::new(must_use_ignored::MustUseIgnoredPipeline::new()?)),
