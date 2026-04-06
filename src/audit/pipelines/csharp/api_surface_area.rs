@@ -1,9 +1,12 @@
 use anyhow::Result;
 use tree_sitter::Tree;
 
-use super::primitives::{has_modifier, node_text};
+use super::primitives::{
+    has_csharp_attribute, has_modifier, is_csharp_suppressed, is_generated_code, node_text,
+};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
+use crate::audit::pipelines::helpers::is_test_file;
 
 const EXCESSIVE_API_MIN_SYMBOLS: usize = 10;
 const EXCESSIVE_API_EXPORT_RATIO: f64 = 0.8;
@@ -33,6 +36,9 @@ impl Pipeline for ApiSurfaceAreaPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) || is_generated_code(file_path, source) {
+            return vec![];
+        }
         let mut findings = Vec::new();
         let root = tree.root_node();
 
@@ -48,9 +54,10 @@ fn check_classes_recursive(
     file_path: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    if node.kind() == "class_declaration" {
-        let is_public_class =
-            has_modifier(node, source, "public") || has_modifier(node, source, "internal");
+    if node.kind() == "class_declaration"
+        && !is_csharp_suppressed(source, node, "api_surface_area")
+    {
+        let is_public_class = has_modifier(node, source, "public");
         let class_name = node
             .child_by_field_name("name")
             .map(|n| node_text(n, source))
@@ -70,8 +77,7 @@ fn check_classes_recursive(
                 }
 
                 total_members += 1;
-                if has_modifier(child, source, "public") || has_modifier(child, source, "internal")
-                {
+                if has_modifier(child, source, "public") {
                     exported_members += 1;
                 }
 
@@ -167,7 +173,15 @@ mod tests {
         parser.set_language(&csharp_lang()).unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "Test.cs")
+        pipeline.check(&tree, source.as_bytes(), "MyApp.cs")
+    }
+
+    fn parse_and_check_file(source: &str, path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&csharp_lang()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = ApiSurfaceAreaPipeline::new().unwrap();
+        pipeline.check(&tree, source.as_bytes(), path)
     }
 
     #[test]
@@ -261,6 +275,44 @@ class InternalRepo {
             !findings
                 .iter()
                 .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
+    }
+
+    #[test]
+    fn test_file_not_analyzed() {
+        let mut methods = String::new();
+        for i in 0..10 {
+            methods.push_str(&format!("    public void Method_{}() {{ }}\n", i));
+        }
+        methods.push_str("    private void PrivateMethod() { }\n");
+        let src = format!("public class OrderServiceTests {{\n{}}}\n", methods);
+        let findings = parse_and_check_file(&src, "OrderServiceTests.cs");
+        assert!(findings.is_empty(), "test files must not produce any findings");
+    }
+
+    #[test]
+    fn test_generated_file_not_analyzed() {
+        let src = r#"
+public class Form1 {
+    public string ConnectionString;
+    public void Save() { }
+}
+"#;
+        let findings = parse_and_check_file(src, "Form1.Designer.cs");
+        assert!(findings.is_empty(), "Designer.cs files must not produce any findings");
+    }
+
+    #[test]
+    fn test_internal_class_not_excessive_api() {
+        let mut methods = String::new();
+        for i in 0..10 {
+            methods.push_str(&format!("    internal void Method_{}() {{ }}\n", i));
+        }
+        let src = format!("public class InternalHelper {{\n{}}}\n", methods);
+        let findings = parse_and_check(&src);
+        assert!(
+            !findings.iter().any(|f| f.pattern == "excessive_public_api"),
+            "internal methods are not part of the public API and must not count as exported"
         );
     }
 
