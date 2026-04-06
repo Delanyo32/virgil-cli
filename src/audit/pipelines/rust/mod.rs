@@ -50,7 +50,7 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
         AnyPipeline::Legacy(Box::new(pub_field_leakage::PubFieldLeakagePipeline::new()?)),
         AnyPipeline::Legacy(Box::new(missing_trait_abstraction::MissingTraitAbstractionPipeline::new()?)),
         AnyPipeline::Graph(Box::new(async_blocking::AsyncBlockingPipeline::new()?)),
-        AnyPipeline::Legacy(Box::new(magic_numbers::MagicNumbersPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(magic_numbers::MagicNumbersPipeline::new()?)),
     ])
 }
 

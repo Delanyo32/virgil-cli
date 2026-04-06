@@ -1,14 +1,15 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use super::primitives;
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{
-    COMMON_ALLOWED_NUMBERS, is_test_context_rust, is_test_file,
+    is_nolint_suppressed, COMMON_ALLOWED_NUMBERS, is_test_context_rust, is_test_file,
 };
 
 const EXCLUDED_VALUES: &[&str] = &[
@@ -26,6 +27,7 @@ const EXEMPT_ANCESTOR_KINDS: &[&str] = &[
     "match_arm",
     "range_expression",
     "macro_invocation",
+    "token_tree", // fixes numbers inside macro arguments (e.g. println!("{}", 9999))
 ];
 
 pub struct MagicNumbersPipeline {
@@ -64,7 +66,7 @@ impl MagicNumbersPipeline {
     }
 }
 
-impl Pipeline for MagicNumbersPipeline {
+impl GraphPipeline for MagicNumbersPipeline {
     fn name(&self) -> &str {
         "magic_numbers"
     }
@@ -73,15 +75,15 @@ impl Pipeline for MagicNumbersPipeline {
         "Detects numeric literals not in const/static/enum contexts that should be named constants"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let file_path = ctx.file_path;
+        let source = ctx.source;
+        let tree = ctx.tree;
+
         // Skip test files entirely
         if is_test_file(file_path) {
             return Vec::new();
         }
-
-        let mut findings = Vec::new();
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
 
         let number_idx = self
             .numeric_query
@@ -89,6 +91,11 @@ impl Pipeline for MagicNumbersPipeline {
             .iter()
             .position(|n| *n == "number")
             .unwrap();
+
+        // First pass: collect all candidate (value, line, col, snippet) tuples
+        let mut candidates: Vec<(String, u32, u32, String)> = Vec::new();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&self.numeric_query, tree.root_node(), source);
 
         while let Some(m) = matches.next() {
             let num_node = m.captures.iter().find(|c| c.index as usize == number_idx);
@@ -109,23 +116,47 @@ impl Pipeline for MagicNumbersPipeline {
                     continue;
                 }
 
+                // NOLINT suppression check
+                if is_nolint_suppressed(source, num_cap.node, self.name()) {
+                    continue;
+                }
+
                 let start = num_cap.node.start_position();
-                findings.push(AuditFinding {
+                candidates.push((
+                    value.to_string(),
+                    start.row as u32 + 1,
+                    start.column as u32 + 1,
+                    value.to_string(),
+                ));
+            }
+        }
+
+        // Second pass: compute frequency map (owned keys so we can consume candidates after)
+        let mut freq: HashMap<String, usize> = HashMap::new();
+        for (value, _, _, _) in &candidates {
+            *freq.entry(value.clone()).or_insert(0) += 1;
+        }
+
+        // Emit findings with severity based on frequency
+        candidates
+            .into_iter()
+            .map(|(value, line, column, snippet)| {
+                let count = freq.get(&value).copied().unwrap_or(1);
+                let severity = if count >= 3 { "warning" } else { "info" };
+                AuditFinding {
                     file_path: file_path.to_string(),
-                    line: start.row as u32 + 1,
-                    column: start.column as u32 + 1,
-                    severity: "info".to_string(),
+                    line,
+                    column,
+                    severity: severity.to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "magic_number".to_string(),
                     message: format!(
                         "magic number `{value}` — consider extracting to a named constant for clarity"
                     ),
-                    snippet: value.to_string(),
-                });
-            }
-        }
-
-        findings
+                    snippet,
+                }
+            })
+            .collect()
     }
 }
 
@@ -141,7 +172,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MagicNumbersPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.rs")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = crate::audit::pipeline::GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.rs",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -209,5 +249,49 @@ fn example() {
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("3.14159"));
+    }
+
+    #[test]
+    fn number_in_macro_args_not_flagged() {
+        let src = r#"fn f() { println!("{}", 9999); }"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "numbers in macro token_tree should be exempt");
+    }
+
+    #[test]
+    fn assert_eq_args_not_flagged() {
+        let src = r#"fn f() { assert_eq!(result, 42); }"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "numbers inside assert_eq! should be exempt");
+    }
+
+    #[test]
+    fn nolint_suppresses_magic_number() {
+        let src = "fn f() {\n    let x = 9999; // NOLINT(magic_numbers)\n}\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "NOLINT comment should suppress");
+    }
+
+    #[test]
+    fn repeated_value_is_warning() {
+        let src = r#"
+fn a() { let x = 9999; }
+fn b() { let y = 9999; }
+fn c() { let z = 9999; }
+"#;
+        let findings = parse_and_check(src);
+        assert!(!findings.is_empty());
+        assert!(
+            findings.iter().all(|f| f.severity == "warning"),
+            "value appearing 3+ times should all be warning"
+        );
+    }
+
+    #[test]
+    fn single_occurrence_is_info() {
+        let src = r#"fn f() { let x = 9999; }"#;
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "info");
     }
 }
