@@ -119,6 +119,25 @@ pub fn is_test_file(path: &str) -> bool {
     lower.contains(".test.") || lower.contains(".spec.") || lower.contains("__tests__")
 }
 
+/// Returns true if the line preceding the node contains a TS/ESLint suppression marker.
+pub fn is_ts_suppressed(source: &[u8], node: tree_sitter::Node) -> bool {
+    let line = node.start_position().row;
+    if line == 0 {
+        return false;
+    }
+    let src_str = std::str::from_utf8(source).unwrap_or("");
+    let prev_line = src_str.lines().nth(line - 1).unwrap_or("").trim();
+    prev_line.contains("@ts-ignore")
+        || prev_line.contains("@ts-expect-error")
+        || prev_line.contains("eslint-disable-next-line")
+        || prev_line.contains("virgil-ignore")
+}
+
+/// Returns true if this is a TypeScript declaration file (`.d.ts`).
+pub fn is_dts_file(file_path: &str) -> bool {
+    file_path.ends_with(".d.ts")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +246,80 @@ mod tests {
         assert!(is_test_file("src/__tests__/foo.ts"));
         assert!(!is_test_file("src/foo.ts"));
         assert!(!is_test_file("src/utils.ts"));
+    }
+
+    #[test]
+    fn is_ts_suppressed_detects_ts_ignore() {
+        let src = "// @ts-ignore\nlet x: any = 1;";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert!(is_ts_suppressed(&source, node));
+    }
+
+    #[test]
+    fn is_ts_suppressed_detects_ts_expect_error() {
+        let src = "// @ts-expect-error\nlet x: any = 1;";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert!(is_ts_suppressed(&source, node));
+    }
+
+    #[test]
+    fn is_ts_suppressed_detects_eslint_disable() {
+        let src = "// eslint-disable-next-line @typescript-eslint/no-explicit-any\nlet x: any = 1;";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert!(is_ts_suppressed(&source, node));
+    }
+
+    #[test]
+    fn is_ts_suppressed_detects_virgil_ignore() {
+        let src = "// virgil-ignore\nlet x: any = 1;";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert!(is_ts_suppressed(&source, node));
+    }
+
+    #[test]
+    fn is_ts_suppressed_false_when_no_comment() {
+        let src = "let x: any = 1;";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert!(!is_ts_suppressed(&source, node));
+    }
+
+    #[test]
+    fn is_ts_suppressed_false_on_first_line() {
+        let src = "let x: any = 1;";
+        let (tree, source) = parse_ts(src);
+        let query = compile_predefined_type_query(Language::TypeScript).unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_slice());
+        let node = matches.next().unwrap().captures[0].node;
+        assert_eq!(node.start_position().row, 0);
+        assert!(!is_ts_suppressed(&source, node));
+    }
+
+    #[test]
+    fn is_dts_file_detection() {
+        assert!(is_dts_file("src/types.d.ts"));
+        assert!(is_dts_file("node_modules/@types/node/index.d.ts"));
+        assert!(!is_dts_file("src/types.ts"));
+        assert!(!is_dts_file("src/types.d.tsx"));
     }
 }
