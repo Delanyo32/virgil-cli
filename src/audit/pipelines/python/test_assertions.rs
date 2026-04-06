@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
-use crate::audit::pipelines::helpers::is_test_file;
+use crate::audit::pipelines::helpers::{is_noqa_suppressed, is_test_file};
 
 use super::primitives::{
     compile_function_def_query, extract_snippet, find_capture_index, node_text,
@@ -31,7 +31,7 @@ fn contains_assertion(node: tree_sitter::Node, source: &[u8]) -> bool {
         return true;
     }
 
-    // `self.assert*()` or `pytest.raises(...)` etc — call whose function is an attribute
+    // `self.assert*()`, `mock.assert_called*()`, `pytest.raises(...)` etc
     if node.kind() == "call"
         && let Some(func) = node.child_by_field_name("function")
         && func.kind() == "attribute"
@@ -45,6 +45,13 @@ fn contains_assertion(node: tree_sitter::Node, source: &[u8]) -> bool {
         }
         if obj_text == "pytest"
             && (attr_text == "raises" || attr_text == "warns" || attr_text == "approx")
+        {
+            return true;
+        }
+        // Mock assertion methods: mock.assert_called_once(), mock.assert_not_called(), etc.
+        if attr_text.starts_with("assert_called")
+            || attr_text == "assert_not_called"
+            || attr_text == "assert_any_call"
         {
             return true;
         }
@@ -154,6 +161,33 @@ impl GraphPipeline for TestAssertionsPipeline {
 
             let body_node = body_cap.node;
             let def_node = def_cap.node;
+
+            if is_noqa_suppressed(source, def_node, self.name()) {
+                continue;
+            }
+
+            // Skip @pytest.mark.skip and @pytest.mark.xfail decorated tests
+            if let Some(parent) = def_node.parent()
+                && parent.kind() == "decorated_definition"
+            {
+                let mut skip = false;
+                for i in 0..parent.named_child_count() {
+                    if let Some(child) = parent.named_child(i)
+                        && child.kind() == "decorator"
+                    {
+                        let dec_text = node_text(child, source);
+                        if dec_text.contains("pytest.mark.skip")
+                            || dec_text.contains("pytest.mark.xfail")
+                        {
+                            skip = true;
+                            break;
+                        }
+                    }
+                }
+                if skip {
+                    continue;
+                }
+            }
 
             // Check for missing assertions
             if !contains_assertion(body_node, source) {
@@ -398,5 +432,49 @@ def test_trivial():\n    assert True\n";
         let patterns: Vec<&str> = findings.iter().map(|f| f.pattern.as_str()).collect();
         assert!(patterns.contains(&"missing_assertion"));
         assert!(patterns.contains(&"trivial_assertion"));
+    }
+
+    #[test]
+    fn mock_assert_called_counts_as_assertion() {
+        let src = "def test_mock():\n    mock_db.assert_called_once_with(42)\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "mock.assert_called_once_with should count as assertion"
+        );
+    }
+
+    #[test]
+    fn mock_assert_not_called_counts_as_assertion() {
+        let src = "def test_mock():\n    mock_service.assert_not_called()\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn pytest_mark_skip_suppresses() {
+        let src = "@pytest.mark.skip\ndef test_skipped():\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "@pytest.mark.skip should suppress missing assertion"
+        );
+    }
+
+    #[test]
+    fn pytest_mark_xfail_suppresses() {
+        let src = "@pytest.mark.xfail\ndef test_known_bug():\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "@pytest.mark.xfail should suppress missing assertion"
+        );
+    }
+
+    #[test]
+    fn noqa_suppresses_test() {
+        let src = "def test_foo():  # noqa\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "# noqa should suppress");
     }
 }

@@ -7,7 +7,8 @@ use tree_sitter::{Query, QueryCursor};
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::{
-    COMMON_ALLOWED_NUMBERS, ancestor_has_kind, is_test_context_python, is_test_file,
+    COMMON_ALLOWED_NUMBERS, ancestor_has_kind, is_noqa_suppressed, is_test_context_python,
+    is_test_file,
 };
 
 use super::primitives::{compile_numeric_literal_query, find_capture_index, node_text};
@@ -67,6 +68,14 @@ impl PythonMagicNumbersPipeline {
                 "default_parameter" | "typed_default_parameter" => {
                     return true;
                 }
+                // Augmented assignments (counter += 5)
+                "augmented_assignment" => {
+                    return true;
+                }
+                // Comparison operators (if x > 42) — context makes meaning clearer
+                "comparison_operator" => {
+                    return true;
+                }
                 // Common builtin function calls
                 "call" => {
                     if let Some(fn_node) = parent.child_by_field_name("function") {
@@ -123,9 +132,29 @@ impl GraphPipeline for PythonMagicNumbersPipeline {
             let num_cap = m.captures.iter().find(|c| c.index as usize == number_idx);
 
             if let Some(num_cap) = num_cap {
+                if is_noqa_suppressed(source, num_cap.node, self.name()) {
+                    continue;
+                }
+
                 let value = num_cap.node.utf8_text(source).unwrap_or("");
 
-                if EXCLUDED_VALUES.contains(&value) || COMMON_ALLOWED_NUMBERS.contains(&value) {
+                // Handle unary minus: if parent is `unary_operator` with `-`,
+                // check the combined negative value against exclusions
+                let mut excluded = EXCLUDED_VALUES.contains(&value)
+                    || COMMON_ALLOWED_NUMBERS.contains(&value);
+                if !excluded
+                    && let Some(parent) = num_cap.node.parent()
+                    && parent.kind() == "unary_operator"
+                {
+                    let op_text = node_text(parent, source);
+                    if op_text.starts_with('-') {
+                        let neg_value = format!("-{value}");
+                        excluded = EXCLUDED_VALUES.contains(&neg_value.as_str())
+                            || COMMON_ALLOWED_NUMBERS.contains(&neg_value.as_str());
+                    }
+                }
+
+                if excluded {
                     continue;
                 }
 
@@ -243,5 +272,26 @@ mod tests {
         let src = "prices = [5.99, 12.99, 24.99]\ntiers = (199, 299, 399)\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty(), "expected no findings for collection literals, got: {findings:?}");
+    }
+
+    #[test]
+    fn skips_augmented_assignment() {
+        let src = "counter += 5\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "augmented assignments should be exempt");
+    }
+
+    #[test]
+    fn skips_comparison_operator() {
+        let src = "if retries > 42:\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "comparison context should be exempt");
+    }
+
+    #[test]
+    fn noqa_suppresses() {
+        let src = "x = 9999  # noqa\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "# noqa should suppress");
     }
 }

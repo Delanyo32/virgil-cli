@@ -6,12 +6,14 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_noqa_suppressed;
 
 use super::primitives::{
     compile_function_def_query, extract_snippet, find_capture_index, node_text,
 };
 
 const LINE_THRESHOLD: usize = 50;
+const INIT_LINE_THRESHOLD: usize = 100;
 const STATEMENT_THRESHOLD: usize = 20;
 
 pub struct GodFunctionsPipeline {
@@ -67,15 +69,59 @@ impl GraphPipeline for GodFunctionsPipeline {
             if let (Some(name_node), Some(body_node), Some(def_node)) =
                 (name_node, body_node, def_node)
             {
+                if is_noqa_suppressed(source, def_node, self.name()) {
+                    continue;
+                }
+
                 let fn_name = node_text(name_node, source);
-                let line_count = body_node.end_position().row - body_node.start_position().row;
+
+                // Exclude docstring lines from line count
+                let mut docstring_lines = 0;
+                if let Some(first_child) = body_node.named_child(0) {
+                    if first_child.kind() == "expression_statement" {
+                        if let Some(string_node) = first_child.named_child(0) {
+                            if string_node.kind() == "string" {
+                                docstring_lines = string_node.end_position().row
+                                    - string_node.start_position().row
+                                    + 1;
+                            }
+                        }
+                    }
+                }
+
+                let raw_line_count =
+                    body_node.end_position().row - body_node.start_position().row;
+                let line_count = raw_line_count.saturating_sub(docstring_lines);
+
+                // Count statements, excluding docstring expression_statement
                 let stmt_count = (0..body_node.named_child_count())
                     .filter_map(|i| body_node.named_child(i))
+                    .enumerate()
+                    .filter(|(idx, child)| {
+                        // Skip first child if it's a docstring
+                        if *idx == 0 && child.kind() == "expression_statement" {
+                            if let Some(inner) = child.named_child(0) {
+                                if inner.kind() == "string" {
+                                    return false;
+                                }
+                            }
+                        }
+                        true
+                    })
                     .count();
 
+                // __init__ gets a higher line threshold
+                let effective_line_threshold = if fn_name == "__init__" {
+                    INIT_LINE_THRESHOLD
+                } else {
+                    LINE_THRESHOLD
+                };
+
                 let mut reasons = Vec::new();
-                if line_count > LINE_THRESHOLD {
-                    reasons.push(format!("{line_count} lines (threshold: {LINE_THRESHOLD})"));
+                if line_count > effective_line_threshold {
+                    reasons.push(format!(
+                        "{line_count} lines (threshold: {effective_line_threshold})"
+                    ));
                 }
                 if stmt_count > STATEMENT_THRESHOLD {
                     reasons.push(format!(
@@ -84,12 +130,21 @@ impl GraphPipeline for GodFunctionsPipeline {
                 }
 
                 if !reasons.is_empty() {
+                    // Severity graduation based on line count
+                    let severity = if line_count > 200 {
+                        "critical"
+                    } else if line_count > 100 {
+                        "error"
+                    } else {
+                        "warning"
+                    };
+
                     let start = def_node.start_position();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
-                        severity: "warning".to_string(),
+                        severity: severity.to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "god_function".to_string(),
                         message: format!(
@@ -154,5 +209,52 @@ mod tests {
         let findings = parse_and_check(&src);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("statements"));
+    }
+
+    #[test]
+    fn severity_warning_for_medium() {
+        let body: String = (0..52).map(|i| format!("    x{i} = {i}\n")).collect();
+        let src = format!("def medium_func():\n{body}");
+        let findings = parse_and_check(&src);
+        assert_eq!(findings[0].severity, "warning");
+    }
+
+    #[test]
+    fn severity_error_for_large() {
+        let body: String = (0..102).map(|i| format!("    x{i} = {i}\n")).collect();
+        let src = format!("def large_func():\n{body}");
+        let findings = parse_and_check(&src);
+        assert_eq!(findings[0].severity, "error");
+    }
+
+    #[test]
+    fn severity_critical_for_huge() {
+        let body: String = (0..202).map(|i| format!("    x{i} = {i}\n")).collect();
+        let src = format!("def huge_func():\n{body}");
+        let findings = parse_and_check(&src);
+        assert_eq!(findings[0].severity, "critical");
+    }
+
+    #[test]
+    fn init_gets_higher_threshold() {
+        // 60 lines: exceeds LINE_THRESHOLD (50) but not INIT_LINE_THRESHOLD (100)
+        // Also exceeds STATEMENT_THRESHOLD (20) — but that's separate from __init__ exemption
+        // So we test that line threshold is raised: 60 lines would normally trigger but __init__ allows 100
+        let body: String = (0..60).map(|i| format!("      self.x{i} = {i}\n")).collect();
+        let src = format!("class C:\n  def __init__(self):\n{body}");
+        let findings = parse_and_check(&src);
+        // Should still get flagged for statement count (60 > 20), but NOT for line count
+        assert!(
+            findings.iter().all(|f| !f.message.contains("lines")),
+            "__init__ with 60 lines should be under higher line threshold"
+        );
+    }
+
+    #[test]
+    fn noqa_suppresses() {
+        let body: String = (0..52).map(|i| format!("    x{i} = {i}\n")).collect();
+        let src = format!("def big_func():  # noqa\n{body}");
+        let findings = parse_and_check(&src);
+        assert!(findings.is_empty(), "# noqa should suppress");
     }
 }

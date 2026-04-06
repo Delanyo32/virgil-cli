@@ -6,12 +6,12 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_noqa_suppressed;
 
 use super::primitives::{
-    compile_default_parameter_query, extract_snippet, find_capture_index, node_text,
+    compile_default_parameter_query, extract_snippet, find_capture_index, is_mutable_value,
+    node_text,
 };
-
-const MUTABLE_KINDS: &[&str] = &["list", "dictionary", "set"];
 
 pub struct MutableDefaultArgsPipeline {
     default_param_query: Arc<Query>,
@@ -50,27 +50,31 @@ impl GraphPipeline for MutableDefaultArgsPipeline {
             if let Some(param_cap) = param_cap {
                 let node = param_cap.node;
 
+                if is_noqa_suppressed(source, node, self.name()) {
+                    continue;
+                }
+
                 // Find the value child — it's the last named child for default_parameter,
                 // and for typed_default_parameter it's also named "value"
                 let value_node = node.child_by_field_name("value");
 
                 if let Some(value) = value_node
-                    && MUTABLE_KINDS.contains(&value.kind())
+                    && is_mutable_value(value, source)
                 {
                     let start = node.start_position();
                     let param_text = node_text(node, source);
                     findings.push(AuditFinding {
-                            file_path: file_path.to_string(),
-                            line: start.row as u32 + 1,
-                            column: start.column as u32 + 1,
-                            severity: "warning".to_string(),
-                            pipeline: self.name().to_string(),
-                            pattern: "mutable_default_arg".to_string(),
-                            message: format!(
-                                "mutable default argument `{param_text}` — use `None` and initialize inside the function"
-                            ),
-                            snippet: extract_snippet(source, node, 1),
-                        });
+                        file_path: file_path.to_string(),
+                        line: start.row as u32 + 1,
+                        column: start.column as u32 + 1,
+                        severity: "warning".to_string(),
+                        pipeline: self.name().to_string(),
+                        pattern: "mutable_default_arg".to_string(),
+                        message: format!(
+                            "mutable default argument `{param_text}` — use `None` and initialize inside the function"
+                        ),
+                        snippet: extract_snippet(source, node, 1),
+                    });
                 }
             }
         }
@@ -135,6 +139,48 @@ mod tests {
     #[test]
     fn skips_scalar_default() {
         let src = "def foo(count=0):\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detects_list_call_default() {
+        let src = "def foo(items=list()):\n    pass\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn detects_dict_call_default() {
+        let src = "def foo(data=dict()):\n    pass\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn detects_deque_default() {
+        let src = "def foo(q=deque()):\n    pass\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn detects_collections_deque_default() {
+        let src = "def foo(q=collections.deque()):\n    pass\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn skips_frozenset_default() {
+        let src = "def foo(items=frozenset()):\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn noqa_suppresses() {
+        let src = "def foo(items=[]):  # noqa\n    pass\n";
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }

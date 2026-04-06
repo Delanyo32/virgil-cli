@@ -6,10 +6,10 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
-use crate::audit::pipelines::helpers::is_test_file;
+use crate::audit::pipelines::helpers::{is_noqa_suppressed, is_test_file};
 
 use super::primitives::{
-    compile_class_def_query, extract_snippet, find_capture_index, node_text,
+    compile_class_def_query, extract_snippet, find_capture_index, is_mutable_value, node_text,
 };
 
 pub struct TestPollutionPipeline {
@@ -21,51 +21,6 @@ impl TestPollutionPipeline {
         Ok(Self {
             class_query: compile_class_def_query()?,
         })
-    }
-}
-
-/// Known mutable-constructor function names.
-const MUTABLE_CALL_NAMES: &[&str] = &[
-    "list",
-    "dict",
-    "set",
-    "defaultdict",
-    "OrderedDict",
-];
-
-/// Check whether a node represents a mutable value expression.
-/// Mutable types: `[]` (list), `{}` (dictionary), `set(...)`, `list()`,
-/// `dict()`, `defaultdict(...)`, `OrderedDict()`, and `call` nodes
-/// whose function resolves to one of `MUTABLE_CALL_NAMES`.
-fn is_mutable_value(node: tree_sitter::Node, source: &[u8]) -> bool {
-    match node.kind() {
-        // Literal `[]`
-        "list" => true,
-        // Literal `{}`  (Python parses `{}` as a dictionary, not a set)
-        "dictionary" => true,
-        // Literal `{expr, ...}` set literal
-        "set" => true,
-        // `list()`, `dict()`, `set()`, `defaultdict(...)`, `OrderedDict()`
-        "call" => {
-            if let Some(func) = node.child_by_field_name("function") {
-                let func_text = node_text(func, source);
-                // Plain name: `list()`, `defaultdict()`
-                if MUTABLE_CALL_NAMES.contains(&func_text) {
-                    return true;
-                }
-                // Dotted name: `collections.OrderedDict()`, `collections.defaultdict()`
-                if func.kind() == "attribute"
-                    && let Some(attr) = func.child_by_field_name("attribute")
-                {
-                    let attr_text = node_text(attr, source);
-                    if MUTABLE_CALL_NAMES.contains(&attr_text) {
-                        return true;
-                    }
-                }
-            }
-            false
-        }
-        _ => false,
     }
 }
 
@@ -177,6 +132,10 @@ impl TestPollutionPipeline {
             return;
         }
 
+        if is_noqa_suppressed(source, node, self.name()) {
+            return;
+        }
+
         // The expression_statement should contain an assignment child
         let assignment = (0..node.named_child_count())
             .filter_map(|i| node.named_child(i))
@@ -188,6 +147,8 @@ impl TestPollutionPipeline {
         };
 
         // Get left side (name) and right side (value)
+        // Also handles type-annotated assignments: `CACHE: Dict = {}`
+        // tree-sitter represents these as assignment with a `type` field
         let left = assignment.child_by_field_name("left");
         let right = assignment.child_by_field_name("right");
 
@@ -470,5 +431,33 @@ mod tests {
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, "warning");
+    }
+
+    #[test]
+    fn detects_deque_mutable() {
+        let src = "QUEUE = deque()\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn detects_counter_mutable() {
+        let src = "COUNTS = Counter()\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn detects_bytesio_mutable() {
+        let src = "BUFFER = BytesIO()\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn noqa_suppresses() {
+        let src = "DATA = []  # noqa\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "# noqa should suppress");
     }
 }

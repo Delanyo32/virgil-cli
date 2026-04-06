@@ -6,12 +6,30 @@ use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_noqa_suppressed;
 use crate::graph::CodeGraph;
 
 use super::primitives::{compile_function_def_query, find_capture_index, node_text};
 
 const SKIP_PARAMS: &[&str] = &["self", "cls"];
 const SPLAT_KINDS: &[&str] = &["list_splat_pattern", "dictionary_splat_pattern"];
+
+/// Known framework decorator patterns that indicate a function is called at runtime
+/// even though it has no direct callers in the codebase.
+const FRAMEWORK_DECORATOR_PATTERNS: &[&str] = &[
+    "app.route",
+    "router.get",
+    "router.post",
+    "router.put",
+    "router.delete",
+    "router.patch",
+    "blueprint.route",
+    "celery.task",
+    "dramatiq.actor",
+    "click.command",
+    "click.group",
+    "pytest.fixture",
+];
 
 pub struct MissingTypeHintsPipeline {
     fn_query: Arc<Query>,
@@ -26,6 +44,45 @@ impl MissingTypeHintsPipeline {
 }
 
 impl MissingTypeHintsPipeline {
+    /// Check if a function at the given line has a known framework decorator
+    /// (e.g., `@app.route`, `@celery.task`) that indicates it is called at runtime.
+    fn has_framework_decorator(tree: &Tree, source: &[u8], line: u32) -> bool {
+        // Walk tree to find the function_definition at this line
+        let root = tree.root_node();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "function_definition"
+                && node.start_position().row as u32 == line
+            {
+                // Check if parent is a decorated_definition
+                if let Some(parent) = node.parent()
+                    && parent.kind() == "decorated_definition"
+                {
+                    for i in 0..parent.named_child_count() {
+                        if let Some(child) = parent.named_child(i)
+                            && child.kind() == "decorator"
+                        {
+                            let dec_text = node_text(child, source);
+                            if FRAMEWORK_DECORATOR_PATTERNS
+                                .iter()
+                                .any(|p| dec_text.contains(p))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+            for i in 0..node.named_child_count() {
+                if let Some(child) = node.named_child(i) {
+                    stack.push(child);
+                }
+            }
+        }
+        false
+    }
+
     /// Determine whether a finding is for a function that is part of the cross-module
     /// public API (called from another file) or lives in an inherently API-facing file.
     fn is_cross_module_api(
@@ -33,6 +90,8 @@ impl MissingTypeHintsPipeline {
         finding: &AuditFinding,
         file_path: &str,
         graph: &CodeGraph,
+        tree: &Tree,
+        source: &[u8],
     ) -> bool {
         // Files that are inherently API-facing
         let api_patterns = ["__init__.py", "/api/", "/views/", "/routes/", "/endpoints/"];
@@ -42,6 +101,11 @@ impl MissingTypeHintsPipeline {
 
         // finding.line is 1-indexed, graph stores 0-indexed start_line
         let start_line = finding.line - 1;
+
+        // Framework-decorated functions are API-facing regardless of graph callers
+        if Self::has_framework_decorator(tree, source, start_line) {
+            return true;
+        }
 
         // Look up the function in the graph
         let Some(sym_idx) = graph.find_symbol(file_path, start_line) else {
@@ -113,6 +177,11 @@ impl MissingTypeHintsPipeline {
 
                 // Skip private functions
                 if fn_name.starts_with('_') {
+                    continue;
+                }
+
+                // Skip noqa/type-ignore suppressed functions
+                if is_noqa_suppressed(source, def_node, "missing_type_hints") {
                     continue;
                 }
 
@@ -203,7 +272,9 @@ impl GraphPipeline for MissingTypeHintsPipeline {
 
         // Only keep findings for cross-module API functions
         base.into_iter()
-            .filter(|f| self.is_cross_module_api(f, ctx.file_path, ctx.graph))
+            .filter(|f| {
+                self.is_cross_module_api(f, ctx.file_path, ctx.graph, ctx.tree, ctx.source)
+            })
             .collect()
     }
 }
@@ -309,5 +380,39 @@ mod tests {
         let src = "def foo(x, y):\n    pass\n";
         let findings = parse_and_check_with_graph(src, "package/__init__.py");
         assert!(!findings.is_empty(), "should keep findings for __init__.py");
+    }
+
+    #[test]
+    fn framework_decorator_keeps_findings() {
+        let src = "@app.route(\"/users\")\ndef get_users(request):\n    pass\n";
+        let findings = parse_and_check_with_graph(src, "views.py");
+        assert!(
+            !findings.is_empty(),
+            "should keep findings for @app.route decorated functions"
+        );
+    }
+
+    #[test]
+    fn celery_task_decorator_keeps_findings() {
+        let src = "@celery.task\ndef process_data(items):\n    pass\n";
+        let findings = parse_and_check_with_graph(src, "tasks.py");
+        assert!(
+            !findings.is_empty(),
+            "should keep findings for @celery.task decorated functions"
+        );
+    }
+
+    #[test]
+    fn type_ignore_suppresses() {
+        let src = "def foo(x):  # type: ignore\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "# type: ignore should suppress");
+    }
+
+    #[test]
+    fn noqa_suppresses() {
+        let src = "def foo(x):  # noqa\n    pass\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "# noqa should suppress");
     }
 }

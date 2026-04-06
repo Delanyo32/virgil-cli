@@ -6,7 +6,7 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
-use crate::audit::pipelines::helpers::{is_test_context_python, is_test_file};
+use crate::audit::pipelines::helpers::{is_noqa_suppressed, is_test_context_python, is_test_file};
 
 use super::primitives::{
     compile_call_query, extract_snippet, find_capture_index, node_text,
@@ -115,14 +115,17 @@ impl TestHygienePipeline {
             return;
         }
 
-        // Count patch decorators
+        // Count patch decorators (only real mock.patch patterns, not @dispatch/@hotpatch)
         let mut patch_count = 0;
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i)
                 && child.kind() == "decorator"
             {
+                if is_noqa_suppressed(source, child, self.name()) {
+                    continue;
+                }
                 let decorator_text = node_text(child, source);
-                if decorator_text.contains("patch") {
+                if Self::is_mock_patch_decorator(decorator_text) {
                     patch_count += 1;
                 }
             }
@@ -143,6 +146,17 @@ impl TestHygienePipeline {
                 snippet: extract_snippet(source, node, 3),
             });
         }
+    }
+
+    /// Check if a decorator text is a genuine mock.patch decorator (not @dispatch, @hotpatch, etc.)
+    fn is_mock_patch_decorator(text: &str) -> bool {
+        // Match: @mock.patch, @patch(, @patch.object, @patch.dict, @unittest.mock.patch
+        text.contains("mock.patch")
+            || text.contains("@patch(")
+            || text.contains("@patch.object")
+            || text.contains("@patch.dict")
+            || text.starts_with("@patch\n")
+            || text == "@patch"
     }
 
     /// Detect `time.sleep(...)` or `asyncio.sleep(...)` calls inside test functions.
@@ -173,7 +187,10 @@ impl TestHygienePipeline {
 
             let fn_text = node_text(fn_expr_cap.node, source);
 
-            if fn_text != "time.sleep" && fn_text != "asyncio.sleep" {
+            if !matches!(
+                fn_text,
+                "time.sleep" | "asyncio.sleep" | "trio.sleep" | "anyio.sleep"
+            ) {
                 continue;
             }
 
@@ -183,6 +200,11 @@ impl TestHygienePipeline {
             }
 
             let call_node = call_cap.node;
+
+            if is_noqa_suppressed(source, call_node, self.name()) {
+                continue;
+            }
+
             let start = call_node.start_position();
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
@@ -450,5 +472,46 @@ def test_very_slow():
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 2);
         assert!(findings.iter().all(|f| f.pattern == "sleep_in_test"));
+    }
+
+    #[test]
+    fn custom_decorator_with_patch_not_flagged() {
+        let src = "\
+@hotpatch
+@dispatch
+@route_patch
+@api_patch
+def test_custom():
+    assert True
+";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "custom decorators containing 'patch' should not be flagged, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn trio_sleep_detected() {
+        let src = "def test_async():\n    trio.sleep(1)\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].pattern, "sleep_in_test");
+    }
+
+    #[test]
+    fn anyio_sleep_detected() {
+        let src = "def test_async():\n    anyio.sleep(1)\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].pattern, "sleep_in_test");
+    }
+
+    #[test]
+    fn noqa_suppresses_sleep() {
+        let src = "def test_x():\n    time.sleep(1)  # noqa\n";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "# noqa should suppress sleep finding");
     }
 }

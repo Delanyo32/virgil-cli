@@ -7,6 +7,7 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_noqa_suppressed;
 
 use super::primitives::{compile_function_def_query, find_capture_index, node_text};
 
@@ -32,7 +33,8 @@ impl DuplicateLogicPipeline {
                         if name == "self" || name == "cls" {
                             param_types.push(name.to_string());
                         } else {
-                            param_types.push(name.to_string());
+                            // Use placeholder for untyped params — match by arity, not name
+                            param_types.push("_".to_string());
                         }
                     }
                     "typed_parameter" => {
@@ -44,11 +46,7 @@ impl DuplicateLogicPipeline {
                         }
                     }
                     "default_parameter" => {
-                        if let Some(name_node) = child.child_by_field_name("name") {
-                            param_types.push(format!("{}=", node_text(name_node, source)));
-                        } else {
-                            param_types.push("_=".to_string());
-                        }
+                        param_types.push("_=".to_string());
                     }
                     "typed_default_parameter" => {
                         if let Some(type_node) = child.child_by_field_name("type") {
@@ -126,6 +124,9 @@ impl GraphPipeline for DuplicateLogicPipeline {
             if let (Some(name_node), Some(params_node), Some(def_node)) =
                 (name_node, params_node, def_node)
             {
+                if is_noqa_suppressed(source, def_node, self.name()) {
+                    continue;
+                }
                 let fn_name = node_text(name_node, source).to_string();
 
                 if let Some(sig) = Self::normalize_params(params_node, source) {
@@ -233,6 +234,56 @@ class Foo:
         pass
 ";
         let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detects_same_arity_different_names() {
+        let src = "\
+def create_user(a, b, c):
+    pass
+
+def update_record(x, y, z):
+    pass
+
+def delete_entry(p, q, r):
+    pass
+";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 3, "same arity should match regardless of param names");
+    }
+
+    #[test]
+    fn typed_params_discriminate() {
+        let src = "\
+def foo(x: int, y: str):
+    pass
+
+def bar(x: int, y: str):
+    pass
+
+def baz(x: float, y: str):
+    pass
+";
+        let findings = parse_and_check(src);
+        // foo and bar share (int, str), but baz has (float, str) — only 2 matches, below threshold
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn noqa_suppresses_function() {
+        let src = "\
+def process_a(name, age, email):  # noqa
+    pass
+
+def process_b(name, age, email):
+    pass
+
+def process_c(name, age, email):
+    pass
+";
+        let findings = parse_and_check(src);
+        // process_a is suppressed, only 2 remain — below threshold of 3
         assert!(findings.is_empty());
     }
 }

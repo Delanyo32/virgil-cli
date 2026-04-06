@@ -84,6 +84,52 @@ pub fn compile_class_def_query() -> Result<Arc<Query>> {
     Ok(Arc::new(query))
 }
 
+/// Constructor names that produce mutable objects.
+pub const MUTABLE_CALL_NAMES: &[&str] = &[
+    "list",
+    "dict",
+    "set",
+    "defaultdict",
+    "OrderedDict",
+    "deque",
+    "BytesIO",
+    "Counter",
+    "StringIO",
+    "bytearray",
+];
+
+/// Check whether a tree-sitter node represents a mutable value expression.
+///
+/// Returns `true` for:
+/// - Literal `[]`, `{}`, `{expr, ...}`
+/// - Calls to known mutable constructors (`list()`, `dict()`, `collections.deque()`, etc.)
+pub fn is_mutable_value(node: tree_sitter::Node, source: &[u8]) -> bool {
+    match node.kind() {
+        "list" => true,
+        "dictionary" => true,
+        "set" => true,
+        "call" => {
+            if let Some(func) = node.child_by_field_name("function") {
+                let func_text = node_text(func, source);
+                if MUTABLE_CALL_NAMES.contains(&func_text) {
+                    return true;
+                }
+                // Dotted name: collections.deque(), collections.OrderedDict()
+                if func.kind() == "attribute"
+                    && let Some(attr) = func.child_by_field_name("attribute")
+                {
+                    let attr_text = node_text(attr, source);
+                    if MUTABLE_CALL_NAMES.contains(&attr_text) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,6 +7,7 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_noqa_suppressed;
 
 use super::primitives::{compile_comparison_query, extract_snippet, find_capture_index, node_text};
 
@@ -30,6 +31,20 @@ impl StringlyTypedPipeline {
         let lower = name.to_lowercase();
         SUSPICIOUS_NAMES.iter().any(|s| lower.contains(s))
     }
+
+    /// Walk up the AST to find the enclosing function name (or "<module>" for top-level).
+    fn enclosing_function_name(node: tree_sitter::Node, source: &[u8]) -> String {
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            if parent.kind() == "function_definition"
+                && let Some(name_node) = parent.child_by_field_name("name")
+            {
+                return node_text(name_node, source).to_string();
+            }
+            current = parent.parent();
+        }
+        "<module>".to_string()
+    }
 }
 
 impl GraphPipeline for StringlyTypedPipeline {
@@ -50,8 +65,10 @@ impl GraphPipeline for StringlyTypedPipeline {
 
         let comp_idx = find_capture_index(&self.comparison_query, "comparison");
 
-        // (variable_name) -> Vec<(line, column, snippet, string_value)>
-        let mut var_comparisons: HashMap<String, Vec<(u32, u32, String, String)>> = HashMap::new();
+        // (scope, variable_name) -> Vec<(line, column, snippet, string_value)>
+        #[allow(clippy::type_complexity)]
+        let mut var_comparisons: HashMap<(String, String), Vec<(u32, u32, String, String)>> =
+            HashMap::new();
 
         while let Some(m) = matches.next() {
             let comp_cap = m.captures.iter().find(|c| c.index as usize == comp_idx);
@@ -59,15 +76,29 @@ impl GraphPipeline for StringlyTypedPipeline {
             if let Some(comp_cap) = comp_cap {
                 let node = comp_cap.node;
 
-                // Look for a string literal and an identifier/attribute among children
-                let mut string_value = None;
-                let mut suspicious_identifier = None;
+                if is_noqa_suppressed(source, node, self.name()) {
+                    continue;
+                }
 
-                for i in 0..node.named_child_count() {
-                    if let Some(child) = node.named_child(i) {
+                let scope = Self::enclosing_function_name(node, source);
+
+                // Look for a string literal and an identifier/attribute among children
+                let mut string_values: Vec<String> = Vec::new();
+                let mut suspicious_identifier = None;
+                let mut has_in_operator = false;
+
+                for i in 0..node.child_count() {
+                    if let Some(child) = node.child(i) {
+                        if !child.is_named() {
+                            let op_text = node_text(child, source);
+                            if op_text == "in" {
+                                has_in_operator = true;
+                            }
+                            continue;
+                        }
                         match child.kind() {
                             "string" => {
-                                string_value = Some(node_text(child, source).to_string());
+                                string_values.push(node_text(child, source).to_string());
                             }
                             "identifier" => {
                                 let name = node_text(child, source);
@@ -76,7 +107,6 @@ impl GraphPipeline for StringlyTypedPipeline {
                                 }
                             }
                             "attribute" => {
-                                // For obj.status, get the attribute name
                                 if let Some(attr) = child.child_by_field_name("attribute") {
                                     let name = node_text(attr, source);
                                     if Self::is_suspicious_name(name) {
@@ -85,30 +115,50 @@ impl GraphPipeline for StringlyTypedPipeline {
                                     }
                                 }
                             }
+                            // Handle `in ["a", "b", "c"]` or `in ("a", "b", "c")`
+                            "list" | "tuple" if has_in_operator => {
+                                for j in 0..child.named_child_count() {
+                                    if let Some(elem) = child.named_child(j)
+                                        && elem.kind() == "string"
+                                    {
+                                        string_values
+                                            .push(node_text(elem, source).to_string());
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
                 }
 
-                if let (Some(ident), Some(sv)) = (suspicious_identifier, string_value) {
+                if let Some(ident) = suspicious_identifier {
                     let start = node.start_position();
-                    var_comparisons.entry(ident).or_default().push((
-                        start.row as u32 + 1,
-                        start.column as u32 + 1,
-                        extract_snippet(source, node, 1),
-                        sv,
-                    ));
+                    let snippet = extract_snippet(source, node, 1);
+                    let key = (scope, ident);
+                    for sv in string_values {
+                        var_comparisons.entry(key.clone()).or_default().push((
+                            start.row as u32 + 1,
+                            start.column as u32 + 1,
+                            snippet.clone(),
+                            sv,
+                        ));
+                    }
                 }
             }
         }
 
-        // Only emit findings for variables with 3+ distinct string comparisons
+        // Only emit findings for variables with 3+ distinct string comparisons within same scope
         let mut findings = Vec::new();
-        for (ident, comparisons) in &var_comparisons {
+        for ((_, ident), comparisons) in &var_comparisons {
             let unique_values: std::collections::HashSet<&String> =
                 comparisons.iter().map(|(_, _, _, v)| v).collect();
             if unique_values.len() >= 3 {
+                // Deduplicate findings by line (an `in` check produces multiple values on one line)
+                let mut seen_lines = std::collections::HashSet::new();
                 for (line, column, snippet, _) in comparisons {
+                    if !seen_lines.insert(*line) {
+                        continue;
+                    }
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: *line,
@@ -196,6 +246,39 @@ mod tests {
     fn skips_non_suspicious_name() {
         let src = "if name == \"alice\":\n    pass\n";
         let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detects_in_membership_test() {
+        let src = "def process(status):\n    if status in [\"active\", \"inactive\", \"pending\"]:\n        pass\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1, "should detect in-membership with 3+ string values");
+        assert_eq!(findings[0].pattern, "stringly_typed_comparison");
+    }
+
+    #[test]
+    fn detects_in_tuple_membership() {
+        let src = "def process(status):\n    if status in (\"active\", \"inactive\", \"pending\"):\n        pass\n";
+        let findings = parse_and_check(src);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn cross_function_no_grouping() {
+        let src = "def foo():\n    if status == \"active\":\n        pass\n\ndef bar():\n    if status == \"inactive\":\n        pass\n\ndef baz():\n    if status == \"pending\":\n        pass\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "same variable in different functions should not cross-contaminate"
+        );
+    }
+
+    #[test]
+    fn noqa_suppresses() {
+        let src = "def f():\n    if status == \"active\":  # noqa\n        pass\n    if status == \"inactive\":\n        pass\n    if status == \"pending\":\n        pass\n";
+        let findings = parse_and_check(src);
+        // One suppressed, only 2 remain — below threshold
         assert!(findings.is_empty());
     }
 }

@@ -6,18 +6,23 @@ use tree_sitter::{Query, QueryCursor};
 
 use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
-use crate::audit::pipelines::helpers::is_test_file;
+use crate::audit::pipelines::helpers::{is_noqa_suppressed, is_test_file};
 
-use super::primitives::{compile_function_def_query, extract_snippet, find_capture_index, node_text};
+use super::primitives::{
+    compile_class_def_query, compile_function_def_query, extract_snippet, find_capture_index,
+    node_text,
+};
 
 pub struct EmptyTestFilesPipeline {
     fn_query: Arc<Query>,
+    class_query: Arc<Query>,
 }
 
 impl EmptyTestFilesPipeline {
     pub fn new() -> Result<Self> {
         Ok(Self {
             fn_query: compile_function_def_query()?,
+            class_query: compile_class_def_query()?,
         })
     }
 }
@@ -67,23 +72,47 @@ impl GraphPipeline for EmptyTestFilesPipeline {
             }
         }
 
-        if test_fn_count == 0 {
-            let snippet = extract_snippet(source, tree.root_node(), 3);
-            vec![AuditFinding {
-                file_path: file_path.to_string(),
-                line: 1,
-                column: 1,
-                severity: "info".to_string(),
-                pipeline: self.name().to_string(),
-                pattern: "empty_test_file".to_string(),
-                message: format!(
-                    "test file `{file_path}` contains no `test_*` functions — may be an abandoned stub or discovery file"
-                ),
-                snippet,
-            }]
-        } else {
-            Vec::new()
+        if test_fn_count > 0 {
+            return Vec::new();
         }
+
+        // Also check for Test* classes (unittest.TestCase subclasses, pytest test classes)
+        let mut class_cursor = QueryCursor::new();
+        let mut class_matches =
+            class_cursor.matches(&self.class_query, tree.root_node(), source);
+        let class_name_idx = find_capture_index(&self.class_query, "class_name");
+
+        while let Some(m) = class_matches.next() {
+            let name_cap = m
+                .captures
+                .iter()
+                .find(|c| c.index as usize == class_name_idx);
+            if let Some(cap) = name_cap {
+                let class_name = node_text(cap.node, source);
+                if class_name.starts_with("Test") {
+                    return Vec::new();
+                }
+            }
+        }
+
+        // Check noqa suppression on the file root
+        if is_noqa_suppressed(source, tree.root_node(), self.name()) {
+            return Vec::new();
+        }
+
+        let snippet = extract_snippet(source, tree.root_node(), 3);
+        vec![AuditFinding {
+            file_path: file_path.to_string(),
+            line: 1,
+            column: 1,
+            severity: "info".to_string(),
+            pipeline: self.name().to_string(),
+            pattern: "empty_test_file".to_string(),
+            message: format!(
+                "test file `{file_path}` contains no `test_*` functions — may be an abandoned stub or discovery file"
+            ),
+            snippet,
+        }]
     }
 }
 
@@ -213,5 +242,38 @@ mod tests {
     fn empty_test_files_pipeline_description() {
         let pipeline = EmptyTestFilesPipeline::new().unwrap();
         assert!(!pipeline.description().is_empty());
+    }
+
+    #[test]
+    fn test_class_with_methods_not_empty() {
+        let src = "class TestSuite:\n    def test_something(self):\n        assert True\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "should not flag file with Test* class, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn unittest_testcase_not_empty() {
+        let src = "import unittest\n\nclass TestMyFeature(unittest.TestCase):\n    def test_x(self):\n        pass\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "should not flag file with TestCase subclass, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn noqa_suppresses_empty_test() {
+        let src = "# noqa\nimport os\n";
+        let findings = parse_and_check(src);
+        assert!(
+            findings.is_empty(),
+            "should suppress with # noqa, got: {:?}",
+            findings
+        );
     }
 }
