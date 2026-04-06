@@ -7,6 +7,7 @@ use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines::helpers::{is_entry_file, is_test_file};
 
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
+const OVERSIZED_SYMBOL_ERROR_THRESHOLD: usize = OVERSIZED_SYMBOL_THRESHOLD * 5; // 150
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
 const MONOLITHIC_EXPORT_THRESHOLD: usize = 20;
 const ANEMIC_ENTRY_FILES: &[&str] = &[
@@ -107,11 +108,16 @@ impl Pipeline for ModuleSizeDistributionPipeline {
         if total_definitions >= OVERSIZED_SYMBOL_THRESHOLD
             || total_lines >= OVERSIZED_LINE_THRESHOLD
         {
+            let severity = if total_definitions >= OVERSIZED_SYMBOL_ERROR_THRESHOLD {
+                "error"
+            } else {
+                "warning"
+            };
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
                 line: 1,
                 column: 1,
-                severity: "warning".to_string(),
+                severity: severity.to_string(),
                 pipeline: "module_size_distribution".to_string(),
                 pattern: "oversized_module".to_string(),
                 message: format!(
@@ -278,6 +284,53 @@ namespace MyApp {
 "#;
         let findings = parse_and_check(src);
         assert!(!findings.iter().any(|f| f.pattern == "anemic_module"));
+    }
+
+    #[test]
+    fn test_oversized_severity_graduation() {
+        // 5x threshold (150 types) => "error"
+        let mut error_src = String::from("namespace MyApp {\n");
+        for i in 0..150 {
+            error_src.push_str(&format!("public class Class_{} {{ }}\n", i));
+        }
+        error_src.push_str("}\n");
+        let error_findings = parse_and_check(&error_src);
+        let oversized = error_findings.iter().find(|f| f.pattern == "oversized_module");
+        assert!(oversized.is_some(), "150 types must trigger oversized_module");
+        assert_eq!(
+            oversized.unwrap().severity,
+            "error",
+            "150 types (5x threshold) must be severity 'error'"
+        );
+
+        // Just over 1x threshold (32 types) => "warning"
+        let mut warn_src = String::from("namespace MyApp {\n");
+        for i in 0..32 {
+            warn_src.push_str(&format!("public class Class_{} {{ }}\n", i));
+        }
+        warn_src.push_str("}\n");
+        let warn_findings = parse_and_check(&warn_src);
+        let warn_oversized = warn_findings.iter().find(|f| f.pattern == "oversized_module");
+        assert!(warn_oversized.is_some(), "32 types must trigger oversized_module");
+        assert_eq!(
+            warn_oversized.unwrap().severity,
+            "warning",
+            "32 types (just over 1x threshold) must be severity 'warning'"
+        );
+    }
+
+    #[test]
+    fn test_threshold_boundary_exact() {
+        let mut src = String::from("namespace MyApp {\n");
+        for i in 0..30 {
+            src.push_str(&format!("public class Class_{} {{ }}\n", i));
+        }
+        src.push_str("}\n");
+        let findings = parse_and_check(&src);
+        assert!(
+            findings.iter().any(|f| f.pattern == "oversized_module"),
+            "exactly 30 types must trigger oversized_module (threshold is >= 30)"
+        );
     }
 
     #[test]
