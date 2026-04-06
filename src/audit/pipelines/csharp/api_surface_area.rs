@@ -50,6 +50,17 @@ impl Pipeline for ApiSurfaceAreaPipeline {
     }
 }
 
+/// Returns true if this class is an ASP.NET controller.
+/// Heuristic 1: class name ends with "Controller".
+/// Heuristic 2: class has [ApiController] or [Controller] attribute.
+fn is_aspnet_controller(node: tree_sitter::Node, source: &[u8], class_name: &str) -> bool {
+    if class_name.ends_with("Controller") {
+        return true;
+    }
+    has_csharp_attribute(node, source, "ApiController")
+        || has_csharp_attribute(node, source, "Controller")
+}
+
 fn check_classes_recursive(
     node: tree_sitter::Node,
     source: &[u8],
@@ -65,6 +76,7 @@ fn check_classes_recursive(
             .map(|n| node_text(n, source))
             .unwrap_or("<anonymous>");
         let class_line = node.start_position().row as u32 + 1;
+        let skip_api_ratio = is_aspnet_controller(node, source, class_name);
 
         if let Some(body) = node.child_by_field_name("body") {
             let mut total_members = 0usize;
@@ -111,7 +123,7 @@ fn check_classes_recursive(
             }
 
             // Pattern 1: excessive_public_api
-            if total_members >= EXCESSIVE_API_MIN_SYMBOLS {
+            if !skip_api_ratio && total_members >= EXCESSIVE_API_MIN_SYMBOLS {
                 let ratio = exported_members as f64 / total_members as f64;
                 if ratio > EXCESSIVE_API_EXPORT_RATIO {
                     findings.push(AuditFinding {
@@ -277,6 +289,31 @@ class InternalRepo {
             !findings
                 .iter()
                 .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
+    }
+
+    #[test]
+    fn test_controller_not_excessive_api() {
+        let src = r#"
+[ApiController]
+public class CustomerController {
+    public void GetAll() { }
+    public void GetById() { }
+    public void Create() { }
+    public void Update() { }
+    public void Delete() { }
+    public void Search() { }
+    public void Export() { }
+    public void Import() { }
+    public void Validate() { }
+    public void BatchUpdate() { }
+    private void InternalHelper() { }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert!(
+            !findings.iter().any(|f| f.pattern == "excessive_public_api"),
+            "ASP.NET controllers idiomatically expose all action methods as public — must not flag"
         );
     }
 
