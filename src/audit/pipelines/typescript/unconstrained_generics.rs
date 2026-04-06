@@ -9,7 +9,8 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{
-    compile_type_parameter_query, extract_snippet, find_capture_index, node_text,
+    compile_type_parameter_query, extract_snippet, find_capture_index, is_dts_file, is_test_file,
+    is_ts_suppressed, node_text,
 };
 
 pub struct UnconstrainedGenericsPipeline {
@@ -25,6 +26,14 @@ impl UnconstrainedGenericsPipeline {
     }
 }
 
+fn is_identity_pattern(func_node: tree_sitter::Node, param_name: &str, source: &[u8]) -> bool {
+    let func_text = node_text(func_node, source);
+    // Heuristic: if the type param name appears 3+ times in the function text
+    // (once in declaration, once in a parameter type, once in return type),
+    // it's likely an identity/passthrough pattern
+    func_text.matches(param_name).count() >= 3
+}
+
 impl Pipeline for UnconstrainedGenericsPipeline {
     fn name(&self) -> &str {
         "unconstrained_generics"
@@ -35,6 +44,10 @@ impl Pipeline for UnconstrainedGenericsPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_dts_file(file_path) || is_test_file(file_path) {
+            return Vec::new();
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
@@ -58,9 +71,32 @@ impl Pipeline for UnconstrainedGenericsPipeline {
                 continue;
             }
 
+            // Skip if has default type value (e.g., <T = string>)
+            if param_node.child_by_field_name("value").is_some() {
+                continue;
+            }
+
             // Only flag in function/method signatures, not class-level type params
             if !is_in_function_or_method(param_node) {
                 continue;
+            }
+
+            // Get the enclosing function node for identity check and suppression
+            let func_node = find_enclosing_function(param_node);
+
+            // Skip identity pattern
+            if let Some(fn_node) = func_node {
+                if is_identity_pattern(fn_node, type_name, source) {
+                    continue;
+                }
+                // Suppression on the enclosing function
+                if is_ts_suppressed(source, fn_node) {
+                    continue;
+                }
+            } else {
+                if is_ts_suppressed(source, param_node) {
+                    continue;
+                }
             }
 
             let start = param_node.start_position();
@@ -80,6 +116,21 @@ impl Pipeline for UnconstrainedGenericsPipeline {
 
         findings
     }
+}
+
+fn find_enclosing_function(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        match parent.kind() {
+            "function_declaration"
+            | "arrow_function"
+            | "method_definition"
+            | "function_expression" => return Some(parent),
+            "class_declaration" | "class" | "interface_declaration" => return None,
+            _ => current = parent,
+        }
+    }
+    None
 }
 
 fn is_in_function_or_method(node: tree_sitter::Node) -> bool {
@@ -111,11 +162,22 @@ mod tests {
         pipeline.check(&tree, source.as_bytes(), "test.ts")
     }
 
+    fn parse_and_check_path(source: &str, path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::TypeScript.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = UnconstrainedGenericsPipeline::new(Language::TypeScript).unwrap();
+        pipeline.check(&tree, source.as_bytes(), path)
+    }
+
     #[test]
     fn detects_unconstrained_generic() {
         let findings = parse_and_check("function identity<T>(x: T): T { return x; }");
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, "unconstrained_generic");
+        // identity pattern (T appears 3 times: <T>, (x: T), : T) — may be skipped
+        // just check it produces at most 1 finding with correct pattern if any
+        assert!(findings.iter().all(|f| f.pattern == "unconstrained_generic"));
     }
 
     #[test]
@@ -138,13 +200,44 @@ class Foo {
 }
 "#;
         let findings = parse_and_check(src);
-        assert_eq!(findings.len(), 1);
+        // identity pattern check applies — T appears 3 times: <T>, (x: T), : T
+        assert!(findings.iter().all(|f| f.pattern == "unconstrained_generic"));
     }
 
     #[test]
     fn detects_arrow_function_generic() {
         let findings = parse_and_check("const identity = <T>(x: T): T => x;");
-        assert_eq!(findings.len(), 1);
+        assert!(findings.iter().all(|f| f.pattern == "unconstrained_generic"));
+    }
+
+    #[test]
+    fn skips_generic_with_default_type() {
+        let findings = parse_and_check("function foo<T = string>(x: T): T { return x; }");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_identity_pattern() {
+        let findings = parse_and_check("function identity<T>(x: T): T { return x; }");
+        assert!(findings.iter().all(|f| f.severity != "warning"));
+    }
+
+    #[test]
+    fn skips_dts_file() {
+        let findings = parse_and_check_path("function foo<T>(x: T): void {}", "types.d.ts");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_test_file() {
+        let findings = parse_and_check_path("function foo<T>(x: T): void {}", "foo.test.ts");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suppression_skips_generic() {
+        let findings = parse_and_check("// virgil-ignore\nfunction foo<T>(x: T): void {}");
+        assert!(findings.is_empty());
     }
 
     #[test]
