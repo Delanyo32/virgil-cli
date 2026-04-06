@@ -122,6 +122,11 @@ impl AuditEngine {
         }
 
         let progress = self.progress.clone();
+        // Provide a fallback empty graph so Graph pipelines run even when the
+        // caller does not supply a pre-built CodeGraph (e.g. tech-debt audit
+        // without explicit graph construction).
+        let fallback_graph = CodeGraph::new();
+        let effective_graph: &CodeGraph = graph.unwrap_or(&fallback_graph);
         let graph_ref = graph;
 
         // Phase 4.4: Reduced stack size — stack-based iteration in helpers
@@ -171,16 +176,14 @@ impl AuditEngine {
                                     ));
                                 }
                                 AnyPipeline::Graph(p) => {
-                                    if let Some(graph) = graph_ref {
-                                        let ctx = GraphPipelineContext {
-                                            tree: &tree,
-                                            source: source.as_bytes(),
-                                            file_path: rel_path,
-                                            id_counts: &id_counts,
-                                            graph,
-                                        };
-                                        file_findings.extend(p.check(&ctx));
-                                    }
+                                    let ctx = GraphPipelineContext {
+                                        tree: &tree,
+                                        source: source.as_bytes(),
+                                        file_path: rel_path,
+                                        id_counts: &id_counts,
+                                        graph: effective_graph,
+                                    };
+                                    file_findings.extend(p.check(&ctx));
                                 }
                                 AnyPipeline::Legacy(p) => {
                                     let ctx = PipelineContext {
