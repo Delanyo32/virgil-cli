@@ -231,7 +231,7 @@ impl Pipeline for ApiSurfaceAreaPipeline {
                     continue;
                 }
                 if let Some(body) = body_node {
-                    let (count, first_name) = count_public_data_members(body, source, true);
+                    let (count, _first_name) = count_public_data_members(body, source, true);
                     if count > 0 {
                         let severity = if count >= 10 {
                             "error"
