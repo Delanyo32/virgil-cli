@@ -8,7 +8,9 @@ use crate::audit::models::AuditFinding;
 use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
-use super::primitives::{compile_as_expression_query, extract_snippet, is_test_file, node_text};
+use super::primitives::{
+    compile_as_expression_query, extract_snippet, is_test_file, is_ts_suppressed, node_text,
+};
 
 pub struct TypeAssertionsPipeline {
     query: Arc<Query>,
@@ -47,6 +49,21 @@ impl Pipeline for TypeAssertionsPipeline {
                 let type_child = node.named_child(1);
 
                 let target_type_text = type_child.map(|t| node_text(t, source)).unwrap_or("");
+
+                // Skip safe/idiomatic casts (`as const`, `as unknown`)
+                // Also check the full node text to catch cases where the type child is unnamed
+                let node_full_text = node_text(node, source);
+                if target_type_text == "const"
+                    || target_type_text == "unknown"
+                    || node_full_text.ends_with(" as const")
+                    || node_full_text.ends_with(" as unknown")
+                {
+                    continue;
+                }
+                // Skip suppressed nodes
+                if is_ts_suppressed(source, node) {
+                    continue;
+                }
 
                 // Check if expression child is also as_expression (double assertion)
                 let is_double = expr_child
@@ -149,6 +166,30 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern, "test_type_assertion");
         assert_eq!(findings[0].severity, "info");
+    }
+
+    #[test]
+    fn skips_as_const() {
+        let findings = parse_and_check("const x = ['a', 'b'] as const;");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_as_unknown() {
+        let findings = parse_and_check("const x = someValue as unknown;");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suppression_skips_assertion() {
+        let findings = parse_and_check("// @ts-ignore\nlet x = y as string;");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suppression_skips_as_any() {
+        let findings = parse_and_check("// @ts-expect-error\nlet x = y as any;");
+        assert!(findings.is_empty());
     }
 
     #[test]
