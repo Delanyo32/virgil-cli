@@ -9,7 +9,8 @@ use crate::audit::pipeline::Pipeline;
 use crate::language::Language;
 
 use super::primitives::{
-    compile_interface_declaration_query, extract_snippet, find_capture_index, node_text,
+    compile_interface_declaration_query, extract_snippet, find_capture_index, is_test_file,
+    is_ts_suppressed, node_text,
 };
 
 pub struct MutableTypesPipeline {
@@ -31,6 +32,18 @@ impl MutableTypesPipeline {
     }
 }
 
+fn is_mutable_idiom_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.ends_with("props")
+        || n.ends_with("state")
+        || n.ends_with("entity")
+        || n.ends_with("model")
+        || n.ends_with("input")
+        || n.ends_with("form")
+        || n.ends_with("dto")
+        || n.ends_with("data")
+}
+
 impl Pipeline for MutableTypesPipeline {
     fn name(&self) -> &str {
         "mutable_types"
@@ -41,6 +54,11 @@ impl Pipeline for MutableTypesPipeline {
     }
 
     fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+        if is_test_file(file_path) {
+            return Vec::new();
+        }
+        let source_str = std::str::from_utf8(source).unwrap_or("");
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
@@ -62,6 +80,19 @@ impl Pipeline for MutableTypesPipeline {
                 None => continue,
             };
 
+            if is_mutable_idiom_name(iface_name) {
+                continue;
+            }
+            if source_str.contains(&format!("Readonly<{iface_name}>")) {
+                continue;
+            }
+
+            let decl_node = m.captures.first().map(|c| c.node).unwrap_or(body_node);
+
+            if is_ts_suppressed(source, decl_node) {
+                continue;
+            }
+
             let mut total_props = 0u32;
             let mut mutable_props = 0u32;
             let mut body_cursor = body_node.walk();
@@ -78,7 +109,6 @@ impl Pipeline for MutableTypesPipeline {
 
             // Only flag if >3 properties and ALL are mutable
             if total_props > 3 && mutable_props == total_props {
-                let decl_node = m.captures.first().map(|c| c.node).unwrap_or(body_node);
                 let start = decl_node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
@@ -105,7 +135,6 @@ fn has_readonly_modifier(node: tree_sitter::Node, source: &[u8]) -> bool {
         if !child.is_named() && node_text(child, source) == "readonly" {
             return true;
         }
-        // Also check for `accessibility_modifier` or similar named nodes
         if child.kind() == "accessibility_modifier" && node_text(child, source) == "readonly" {
             return true;
         }
@@ -125,6 +154,16 @@ mod tests {
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MutableTypesPipeline::new(Language::TypeScript).unwrap();
         pipeline.check(&tree, source.as_bytes(), "test.ts")
+    }
+
+    fn parse_and_check_path(source: &str, path: &str) -> Vec<AuditFinding> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&Language::TypeScript.tree_sitter_language())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let pipeline = MutableTypesPipeline::new(Language::TypeScript).unwrap();
+        pipeline.check(&tree, source.as_bytes(), path)
     }
 
     #[test]
@@ -178,7 +217,48 @@ interface Triple {
 }
 "#;
         let findings = parse_and_check(src);
-        // 3 is not > 3
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_props_interface() {
+        let src = "interface ButtonProps { label: string; onClick: () => void; disabled: boolean; size: string; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_state_interface() {
+        let src = "interface ComponentState { loading: boolean; error: string; data: string; count: number; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_entity_interface() {
+        let src = "interface UserEntity { id: string; name: string; email: string; role: string; }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_when_readonly_usage_present() {
+        let src = "interface Foo { a: string; b: number; c: boolean; d: string; }\ntype ReadonlyFoo = Readonly<Foo>;";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_test_file() {
+        let src = "interface Foo { a: string; b: number; c: boolean; d: string; }";
+        let findings = parse_and_check_path(src, "src/foo.test.ts");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suppression_skips_mutable_interface() {
+        let src = "// virgil-ignore\ninterface Foo { a: string; b: number; c: boolean; d: string; }";
+        let findings = parse_and_check(src);
         assert!(findings.is_empty());
     }
 
