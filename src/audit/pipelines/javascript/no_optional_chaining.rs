@@ -5,11 +5,42 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{compile_member_expression_query, extract_snippet, find_capture_index};
 
 const DEPTH_THRESHOLD: usize = 4;
+
+/// Well-known global/built-in roots that are always defined and never null.
+const SAFE_ROOTS: &[&str] = &[
+    "document",
+    "window",
+    "navigator",
+    "location",
+    "history",
+    "screen",
+    "process",
+    "module",
+    "require",
+    "global",
+    "globalThis",
+    "Math",
+    "JSON",
+    "Object",
+    "Array",
+    "console",
+    "Number",
+    "String",
+    "Date",
+    "RegExp",
+    "Promise",
+    "Reflect",
+    "Proxy",
+    "Intl",
+    "this",
+    "self",
+];
 
 pub struct NoOptionalChainingPipeline {
     member_query: Arc<Query>,
@@ -62,9 +93,43 @@ impl NoOptionalChainingPipeline {
         }
         false
     }
+
+    /// Walk down the `object` field of the member_expression chain until we reach
+    /// a non-member_expression node. If it is an `identifier` or `this`, return
+    /// the text as the root name.
+    fn root_identifier<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+        let mut current = node;
+        loop {
+            if let Some(obj) = current.child_by_field_name("object") {
+                if obj.kind() == "member_expression" {
+                    current = obj;
+                    continue;
+                }
+                // Reached a non-member_expression node
+                if obj.kind() == "identifier" || obj.kind() == "this" {
+                    return obj.utf8_text(source).ok();
+                }
+                return None;
+            }
+            // No object field — current node itself might be the root
+            if current.kind() == "identifier" || current.kind() == "this" {
+                return current.utf8_text(source).ok();
+            }
+            return None;
+        }
+    }
+
+    /// Determine severity from chain depth.
+    fn severity_for_depth(depth: usize) -> &'static str {
+        match depth {
+            0..=5 => "info",
+            6..=7 => "warning",
+            _ => "error",
+        }
+    }
 }
 
-impl Pipeline for NoOptionalChainingPipeline {
+impl NodePipeline for NoOptionalChainingPipeline {
     fn name(&self) -> &str {
         "no_optional_chaining"
     }
@@ -102,12 +167,25 @@ impl Pipeline for NoOptionalChainingPipeline {
                     continue;
                 }
 
+                // Suppress findings rooted on well-known safe globals
+                if let Some(root) = Self::root_identifier(node, source) {
+                    if SAFE_ROOTS.contains(&root) {
+                        continue;
+                    }
+                }
+
+                // Suppress if NOLINT comment present
+                if is_nolint_suppressed(source, node, self.name()) {
+                    continue;
+                }
+
+                let severity = Self::severity_for_depth(depth);
                 let start = node.start_position();
                 findings.push(AuditFinding {
                     file_path: file_path.to_string(),
                     line: start.row as u32 + 1,
                     column: start.column as u32 + 1,
-                    severity: "info".to_string(),
+                    severity: severity.to_string(),
                     pipeline: self.name().to_string(),
                     pattern: "deep_property_chain".to_string(),
                     message: format!(
@@ -154,5 +232,31 @@ mod tests {
     fn skips_single_member() {
         let findings = parse_and_check("let x = a.b;");
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn safe_root_document() {
+        let findings = parse_and_check("let x = document.body.style.display;");
+        assert!(findings.is_empty(), "document is a safe root, should be suppressed");
+    }
+
+    #[test]
+    fn safe_root_process() {
+        let findings = parse_and_check("let x = process.env.NODE_ENV.toLowerCase();");
+        assert!(findings.is_empty(), "process is a safe root, should be suppressed");
+    }
+
+    #[test]
+    fn depth_6_warning() {
+        let findings = parse_and_check("let x = a.b.c.d.e.f;");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "warning");
+    }
+
+    #[test]
+    fn nolint_suppresses() {
+        let findings =
+            parse_and_check("// NOLINT(no_optional_chaining)\nlet x = a.b.c.d;");
+        assert!(findings.is_empty(), "NOLINT comment should suppress the finding");
     }
 }

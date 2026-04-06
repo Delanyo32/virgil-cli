@@ -39,24 +39,24 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use crate::language::Language;
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(var_usage::VarUsagePipeline::new()?),
-        Box::new(callback_hell::CallbackHellPipeline::new()?),
-        Box::new(implicit_globals::ImplicitGlobalsPipeline::new()?),
-        Box::new(loose_equality::LooseEqualityPipeline::new()?),
-        Box::new(unhandled_promise::UnhandledPromisePipeline::new()?),
-        Box::new(argument_mutation::ArgumentMutationPipeline::new()?),
-        Box::new(console_log_in_prod::ConsoleLogPipeline::new()?),
-        Box::new(event_listener_leak::EventListenerLeakPipeline::new()?),
-        Box::new(loose_truthiness::LooseTruthinessPipeline::new()?),
-        Box::new(no_optional_chaining::NoOptionalChainingPipeline::new()?),
-        Box::new(magic_numbers::JsMagicNumbersPipeline::new()?),
-        Box::new(shallow_spread_copy::ShallowSpreadCopyPipeline::new()?),
+        AnyPipeline::Node(Box::new(var_usage::VarUsagePipeline::new()?)),
+        AnyPipeline::Node(Box::new(callback_hell::CallbackHellPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(implicit_globals::ImplicitGlobalsPipeline::new()?)),
+        AnyPipeline::Node(Box::new(loose_equality::LooseEqualityPipeline::new()?)),
+        AnyPipeline::Node(Box::new(unhandled_promise::UnhandledPromisePipeline::new()?)),
+        AnyPipeline::Node(Box::new(argument_mutation::ArgumentMutationPipeline::new()?)),
+        AnyPipeline::Node(Box::new(console_log_in_prod::ConsoleLogPipeline::new()?)),
+        AnyPipeline::Graph(Box::new(event_listener_leak::EventListenerLeakPipeline::new()?)),
+        AnyPipeline::Node(Box::new(loose_truthiness::LooseTruthinessPipeline::new()?)),
+        AnyPipeline::Node(Box::new(no_optional_chaining::NoOptionalChainingPipeline::new()?)),
+        AnyPipeline::Node(Box::new(magic_numbers::JsMagicNumbersPipeline::new()?)),
+        AnyPipeline::Node(Box::new(shallow_spread_copy::ShallowSpreadCopyPipeline::new()?)),
     ])
 }
 

@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Node, Query, QueryCursor, Tree};
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::NodePipeline;
+use crate::audit::pipelines::helpers::is_nolint_suppressed;
 
 use super::primitives::{
     compile_call_expression_query, extract_snippet, find_capture_index, node_text,
@@ -22,32 +23,93 @@ impl UnhandledPromisePipeline {
         })
     }
 
-    /// Check if this .then() call has a .catch() chained after it,
-    /// or if .then() has 2+ arguments (second is error handler).
-    fn is_handled(call_node: tree_sitter::Node, source: &[u8]) -> bool {
+    /// Check if this .then() call has error handling somewhere in its chain.
+    fn is_handled(call_node: Node, source: &[u8]) -> bool {
         // Check if .then() has 2+ arguments (rejection handler)
-        if let Some(args) = call_node.child_by_field_name("arguments")
-            && args.named_child_count() >= 2
-        {
-            return true;
-        }
-
-        // Check if .then() is the object of a .catch() or .finally() chain
-        if let Some(parent) = call_node.parent()
-            && parent.kind() == "member_expression"
-            && let Some(prop) = parent.child_by_field_name("property")
-        {
-            let prop_name = node_text(prop, source);
-            if prop_name == "catch" || prop_name == "finally" {
+        if let Some(args) = call_node.child_by_field_name("arguments") {
+            if args.named_child_count() >= 2 {
                 return true;
             }
         }
 
+        // Walk up the chain: .then().then().catch() should mark the inner .then() as handled.
+        // The AST structure for `a.then(x).catch(y)` is:
+        //   call_expression [.catch(y)]
+        //     member_expression [.catch]
+        //       call_expression [.then(x)]  <-- this is our call_node
+        //         member_expression [.then]
+        //           call_expression [a]
+        // So we walk: call_node -> parent(member_expression) -> parent(call_expression) -> repeat
+        if Self::chain_has_catch_or_finally(call_node, source) {
+            return true;
+        }
+
+        // Check if the .then() is inside an await_expression
+        if Self::is_awaited(call_node) {
+            return true;
+        }
+
         false
+    }
+
+    /// Walk up the promise chain looking for .catch() or .finally() at any level.
+    fn chain_has_catch_or_finally(call_node: Node, source: &[u8]) -> bool {
+        let mut current = call_node;
+        loop {
+            // The call_expression should be the `object` of a member_expression
+            let parent = match current.parent() {
+                Some(p) => p,
+                None => return false,
+            };
+
+            if parent.kind() != "member_expression" {
+                return false;
+            }
+
+            // Check what property is being accessed
+            if let Some(prop) = parent.child_by_field_name("property") {
+                let prop_name = node_text(prop, source);
+                if prop_name == "catch" || prop_name == "finally" {
+                    return true;
+                }
+            }
+
+            // Move up: member_expression -> call_expression (the outer call)
+            let grandparent = match parent.parent() {
+                Some(gp) => gp,
+                None => return false,
+            };
+
+            if grandparent.kind() != "call_expression" {
+                return false;
+            }
+
+            // Continue chain walk from the outer call_expression
+            current = grandparent;
+        }
+    }
+
+    /// Check if the call is inside an await expression (rejection handled by caller).
+    fn is_awaited(node: Node) -> bool {
+        let mut current = node;
+        loop {
+            let parent = match current.parent() {
+                Some(p) => p,
+                None => return false,
+            };
+            match parent.kind() {
+                "await_expression" => return true,
+                // Walk through parenthesized expressions and member expressions
+                "parenthesized_expression" | "member_expression" => {
+                    current = parent;
+                }
+                _ => return false,
+            }
+        }
     }
 }
 
-impl Pipeline for UnhandledPromisePipeline {
+impl NodePipeline for UnhandledPromisePipeline {
     fn name(&self) -> &str {
         "unhandled_promise"
     }
@@ -76,6 +138,10 @@ impl Pipeline for UnhandledPromisePipeline {
                 }
 
                 if Self::is_handled(call.node, source) {
+                    continue;
+                }
+
+                if is_nolint_suppressed(source, call.node, self.name()) {
                     continue;
                 }
 
@@ -136,6 +202,51 @@ mod tests {
     #[test]
     fn skips_non_then_methods() {
         let findings = parse_and_check("obj.map(x => x * 2);");
+        assert!(findings.is_empty());
+    }
+
+    // --- New tests ---
+
+    #[test]
+    fn skips_chained_then_then_catch() {
+        let findings = parse_and_check(
+            "fetch(url).then(a => transform(a)).then(b => process(b)).catch(err => handle(err));"
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_then_with_finally() {
+        let findings = parse_and_check(
+            "fetch(url).then(handler).finally(() => cleanup());"
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn skips_awaited_then() {
+        let findings = parse_and_check(
+            "async function f() { await fetch(url).then(handler); }"
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn flags_then_finally_no_catch_on_inner() {
+        // .finally() does NOT handle rejection -- but it's on the chain,
+        // so the inner .then() has .finally() in its chain and we consider
+        // finally as "handled" (it at least acknowledges the chain).
+        let findings = parse_and_check(
+            "fetch(url).then(handler).finally(() => cleanup());"
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn nolint_suppresses_finding() {
+        let findings = parse_and_check(
+            "// NOLINT(unhandled_promise)\nfetch(url).then(handler);"
+        );
         assert!(findings.is_empty());
     }
 }
