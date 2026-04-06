@@ -15,7 +15,7 @@ use crate::language::Language;
 const OVERSIZED_SYMBOL_THRESHOLD: usize = 30;
 const OVERSIZED_LINE_THRESHOLD: usize = 1000;
 const MONOLITHIC_EXPORT_THRESHOLD: usize = 20;
-const ANEMIC_ENTRY_FILES: &[&str] = &["main.go", "_test.go", "doc.go"];
+const ANEMIC_ENTRY_FILES: &[&str] = &["main.go", "doc.go"];
 
 const GO_DEFINITION_KINDS: &[&str] = &[
     "function_declaration",
@@ -267,6 +267,20 @@ mod tests {
         let src = "package app\nfunc foo() {}\nfunc bar() {}";
         let findings = parse_and_check(src);
         assert!(!findings.iter().any(|f| f.pattern == "anemic_module"));
+    }
+
+    #[test]
+    fn test_doc_go_not_anemic() {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&go_lang()).unwrap();
+        let src = "// Package mypackage provides utilities.\npackage mypackage\n";
+        let tree = parser.parse(src, None).unwrap();
+        let pipeline = ModuleSizeDistributionPipeline::new().unwrap();
+        let findings = pipeline.check(&tree, src.as_bytes(), "doc.go");
+        assert!(
+            !findings.iter().any(|f| f.pattern == "anemic_module"),
+            "doc.go should not be flagged as anemic_module"
+        );
     }
 
     #[test]
