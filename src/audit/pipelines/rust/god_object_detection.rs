@@ -1,11 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use tree_sitter::{Query, Tree};
+use tree_sitter::Query;
 
 use super::primitives;
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
 use crate::audit::pipelines::helpers::is_trait_impl;
 
 const LARGE_IMPL_THRESHOLD: usize = 10;
@@ -25,7 +26,7 @@ impl GodObjectDetectionPipeline {
     }
 }
 
-impl Pipeline for GodObjectDetectionPipeline {
+impl GraphPipeline for GodObjectDetectionPipeline {
     fn name(&self) -> &str {
         "god_object_detection"
     }
@@ -34,17 +35,23 @@ impl Pipeline for GodObjectDetectionPipeline {
         "Detects impl blocks with too many methods and structs with too many fields, indicating a type is doing too much and should be decomposed"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
         let mut findings = Vec::new();
 
-        let impl_matches = primitives::find_large_impl_blocks(
+        // Get ALL impl blocks (threshold=1) and group by type name
+        let all_impl_matches = primitives::find_large_impl_blocks(
             tree,
             source,
             &self.impl_query,
-            LARGE_IMPL_THRESHOLD,
+            1,
         );
 
-        for m in impl_matches {
+        // Aggregate method counts by type name
+        let mut type_methods: HashMap<String, (usize, u32, u32, String)> = HashMap::new();
+        for m in &all_impl_matches {
             // Skip trait impls — they cannot be split; flagging is not actionable
             let impl_node = tree.root_node().descendant_for_point_range(
                 tree_sitter::Point {
@@ -56,38 +63,57 @@ impl Pipeline for GodObjectDetectionPipeline {
                     column: (m.column - 1) as usize,
                 },
             );
+            let mut skip = false;
             if let Some(n) = impl_node {
-                // Walk up to find the impl_item
                 let mut current = Some(n);
                 while let Some(c) = current {
                     if c.kind() == "impl_item" {
                         if is_trait_impl(c, source) {
-                            break;
+                            skip = true;
                         }
-                        // Not a trait impl, fall through to flag it
                         break;
                     }
                     current = c.parent();
                 }
-                if let Some(c) = current
-                    && c.kind() == "impl_item"
-                    && is_trait_impl(c, source)
-                {
-                    continue;
-                }
             }
+            if skip {
+                continue;
+            }
+
+            let entry = type_methods.entry(m.name.clone()).or_insert((0, m.line, m.column, m.snippet.clone()));
+            entry.0 += m.child_count;
+        }
+
+        for (type_name, (total_methods, line, column, snippet)) in type_methods {
+            if total_methods < LARGE_IMPL_THRESHOLD {
+                continue;
+            }
+
+            // Skip Builder and Config types — they commonly have many methods by design
+            if type_name.ends_with("Builder") || type_name.ends_with("Config") {
+                continue;
+            }
+
+            let severity = if total_methods >= 20 {
+                "error"
+            } else if total_methods >= 15 {
+                "warning"
+            } else {
+                "info"
+            };
+
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
-                line: m.line,
-                column: m.column,
-                severity: "warning".to_string(),
+                line,
+                column,
+                severity: severity.to_string(),
                 pipeline: self.name().to_string(),
                 pattern: "large_impl_block".to_string(),
                 message: format!(
                     "impl block for `{}` has {} methods (threshold: {}) — consider splitting into smaller traits or extracting helper types",
-                    m.name, m.child_count, LARGE_IMPL_THRESHOLD
+                    type_name, total_methods, LARGE_IMPL_THRESHOLD
                 ),
-                snippet: m.snippet,
+                snippet,
             });
         }
 
@@ -130,7 +156,16 @@ mod tests {
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = GodObjectDetectionPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.rs")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = crate::audit::pipeline::GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: "test.rs",
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     fn gen_methods(n: usize) -> String {
@@ -242,7 +277,6 @@ impl Small {
         let f = &findings[0];
         assert_eq!(f.file_path, "test.rs");
         assert_eq!(f.pipeline, "god_object_detection");
-        assert_eq!(f.severity, "warning");
         assert_eq!(f.pattern, "large_impl_block");
     }
 
@@ -265,14 +299,27 @@ impl Small {
     }
 
     #[test]
-    fn multiple_impl_blocks_counted_separately() {
-        let src = format!(
-            "struct Foo;\nimpl Foo {{\n{}\n}}\nimpl Foo {{\n{}\n}}",
-            gen_methods(10),
-            gen_methods(3)
-        );
+    fn two_impl_blocks_aggregated() {
+        // 6 methods each block = 12 total, exceeds threshold of 10
+        let src = "struct Foo {}\nimpl Foo { fn a(&self){} fn b(&self){} fn c(&self){} fn d(&self){} fn e(&self){} fn f(&self){} }\nimpl Foo { fn g(&self){} fn h(&self){} fn i(&self){} fn j(&self){} fn k(&self){} fn l(&self){} }";
+        let findings = parse_and_check(src);
+        assert!(!findings.is_empty(), "12 methods across 2 impl blocks should be flagged");
+    }
+
+    #[test]
+    fn builder_type_exempt() {
+        // 12 methods but it's a Builder
+        let src = "struct FooBuilder {}\nimpl FooBuilder { fn a(&self){} fn b(&self){} fn c(&self){} fn d(&self){} fn e(&self){} fn f(&self){} fn g(&self){} fn h(&self){} fn i(&self){} fn j(&self){} fn k(&self){} fn l(&self){} }";
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "Builder types should be exempt");
+    }
+
+    #[test]
+    fn severity_error_at_20_methods() {
+        let methods: Vec<String> = (0..20).map(|i| format!("fn m{}(&self){{}}", i)).collect();
+        let src = format!("struct Foo {{}}\nimpl Foo {{ {} }}", methods.join(" "));
         let findings = parse_and_check(&src);
-        // Only the first impl (10 methods) should be flagged, not the second (3 methods)
-        assert_eq!(findings.len(), 1);
+        assert!(!findings.is_empty());
+        assert_eq!(findings[0].severity, "error");
     }
 }

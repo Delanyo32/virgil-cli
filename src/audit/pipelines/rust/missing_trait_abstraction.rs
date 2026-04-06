@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use super::primitives;
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_test_file;
 
 const CONCRETE_INFRA_TYPES: &[&str] = &[
     "File",
@@ -18,6 +19,7 @@ const CONCRETE_INFRA_TYPES: &[&str] = &[
     "Stdin",
     "Stdout",
     "Stderr",
+    "PathBuf",
 ];
 
 pub struct MissingTraitAbstractionPipeline {
@@ -41,7 +43,23 @@ impl MissingTraitAbstractionPipeline {
     }
 }
 
-impl Pipeline for MissingTraitAbstractionPipeline {
+fn param_is_in_trait_or_trait_impl(node: tree_sitter::Node) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.kind() == "impl_item" {
+            // It's a trait impl if the impl_item has a "trait" field
+            return p.child_by_field_name("trait").is_some();
+        }
+        if p.kind() == "trait_item" {
+            // Parameters inside a trait definition cannot be changed either
+            return true;
+        }
+        current = p.parent();
+    }
+    false
+}
+
+impl GraphPipeline for MissingTraitAbstractionPipeline {
     fn name(&self) -> &str {
         "missing_trait_abstraction"
     }
@@ -50,7 +68,15 @@ impl Pipeline for MissingTraitAbstractionPipeline {
         "Detects function parameters using concrete infrastructure types instead of trait abstractions (e.g. File instead of impl Read)"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
+
+        if is_test_file(file_path) {
+            return vec![];
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.param_query, tree.root_node(), source);
@@ -73,6 +99,11 @@ impl Pipeline for MissingTraitAbstractionPipeline {
             let param_node = m.captures.iter().find(|c| c.index as usize == param_idx);
 
             if let (Some(type_cap), Some(param_cap)) = (type_node, param_node) {
+                // Skip params in trait definitions or trait impl methods — cannot change the signature
+                if param_is_in_trait_or_trait_impl(param_cap.node) {
+                    continue;
+                }
+
                 // Skip exempted functions: main, new, open*
                 let skip = {
                     let mut node = param_cap.node;
@@ -102,13 +133,35 @@ impl Pipeline for MissingTraitAbstractionPipeline {
                 let leaf = self.extract_leaf_type(type_text);
 
                 if CONCRETE_INFRA_TYPES.contains(&leaf) {
+                    // Determine severity: exported fn → "warning", private fn → "info"
+                    let severity = {
+                        let mut node = param_cap.node;
+                        let mut is_exported = false;
+                        while let Some(parent) = node.parent() {
+                            if parent.kind() == "function_item" {
+                                // Check for visibility_modifier child
+                                for i in 0..parent.named_child_count() {
+                                    if let Some(child) = parent.named_child(i) {
+                                        if child.kind() == "visibility_modifier" {
+                                            is_exported = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            node = parent;
+                        }
+                        if is_exported { "warning" } else { "info" }
+                    };
+
                     let start = param_cap.node.start_position();
                     let snippet = param_cap.node.utf8_text(source).unwrap_or("").to_string();
                     findings.push(AuditFinding {
                         file_path: file_path.to_string(),
                         line: start.row as u32 + 1,
                         column: start.column as u32 + 1,
-                        severity: "info".to_string(),
+                        severity: severity.to_string(),
                         pipeline: self.name().to_string(),
                         pattern: "concrete_infra_type".to_string(),
                         message: format!(
@@ -130,13 +183,26 @@ mod tests {
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_path(source, "test.rs")
+    }
+
+    fn parse_and_check_path(source: &str, path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Rust.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MissingTraitAbstractionPipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.rs")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = crate::audit::pipeline::GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: path,
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -184,5 +250,45 @@ fn handle(stream: TcpStream) {}
 "#;
         let findings = parse_and_check(src);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn detects_pathbuf_param() {
+        let src = r#"fn process(path: PathBuf) {}"#;
+        let findings = parse_and_check(src);
+        assert!(!findings.is_empty(), "PathBuf param should be flagged");
+    }
+
+    #[test]
+    fn trait_impl_method_not_flagged() {
+        let src = r#"
+trait Handler { fn handle(&self, f: std::fs::File); }
+impl Handler for MyType { fn handle(&self, f: std::fs::File) {} }
+"#;
+        let findings = parse_and_check(src);
+        assert!(findings.is_empty(), "trait impl params cannot be changed");
+    }
+
+    #[test]
+    fn test_file_excluded() {
+        let src = r#"fn process(f: std::fs::File) {}"#;
+        let findings = parse_and_check_path(src, "tests/helpers.rs");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn pub_fn_is_warning() {
+        let src = r#"pub fn process(f: File) {}"#;
+        let findings = parse_and_check(src);
+        assert!(!findings.is_empty());
+        assert_eq!(findings[0].severity, "warning");
+    }
+
+    #[test]
+    fn private_fn_is_info() {
+        let src = r#"fn process(f: File) {}"#;
+        let findings = parse_and_check(src);
+        assert!(!findings.is_empty());
+        assert_eq!(findings[0].severity, "info");
     }
 }

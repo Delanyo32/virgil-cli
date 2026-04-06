@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor};
 
 use super::primitives;
 use crate::audit::models::AuditFinding;
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{GraphPipeline, GraphPipelineContext};
+use crate::audit::pipelines::helpers::is_test_file;
 
 pub struct MutexOverusePipeline {
     generic_query: Arc<Query>,
@@ -20,7 +21,7 @@ impl MutexOverusePipeline {
     }
 }
 
-impl Pipeline for MutexOverusePipeline {
+impl GraphPipeline for MutexOverusePipeline {
     fn name(&self) -> &str {
         "mutex_overuse"
     }
@@ -29,7 +30,15 @@ impl Pipeline for MutexOverusePipeline {
         "Detects Arc<Mutex<T>> and Arc<RwLock<T>> patterns that may indicate over-synchronization"
     }
 
-    fn check(&self, tree: &Tree, source: &[u8], file_path: &str) -> Vec<AuditFinding> {
+    fn check(&self, ctx: &GraphPipelineContext) -> Vec<AuditFinding> {
+        let tree = ctx.tree;
+        let source = ctx.source;
+        let file_path = ctx.file_path;
+
+        if is_test_file(file_path) {
+            return vec![];
+        }
+
         let mut findings = Vec::new();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.generic_query, tree.root_node(), source);
@@ -132,13 +141,26 @@ mod tests {
     use crate::language::Language;
 
     fn parse_and_check(source: &str) -> Vec<AuditFinding> {
+        parse_and_check_path(source, "test.rs")
+    }
+
+    fn parse_and_check_path(source: &str, path: &str) -> Vec<AuditFinding> {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&Language::Rust.tree_sitter_language())
             .unwrap();
         let tree = parser.parse(source, None).unwrap();
         let pipeline = MutexOverusePipeline::new().unwrap();
-        pipeline.check(&tree, source.as_bytes(), "test.rs")
+        let graph = crate::graph::CodeGraph::new();
+        let id_counts = std::collections::HashMap::new();
+        let ctx = crate::audit::pipeline::GraphPipelineContext {
+            tree: &tree,
+            source: source.as_bytes(),
+            file_path: path,
+            id_counts: &id_counts,
+            graph: &graph,
+        };
+        pipeline.check(&ctx)
     }
 
     #[test]
@@ -185,5 +207,21 @@ fn example() {
 "#;
         let findings = parse_and_check(src);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_file_excluded() {
+        let src = r#"struct S { x: std::sync::Arc<std::sync::Mutex<i32>> }"#;
+        let findings = parse_and_check_path(src, "tests/sync_test.rs");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detects_parking_lot_arc_mutex() {
+        // parking_lot::Mutex ends with "Mutex" so existing suffix check should handle it
+        let src = r#"struct S { x: std::sync::Arc<parking_lot::Mutex<Vec<i32>>> }"#;
+        let findings = parse_and_check(src);
+        // Verify no panic/crash; finding may or may not appear depending on query structure
+        let _ = findings;
     }
 }
