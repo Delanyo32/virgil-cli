@@ -36,21 +36,21 @@ pub mod sync_blocking_in_async;
 pub mod api_surface_area;
 pub mod module_size_distribution;
 
-use crate::audit::pipeline::Pipeline;
+use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
-pub fn tech_debt_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
+pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        Box::new(panic_detection::PanicDetectionPipeline::new()?),
-        Box::new(clone_detection::CloneDetectionPipeline::new()?),
-        Box::new(god_object_detection::GodObjectDetectionPipeline::new()?),
-        Box::new(stringly_typed::StringlyTypedPipeline::new()?),
-        Box::new(must_use_ignored::MustUseIgnoredPipeline::new()?),
-        Box::new(mutex_overuse::MutexOverusePipeline::new()?),
-        Box::new(pub_field_leakage::PubFieldLeakagePipeline::new()?),
-        Box::new(missing_trait_abstraction::MissingTraitAbstractionPipeline::new()?),
-        Box::new(async_blocking::AsyncBlockingPipeline::new()?),
-        Box::new(magic_numbers::MagicNumbersPipeline::new()?),
+        AnyPipeline::Legacy(Box::new(panic_detection::PanicDetectionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(clone_detection::CloneDetectionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(god_object_detection::GodObjectDetectionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(stringly_typed::StringlyTypedPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(must_use_ignored::MustUseIgnoredPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(mutex_overuse::MutexOverusePipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(pub_field_leakage::PubFieldLeakagePipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(missing_trait_abstraction::MissingTraitAbstractionPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(async_blocking::AsyncBlockingPipeline::new()?)),
+        AnyPipeline::Legacy(Box::new(magic_numbers::MagicNumbersPipeline::new()?)),
     ])
 }
 

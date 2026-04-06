@@ -92,11 +92,11 @@ fn wrap_legacy(pipelines: Result<Vec<Box<dyn Pipeline>>>) -> Result<Vec<AnyPipel
 pub fn pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
     match language {
         Language::Python => pipelines::python::tech_debt_pipelines(),
-        Language::Rust => wrap_legacy(pipelines::rust::tech_debt_pipelines()),
+        Language::Rust => pipelines::rust::tech_debt_pipelines(),
         Language::Go => pipelines::go::tech_debt_pipelines(),
-        Language::Php => wrap_legacy(pipelines::php::tech_debt_pipelines()),
+        Language::Php => pipelines::php::tech_debt_pipelines(),
         Language::Java => pipelines::java::tech_debt_pipelines(),
-        Language::JavaScript => wrap_legacy(pipelines::javascript::tech_debt_pipelines()),
+        Language::JavaScript => pipelines::javascript::tech_debt_pipelines(),
         Language::TypeScript | Language::Tsx => {
             wrap_legacy(pipelines::typescript::tech_debt_pipelines(language))
         }
