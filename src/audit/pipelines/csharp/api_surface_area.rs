@@ -16,6 +16,8 @@ const MEMBER_KINDS: &[&str] = &[
     "method_declaration",
     "property_declaration",
     "field_declaration",
+    "event_field_declaration",
+    "indexer_declaration",
 ];
 
 pub struct ApiSurfaceAreaPipeline;
@@ -275,6 +277,31 @@ class InternalRepo {
             !findings
                 .iter()
                 .any(|f| f.pattern == "leaky_abstraction_boundary")
+        );
+    }
+
+    #[test]
+    fn test_event_members_counted_in_ratio() {
+        // 5 public methods + 5 public events + 1 private method = 11 total, 10 exported = 90.9% > 80%
+        let src = r#"
+public class OrderService {
+    public void Create() { }
+    public void Read() { }
+    public void Update() { }
+    public void Delete() { }
+    public void List() { }
+    public event EventHandler Created;
+    public event EventHandler Updated;
+    public event EventHandler Deleted;
+    public event EventHandler Listed;
+    public event EventHandler Exported;
+    private void InternalHelper() { }
+}
+"#;
+        let findings = parse_and_check(src);
+        assert!(
+            findings.iter().any(|f| f.pattern == "excessive_public_api"),
+            "event declarations must be counted as members for the API ratio"
         );
     }
 
