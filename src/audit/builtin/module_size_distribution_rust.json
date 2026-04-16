@@ -1,0 +1,31 @@
+{
+  "pipeline": "module_size_distribution_rust",
+  "category": "architecture",
+  "description": "Detect Rust modules that have grown too large (too many symbol definitions)",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "select": "symbol",
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true},
+          {"is_barrel_file": true}
+        ]
+      }
+    },
+    {"group_by": "file"},
+    {"count": {"threshold": {"gte": 30}}},
+    {
+      "flag": {
+        "pattern": "oversized_module",
+        "message": "Oversized module: {{file}} has {{count}} definitions",
+        "severity_map": [
+          {"when": {"count": {"gte": 100}}, "severity": "error"},
+          {"when": {"count": {"gte": 50}}, "severity": "warning"},
+          {"severity": "info"}
+        ]
+      }
+    }
+  ]
+}

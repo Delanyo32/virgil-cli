@@ -1,0 +1,35 @@
+{
+  "pipeline": "dependency_graph_depth_java",
+  "category": "architecture",
+  "description": "Detect deep import chains in Java that complicate dependency management",
+  "languages": ["java"],
+  "graph": [
+    {
+      "select": "file",
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true}
+        ]
+      }
+    },
+    {
+      "max_depth": {
+        "edge": "imports",
+        "skip_barrel_files": true,
+        "threshold": {"gte": 6}
+      }
+    },
+    {
+      "flag": {
+        "pattern": "deep_import_chain",
+        "message": "Deep import chain: {{file}} is {{depth}} hops from entry points",
+        "severity_map": [
+          {"when": {"depth": {"gte": 13}}, "severity": "error"},
+          {"when": {"depth": {"gte": 9}}, "severity": "warning"},
+          {"severity": "info"}
+        ]
+      }
+    }
+  ]
+}
