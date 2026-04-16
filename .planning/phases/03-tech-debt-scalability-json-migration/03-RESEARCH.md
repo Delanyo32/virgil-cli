@@ -518,32 +518,37 @@ The `PipelineSelector::Complexity` variant calls `pipeline::complexity_pipelines
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **WhereClause Metric Predicate Extension (BLOCKING)**
    - What we know: `WhereClause` has `count`, `depth`, `cycle_size`, `edge_count`, `ratio` — not `cyclomatic_complexity`, `function_length`, `cognitive_complexity`, `comment_to_code_ratio`
-   - What's unclear: Should the planner include a Rust code change to `pipeline.rs` to add these fields as a prerequisite task in Wave 0? OR should the JSON pipelines omit threshold filtering (flag all functions, use the message for human reference, no CC > 10 gating)?
+   - What's unclear: Should the planner include a Rust code change to `pipeline.rs` to add these fields as a prerequisite task in Wave 0?
    - Recommendation: Include a small Rust task to add 4 named fields to `WhereClause`: `cyclomatic_complexity`, `function_length`, `cognitive_complexity`, `comment_to_code_ratio` — each `Option<NumericPredicate>`. Add matching arms to `eval_metrics()`. This is ~20 lines of Rust code and unblocks the JSON design.
+   - **RESOLVED:** Plan 03-01 Task 1 adds `cyclomatic_complexity`, `function_length`, `cognitive_complexity`, `comment_to_code_ratio` as `Option<NumericPredicate>` fields to `WhereClause` in `src/graph/pipeline.rs` with matching `eval_metrics()` arms.
 
 2. **select Stage Kind Filter**
    - What we know: D-03 specifies `{"select": "symbol", "kind": ["function", "method", "arrow_function"]}` but `kind` is not a `WhereClause` field
    - What's unclear: Should `kind` be added to `WhereClause`, or should we rely on `execute_compute_metric`'s graceful skip for non-function symbols?
-   - Recommendation: Add `kind: Option<Vec<String>>` to `WhereClause` in the same Wave 0 Rust task as the metric predicates. This aligns with D-03 exactly and prevents unnecessary compute_metric executions on class/variable nodes.
+   - Recommendation: Add `kind: Option<Vec<String>>` to `WhereClause` in the same Wave 0 Rust task as the metric predicates.
+   - **RESOLVED:** Plan 03-01 Task 1 also adds `kind: Option<Vec<String>>` to `WhereClause` with a matching arm in `eval()`. Plans 03-02/03-03 use `"where": {"kind": ["function", "method", "arrow_function"]}` in select stages.
 
 3. **match_pattern Predicate Support (#match?, #eq?)**
-   - What we know: Tree-sitter queries support predicates like `#match?` and `#eq?` at the `Query` compilation level. The `execute_match_pattern` function uses `cursor.matches()` which does NOT evaluate predicates by default — predicates require `QueryCursor::set_max_start_depth` or manual evaluation via `m.pattern_index`.
-   - What's unclear: Does the current `execute_match_pattern` implementation filter by predicates? Test `test_match_pattern_finds_panic_in_rust` uses `(#eq? @name "panic")` — if that test passes, predicates ARE being evaluated.
-   - Recommendation: Check whether the `test_match_pattern_finds_panic_in_rust` test currently passes. If it does, `#eq?` is supported. `#match?` (regex) support depends on the tree-sitter version. [VERIFIED by test existence: `#eq?` appears to work given the test was authored in Phase 2 and all tests were green at Phase 2 completion]
+   - What we know: Tree-sitter queries support predicates like `#match?` and `#eq?` at the `Query` compilation level. Test `test_match_pattern_finds_panic_in_rust` uses `(#eq? @name "panic")` — if that test passes, predicates ARE being evaluated.
+   - What's unclear: Does the current `execute_match_pattern` implementation filter by predicates?
+   - Recommendation: Check whether `test_match_pattern_finds_panic_in_rust` passes.
+   - **RESOLVED:** `#eq?` predicates are confirmed to work (Phase 2 tests green). `#match?` (regex) predicates are attempted in Plan 03-03 sync_blocking_in_async queries with a documented conditional fallback to simpler queries if `#match?` does not compile/filter correctly.
 
 4. **comment_to_code_ratio — Threshold Encoding in executor**
    - What we know: `execute_compute_metric` for `comment_to_code_ratio` stores value as integer percentage: `(comment_lines / (comment_lines + code_lines) * 100) as i64`
    - What's unclear: Thresholds from the Rust implementation are `ratio < 0.05` (under) and `ratio > 0.60` (over). In the JSON, these become `{"lt": 5}` (under) and `{"gt": 60}` (over) once the `comment_to_code_ratio` WhereClause field is added.
-   - Recommendation: Document this encoding in the JSON pipeline's description so future authors don't confuse 0.05 (fraction) with 5 (percent).
+   - Recommendation: Document this encoding in the JSON pipeline's description.
+   - **RESOLVED:** Plan 03-02 `comment_to_code_ratio.json` uses `{"lt": 5}` and `{"gt": 60}` thresholds (integer percentage scale). The JSON `"description"` field documents the 0-100 encoding explicitly.
 
 5. **Go sync_blocking — Goroutine vs. Async**
    - What we know: Go has no `async`/`await`. Go's `sync_blocking_in_async` Rust pipeline detects blocking calls inside goroutine bodies (`go_statement > func_literal`).
-   - What's unclear: Is the match_pattern DSL expressive enough to capture "call inside goroutine body"? Tree-sitter's Go grammar has `go_statement` with a `func_literal` child.
-   - Recommendation: Attempt `(go_statement (func_literal body: (_) (call_expression) @call))` — if this works in the Go grammar, include `sync_blocking_in_async_go.json`. If the grammar nesting doesn't match, omit Go (planner discretion per D-07).
+   - What's unclear: Is the match_pattern DSL expressive enough to capture "call inside goroutine body"?
+   - Recommendation: Attempt `(go_statement (func_literal body: (_) (call_expression) @call))` — if this works in the Go grammar, include `sync_blocking_in_async_go.json`. If not, omit Go.
+   - **RESOLVED:** Plan 03-03 includes `sync_blocking_in_async_go.json` using the goroutine containment query. If the query fails at runtime, the plan includes a documented fallback (simpler call_expression capture with higher false positive rate, or omit Go entirely per D-07 planner discretion).
 
 ---
 
