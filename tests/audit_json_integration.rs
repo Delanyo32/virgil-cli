@@ -3579,3 +3579,334 @@ fn cpp_integer_overflow_cpp_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }
+
+// ── Phase 4 Plan 08: C# Security + Scalability Pipelines ──
+
+// ── command_injection (C#) ──
+
+#[test]
+fn command_injection_csharp_finds_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "using System.Diagnostics;\nclass A { void F(string cmd) { Process.Start(\"cmd.exe\", cmd); } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "command_injection_call"),
+        "expected command_injection/command_injection_call finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls at all -- only struct/const/type definitions
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class Config { const int MAX = 100; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".cs")),
+        "expected no command_injection finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── weak_cryptography (C#) ──
+
+#[test]
+fn weak_cryptography_csharp_finds_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "using System.Security.Cryptography;\nclass A { void F() { MD5.Create(); } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "weak_cryptography" && f.pattern == "weak_crypto_usage"),
+        "expected weak_cryptography/weak_crypto_usage finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn weak_cryptography_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls -- only class with a constant
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class Crypto { const string ALGO = \"AES256\"; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "weak_cryptography" && f.file_path.ends_with(".cs")),
+        "expected no weak_cryptography finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── insecure_deserialization (C#) ──
+
+#[test]
+fn insecure_deserialization_csharp_finds_object_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class A { void F(Stream s) { var bf = new BinaryFormatter(); } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.pattern == "insecure_deserialization"),
+        "expected insecure_deserialization finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn insecure_deserialization_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No object creation expressions -- only interface/type definitions
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "interface ISerializer { void Serialize(object obj); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.file_path.ends_with(".cs")),
+        "expected no insecure_deserialization finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── csharp_path_traversal (C#) ──
+
+#[test]
+fn csharp_path_traversal_csharp_finds_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class A { void F(string name) { File.ReadAllText(\"/uploads/\" + name); } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "csharp_path_traversal" && f.pattern == "path_traversal_risk"),
+        "expected csharp_path_traversal/path_traversal_risk finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn csharp_path_traversal_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls -- only type/interface definitions
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "interface IFileService { string BasePath { get; } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "csharp_path_traversal" && f.file_path.ends_with(".cs")),
+        "expected no csharp_path_traversal finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── csharp_race_conditions (C#) ──
+
+#[test]
+fn csharp_race_conditions_csharp_finds_field_decl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class Server { private Dictionary<string, string> _cache; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "csharp_race_conditions" && f.pattern == "thread_unsafe_field"),
+        "expected csharp_race_conditions/thread_unsafe_field finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn csharp_race_conditions_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No field declarations -- only method signatures
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "interface ICache { void Clear(); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "csharp_race_conditions" && f.file_path.ends_with(".cs")),
+        "expected no csharp_race_conditions finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── reflection_unsafe (C#) ──
+
+#[test]
+fn reflection_unsafe_csharp_finds_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class A { void F(string typeName) { Type.GetType(typeName); } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "reflection_unsafe" && f.pattern == "reflection_injection"),
+        "expected reflection_unsafe/reflection_injection finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn reflection_unsafe_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls -- only type/enum definitions
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "enum LoadMode { Static, Dynamic }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "reflection_unsafe" && f.file_path.ends_with(".cs")),
+        "expected no reflection_unsafe finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (C#, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_csharp_finds_object_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "using System.Data.SqlClient;\nclass A { void F() { var c = new SqlConnection(\"connstr\"); } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_csharp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No object creation expressions -- only interface/type definitions
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "interface IConnection { void Open(); void Close(); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.file_path.ends_with(".cs")),
+        "expected no memory_leak_indicators finding for clean C#; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}

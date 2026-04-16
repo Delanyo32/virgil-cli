@@ -17,17 +17,9 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
-pub mod command_injection;
-pub mod csharp_path_traversal;
-pub mod csharp_race_conditions;
 pub mod csharp_ssrf;
-pub mod insecure_deserialization;
-pub mod reflection_unsafe;
 pub mod sql_injection;
-pub mod weak_cryptography;
 pub mod xxe;
-
-pub mod memory_leak_indicators;
 
 use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
@@ -64,20 +56,12 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
 pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
         Box::new(sql_injection::SqlInjectionPipeline::new()?),
-        Box::new(command_injection::CommandInjectionPipeline::new()?),
-        Box::new(weak_cryptography::WeakCryptographyPipeline::new()?),
-        Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?),
-        Box::new(csharp_path_traversal::CSharpPathTraversalPipeline::new()?),
         Box::new(xxe::XxePipeline::new()?),
         Box::new(csharp_ssrf::CSharpSsrfPipeline::new()?),
-        Box::new(csharp_race_conditions::CSharpRaceConditionsPipeline::new()?),
-        Box::new(reflection_unsafe::ReflectionUnsafePipeline::new()?),
     ])
 }
 
 pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 
