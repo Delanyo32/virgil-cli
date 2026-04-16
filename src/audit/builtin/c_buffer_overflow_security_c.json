@@ -1,0 +1,18 @@
+{
+  "pipeline": "c_buffer_overflow_security",
+  "category": "security",
+  "description": "Detects buffer overflow vulnerabilities in C: gets(), strcpy(), strcat(), sprintf(), memcpy() with unchecked size, and scanf() without width limit. Simplified from Rust: flags all call_expression nodes (cannot filter by function name or check size arguments without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "buffer_overflow_risk",
+        "message": "Function call detected -- verify unsafe string functions (gets, strcpy, strcat, sprintf) are not used; use bounds-checked alternatives. Verify memcpy size is checked. Verify scanf uses width specifiers (e.g., %31s).",
+        "severity": "error"
+      }
+    }
+  ]
+}

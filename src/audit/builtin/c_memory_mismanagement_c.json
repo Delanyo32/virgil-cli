@@ -1,0 +1,18 @@
+{
+  "pipeline": "c_memory_mismanagement",
+  "category": "security",
+  "description": "Detects memory mismanagement in C: use-after-free, double free, realloc overwrite (p = realloc(p, n) loses original pointer on failure). Simplified from Rust: flags all call_expression nodes (cannot track freed variables across statements without cross-statement analysis). Simplified per D-07: match free() calls broadly.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "memory_mismanagement",
+        "message": "Function call detected -- verify free() is not called twice on the same pointer (double-free), pointer is not used after free() (use-after-free), and realloc result is stored in a temporary (not the original pointer) to avoid memory loss on failure",
+        "severity": "warning"
+      }
+    }
+  ]
+}

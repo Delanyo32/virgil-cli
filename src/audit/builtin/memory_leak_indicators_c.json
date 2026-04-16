@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leak_indicators",
+  "category": "scalability",
+  "description": "Detects memory leak indicators in C: malloc/calloc/realloc/strdup/fopen calls that may not have corresponding free/fclose. Simplified from Rust per D-09: flags allocation calls broadly without verifying corresponding free/fclose. Languages field scoped to c only to avoid conflict with other language-specific memory_leak_indicators pipelines sharing the same pipeline name.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "Function call detected -- verify malloc(), calloc(), realloc(), strdup(), strndup(), asprintf(), and fopen() calls have corresponding free()/fclose() to prevent memory and resource leaks",
+        "severity": "warning"
+      }
+    }
+  ]
+}
