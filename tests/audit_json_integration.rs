@@ -3049,3 +3049,533 @@ fn c_uninitialized_memory_c_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }
+
+// ── cpp_injection (C++, Security) ──
+
+#[test]
+fn cpp_injection_cpp_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#include <cstdlib>\nvoid f(const char *cmd) { system(cmd); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_injection" && f.pattern == "command_injection_call"),
+        "expected cpp_injection/command_injection_call finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_injection_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a class definition
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "class Foo { int x; int y; };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_injection" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_injection finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_buffer_overflow (C++, Security) ──
+
+#[test]
+fn cpp_buffer_overflow_cpp_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#include <cstring>\nvoid f(char *s) { char buf[10]; strcpy(buf, s); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_buffer_overflow" && f.pattern == "buffer_overflow_risk"),
+        "expected cpp_buffer_overflow/buffer_overflow_risk finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_buffer_overflow_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only an enum definition
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "enum class Color { Red, Green, Blue };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_buffer_overflow" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_buffer_overflow finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_exception_safety (C++, Security) ──
+
+#[test]
+fn cpp_exception_safety_cpp_finds_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "void f() { int *p = new int(42); delete p; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_exception_safety" && f.pattern == "unguarded_allocation"),
+        "expected cpp_exception_safety/unguarded_allocation finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_exception_safety_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No new expressions -- only a namespace and constant
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "namespace config { constexpr int MAX_RETRIES = 3; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_exception_safety" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_exception_safety finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_memory_mismanagement (C++, Security) ──
+
+#[test]
+fn cpp_memory_mismanagement_cpp_finds_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "void f() { int *p = new int(42); delete p; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_memory_mismanagement" && f.pattern == "memory_mismanagement"),
+        "expected cpp_memory_mismanagement/memory_mismanagement finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_memory_mismanagement_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No delete expressions -- only a struct definition
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "struct Point { int x; int y; };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_memory_mismanagement" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_memory_mismanagement finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_race_conditions (C++, Security) ──
+
+#[test]
+fn cpp_race_conditions_cpp_finds_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "class Counter { int count; };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_race_conditions" && f.pattern == "thread_unsafe_field"),
+        "expected cpp_race_conditions/thread_unsafe_field finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_race_conditions_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No class definitions -- only a function and typedef
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "typedef unsigned int uint32_t;\nvoid noop() {}",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_race_conditions" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_race_conditions finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_path_traversal (C++, Security) ──
+
+#[test]
+fn cpp_path_traversal_cpp_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#include <cstdio>\nvoid read_file(const char *path) { FILE *fp = fopen(path, \"r\"); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_path_traversal" && f.pattern == "path_traversal_risk"),
+        "expected cpp_path_traversal/path_traversal_risk finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_path_traversal_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only global variable declarations
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "static int global_counter = 0;\nconst int MAX_SIZE = 100;",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_path_traversal" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_path_traversal finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (C++, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_cpp_finds_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "void f() { for (int i=0; i<10; i++) { int *p = new int; } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No new expressions -- only a struct and an enum
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "struct Node { int val; };\nenum Status { OK, ERROR };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.file_path.ends_with(".cpp")),
+        "expected no memory_leak_indicators finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_weak_randomness (C++, Security) ──
+
+#[test]
+fn cpp_weak_randomness_cpp_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#include <cstdlib>\nvoid generate_token() { int x = rand(); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_weak_randomness" && f.pattern == "weak_randomness"),
+        "expected cpp_weak_randomness/weak_randomness finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_weak_randomness_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only macro definitions
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#define BUFFER_SIZE 256\n#define MAX_CONNECTIONS 100",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_weak_randomness" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_weak_randomness finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_type_confusion (C++, Security) ──
+
+#[test]
+fn cpp_type_confusion_cpp_finds_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "void f() { int x = 42; float *fp = reinterpret_cast<float*>(new int(x)); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_type_confusion" && f.pattern == "type_confusion_cast"),
+        "expected cpp_type_confusion/type_confusion_cast finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_type_confusion_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No new expressions -- only a union definition
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "union Data { int i; float f; };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_type_confusion" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_type_confusion finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── cpp_integer_overflow (C++, Security) ──
+
+#[test]
+fn cpp_integer_overflow_cpp_finds_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "void f(int w, int h) { auto p = new int[w * h]; delete[] p; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cpp_integer_overflow" && f.pattern == "unchecked_arithmetic"),
+        "expected cpp_integer_overflow/unchecked_arithmetic finding for C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_integer_overflow_cpp_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No new expressions -- only constant definitions
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#define MAX_SIZE 100\ntypedef int MyInt;",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_integer_overflow" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_integer_overflow finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
