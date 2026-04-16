@@ -52,7 +52,7 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — Create metrics module, update GraphStage enum (add MatchPattern/ComputeMetric, delete 5 stubs)
-- [ ] 02-02-PLAN.md — Implement match_pattern + compute_metric executor stages, update engine.rs call site, add tests
+- [x] 02-02-PLAN.md — Implement match_pattern + compute_metric executor stages, update engine.rs call site, add tests
 
 ### Phase 3: Tech Debt + Scalability JSON Migration
 **Goal**: All shared cross-language complexity pipelines and shared scalability pipelines run as JSON; corresponding Rust files are deleted; no regression in findings for cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio, n_plus_one_queries, or sync_blocking_in_async
