@@ -5,12 +5,12 @@
   "languages": ["java"],
   "graph": [
     {
-      "match_pattern": "(field_declaration type: (generic_type name: (type_identifier) @type) declarator: (variable_declarator name: (identifier) @name)) @field"
+      "match_pattern": "(field_declaration declarator: (variable_declarator name: (identifier) @name)) @field"
     },
     {
       "flag": {
         "pattern": "thread_unsafe_collection",
-        "message": "Generic field declaration detected -- verify this is not an unsynchronized collection (HashMap, ArrayList, etc.) shared across threads; use ConcurrentHashMap or Collections.synchronizedMap()",
+        "message": "Field declaration detected -- verify this is not an unsynchronized collection (HashMap, ArrayList, etc.) shared across threads; use ConcurrentHashMap or Collections.synchronizedMap()",
         "severity": "warning"
       }
     }

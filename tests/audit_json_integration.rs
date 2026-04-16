@@ -2137,3 +2137,383 @@ fn memory_leak_indicators_go_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
+
+// ── Phase 4: Java Security + Scalability Pipelines ──
+
+// ── command_injection (Java) ──
+
+#[test]
+fn command_injection_java_finds_method_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    // method_invocation node -- triggers command_injection_call pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class A { void f(String cmd) { Runtime.getRuntime().exec(cmd); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "command_injection_call"),
+        "expected command_injection/command_injection_call finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method invocations -- only field and constant declarations
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class Config { static final int MAX = 100; String name = \"app\"; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".java")),
+        "expected no command_injection finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── weak_cryptography (Java) ──
+
+#[test]
+fn weak_cryptography_java_finds_method_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    // method_invocation with getInstance -- triggers weak_crypto_usage pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "import java.security.*;\nclass A { void f() { MessageDigest.getInstance(\"MD5\"); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "weak_cryptography" && f.pattern == "weak_crypto_usage"),
+        "expected weak_cryptography/weak_crypto_usage finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn weak_cryptography_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method invocations -- only interface definition
+    std::fs::write(
+        dir.path().join("test.java"),
+        "interface Hasher { String ALGO = \"SHA-256\"; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "weak_cryptography" && f.file_path.ends_with(".java")),
+        "expected no weak_cryptography finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── insecure_deserialization (Java) ──
+
+#[test]
+fn insecure_deserialization_java_finds_method_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    // method_invocation readObject -- triggers insecure_deserialization pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "import java.io.*;\nclass A { void f(InputStream in) throws Exception { ObjectInputStream ois = new ObjectInputStream(in); Object obj = ois.readObject(); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.pattern == "insecure_deserialization"),
+        "expected insecure_deserialization finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn insecure_deserialization_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method invocations -- only class with constant fields
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class Config { static final String FORMAT = \"json\"; static final int VERSION = 1; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.file_path.ends_with(".java")),
+        "expected no insecure_deserialization finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── java_path_traversal (Java) ──
+
+#[test]
+fn java_path_traversal_java_finds_object_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    // object_creation_expression for File -- triggers unvalidated_path_operation pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "import java.io.*;\nclass A { void f(String name) { File f = new File(\"/uploads/\" + name); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "java_path_traversal" && f.pattern == "unvalidated_path_operation"),
+        "expected java_path_traversal/unvalidated_path_operation finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn java_path_traversal_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No object creation expressions -- only interface and enum definitions
+    std::fs::write(
+        dir.path().join("test.java"),
+        "interface PathUtil { String BASE = \"/srv\"; }\nenum Mode { READ, WRITE }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "java_path_traversal" && f.file_path.ends_with(".java")),
+        "expected no java_path_traversal finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── reflection_injection (Java) ──
+
+#[test]
+fn reflection_injection_java_finds_method_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    // method_invocation forName -- triggers reflection_injection pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class A { void f(String className) throws Exception { Class.forName(className); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "reflection_injection" && f.pattern == "reflection_injection"),
+        "expected reflection_injection finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn reflection_injection_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method invocations -- only constant and type declarations
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class Registry { static final String TYPE = \"service\"; int id = 0; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "reflection_injection" && f.file_path.ends_with(".java")),
+        "expected no reflection_injection finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── java_race_conditions (Java) ──
+
+#[test]
+fn java_race_conditions_java_finds_generic_field() {
+    let dir = tempfile::tempdir().unwrap();
+    // generic field_declaration (HashMap<String, String>) -- triggers thread_unsafe_collection pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "import java.util.*;\nclass Server implements Runnable { private HashMap<String, String> cache; public void run() {} }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "java_race_conditions" && f.pattern == "thread_unsafe_collection"),
+        "expected java_race_conditions/thread_unsafe_collection finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn java_race_conditions_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No field declarations at all -- only an interface with a method signature
+    std::fs::write(
+        dir.path().join("test.java"),
+        "interface Processor { void process(String input); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "java_race_conditions" && f.file_path.ends_with(".java")),
+        "expected no java_race_conditions finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (Java, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_java_finds_resource_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    // object_creation_expression for ObjectInputStream -- triggers potential_memory_leak pattern
+    std::fs::write(
+        dir.path().join("test.java"),
+        "import java.io.*;\nclass A { void f(InputStream in) throws Exception { ObjectInputStream ois = new ObjectInputStream(in); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_java_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No local variable declarations with object creation -- only class with constants
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class Config { static final int MAX = 100; static final String TAG = \"app\"; }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.file_path.ends_with(".java")),
+        "expected no memory_leak_indicators finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}

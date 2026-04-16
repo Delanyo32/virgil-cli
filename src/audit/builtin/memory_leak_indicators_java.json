@@ -1,16 +1,16 @@
 {
   "pipeline": "memory_leak_indicators",
   "category": "scalability",
-  "description": "Detects memory leak indicators in Java: resource types (Connection, InputStream, OutputStream, etc.) instantiated outside try-with-resources. Simplified per D-09: matches new expressions for common resource types. Cannot verify try-with-resources closure without cross-statement analysis. Precision reduced from Rust version.",
+  "description": "Detects memory leak indicators in Java: object creation expressions that may produce unclosed resources. Simplified per D-09: matches all object_creation_expression nodes. Cannot verify try-with-resources closure without cross-statement analysis. Precision reduced from Rust version.",
   "languages": ["java"],
   "graph": [
     {
-      "match_pattern": "(local_variable_declaration type: (type_identifier) @type declarator: (variable_declarator value: (object_creation_expression) @creation)) @var_decl"
+      "match_pattern": "(object_creation_expression type: (type_identifier) @type arguments: (argument_list) @args) @creation"
     },
     {
       "flag": {
         "pattern": "potential_memory_leak",
-        "message": "Resource type instantiation detected -- verify this resource is closed in a try-with-resources block to prevent memory/resource leaks",
+        "message": "Object creation detected -- verify this resource is closed in a try-with-resources block to prevent memory/resource leaks",
         "severity": "warning"
       }
     }
