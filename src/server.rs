@@ -167,7 +167,7 @@ async fn handle_query(
                 &query,
                 max,
                 &state.workspace,
-                Some(&state.code_graph),
+                &state.code_graph,
             )?;
             let elapsed = start.elapsed();
 

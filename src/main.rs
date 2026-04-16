@@ -138,7 +138,7 @@ fn main() -> Result<()> {
                     &query,
                     max,
                     &workspace,
-                    Some(&graph),
+                    &graph,
                 )?;
                 let elapsed = start.elapsed();
 
@@ -192,6 +192,7 @@ fn main() -> Result<()> {
             s3,
             language,
             format,
+            file,
             command,
         } => match command {
             Some(AuditCommand::CodeQuality {
@@ -362,7 +363,11 @@ fn main() -> Result<()> {
                     language.as_deref(),
                     "virgil audit <DIR>",
                 )?;
-                run_full_audit_ws(&ws, language.as_deref(), &format)
+                if let Some(audit_file_path) = file {
+                    run_json_audit_file_ws(&ws, language.as_deref(), &audit_file_path, &format)
+                } else {
+                    run_full_audit_ws(&ws, language.as_deref(), &format)
+                }
             }
         },
     }
@@ -718,6 +723,86 @@ fn run_code_quality_summary_ws(
     ];
     let output = audit::format::format_code_quality_summary(&summaries, format, None)?;
     print!("{output}");
+
+    let elapsed = start.elapsed();
+    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+    Ok(())
+}
+
+fn run_json_audit_file_ws(
+    workspace: &Workspace,
+    lang_filter: Option<&str>,
+    audit_file_path: &std::path::Path,
+    format: &OutputFormat,
+) -> Result<()> {
+    let content = std::fs::read_to_string(audit_file_path)
+        .map_err(|e| anyhow::anyhow!("failed to read audit file {:?}: {e}", audit_file_path))?;
+    let json_audit: virgil_cli::audit::json_audit::JsonAuditFile =
+        serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("invalid audit JSON in {:?}: {e}", audit_file_path))?;
+
+    let languages: Vec<Language> = if let Some(filter) = lang_filter {
+        language::parse_language_filter(filter)
+    } else if let Some(ref lang_list) = json_audit.languages {
+        lang_list
+            .iter()
+            .flat_map(|s| language::parse_language_filter(s))
+            .collect()
+    } else {
+        Language::all().to_vec()
+    };
+
+    let start = Instant::now();
+
+    let graph = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
+
+    eprintln!(
+        "Running JSON audit pipeline '{}' ({})…",
+        json_audit.pipeline, json_audit.category
+    );
+
+    let output =
+        virgil_cli::graph::executor::run_pipeline(&json_audit.graph, &graph, None, &json_audit.pipeline)?;
+
+    let findings = match output {
+        virgil_cli::graph::executor::PipelineOutput::Findings(f) => f,
+        virgil_cli::graph::executor::PipelineOutput::Results(results) => {
+            // Pipeline did not end with a Flag stage — report as info findings
+            results
+                .into_iter()
+                .map(|r| virgil_cli::audit::models::AuditFinding {
+                    file_path: r.file,
+                    line: r.line,
+                    column: 1,
+                    severity: "info".to_string(),
+                    pipeline: json_audit.pipeline.clone(),
+                    pattern: json_audit.pipeline.clone(),
+                    message: format!("matched by pipeline '{}'", json_audit.pipeline),
+                    snippet: String::new(),
+                })
+                .collect()
+        }
+    };
+
+    // Build a minimal AuditSummary from the findings
+    let total = findings.len();
+    let files_with_findings: std::collections::HashSet<&str> =
+        findings.iter().map(|f| f.file_path.as_str()).collect();
+    let summary = virgil_cli::audit::models::AuditSummary {
+        total_findings: total,
+        files_scanned: workspace.file_count(),
+        files_with_findings: files_with_findings.len(),
+        by_pipeline: vec![(json_audit.pipeline.clone(), total)],
+        by_pattern: vec![(json_audit.pipeline.clone(), total)],
+        by_pipeline_pattern: vec![(
+            json_audit.pipeline.clone(),
+            vec![(json_audit.pipeline.clone(), total)],
+        )],
+    };
+
+    let output_str = audit::format::format_findings(&findings, &summary, format, 1, 20)?;
+    print!("{output_str}");
 
     let elapsed = start.elapsed();
     eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());

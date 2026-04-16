@@ -53,6 +53,9 @@ pub struct QueryOutput {
     pub total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read: Option<ReadResult>,
+    /// Set when graph pipeline ends with Flag stage — contains AuditFindings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub findings: Option<Vec<crate::audit::models::AuditFinding>>,
 }
 
 pub fn execute(
@@ -60,7 +63,7 @@ pub fn execute(
     query: &TsQuery,
     max: usize,
     workspace: &Workspace,
-    graph: Option<&CodeGraph>,
+    graph: &CodeGraph,
 ) -> Result<QueryOutput> {
     // Handle read mode: return file content instead of symbol search
     if let Some(ref file_path) = query.read {
@@ -280,11 +283,43 @@ pub fn execute(
     results.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
 
     // Call graph traversal if requested
-    if let Some(ref direction) = query.calls
-        && let Some(g) = graph
-    {
+    if let Some(ref direction) = query.calls {
         let depth = query.depth.unwrap_or(1).min(5);
-        results = traverse_via_graph(g, &results, direction, depth, workspace);
+        results = traverse_via_graph(graph, &results, direction, depth, workspace);
+    }
+
+    // Graph pipeline stages if present
+    if let Some(ref stages) = query.graph {
+        use petgraph::graph::NodeIndex;
+
+        // Convert QueryResult seed nodes to NodeIndex via graph
+        let seeds: Vec<NodeIndex> = results
+            .iter()
+            .filter_map(|r| graph.find_symbol(&r.file, r.line))
+            .collect();
+
+        // If no find filter was used, seeds are None (select stage handles it)
+        let seed_nodes = if query.find.is_some() || query.name.is_some() {
+            Some(seeds)
+        } else {
+            None
+        };
+
+        let pipeline_name = "graph_query";
+        match crate::graph::executor::run_pipeline(stages, graph, seed_nodes, pipeline_name)? {
+            crate::graph::executor::PipelineOutput::Findings(findings) => {
+                return Ok(QueryOutput {
+                    results: Vec::new(),
+                    files_parsed,
+                    total: findings.len(),
+                    read: None,
+                    findings: Some(findings),
+                });
+            }
+            crate::graph::executor::PipelineOutput::Results(graph_results) => {
+                results = graph_results;
+            }
+        }
     }
 
     let total = results.len();
@@ -295,6 +330,7 @@ pub fn execute(
         files_parsed,
         total,
         read: None,
+        findings: None,
     })
 }
 
@@ -355,6 +391,7 @@ fn execute_read(
             total_lines,
             content,
         }),
+        findings: None,
     })
 }
 
@@ -628,5 +665,147 @@ mod tests {
         assert!(matcher.matches("getName"));
         assert!(!matcher.matches("fetchUser"));
         assert!(!matcher.matches("getter"));
+    }
+
+    // Tests for the graph pipeline field in TsQuery / QueryOutput
+
+    #[test]
+    fn graph_pipeline_flag_produces_findings() {
+        use crate::graph::pipeline::{FlagConfig, GraphStage, NodeType};
+        use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
+        use crate::language::Language;
+
+        // Build a minimal CodeGraph with one file node and one symbol node
+        let mut g = CodeGraph::new();
+        let file_idx = g.graph.add_node(NodeWeight::File {
+            path: "src/big.rs".to_string(),
+            language: Language::Rust,
+        });
+        g.file_nodes.insert("src/big.rs".to_string(), file_idx);
+        let sym_idx = g.graph.add_node(NodeWeight::Symbol {
+            name: "my_fn".to_string(),
+            kind: crate::models::SymbolKind::Function,
+            file_path: "src/big.rs".to_string(),
+            start_line: 1,
+            end_line: 10,
+            exported: true,
+        });
+        g.graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
+        g.symbol_nodes.insert(("src/big.rs".to_string(), 1), sym_idx);
+
+        // Build a graph pipeline: select(file) -> flag
+        let stages = vec![
+            GraphStage::Select {
+                select: NodeType::File,
+                filter: None,
+                exclude: None,
+            },
+            GraphStage::Flag {
+                flag: FlagConfig {
+                    pattern: "test_pattern".to_string(),
+                    message: "Found {{file}}".to_string(),
+                    severity: Some("info".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+
+        // Build a TsQuery with graph stages
+        let query: crate::query_lang::TsQuery = serde_json::from_str(&serde_json::json!({
+            "graph": stages
+        }).to_string()).unwrap();
+
+        assert!(query.graph.is_some());
+        assert_eq!(query.graph.as_ref().unwrap().len(), 2);
+
+        // Run the pipeline stages directly via executor to verify Findings output
+        let out = crate::graph::executor::run_pipeline(
+            query.graph.as_ref().unwrap(),
+            &g,
+            None,
+            "graph_query",
+        ).unwrap();
+
+        match out {
+            crate::graph::executor::PipelineOutput::Findings(findings) => {
+                assert_eq!(findings.len(), 1);
+                assert_eq!(findings[0].severity, "info");
+                assert_eq!(findings[0].pattern, "test_pattern");
+                assert!(findings[0].message.contains("src/big.rs"));
+            }
+            _ => panic!("expected Findings output"),
+        }
+    }
+
+    #[test]
+    fn graph_pipeline_select_produces_results() {
+        use crate::graph::pipeline::{GraphStage, NodeType};
+        use crate::graph::{CodeGraph, NodeWeight};
+        use crate::language::Language;
+
+        let mut g = CodeGraph::new();
+        let file_idx = g.graph.add_node(NodeWeight::File {
+            path: "src/a.rs".to_string(),
+            language: Language::Rust,
+        });
+        g.file_nodes.insert("src/a.rs".to_string(), file_idx);
+
+        let stages = vec![GraphStage::Select {
+            select: NodeType::File,
+            filter: None,
+            exclude: None,
+        }];
+
+        let out = crate::graph::executor::run_pipeline(&stages, &g, None, "graph_query").unwrap();
+
+        match out {
+            crate::graph::executor::PipelineOutput::Results(results) => {
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0].file, "src/a.rs");
+            }
+            _ => panic!("expected Results output"),
+        }
+    }
+
+    #[test]
+    fn query_output_findings_field_serializes() {
+        use crate::audit::models::AuditFinding;
+
+        let output = QueryOutput {
+            results: Vec::new(),
+            files_parsed: 5,
+            total: 1,
+            read: None,
+            findings: Some(vec![AuditFinding {
+                file_path: "src/a.rs".to_string(),
+                line: 10,
+                column: 1,
+                severity: "warning".to_string(),
+                pipeline: "graph_query".to_string(),
+                pattern: "test".to_string(),
+                message: "Found issue".to_string(),
+                snippet: String::new(),
+            }]),
+        };
+
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"findings\""));
+        assert!(json.contains("src/a.rs"));
+        assert!(json.contains("warning"));
+    }
+
+    #[test]
+    fn query_output_no_findings_field_skipped() {
+        let output = QueryOutput {
+            results: Vec::new(),
+            files_parsed: 0,
+            total: 0,
+            read: None,
+            findings: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        // findings: None should be omitted from JSON (skip_serializing_if)
+        assert!(!json.contains("\"findings\""));
     }
 }

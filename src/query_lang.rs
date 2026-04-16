@@ -57,6 +57,10 @@ pub struct TsQuery {
     /// Read a file by path with optional line range (uses `lines` for range)
     #[serde(default)]
     pub read: Option<String>,
+
+    /// Graph pipeline stages. If present, executed after symbol filtering.
+    #[serde(default)]
+    pub graph: Option<Vec<crate::graph::pipeline::GraphStage>>,
 }
 
 #[derive(Debug, Deserialize)]

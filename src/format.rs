@@ -15,7 +15,34 @@ pub fn format_results(
         return format_read(read, pretty, project_name, query_ms);
     }
 
+    // Findings mode: graph pipeline ended with Flag stage
+    if let Some(ref findings) = output.findings {
+        return format_findings(findings, output, pretty, project_name, query_ms);
+    }
+
     let wrapper = build_wrapper(output, project_name, query_ms, format);
+
+    if pretty {
+        serde_json::to_string_pretty(&wrapper).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        serde_json::to_string(&wrapper).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+fn format_findings(
+    findings: &[crate::audit::models::AuditFinding],
+    output: &QueryOutput,
+    pretty: bool,
+    project_name: &str,
+    query_ms: u64,
+) -> String {
+    let wrapper = serde_json::json!({
+        "project": project_name,
+        "query_ms": query_ms,
+        "files_parsed": output.files_parsed,
+        "total": output.total,
+        "findings": findings,
+    });
 
     if pretty {
         serde_json::to_string_pretty(&wrapper).unwrap_or_else(|_| "{}".to_string())
