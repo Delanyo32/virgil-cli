@@ -325,7 +325,6 @@ mod tests {
     fn has_modifier_detects_public() {
         let src = "class Foo { public int x; }";
         let (tree, source) = parse_java(src);
-        // Find the field_declaration node
         let root = tree.root_node();
         let class_body = root
             .named_child(0)

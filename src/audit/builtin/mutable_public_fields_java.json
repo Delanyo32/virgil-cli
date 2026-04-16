@@ -1,0 +1,23 @@
+{
+  "pipeline": "mutable_public_fields",
+  "category": "code-quality",
+  "description": "Detects public non-final fields in Java that expose mutable state. Simplified from Rust: flags exported variable symbols. Cannot check for the final modifier, injection annotations (@Entity, @Autowired), volatile/transient fields, or record declarations.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {
+        "kind": ["variable"],
+        "exported": true
+      },
+      "exclude": {"is_test_file": true}
+    },
+    {
+      "flag": {
+        "pattern": "mutable_public_field",
+        "message": "exported variable symbol detected -- verify it is final or intentionally mutable (mutable_public_fields detection simplified: modifier analysis not available in JSON DSL)",
+        "severity": "warning"
+      }
+    }
+  ]
+}

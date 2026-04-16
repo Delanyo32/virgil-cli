@@ -1,0 +1,18 @@
+{
+  "pipeline": "magic_strings",
+  "category": "code-quality",
+  "description": "Detects magic string comparisons in Java via .equals() and .equalsIgnoreCase() with string literals. Simplified from Rust: flags all method_invocation nodes. Cannot filter to only equals/equalsIgnoreCase with string-literal arguments, skip empty/single-char strings, or detect reversed equals/switch-case/contains patterns.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(method_invocation name: (identifier) @method_name arguments: (argument_list (string_literal) @str_arg)) @invocation"
+    },
+    {
+      "flag": {
+        "pattern": "magic_string",
+        "message": "method call with string literal argument detected -- verify this is not a magic string comparison (consider defining a named constant)",
+        "severity": "info"
+      }
+    }
+  ]
+}

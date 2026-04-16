@@ -1,0 +1,18 @@
+{
+  "pipeline": "null_returns",
+  "category": "code-quality",
+  "description": "Detects return null statements in Java methods. Simplified from Rust: flags all return_statement nodes containing null_literal. Cannot distinguish public vs private methods, skip @Nullable/@SuppressWarnings annotated methods, detect ternary null, or avoid overlap with exception_swallowing.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(return_statement (null_literal) @null_val) @return_stmt"
+    },
+    {
+      "flag": {
+        "pattern": "null_return",
+        "message": "return null detected -- consider returning Optional<T> instead to make nullability explicit",
+        "severity": "info"
+      }
+    }
+  ]
+}

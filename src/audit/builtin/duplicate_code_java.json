@@ -1,0 +1,19 @@
+{
+  "pipeline": "duplicate_code",
+  "category": "code-quality",
+  "description": "Detects potentially duplicated method bodies and switch case arms in Java. Simplified from Rust: flags all method symbols as candidates. Cannot compute rolling-hash similarity, detect duplicate switch cases, or compare method bodies across files.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["method", "function"]}
+    },
+    {
+      "flag": {
+        "pattern": "potential_duplication",
+        "message": "method/function detected -- verify bodies are not duplicated across the codebase (duplicate_code detection simplified: hash-based comparison not available in JSON DSL)",
+        "severity": "info"
+      }
+    }
+  ]
+}

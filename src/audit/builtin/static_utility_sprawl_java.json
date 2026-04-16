@@ -1,0 +1,20 @@
+{
+  "pipeline": "static_utility_sprawl",
+  "category": "code-quality",
+  "description": "Detects Java classes where all methods are static, indicating utility sprawl. Simplified from Rust: flags class symbols as candidates. Cannot count static methods against the threshold (>3), check for private constructor, @UtilityClass annotation, or naming patterns (*Utils, *Helper).",
+  "languages": ["java"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["class"]},
+      "exclude": {"is_test_file": true}
+    },
+    {
+      "flag": {
+        "pattern": "static_utility_class",
+        "message": "class detected -- verify it does not have all-static methods without cohesion (static_utility_sprawl detection simplified: modifier analysis not available in JSON DSL)",
+        "severity": "info"
+      }
+    }
+  ]
+}

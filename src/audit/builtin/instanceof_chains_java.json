@@ -1,0 +1,18 @@
+{
+  "pipeline": "instanceof_chains",
+  "category": "code-quality",
+  "description": "Detects instanceof expressions in Java that may form long chains. Simplified from Rust: flags all instanceof_expression nodes. Cannot count chain length (threshold: 3), handle else-block-if patterns, or check @SuppressWarnings suppression.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(instanceof_expression) @instanceof"
+    },
+    {
+      "flag": {
+        "pattern": "instanceof_chain",
+        "message": "instanceof expression detected -- verify it is not part of a long chain (>=3); consider polymorphism or sealed classes instead",
+        "severity": "warning"
+      }
+    }
+  ]
+}

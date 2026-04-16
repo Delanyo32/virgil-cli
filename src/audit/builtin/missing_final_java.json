@@ -1,0 +1,18 @@
+{
+  "pipeline": "missing_final",
+  "category": "code-quality",
+  "description": "Detects private non-final fields in Java that could be made final. Simplified from Rust: flags all field_declaration nodes. Cannot check for private+non-final modifier combination, injection annotations (@Autowired, @Inject, @Value), volatile fields, or assignment-only-in-constructor detection.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(field_declaration) @field"
+    },
+    {
+      "flag": {
+        "pattern": "missing_final_field",
+        "message": "field declaration detected -- verify private fields are final where possible (missing_final detection simplified: modifier analysis not available in JSON DSL)",
+        "severity": "info"
+      }
+    }
+  ]
+}

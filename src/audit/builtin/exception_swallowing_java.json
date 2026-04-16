@@ -1,0 +1,18 @@
+{
+  "pipeline": "exception_swallowing",
+  "category": "code-quality",
+  "description": "Detects catch blocks that swallow exceptions in Java. Simplified from Rust: flags all catch_clause nodes as potential swallowing sites. Cannot distinguish empty vs. printStackTrace-only vs. logging catches, or check deliberate-intent comments and @SuppressWarnings annotations.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(catch_clause) @catch"
+    },
+    {
+      "flag": {
+        "pattern": "empty_catch",
+        "message": "catch block detected -- verify it does not silently swallow the exception (exception swallowing detection simplified: body analysis not available in JSON DSL)",
+        "severity": "warning"
+      }
+    }
+  ]
+}
