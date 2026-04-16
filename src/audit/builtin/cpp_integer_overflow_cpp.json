@@ -1,0 +1,18 @@
+{
+  "pipeline": "cpp_integer_overflow",
+  "category": "security",
+  "description": "Detects integer overflow risks in C++: unchecked multiplication in new[] allocation, signed-to-size_t casts, size_t subtraction underflow. Simplified from Rust per D-07: flags new_expression nodes broadly (cannot verify multiplication operand types or detect cast expressions without deep AST traversal).",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(new_expression) @new_expr"
+    },
+    {
+      "flag": {
+        "pattern": "unchecked_arithmetic",
+        "message": "new expression detected -- verify new T[a*b] does not perform unchecked integer multiplication (integer overflow leads to undersized allocation). Verify signed-to-size_t casts are safe (negative values wrap to large positive). Check size_t subtraction for underflow.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

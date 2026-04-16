@@ -1,0 +1,18 @@
+{
+  "pipeline": "cpp_race_conditions",
+  "category": "security",
+  "description": "Detects race condition risks in C++: class methods that modify shared state without mutex lock_guard, unsynchronized containers accessed from multiple threads. Simplified from Rust per D-07: matches field_declaration nodes in class bodies broadly (cannot verify mutex presence, method body mutation, or thread context without cross-node analysis).",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(class_specifier body: (field_declaration_list (field_declaration) @field)) @class"
+    },
+    {
+      "flag": {
+        "pattern": "thread_unsafe_field",
+        "message": "Class field declaration detected -- verify classes with mutable shared state (non-const fields) synchronize all mutating methods with std::lock_guard, std::unique_lock, or std::scoped_lock to prevent data races. Precision reduced: flags all class fields, not just those in classes with mutex fields.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

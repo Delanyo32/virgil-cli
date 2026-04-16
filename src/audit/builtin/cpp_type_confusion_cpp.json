@@ -1,0 +1,18 @@
+{
+  "pipeline": "cpp_type_confusion",
+  "category": "security",
+  "description": "Detects type confusion in C++: reinterpret_cast between unrelated types, unsafe static_cast downcasts, union with typed fields (type-punning risk). Simplified from Rust per D-07: flags new_expression nodes broadly (cannot verify cast target types or union field diversity without deep AST inspection).",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(new_expression) @new_expr"
+    },
+    {
+      "flag": {
+        "pattern": "type_confusion_cast",
+        "message": "new expression detected -- verify reinterpret_cast is not used between unrelated types, static_cast pointer downcasts are guarded by dynamic_cast checks, and unions with mixed-type fields use std::variant to prevent undefined behavior from inactive member access",
+        "severity": "warning"
+      }
+    }
+  ]
+}

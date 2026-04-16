@@ -1,0 +1,18 @@
+{
+  "pipeline": "cpp_exception_safety",
+  "category": "security",
+  "description": "Detects exception safety issues in C++: raw new without smart pointer wrapper, mutex.lock() without lock_guard, FILE* from fopen() without RAII. Simplified from Rust per D-07: matches new_expression nodes broadly (cannot verify try/catch presence, noexcept specifier, or smart pointer context without parent-chain analysis).",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(new_expression) @new_expr"
+    },
+    {
+      "flag": {
+        "pattern": "unguarded_allocation",
+        "message": "new expression detected -- verify raw new is wrapped in a smart pointer (unique_ptr, shared_ptr) or protected by try/catch to prevent resource leaks if an exception is thrown. Prefer std::make_unique/std::make_shared. Verify mutex.lock() is replaced by lock_guard. Verify FILE* from fopen() uses RAII wrapper.",
+        "severity": "warning"
+      }
+    }
+  ]
+}
