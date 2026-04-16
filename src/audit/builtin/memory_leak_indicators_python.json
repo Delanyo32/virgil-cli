@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leak_indicators",
+  "category": "scalability",
+  "description": "Detects potential memory leaks in Python: open() calls without with-statement, collection.append/extend/add in loops, __del__ method definitions. Simplified from Rust: flags all identifier function calls and attribute calls. Cannot verify absence of with-statement context, loop containment, or __del__ naming without #match? predicate support. All direct calls and attribute calls flagged.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "(call function: (identifier) @fn)"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "Direct function call detected -- verify open() calls are inside a with-statement or try/finally block to prevent file handle leaks",
+        "severity": "warning"
+      }
+    }
+  ]
+}

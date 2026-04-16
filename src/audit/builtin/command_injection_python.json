@@ -1,0 +1,18 @@
+{
+  "pipeline": "command_injection",
+  "category": "security",
+  "description": "Detects command injection risks in Python: os.system, os.popen, subprocess.run/call/Popen with dynamic arguments. Simplified from Rust: flags all attribute calls on os or subprocess objects. Cannot verify shell=True or non-literal args without #match? predicate support.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"
+    },
+    {
+      "flag": {
+        "pattern": "command_injection_call",
+        "message": "Command execution call detected -- verify dynamic user input is not passed to os.system, os.popen, subprocess.run, subprocess.call, or subprocess.Popen",
+        "severity": "error"
+      }
+    }
+  ]
+}
