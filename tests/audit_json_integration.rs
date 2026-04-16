@@ -1703,6 +1703,387 @@ fn go_type_confusion_go_clean() {
     );
 }
 
+// ── Phase 4: Python Security + Scalability Pipelines ──
+
+// ── command_injection (Python) ──
+
+#[test]
+fn command_injection_python_finds_attribute_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // Attribute call on os object -- triggers command_injection_call pattern
+    std::fs::write(
+        dir.path().join("test.py"),
+        "import os\nos.system(user_input)\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "command_injection_call"),
+        "expected command_injection/command_injection_call finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only import and constant declarations
+    std::fs::write(
+        dir.path().join("test.py"),
+        "TIMEOUT = 30\nMAX_RETRIES = 3\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".py")),
+        "expected no command_injection finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── code_injection (Python) ──
+
+#[test]
+fn code_injection_python_finds_direct_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // Direct identifier call -- triggers code_injection_call pattern
+    std::fs::write(
+        dir.path().join("test.py"),
+        "eval(user_input)\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "code_injection" && f.pattern == "code_injection_call"),
+        "expected code_injection/code_injection_call finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn code_injection_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only class and attribute definitions
+    std::fs::write(
+        dir.path().join("test.py"),
+        "class Config:\n    debug = False\n    timeout = 30\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "code_injection" && f.file_path.ends_with(".py")),
+        "expected no code_injection finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── path_traversal (Python) ──
+
+#[test]
+fn path_traversal_python_finds_attribute_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // Attribute call on path object -- triggers unvalidated_path_join pattern
+    // Note: os.path.join uses chained attributes; use single-level path.join for pattern match
+    std::fs::write(
+        dir.path().join("test.py"),
+        "import posixpath as path\npath.join(base_dir, user_path)\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "path_traversal" && f.pattern == "unvalidated_path_join"),
+        "expected path_traversal/unvalidated_path_join finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn path_traversal_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only constant and type definitions
+    std::fs::write(
+        dir.path().join("test.py"),
+        "BASE_DIR = '/srv/app'\nMAX_SIZE = 1024\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "path_traversal" && f.file_path.ends_with(".py")),
+        "expected no path_traversal finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── insecure_deserialization (Python) ──
+
+#[test]
+fn insecure_deserialization_python_finds_attribute_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // pickle.loads attribute call -- triggers insecure_deserialization pattern
+    std::fs::write(
+        dir.path().join("test.py"),
+        "import pickle\npickle.loads(data)\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.pattern == "insecure_deserialization"),
+        "expected insecure_deserialization finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn insecure_deserialization_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only variable and constant declarations
+    std::fs::write(
+        dir.path().join("test.py"),
+        "FORMAT = 'json'\nVERSION = '1.0'\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.file_path.ends_with(".py")),
+        "expected no insecure_deserialization finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── xxe_format_string (Python) ──
+
+#[test]
+fn xxe_format_string_python_finds_attribute_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // ET.fromstring attribute call -- triggers xxe_format_string pattern
+    std::fs::write(
+        dir.path().join("test.py"),
+        "import xml.etree.ElementTree as ET\nET.fromstring(user_data)\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "xxe_format_string" && f.pattern == "xxe_format_string"),
+        "expected xxe_format_string finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn xxe_format_string_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only constant declarations
+    std::fs::write(
+        dir.path().join("test.py"),
+        "XML_VERSION = '1.0'\nENCODING = 'utf-8'\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "xxe_format_string" && f.file_path.ends_with(".py")),
+        "expected no xxe_format_string finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── resource_exhaustion (Python, ReDoS) ──
+
+#[test]
+fn resource_exhaustion_python_finds_re_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // re.compile attribute call -- triggers redos_pattern
+    std::fs::write(
+        dir.path().join("test.py"),
+        "import re\nre.compile(pattern)\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "resource_exhaustion" && f.pattern == "redos_pattern"),
+        "expected resource_exhaustion/redos_pattern finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn resource_exhaustion_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only constant declarations
+    std::fs::write(
+        dir.path().join("test.py"),
+        "TIMEOUT = 30\nMAX_ATTEMPTS = 3\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "resource_exhaustion" && f.file_path.ends_with(".py")),
+        "expected no resource_exhaustion finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (Python, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_python_finds_open_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // open() direct call -- triggers potential_memory_leak pattern
+    std::fs::write(
+        dir.path().join("test.py"),
+        "f = open('file.txt')\ndata = f.read()\nf.close()\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_python_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only constant and class attribute declarations
+    std::fs::write(
+        dir.path().join("test.py"),
+        "BUFFER_SIZE = 4096\nENCODING = 'utf-8'\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.file_path.ends_with(".py")),
+        "expected no memory_leak_indicators finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
 // ── memory_leak_indicators (Go, Scalability) ──
 
 #[test]

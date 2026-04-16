@@ -13,16 +13,8 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
-pub mod code_injection;
-pub mod command_injection;
-pub mod insecure_deserialization;
-pub mod path_traversal;
-pub mod resource_exhaustion;
 pub mod sql_injection;
 pub mod ssrf;
-pub mod xxe_format_string;
-
-pub mod memory_leak_indicators;
 
 pub mod empty_test_files;
 pub mod test_assertions;
@@ -63,20 +55,12 @@ pub fn code_style_pipelines() -> Result<Vec<AnyPipeline>> {
 
 pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Graph(Box::new(command_injection::CommandInjectionPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(code_injection::CodeInjectionPipeline::new()?)),
         AnyPipeline::Graph(Box::new(sql_injection::SqlInjectionPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(path_traversal::PathTraversalPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(insecure_deserialization::InsecureDeserializationPipeline::new()?)),
         AnyPipeline::Graph(Box::new(ssrf::SsrfPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(xxe_format_string::XxeFormatStringPipeline::new()?)),
     ])
 }
 
 pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
-    Ok(vec![
-        AnyPipeline::Graph(Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?)),
-    ])
+    Ok(vec![])
 }
 
