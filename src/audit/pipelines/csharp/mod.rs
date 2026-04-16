@@ -13,11 +13,6 @@ pub mod stringly_typed;
 pub mod sync_over_async;
 pub mod thread_sleep;
 
-pub mod cognitive;
-pub mod comment_ratio;
-pub mod cyclomatic;
-pub mod function_length;
-
 pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
@@ -57,12 +52,7 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
 }
 
 pub fn complexity_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?),
-        Box::new(function_length::FunctionLengthPipeline::new()?),
-        Box::new(cognitive::CognitiveComplexityPipeline::new()?),
-        Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 
 pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
