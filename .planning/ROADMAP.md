@@ -85,7 +85,7 @@ Plans:
 **Plans:** 9 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Rust security + scalability migration (8 security + 1 scalability, template plan)
+- [x] 04-01-PLAN.md — Rust security + scalability migration (8 security + 1 scalability, template plan)
 - [ ] 04-02-PLAN.md — JavaScript/TypeScript security + scalability migration (7 shared + 2 TS-only + 2 scalability)
 - [ ] 04-03-PLAN.md — Go security + scalability migration (6 security + 1 scalability)
 - [ ] 04-04-PLAN.md — Python security + scalability migration (6 security + 1 scalability)
