@@ -1,0 +1,18 @@
+{
+  "pipeline": "type_juggling",
+  "category": "security",
+  "description": "Detects PHP type juggling risks: loose comparison (==) that may be exploited due to PHP's type coercion, and in_array/array_search without strict mode. JSON version flags all binary_expression nodes (cannot filter to only == comparisons involving superglobals without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(binary_expression left: (_) @left right: (_) @right) @bin_expr"
+    },
+    {
+      "flag": {
+        "pattern": "loose_comparison",
+        "message": "Binary expression detected -- verify comparison uses strict equality (===) rather than loose equality (==) to prevent type juggling vulnerabilities with user-controlled data",
+        "severity": "warning"
+      }
+    }
+  ]
+}

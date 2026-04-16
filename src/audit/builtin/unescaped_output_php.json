@@ -1,0 +1,18 @@
+{
+  "pipeline": "unescaped_output",
+  "category": "security",
+  "description": "Detects echo statements in PHP that may output user-controlled data without HTML escaping. JSON version flags all echo_statement nodes (cannot filter to only those containing superglobals without htmlspecialchars without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(echo_statement) @echo"
+    },
+    {
+      "flag": {
+        "pattern": "unescaped_output",
+        "message": "echo statement detected -- verify output is wrapped in htmlspecialchars() or htmlentities() to prevent XSS when outputting user-controlled data",
+        "severity": "warning"
+      }
+    }
+  ]
+}

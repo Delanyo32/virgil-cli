@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leak_indicators",
+  "category": "scalability",
+  "description": "Detects memory leak indicators in PHP: fopen/curl_init/mysql_connect resource handles that may not be properly closed, and array growth patterns in loops. JSON version flags all function_call_expression nodes (cannot filter to resource-acquiring functions or verify fclose pairing without cross-statement analysis). Precision reduced per D-09.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(function_call_expression function: (name) @fn_name arguments: (arguments) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "Function call detected -- verify resource-acquiring calls (fopen, curl_init, mysql_connect) have corresponding close/free calls (fclose, curl_close, mysql_close) to prevent resource leaks",
+        "severity": "warning"
+      }
+    }
+  ]
+}

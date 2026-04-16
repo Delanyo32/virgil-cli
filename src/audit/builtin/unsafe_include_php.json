@@ -1,0 +1,18 @@
+{
+  "pipeline": "unsafe_include",
+  "category": "security",
+  "description": "Detects include/require/include_once/require_once expressions in PHP. JSON version flags all include_expression and require_expression nodes (cannot filter to only those with dynamic paths without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "[(include_expression) (require_expression)] @include_expr"
+    },
+    {
+      "flag": {
+        "pattern": "unsafe_include",
+        "message": "include/require expression detected -- verify the path is a static string literal to prevent file inclusion attacks",
+        "severity": "error"
+      }
+    }
+  ]
+}
