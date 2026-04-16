@@ -581,6 +581,431 @@ fn sync_blocking_in_async_ts_clean_code() {
     );
 }
 
+// ── Phase 4: Rust Security + Scalability Pipelines ──
+
+// ── race_conditions (Rust) ──
+
+#[test]
+fn race_conditions_rust_finds_static_mut() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "static mut COUNTER: u32 = 0;\nfn main() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "race_conditions" && f.pattern == "static_mut"),
+        "expected race_conditions/static_mut finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn race_conditions_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // Immutable static -- no mutable_specifier
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "static COUNTER: u32 = 0;\nfn main() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "race_conditions"),
+        "expected no race_conditions finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── type_confusion (Rust) ──
+
+#[test]
+fn type_confusion_rust_finds_union() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "union MyUnion { i: i32, f: f32 }\nfn main() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "type_confusion" && f.pattern == "union_type_confusion"),
+        "expected type_confusion/union_type_confusion finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn type_confusion_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No union definitions -- only struct
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "struct Point { x: f32, y: f32 }\nfn main() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "type_confusion"),
+        "expected no type_confusion finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── unsafe_memory (Rust) ──
+
+#[test]
+fn unsafe_memory_rust_finds_unsafe_block() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn main() {\n    unsafe { let x = 1; }\n}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "unsafe_memory" && f.pattern == "unsafe_memory_operation"),
+        "expected unsafe_memory/unsafe_memory_operation finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn unsafe_memory_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No unsafe blocks at all
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "unsafe_memory"),
+        "expected no unsafe_memory finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── integer_overflow (Rust) ──
+
+#[test]
+fn integer_overflow_rust_finds_arithmetic() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn calc(n: u32) -> u32 { n * 2 }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "integer_overflow" && f.pattern == "unchecked_arithmetic"),
+        "expected integer_overflow/unchecked_arithmetic finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn integer_overflow_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No binary expressions -- only a struct with a constant field
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "struct Foo;\nconst MAX: u32 = 100;\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "integer_overflow"),
+        "expected no integer_overflow finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── path_traversal (Rust) ──
+
+#[test]
+fn path_traversal_rust_finds_method_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn f(p: std::path::PathBuf, s: &str) -> std::path::PathBuf { p.join(s) }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "path_traversal" && f.pattern == "unvalidated_path_operation"),
+        "expected path_traversal/unvalidated_path_operation finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn path_traversal_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls -- only a struct definition and a static
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "struct Config;\nstatic NAME: &str = \"app\";\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "path_traversal"),
+        "expected no path_traversal finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── resource_exhaustion (Rust) ──
+
+#[test]
+fn resource_exhaustion_rust_finds_scoped_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn f(n: usize) -> Vec<u8> { Vec::<u8>::with_capacity(n) }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "resource_exhaustion" && f.pattern == "unbounded_allocation"),
+        "expected resource_exhaustion/unbounded_allocation finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn resource_exhaustion_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No scoped identifier calls -- only a simple function with local arithmetic
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn add(a: u32, b: u32) -> u32 { a + b }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "resource_exhaustion"),
+        "expected no resource_exhaustion finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── panic_dos (Rust) ──
+
+#[test]
+fn panic_dos_rust_finds_method_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn f(x: Option<u32>) -> u32 { x.unwrap() }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "panic_dos" && f.pattern == "unwrap_untrusted"),
+        "expected panic_dos/unwrap_untrusted finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn panic_dos_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls at all -- only struct and constant definitions
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "struct Wrapper(u32);\nconst LIMIT: u32 = 1000;\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "panic_dos"),
+        "expected no panic_dos finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── toctou (Rust) ──
+
+#[test]
+fn toctou_rust_finds_method_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn check(p: &std::path::Path) -> bool { p.exists() }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "toctou" && f.pattern == "path_check_use_race"),
+        "expected toctou/path_check_use_race finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn toctou_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No method calls -- only type definitions
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "type PathStr = String;\nstruct FileInfo { name: String }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "toctou"),
+        "expected no toctou finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (Rust, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_rust_finds_scoped_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn leak() {\n    let s = String::from(\"hello\");\n    let _: &'static str = Box::leak(s.into_boxed_str());\n}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_rust_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No scoped calls -- only local variable declarations with literal values
+    std::fs::write(
+        dir.path().join("test.rs"),
+        "fn safe() {\n    let x: u32 = 42;\n    let y: bool = true;\n}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators"),
+        "expected no memory_leak_indicators finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
 // ── Phase 3: Cross-Language Verification (Rust + Python) ──
 
 #[test]

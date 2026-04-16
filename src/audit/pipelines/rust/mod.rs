@@ -15,17 +15,6 @@ pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
 
-pub mod integer_overflow;
-pub mod panic_dos;
-pub mod path_traversal;
-pub mod race_conditions;
-pub mod resource_exhaustion;
-pub mod toctou;
-pub mod type_confusion;
-pub mod unsafe_memory;
-
-pub mod memory_leak_indicators;
-
 use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
@@ -57,21 +46,10 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
 }
 
 pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(integer_overflow::IntegerOverflowPipeline::new()?),
-        Box::new(unsafe_memory::UnsafeMemoryPipeline::new()?),
-        Box::new(race_conditions::RaceConditionsPipeline::new()?),
-        Box::new(path_traversal::PathTraversalPipeline::new()?),
-        Box::new(resource_exhaustion::ResourceExhaustionPipeline::new()?),
-        Box::new(panic_dos::PanicDosPipeline::new()?),
-        Box::new(type_confusion::TypeConfusionPipeline::new()?),
-        Box::new(toctou::ToctouPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 
 pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 
