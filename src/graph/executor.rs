@@ -1621,6 +1621,46 @@ fn bar() { println!("ok"); }
     }
 
     #[test]
+    fn test_match_pattern_finds_function_in_typescript() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("sample.ts"),
+            "export function greet(name: string): string { return name; }\n",
+        )
+        .unwrap();
+        let ws =
+            crate::workspace::Workspace::load(dir.path(), &[Language::TypeScript], None).unwrap();
+        let stages = vec![
+            GraphStage::MatchPattern {
+                match_pattern: "(function_declaration name: (identifier) @name)".to_string(),
+            },
+            GraphStage::Flag {
+                flag: crate::graph::pipeline::FlagConfig {
+                    pattern: "ts_function".to_string(),
+                    message: "function at {{file}}:{{line}}".to_string(),
+                    severity: Some("info".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+        let graph = CodeGraph::new();
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "test_ts").unwrap();
+        match out {
+            PipelineOutput::Findings(findings) => {
+                assert!(!findings.is_empty(), "expected findings for TypeScript function");
+                assert!(
+                    findings[0].file_path.ends_with(".ts"),
+                    "expected .ts file path, got {}",
+                    findings[0].file_path
+                );
+                assert_eq!(findings[0].line, 1, "expected line 1");
+            }
+            _ => panic!("expected Findings"),
+        }
+    }
+
+    #[test]
     fn test_compute_metric_cyclomatic_flags_complex_function() {
         let dir = tempfile::tempdir().expect("tempdir");
         let src_dir = dir.path().join("src");
