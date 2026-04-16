@@ -1,0 +1,18 @@
+{
+  "pipeline": "command_injection",
+  "category": "security",
+  "description": "Detects command injection risks in Java: Runtime.exec() and new ProcessBuilder() calls. JSON version matches all method invocations and object creation expressions (cannot filter by method name or argument content without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(method_invocation name: (identifier) @method arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "command_injection_call",
+        "message": "Method invocation detected -- verify this is not Runtime.exec() or ProcessBuilder with dynamic user input",
+        "severity": "error"
+      }
+    }
+  ]
+}

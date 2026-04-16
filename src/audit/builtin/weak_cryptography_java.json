@@ -1,0 +1,18 @@
+{
+  "pipeline": "weak_cryptography",
+  "category": "security",
+  "description": "Detects weak cryptography in Java: MessageDigest.getInstance('MD5'/'SHA-1'), Cipher.getInstance('ECB'), Math.random, timing-unsafe String.equals. JSON version matches all method invocations (cannot filter by object or argument content without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(method_invocation name: (identifier) @method arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "weak_crypto_usage",
+        "message": "Method invocation detected -- verify this is not MessageDigest.getInstance with MD5/SHA-1, Cipher.getInstance with ECB mode, or timing-unsafe String.equals on secret values",
+        "severity": "warning"
+      }
+    }
+  ]
+}

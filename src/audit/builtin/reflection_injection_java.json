@@ -1,0 +1,18 @@
+{
+  "pipeline": "reflection_injection",
+  "category": "security",
+  "description": "Detects reflection and injection risks in Java: Class.forName(), Method.invoke(), ScriptEngine.eval(), JNDI lookup(). JSON version matches all method invocations (cannot filter by object or method name without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(method_invocation name: (identifier) @method arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "reflection_injection",
+        "message": "Method invocation detected -- verify this is not Class.forName(), Method.invoke(), ScriptEngine.eval(), or JNDI lookup() with dynamic user-controlled input",
+        "severity": "warning"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "insecure_deserialization",
+  "category": "security",
+  "description": "Detects insecure deserialization in Java: ObjectInputStream.readObject(), ObjectInputStream.readUnshared(). JSON version matches all method invocations (cannot filter by method name or receiver type without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(method_invocation name: (identifier) @method arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "insecure_deserialization",
+        "message": "Method invocation detected -- verify this is not ObjectInputStream.readObject() or readUnshared() deserializing untrusted data",
+        "severity": "error"
+      }
+    }
+  ]
+}
