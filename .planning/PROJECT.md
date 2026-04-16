@@ -85,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-16 after Phase 1 completion*
+*Last updated: 2026-04-16 after Phase 2 completion — executor stages `match_pattern` and `compute_metric` implemented; 5 stub stages removed*
