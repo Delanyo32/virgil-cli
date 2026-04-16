@@ -1,6 +1,7 @@
 pub mod analyzers;
 pub mod engine;
 pub mod format;
+pub mod json_audit;
 pub mod models;
 pub mod pipeline;
 pub mod pipelines;

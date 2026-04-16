@@ -1,0 +1,254 @@
+use crate::graph::pipeline::GraphStage;
+use serde::Deserialize;
+
+// ---------------------------------------------------------------------------
+// JsonAuditFile — represents a JSON audit pipeline file
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JsonAuditFile {
+    /// Rust pipeline name this overrides (e.g. "circular_dependencies")
+    pub pipeline: String,
+    /// Audit category: "architecture", "code-quality", "security", etc.
+    pub category: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Default severity used by Flag stages when no severity_map matches
+    #[serde(default)]
+    pub severity: Option<String>,
+    /// Language filter. If None, applies to all languages.
+    #[serde(default)]
+    pub languages: Option<Vec<String>>,
+    /// The pipeline stages to execute
+    pub graph: Vec<GraphStage>,
+}
+
+// ---------------------------------------------------------------------------
+// Built-in audit files (embedded at compile time)
+// ---------------------------------------------------------------------------
+
+fn builtin_audits() -> Vec<JsonAuditFile> {
+    let sources = [
+        include_str!("builtin/circular_dependencies.json"),
+        include_str!("builtin/dependency_depth.json"),
+        include_str!("builtin/api_surface_area.json"),
+        include_str!("builtin/module_size_distribution.json"),
+    ];
+    sources
+        .iter()
+        .filter_map(|src| {
+            match serde_json::from_str::<JsonAuditFile>(src) {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse built-in audit: {e}");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Discovery
+// ---------------------------------------------------------------------------
+
+/// Discover JSON audit files from: project-local → user-global → built-ins.
+/// If multiple files declare the same pipeline name, the first one wins
+/// (project-local beats user-global beats built-in).
+pub fn discover_json_audits(project_dir: Option<&std::path::Path>) -> Vec<JsonAuditFile> {
+    let mut seen_pipelines: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut result: Vec<JsonAuditFile> = Vec::new();
+
+    // 1. Project-local: {project_dir}/.virgil/audits/*.json
+    if let Some(dir) = project_dir {
+        let audit_dir = dir.join(".virgil").join("audits");
+        load_json_audits_from_dir(&audit_dir, &mut seen_pipelines, &mut result);
+    }
+
+    // 2. User-global: ~/.virgil-cli/audits/*.json
+    if let Some(home) = dirs::home_dir() {
+        let audit_dir = home.join(".virgil-cli").join("audits");
+        load_json_audits_from_dir(&audit_dir, &mut seen_pipelines, &mut result);
+    }
+
+    // 3. Built-ins (embedded in binary)
+    for audit in builtin_audits() {
+        if seen_pipelines.insert(audit.pipeline.clone()) {
+            result.push(audit);
+        }
+    }
+
+    result
+}
+
+fn load_json_audits_from_dir(
+    dir: &std::path::Path,
+    seen: &mut std::collections::HashSet<String>,
+    result: &mut Vec<JsonAuditFile>,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return, // directory doesn't exist or isn't readable — silently skip
+    };
+    let mut paths: Vec<std::path::PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .collect();
+    paths.sort(); // deterministic load order
+    for path in paths {
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str::<JsonAuditFile>(&content) {
+                Ok(audit) => {
+                    if seen.insert(audit.pipeline.clone()) {
+                        result.push(audit);
+                    }
+                }
+                Err(e) => eprintln!("Warning: failed to parse audit file {:?}: {e}", path),
+            },
+            Err(e) => eprintln!("Warning: failed to read audit file {:?}: {e}", path),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builtin_audits_returns_four() {
+        let audits = builtin_audits();
+        assert_eq!(audits.len(), 4, "Expected 4 built-in audits, got {}", audits.len());
+        for audit in &audits {
+            assert!(
+                !audit.graph.is_empty(),
+                "Built-in audit '{}' has empty graph",
+                audit.pipeline
+            );
+        }
+    }
+
+    #[test]
+    fn test_builtin_audit_pipeline_names() {
+        let audits = builtin_audits();
+        let names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
+        assert!(names.contains(&"circular_dependencies"));
+        assert!(names.contains(&"dependency_graph_depth"));
+        assert!(names.contains(&"api_surface_area"));
+        assert!(names.contains(&"module_size_distribution"));
+    }
+
+    #[test]
+    fn test_discover_json_audits_no_project_dir_returns_builtins() {
+        let audits = discover_json_audits(None);
+        assert!(
+            audits.len() >= 4,
+            "Expected at least 4 built-ins from discover_json_audits(None), got {}",
+            audits.len()
+        );
+    }
+
+    #[test]
+    fn test_discover_json_audits_project_local_overrides_builtin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let audit_dir = tmp.path().join(".virgil").join("audits");
+        std::fs::create_dir_all(&audit_dir).unwrap();
+
+        // Write a project-local file that overrides circular_dependencies
+        let override_content = r#"{
+            "pipeline": "circular_dependencies",
+            "category": "architecture",
+            "description": "project-local override",
+            "graph": [
+                {"select": "file"},
+                {"flag": {"pattern": "circular_dependency", "message": "Override", "severity": "warning"}}
+            ]
+        }"#;
+        std::fs::write(audit_dir.join("circular_dependencies.json"), override_content).unwrap();
+
+        let audits = discover_json_audits(Some(tmp.path()));
+
+        // The project-local override should appear before (and instead of) the built-in
+        let circular = audits
+            .iter()
+            .filter(|a| a.pipeline == "circular_dependencies")
+            .collect::<Vec<_>>();
+        assert_eq!(circular.len(), 1, "Should only have one circular_dependencies entry");
+        assert_eq!(
+            circular[0].description.as_deref(),
+            Some("project-local override"),
+            "Project-local override should take precedence"
+        );
+
+        // The project-local file should be first in the result list
+        assert_eq!(
+            audits[0].pipeline, "circular_dependencies",
+            "Project-local audit should appear first"
+        );
+
+        // All 4 pipeline names should still be present (3 built-ins + 1 override)
+        let pipeline_names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
+        assert!(pipeline_names.contains(&"circular_dependencies"));
+        assert!(pipeline_names.contains(&"dependency_graph_depth"));
+        assert!(pipeline_names.contains(&"api_surface_area"));
+        assert!(pipeline_names.contains(&"module_size_distribution"));
+    }
+
+    #[test]
+    fn test_discover_json_audits_invalid_json_is_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let audit_dir = tmp.path().join(".virgil").join("audits");
+        std::fs::create_dir_all(&audit_dir).unwrap();
+
+        // Write an invalid JSON file
+        std::fs::write(audit_dir.join("bad.json"), "{ this is not valid json }").unwrap();
+
+        // Should not panic; built-ins should still be returned
+        let audits = discover_json_audits(Some(tmp.path()));
+        assert!(
+            audits.len() >= 4,
+            "Should still return built-ins even with invalid project-local JSON"
+        );
+    }
+
+    #[test]
+    fn test_discover_json_audits_nonexistent_project_dir_is_ok() {
+        let nonexistent = std::path::Path::new("/tmp/__virgil_nonexistent_test_dir__");
+        // Should not panic
+        let audits = discover_json_audits(Some(nonexistent));
+        assert!(audits.len() >= 4);
+    }
+
+    #[test]
+    fn test_load_json_audits_from_dir_deduplicates() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Write two files with the same pipeline name
+        let content_a = r#"{
+            "pipeline": "my_pipeline",
+            "category": "architecture",
+            "description": "first",
+            "graph": [{"select": "file"}]
+        }"#;
+        let content_b = r#"{
+            "pipeline": "my_pipeline",
+            "category": "architecture",
+            "description": "second",
+            "graph": [{"select": "file"}]
+        }"#;
+        std::fs::write(tmp.path().join("a_pipeline.json"), content_a).unwrap();
+        std::fs::write(tmp.path().join("b_pipeline.json"), content_b).unwrap();
+
+        let mut seen = std::collections::HashSet::new();
+        let mut result = Vec::new();
+        load_json_audits_from_dir(tmp.path(), &mut seen, &mut result);
+
+        // Only the first alphabetically should be loaded (dedup)
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].description.as_deref(), Some("first"));
+    }
+}
