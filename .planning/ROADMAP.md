@@ -51,7 +51,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Create metrics module, update GraphStage enum (add MatchPattern/ComputeMetric, delete 5 stubs)
+- [x] 02-01-PLAN.md — Create metrics module, update GraphStage enum (add MatchPattern/ComputeMetric, delete 5 stubs)
 - [ ] 02-02-PLAN.md — Implement match_pattern + compute_metric executor stages, update engine.rs call site, add tests
 
 ### Phase 3: Tech Debt + Scalability JSON Migration
