@@ -86,14 +86,14 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — Rust security + scalability migration (8 security + 1 scalability, template plan)
-- [ ] 04-02-PLAN.md — JavaScript/TypeScript security + scalability migration (7 shared + 2 TS-only + 2 scalability)
-- [ ] 04-03-PLAN.md — Go security + scalability migration (6 security + 1 scalability)
-- [ ] 04-04-PLAN.md — Python security + scalability migration (6 security + 1 scalability)
-- [ ] 04-05-PLAN.md — Java security + scalability migration (6 security + 1 scalability)
-- [ ] 04-06-PLAN.md — C security + scalability migration (9 security + 1 scalability)
-- [ ] 04-07-PLAN.md — C++ security + scalability migration (9 security + 1 scalability)
-- [ ] 04-08-PLAN.md — C# security + scalability migration (6 security + 1 scalability)
-- [ ] 04-09-PLAN.md — PHP security + scalability migration (6 security + 1 scalability)
+- [x] 04-02-PLAN.md — JavaScript/TypeScript security + scalability migration (7 shared + 2 TS-only + 2 scalability)
+- [x] 04-03-PLAN.md — Go security + scalability migration (6 security + 1 scalability)
+- [x] 04-04-PLAN.md — Python security + scalability migration (6 security + 1 scalability)
+- [x] 04-05-PLAN.md — Java security + scalability migration (6 security + 1 scalability)
+- [x] 04-06-PLAN.md — C security + scalability migration (9 security + 1 scalability)
+- [x] 04-07-PLAN.md — C++ security + scalability migration (9 security + 1 scalability)
+- [x] 04-08-PLAN.md — C# security + scalability migration (6 security + 1 scalability)
+- [x] 04-09-PLAN.md — PHP security + scalability migration (6 security + 1 scalability)
 
 ### Phase 5: Final Cleanup + Test Health
 **Goal**: The codebase has no dead audit code — `src/audit/analyzers/` and `src/audit/pipelines/` contain only files still in active use; `cargo test` passes with zero failures as the final verified state
