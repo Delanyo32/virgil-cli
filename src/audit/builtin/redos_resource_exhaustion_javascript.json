@@ -1,0 +1,18 @@
+{
+  "pipeline": "redos_resource_exhaustion",
+  "category": "security",
+  "description": "Detects ReDoS and resource exhaustion in JavaScript/TypeScript: RegExp constructor with dynamic pattern, regex literals with nested quantifiers, req.on('data') without size limit. Simplified from Rust: flags all new_expression nodes (cannot filter to only RegExp constructor without #match? predicate support, and cannot check if pattern arg is non-literal). All new_expression nodes flagged -- higher false positive rate.",
+  "languages": ["javascript", "jsx", "typescript", "tsx"],
+  "graph": [
+    {
+      "match_pattern": "(new_expression constructor: (identifier) @ctor)"
+    },
+    {
+      "flag": {
+        "pattern": "dynamic_regex_construction",
+        "message": "new expression detected -- verify this is not new RegExp() with a dynamic (user-controlled) pattern argument",
+        "severity": "warning"
+      }
+    }
+  ]
+}

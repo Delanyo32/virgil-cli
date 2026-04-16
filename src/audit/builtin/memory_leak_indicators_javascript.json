@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leak_indicators",
+  "category": "scalability",
+  "description": "Detects potential memory leaks in JavaScript: addEventListener without corresponding removeEventListener, setInterval return value not stored (cannot be cleared). Simplified from Rust: flags all call_expression nodes with identifier function (cannot distinguish addEventListener from other calls or verify removeEventListener presence elsewhere in the file without #match? predicate support). All direct function calls flagged -- higher false positive rate than Rust version.",
+  "languages": ["javascript", "jsx"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn)"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "Direct function call detected -- verify addEventListener calls have corresponding removeEventListener and setInterval return values are stored for later clearInterval",
+        "severity": "warning"
+      }
+    }
+  ]
+}

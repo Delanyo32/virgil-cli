@@ -1,0 +1,18 @@
+{
+  "pipeline": "path_traversal",
+  "category": "security",
+  "description": "Detects path traversal in JavaScript/TypeScript: path.join/resolve with dynamic args, fs.readFile/readFileSync with variables. Simplified from Rust: flags all member expression call_expressions (cannot filter to only path.join/path.resolve/fs.readFile or check if args are non-literal without #match? predicate support). All method calls flagged.",
+  "languages": ["javascript", "jsx", "typescript", "tsx"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method))"
+    },
+    {
+      "flag": {
+        "pattern": "unvalidated_path_operation",
+        "message": "Member expression call detected -- verify this is not a path operation (path.join, path.resolve, fs.readFile) with unvalidated user input",
+        "severity": "warning"
+      }
+    }
+  ]
+}

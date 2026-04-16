@@ -1,0 +1,18 @@
+{
+  "pipeline": "code_injection",
+  "category": "security",
+  "description": "Detects code injection in JavaScript/TypeScript: eval(), new Function(), setTimeout/setInterval with string argument, vm.runInContext. Simplified from Rust: flags all call_expression nodes with an identifier function (cannot filter to only eval/setTimeout/setInterval without #match? predicate support, and cannot check if first arg is non-literal). All direct calls and new_expression with Function constructor flagged.",
+  "languages": ["javascript", "jsx", "typescript", "tsx"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn)"
+    },
+    {
+      "flag": {
+        "pattern": "code_injection_call",
+        "message": "Direct function call detected -- verify this is not eval(), setTimeout(), or setInterval() with a dynamic string argument",
+        "severity": "error"
+      }
+    }
+  ]
+}

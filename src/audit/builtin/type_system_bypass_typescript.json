@@ -1,0 +1,18 @@
+{
+  "pipeline": "type_system_bypass",
+  "category": "security",
+  "description": "Detects TypeScript type system bypasses: 'as' cast on untrusted data (req.body, JSON.parse), double cast (as X as Y), non-null assertion on untrusted sources. Simplified from Rust: flags all as_expression nodes (cannot check if the expression references an untrusted source like req.body or JSON.parse without #match? predicate support). All type assertions flagged -- higher false positive rate than Rust version.",
+  "languages": ["typescript", "tsx"],
+  "graph": [
+    {
+      "match_pattern": "(as_expression) @as_expr"
+    },
+    {
+      "flag": {
+        "pattern": "type_system_bypass",
+        "message": "Type assertion (as expression) detected -- verify this cast is safe and not applied to untrusted data (req.body, JSON.parse results, user input)",
+        "severity": "warning"
+      }
+    }
+  ]
+}
