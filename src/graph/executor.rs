@@ -35,12 +35,8 @@ pub enum PipelineOutput {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Execute a graph pipeline against a `CodeGraph`.
-///
-/// - `stages`: ordered sequence of [`GraphStage`] steps
-/// - `graph`: the code graph to operate on
-/// - `seed_nodes`: optional pre-seeded nodes from a prior symbol search
-/// - `pipeline_name`: used as `AuditFinding::pipeline` when the last stage is `Flag`
+/// Alias for [`run_pipeline`]. Prefer calling [`run_pipeline`] directly.
+/// Kept for backward compatibility.
 pub fn execute_graph_pipeline(
     stages: &[GraphStage],
     graph: &CodeGraph,
@@ -66,17 +62,7 @@ pub fn run_pipeline(
 ) -> anyhow::Result<PipelineOutput> {
     // Helper closures for WhereClause::eval
     let is_test_fn = |path: &str| is_test_file(path);
-    let is_generated_fn = |path: &str| {
-        let p = path.replace('\\', "/");
-        p.ends_with(".pb.go")
-            || p.ends_with("_gen.go")
-            || p.ends_with("_generated.go")
-            || p.ends_with(".pb.h")
-            || p.ends_with(".pb.cc")
-            || p.contains("/generated/")
-            || p.starts_with("generated/")
-            || is_excluded_for_arch_analysis(path)
-    };
+    let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
     let is_barrel_fn = |path: &str| is_barrel_file(path);
 
     // Determine if last stage is Flag
@@ -836,7 +822,7 @@ fn node_path(nw: &NodeWeight) -> String {
 }
 
 /// Walk the SCC members via DFS along edges of the given type to produce an ordered
-/// cycle path string like `"a.rs → b.rs → c.rs → a.rs"`.
+/// cycle path string like `"a.rs -> b.rs -> c.rs -> a.rs"`.
 /// Falls back to sorted member paths if no Hamiltonian cycle walk is found.
 fn ordered_cycle_path_for_edge(
     members: &[NodeIndex],
@@ -878,14 +864,14 @@ fn ordered_cycle_path_for_edge(
             .filter(|p| !p.is_empty())
             .collect();
         sorted.sort();
-        return sorted.join(" → ");
+        return sorted.join(" -> ");
     }
 
     path.iter()
         .map(|&idx| node_path(&graph.graph[idx]))
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
-        .join(" → ")
+        .join(" -> ")
 }
 
 // ---------------------------------------------------------------------------
