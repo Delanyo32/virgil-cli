@@ -1,4 +1,5 @@
 use crate::graph::pipeline::GraphStage;
+use include_dir::{include_dir, Dir};
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -27,20 +28,25 @@ pub struct JsonAuditFile {
 // Built-in audit files (embedded at compile time)
 // ---------------------------------------------------------------------------
 
+static BUILTIN_AUDITS_DIR: Dir<'static> =
+    include_dir!("$CARGO_MANIFEST_DIR/src/audit/builtin");
+
 fn builtin_audits() -> Vec<JsonAuditFile> {
-    let sources = [
-        include_str!("builtin/circular_dependencies.json"),
-        include_str!("builtin/dependency_depth.json"),
-        include_str!("builtin/api_surface_area.json"),
-        include_str!("builtin/module_size_distribution.json"),
-    ];
-    sources
-        .iter()
-        .filter_map(|src| {
+    BUILTIN_AUDITS_DIR
+        .files()
+        .filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("json"))
+        .filter_map(|f| {
+            let src = match f.contents_utf8() {
+                Some(s) => s,
+                None => {
+                    eprintln!("Warning: built-in audit file {:?} is not valid UTF-8", f.path());
+                    return None;
+                }
+            };
             match serde_json::from_str::<JsonAuditFile>(src) {
-                Ok(f) => Some(f),
+                Ok(audit) => Some(audit),
                 Err(e) => {
-                    eprintln!("Warning: failed to parse built-in audit: {e}");
+                    eprintln!("Warning: failed to parse built-in audit {:?}: {e}", f.path());
                     None
                 }
             }
@@ -122,7 +128,7 @@ mod tests {
     #[test]
     fn test_builtin_audits_returns_four() {
         let audits = builtin_audits();
-        assert_eq!(audits.len(), 4, "Expected 4 built-in audits, got {}", audits.len());
+        assert!(audits.len() >= 4, "Expected at least 4 built-in audits, got {}", audits.len());
         for audit in &audits {
             assert!(
                 !audit.graph.is_empty(),
