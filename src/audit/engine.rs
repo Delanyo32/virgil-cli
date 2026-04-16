@@ -282,6 +282,8 @@ impl AuditEngine {
                 match crate::graph::executor::run_pipeline(
                     &json_audit.graph,
                     g,
+                    Some(workspace),
+                    json_audit.languages.as_deref(),
                     None,
                     &json_audit.pipeline,
                 ) {
