@@ -29,6 +29,7 @@ pub struct AuditEngine {
     pipeline_filter: Vec<String>,
     pipeline_selector: PipelineSelector,
     progress: Option<indicatif::ProgressBar>,
+    project_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for AuditEngine {
@@ -44,6 +45,7 @@ impl AuditEngine {
             pipeline_filter: Vec::new(),
             pipeline_selector: PipelineSelector::TechDebt,
             progress: None,
+            project_dir: None,
         }
     }
 
@@ -67,11 +69,27 @@ impl AuditEngine {
         self
     }
 
+    pub fn project_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.project_dir = Some(dir);
+        self
+    }
+
     pub fn run(
         &self,
         workspace: &Workspace,
         graph: Option<&CodeGraph>,
     ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
+        // Discover JSON audit files (project-local → user-global → built-ins)
+        let json_audits = crate::audit::json_audit::discover_json_audits(
+            self.project_dir.as_deref(),
+        );
+
+        // Build a set of pipeline names that JSON audits override
+        let json_pipeline_names: std::collections::HashSet<String> = json_audits
+            .iter()
+            .map(|a| a.pipeline.clone())
+            .collect();
+
         // Build pipelines per language, apply filter
         let mut pipeline_map: HashMap<Language, Vec<Arc<AnyPipeline>>> = HashMap::new();
         for lang in &self.languages {
@@ -223,12 +241,56 @@ impl AuditEngine {
                     _ => Vec::new(),
                 };
 
+            // JSON audits override Rust analyzers with the same pipeline name
+            project_analyzers.retain(|a| !json_pipeline_names.contains(a.name()));
+
             if !self.pipeline_filter.is_empty() {
                 project_analyzers.retain(|a| self.pipeline_filter.contains(&a.name().to_string()));
             }
 
             for analyzer in &project_analyzers {
                 findings.extend(analyzer.analyze(g));
+            }
+        }
+
+        // Run JSON audit pipelines after Rust pipelines
+        if let Some(g) = graph {
+            for json_audit in &json_audits {
+                // Apply pipeline filter if set
+                if !self.pipeline_filter.is_empty()
+                    && !self.pipeline_filter.contains(&json_audit.pipeline)
+                {
+                    continue;
+                }
+
+                // Apply language filter: skip if none of the engine's languages match
+                if let Some(ref langs) = json_audit.languages {
+                    let matches = langs.iter().any(|lang_str| {
+                        self.languages
+                            .iter()
+                            .any(|l| l.as_str().eq_ignore_ascii_case(lang_str))
+                    });
+                    if !matches {
+                        continue;
+                    }
+                }
+
+                match crate::graph::executor::run_pipeline(
+                    &json_audit.graph,
+                    g,
+                    None,
+                    &json_audit.pipeline,
+                ) {
+                    Ok(crate::graph::executor::PipelineOutput::Findings(new_findings)) => {
+                        findings.extend(new_findings);
+                    }
+                    Ok(crate::graph::executor::PipelineOutput::Results(_)) => {
+                        // Non-flag pipelines in audit context don't produce findings
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: JSON audit '{}' failed: {e}", json_audit.pipeline);
+                    }
+                }
             }
         }
 
@@ -357,5 +419,111 @@ mod tests {
 
         assert!(findings.is_empty());
         assert_eq!(summary.files_scanned, 0);
+    }
+
+    /// JSON audit findings appear in the output when a graph is supplied.
+    #[test]
+    fn engine_json_audit_findings_merged() {
+        use crate::graph::builder::GraphBuilder;
+
+        // Source dir: one Rust file
+        let src_dir = tempfile::tempdir().expect("src_dir");
+        std::fs::write(src_dir.path().join("lib.rs"), "fn main() {}").unwrap();
+
+        let workspace =
+            Workspace::load(src_dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
+        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
+            .build()
+            .expect("graph build");
+
+        // Project dir: contains a .virgil/audits/ JSON audit that flags every file
+        let proj_dir = tempfile::tempdir().expect("proj_dir");
+        let audit_dir = proj_dir.path().join(".virgil").join("audits");
+        std::fs::create_dir_all(&audit_dir).unwrap();
+        let audit_json = r#"{
+            "pipeline": "always_flag_test",
+            "category": "architecture",
+            "description": "test: flag every file",
+            "graph": [
+                {"select": "file"},
+                {"flag": {"pattern": "test_flag", "message": "flagged {{file}}", "severity": "info"}}
+            ]
+        }"#;
+        std::fs::write(audit_dir.join("always_flag_test.json"), audit_json).unwrap();
+
+        let (findings, summary) = AuditEngine::new()
+            .languages(vec![Language::Rust])
+            .pipeline_selector(PipelineSelector::Architecture)
+            .project_dir(proj_dir.path().to_path_buf())
+            .run(&workspace, Some(&graph))
+            .unwrap();
+
+        // The JSON audit should have flagged lib.rs
+        assert!(
+            findings.iter().any(|f| f.pipeline == "always_flag_test"),
+            "expected findings from JSON audit; got: {:?}",
+            findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+        );
+        assert!(summary.total_findings > 0);
+    }
+
+    /// When a JSON audit has the same pipeline name as a built-in Rust
+    /// ProjectAnalyzer, the Rust analyzer is skipped (JSON wins).
+    #[test]
+    fn engine_json_audit_overrides_rust_project_analyzer() {
+        use crate::audit::analyzers;
+
+        // Verify that "circular_dependencies" is among the architecture analyzers
+        // (so we know we're testing a real override).
+        let arch_analyzers = analyzers::architecture_analyzers();
+        let arch_names: Vec<&str> = arch_analyzers.iter().map(|a| a.name()).collect();
+        assert!(
+            arch_names.contains(&"circular_dependencies"),
+            "precondition: circular_dependencies must be an architecture analyzer"
+        );
+
+        // Build a project dir with a JSON audit that overrides circular_dependencies
+        let proj_dir = tempfile::tempdir().expect("proj_dir");
+        let audit_dir = proj_dir.path().join(".virgil").join("audits");
+        std::fs::create_dir_all(&audit_dir).unwrap();
+        let override_json = r#"{
+            "pipeline": "circular_dependencies",
+            "category": "architecture",
+            "description": "JSON override of circular_dependencies",
+            "graph": [
+                {"select": "file"},
+                {"flag": {"pattern": "json_circular", "message": "json override {{file}}", "severity": "info"}}
+            ]
+        }"#;
+        std::fs::write(
+            audit_dir.join("circular_dependencies.json"),
+            override_json,
+        )
+        .unwrap();
+
+        let src_dir = tempfile::tempdir().expect("src_dir");
+        std::fs::write(src_dir.path().join("a.rs"), "fn foo() {}").unwrap();
+        let workspace =
+            Workspace::load(src_dir.path(), &[Language::Rust], Some(1_000_000)).unwrap();
+        let graph = crate::graph::builder::GraphBuilder::new(&workspace, &[Language::Rust])
+            .build()
+            .expect("graph build");
+
+        let (findings, _) = AuditEngine::new()
+            .languages(vec![Language::Rust])
+            .pipeline_selector(PipelineSelector::Architecture)
+            .project_dir(proj_dir.path().to_path_buf())
+            .run(&workspace, Some(&graph))
+            .unwrap();
+
+        // The JSON override should produce json_circular findings, not the Rust analyzer output
+        let json_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pipeline == "circular_dependencies" && f.pattern == "json_circular")
+            .collect();
+        assert!(
+            !json_findings.is_empty(),
+            "expected json_circular findings from the JSON override"
+        );
     }
 }
