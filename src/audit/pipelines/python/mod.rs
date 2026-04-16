@@ -31,9 +31,6 @@ pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
 
-pub mod api_surface_area;
-pub mod module_size_distribution;
-
 pub mod empty_test_files;
 pub mod test_assertions;
 pub mod test_hygiene;
@@ -98,8 +95,5 @@ pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
 }
 
 pub fn architecture_pipelines() -> Result<Vec<AnyPipeline>> {
-    Ok(vec![
-        AnyPipeline::Graph(Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(api_surface_area::ApiSurfaceAreaPipeline::new()?)),
-    ])
+    Ok(vec![])
 }

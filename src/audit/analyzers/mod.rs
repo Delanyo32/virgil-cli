@@ -1,7 +1,5 @@
-pub mod circular_deps;
 pub mod coupling;
 pub mod dead_exports;
-pub mod dependency_depth;
 pub mod duplicate_symbols;
 
 use super::project_analyzer::ProjectAnalyzer;
@@ -9,8 +7,6 @@ use super::project_analyzer::ProjectAnalyzer;
 /// Project analyzers for the Architecture category.
 pub fn architecture_analyzers() -> Vec<Box<dyn ProjectAnalyzer>> {
     vec![
-        Box::new(circular_deps::CircularDepsAnalyzer),
-        Box::new(dependency_depth::DependencyDepthAnalyzer),
         Box::new(coupling::CouplingAnalyzer),
     ]
 }

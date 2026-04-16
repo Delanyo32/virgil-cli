@@ -28,9 +28,6 @@ pub mod memory_leak_indicators;
 pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
 
-pub mod api_surface_area;
-pub mod module_size_distribution;
-
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines;
 use crate::language::Language;
@@ -100,9 +97,6 @@ pub fn scalability_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>
     ])
 }
 
-pub fn architecture_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(module_size_distribution::ModuleSizeDistributionPipeline::new(language)?),
-        Box::new(api_surface_area::ApiSurfaceAreaPipeline::new(language)?),
-    ])
+pub fn architecture_pipelines(_language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![])
 }

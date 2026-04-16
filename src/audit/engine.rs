@@ -467,36 +467,36 @@ mod tests {
         assert!(summary.total_findings > 0);
     }
 
-    /// When a JSON audit has the same pipeline name as a built-in Rust
+    /// When a project-local JSON audit has the same pipeline name as a built-in Rust
     /// ProjectAnalyzer, the Rust analyzer is skipped (JSON wins).
     #[test]
     fn engine_json_audit_overrides_rust_project_analyzer() {
         use crate::audit::analyzers;
 
-        // Verify that "circular_dependencies" is among the architecture analyzers
-        // (so we know we're testing a real override).
+        // Verify that "cross_file_coupling" is among the architecture analyzers
+        // (so we know we're testing a real override of a Rust ProjectAnalyzer).
         let arch_analyzers = analyzers::architecture_analyzers();
         let arch_names: Vec<&str> = arch_analyzers.iter().map(|a| a.name()).collect();
         assert!(
-            arch_names.contains(&"circular_dependencies"),
-            "precondition: circular_dependencies must be an architecture analyzer"
+            arch_names.contains(&"cross_file_coupling"),
+            "precondition: cross_file_coupling must be an architecture analyzer"
         );
 
-        // Build a project dir with a JSON audit that overrides circular_dependencies
+        // Build a project dir with a JSON audit that overrides cross_file_coupling
         let proj_dir = tempfile::tempdir().expect("proj_dir");
         let audit_dir = proj_dir.path().join(".virgil").join("audits");
         std::fs::create_dir_all(&audit_dir).unwrap();
         let override_json = r#"{
-            "pipeline": "circular_dependencies",
+            "pipeline": "cross_file_coupling",
             "category": "architecture",
-            "description": "JSON override of circular_dependencies",
+            "description": "JSON override of cross_file_coupling",
             "graph": [
                 {"select": "file"},
-                {"flag": {"pattern": "json_circular", "message": "json override {{file}}", "severity": "info"}}
+                {"flag": {"pattern": "json_coupling", "message": "json override {{file}}", "severity": "info"}}
             ]
         }"#;
         std::fs::write(
-            audit_dir.join("circular_dependencies.json"),
+            audit_dir.join("cross_file_coupling.json"),
             override_json,
         )
         .unwrap();
@@ -516,14 +516,14 @@ mod tests {
             .run(&workspace, Some(&graph))
             .unwrap();
 
-        // The JSON override should produce json_circular findings, not the Rust analyzer output
+        // The JSON override should produce json_coupling findings, not the Rust analyzer output
         let json_findings: Vec<_> = findings
             .iter()
-            .filter(|f| f.pipeline == "circular_dependencies" && f.pattern == "json_circular")
+            .filter(|f| f.pipeline == "cross_file_coupling" && f.pattern == "json_coupling")
             .collect();
         assert!(
             !json_findings.is_empty(),
-            "expected json_circular findings from the JSON override"
+            "expected json_coupling findings from the JSON override"
         );
     }
 }
