@@ -627,7 +627,7 @@ fn run_architecture_ws(
     let languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
     } else {
-        audit::pipeline::supported_architecture_languages()
+        Language::all().to_vec()
     };
 
     let start = Instant::now();
@@ -909,11 +909,7 @@ fn run_full_audit_ws(
     // Architecture
     overall.set_message("Auditing: Architecture");
     let file_pb = mp.add(create_audit_progress_bar());
-    let arch_languages: Vec<Language> = all_languages
-        .iter()
-        .copied()
-        .filter(|l| audit::pipeline::supported_architecture_languages().contains(l))
-        .collect();
+    let arch_languages: Vec<Language> = all_languages.clone();
     let (_, arch_summary) = audit::engine::AuditEngine::new()
         .languages(arch_languages)
         .pipeline_selector(audit::engine::PipelineSelector::Architecture)

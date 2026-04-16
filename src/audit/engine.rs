@@ -102,7 +102,8 @@ impl AuditEngine {
                     pipeline::scalability_pipelines_for_language(*lang)?
                 }
                 PipelineSelector::Architecture => {
-                    pipeline::architecture_pipelines_for_language(*lang)?
+                    // All architecture pipelines are now JSON-only
+                    vec![]
                 }
             };
 

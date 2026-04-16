@@ -261,36 +261,3 @@ pub fn supported_scalability_languages() -> Vec<Language> {
     ]
 }
 
-pub fn architecture_pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
-    match language {
-        Language::Python => pipelines::python::architecture_pipelines(),
-        Language::Rust => wrap_legacy(pipelines::rust::architecture_pipelines()),
-        Language::Go => wrap_legacy(pipelines::go::architecture_pipelines()),
-        Language::Php => wrap_legacy(pipelines::php::architecture_pipelines()),
-        Language::Java => wrap_legacy(pipelines::java::architecture_pipelines()),
-        Language::JavaScript => wrap_legacy(pipelines::javascript::architecture_pipelines()),
-        Language::TypeScript | Language::Tsx => {
-            wrap_legacy(pipelines::typescript::architecture_pipelines(language))
-        }
-        Language::C => wrap_legacy(pipelines::c::architecture_pipelines()),
-        Language::Cpp => wrap_legacy(pipelines::cpp::architecture_pipelines()),
-        Language::CSharp => wrap_legacy(pipelines::csharp::architecture_pipelines()),
-        _ => Ok(vec![]),
-    }
-}
-
-pub fn supported_architecture_languages() -> Vec<Language> {
-    vec![
-        Language::Rust,
-        Language::Go,
-        Language::Python,
-        Language::Php,
-        Language::Java,
-        Language::JavaScript,
-        Language::TypeScript,
-        Language::Tsx,
-        Language::C,
-        Language::Cpp,
-        Language::CSharp,
-    ]
-}

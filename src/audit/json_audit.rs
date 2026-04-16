@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_builtin_audits_returns_four() {
         let audits = builtin_audits();
-        assert!(audits.len() >= 4, "Expected at least 4 built-in audits, got {}", audits.len());
+        assert!(audits.len() >= 36, "Expected at least 36 built-in audits, got {}", audits.len());
         for audit in &audits {
             assert!(
                 !audit.graph.is_empty(),
@@ -142,10 +142,11 @@ mod tests {
     fn test_builtin_audit_pipeline_names() {
         let audits = builtin_audits();
         let names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
-        assert!(names.contains(&"circular_dependencies"));
-        assert!(names.contains(&"dependency_graph_depth"));
-        assert!(names.contains(&"api_surface_area"));
-        assert!(names.contains(&"module_size_distribution"));
+        // Per-language pipeline names (representative samples from the 36 built-ins)
+        assert!(names.contains(&"circular_dependencies_rust"), "missing circular_dependencies_rust in {:?}", names);
+        assert!(names.contains(&"dependency_graph_depth_javascript"), "missing dependency_graph_depth_javascript in {:?}", names);
+        assert!(names.contains(&"api_surface_area_python"), "missing api_surface_area_python in {:?}", names);
+        assert!(names.contains(&"module_size_distribution_go"), "missing module_size_distribution_go in {:?}", names);
     }
 
     #[test]
@@ -196,12 +197,11 @@ mod tests {
             "Project-local audit should appear first"
         );
 
-        // All 4 pipeline names should still be present (3 built-ins + 1 override)
+        // Per-language built-ins should still be present alongside the override
         let pipeline_names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
         assert!(pipeline_names.contains(&"circular_dependencies"));
-        assert!(pipeline_names.contains(&"dependency_graph_depth"));
-        assert!(pipeline_names.contains(&"api_surface_area"));
-        assert!(pipeline_names.contains(&"module_size_distribution"));
+        assert!(pipeline_names.contains(&"circular_dependencies_rust"), "per-language built-in should still be present");
+        assert!(pipeline_names.contains(&"module_size_distribution_go"), "per-language built-in should still be present");
     }
 
     #[test]

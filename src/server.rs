@@ -255,10 +255,7 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 (
                     "architecture",
                     PipelineSelector::Architecture,
-                    filter_languages(
-                        user_languages,
-                        audit::pipeline::supported_architecture_languages(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
             ];
 
@@ -372,10 +369,7 @@ async fn handle_audit_category(
             let (selector, langs) = match category.as_str() {
                 "architecture" => (
                     PipelineSelector::Architecture,
-                    filter_languages(
-                        user_languages,
-                        audit::pipeline::supported_architecture_languages(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 "security" => (
                     PipelineSelector::Security,

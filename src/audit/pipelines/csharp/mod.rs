@@ -95,6 +95,3 @@ pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     ])
 }
 
-pub fn architecture_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![])
-}
