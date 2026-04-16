@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 5 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Engine fixes: include_dir auto-discovery + doubled-findings suppression
+- [x] 01-01-PLAN.md — Engine fixes: include_dir auto-discovery + doubled-findings suppression
 - [ ] 01-02-PLAN.md — JSON architecture pipelines for TypeScript/JS, Python, Rust, Go, Java (20 files)
 - [ ] 01-03-PLAN.md — JSON architecture pipelines for C, C++, C#, PHP (16 files)
 - [ ] 01-04-PLAN.md — Delete old JSON files + remove Rust architecture stubs
