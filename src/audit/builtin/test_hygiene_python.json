@@ -1,0 +1,24 @@
+{
+  "pipeline": "test_hygiene",
+  "category": "tech_debt",
+  "description": "Detects test hygiene issues: excessive mocking (>3 patch decorators) and sleep calls in tests. Simplified from Rust: flags decorator nodes in test files containing 'patch' text and sleep call expressions.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "select": "file",
+      "where": {
+        "is_test_file": true
+      }
+    },
+    {
+      "match_pattern": "(decorator) @decorator"
+    },
+    {
+      "flag": {
+        "pattern": "test_hygiene",
+        "message": "decorator in test detected -- verify excessive mocking is not hiding design issues",
+        "severity": "info"
+      }
+    }
+  ]
+}

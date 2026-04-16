@@ -1,0 +1,18 @@
+{
+  "pipeline": "mutable_default_args",
+  "category": "tech_debt",
+  "description": "Detects mutable default arguments (list, dict, set literals and mutable constructor calls) in function parameters. Simplified from Rust: flags all default_parameter and typed_default_parameter nodes.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "[(default_parameter) @param (typed_default_parameter) @param]"
+    },
+    {
+      "flag": {
+        "pattern": "mutable_default_arg",
+        "message": "default parameter detected -- verify the default value is not a mutable container (list, dict, set) -- use None and initialize inside the function",
+        "severity": "warning"
+      }
+    }
+  ]
+}

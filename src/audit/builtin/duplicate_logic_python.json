@@ -1,0 +1,21 @@
+{
+  "pipeline": "duplicate_logic",
+  "category": "tech_debt",
+  "description": "Detects functions with similar parameter signatures (potential copy-paste duplication). Simplified from Rust: uses select:symbol to enumerate all function and method symbols.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {
+        "kind": ["function", "method"]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "potential_duplication",
+        "message": "function detected -- review for duplicate logic compared to similarly-structured functions",
+        "severity": "info"
+      }
+    }
+  ]
+}

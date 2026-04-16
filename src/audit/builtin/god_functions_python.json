@@ -1,0 +1,29 @@
+{
+  "pipeline": "god_functions",
+  "category": "tech_debt",
+  "description": "Detects functions exceeding size thresholds (>50 lines). Uses compute_metric function_length to measure body size.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {
+        "kind": ["function", "method"]
+      }
+    },
+    {
+      "compute_metric": "function_length"
+    },
+    {
+      "threshold": {
+        "gte": 51
+      }
+    },
+    {
+      "flag": {
+        "pattern": "god_function",
+        "message": "function is too large -- consider splitting into smaller focused functions",
+        "severity": "warning"
+      }
+    }
+  ]
+}

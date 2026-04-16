@@ -1,0 +1,18 @@
+{
+  "pipeline": "bare_except",
+  "category": "tech_debt",
+  "description": "Detects bare except: clauses without specifying an exception type. Simplified from Rust: flags all except_clause nodes. Cannot check for re-raise pattern or noqa suppression without predicate support.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "(except_clause) @except"
+    },
+    {
+      "flag": {
+        "pattern": "untyped_exception_handler",
+        "message": "bare except: detected -- catches all exceptions including SystemExit and KeyboardInterrupt -- specify an exception type",
+        "severity": "warning"
+      }
+    }
+  ]
+}

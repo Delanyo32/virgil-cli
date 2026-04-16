@@ -1,0 +1,18 @@
+{
+  "pipeline": "magic_numbers",
+  "category": "tech_debt",
+  "description": "Detects numeric literals that should be named constants. Simplified from Rust: flags all integer and float literals. Cannot apply exempt-context checks (ALL_CAPS assignment, subscript, keyword_argument) without predicate support.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "[(integer) @number (float) @number]"
+    },
+    {
+      "flag": {
+        "pattern": "magic_number",
+        "message": "numeric literal detected -- consider extracting to a named constant for clarity",
+        "severity": "info"
+      }
+    }
+  ]
+}

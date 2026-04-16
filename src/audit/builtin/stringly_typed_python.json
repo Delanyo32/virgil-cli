@@ -1,0 +1,18 @@
+{
+  "pipeline": "stringly_typed",
+  "category": "tech_debt",
+  "description": "Detects string comparisons on variables with suspicious names (status, kind, type, mode, state) that suggest enum-worthy values. Simplified from Rust: flags all comparison_operator nodes. Cannot group by variable name or threshold to 3+ distinct values.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "(comparison_operator) @comparison"
+    },
+    {
+      "flag": {
+        "pattern": "stringly_typed",
+        "message": "string comparison detected -- consider using an enum if this variable is compared against multiple distinct values",
+        "severity": "info"
+      }
+    }
+  ]
+}

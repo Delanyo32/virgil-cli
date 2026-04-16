@@ -1,0 +1,21 @@
+{
+  "pipeline": "empty_test_files",
+  "category": "tech_debt",
+  "description": "Detects test files that contain no test functions. Simplified from Rust: flags test files based on filename pattern. Cannot enumerate test_* functions inside the JSON DSL without predicate support.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "select": "file",
+      "where": {
+        "is_test_file": true
+      }
+    },
+    {
+      "flag": {
+        "pattern": "empty_test_file",
+        "message": "test file detected -- verify it contains at least one test_* function or Test* class",
+        "severity": "info"
+      }
+    }
+  ]
+}

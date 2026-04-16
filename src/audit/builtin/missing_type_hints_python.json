@@ -1,0 +1,22 @@
+{
+  "pipeline": "missing_type_hints",
+  "category": "tech_debt",
+  "description": "Detects public Python functions missing parameter or return type annotations. Simplified from Rust: flags all function and method symbols that are exported. Cannot perform graph-based cross-module API filtering.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {
+        "kind": ["function", "method"],
+        "exported": true
+      }
+    },
+    {
+      "flag": {
+        "pattern": "missing_type_hint",
+        "message": "public function detected -- verify it has complete parameter and return type annotations",
+        "severity": "info"
+      }
+    }
+  ]
+}

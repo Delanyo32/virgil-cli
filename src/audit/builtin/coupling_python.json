@@ -1,0 +1,18 @@
+{
+  "pipeline": "coupling",
+  "category": "code_style",
+  "description": "Detects high coupling in Python: excessive imports, parameter overload, and low cohesion methods. Simplified from Rust: flags import statement nodes as coupling indicators.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "[(import_statement) @import (import_from_statement) @import]"
+    },
+    {
+      "flag": {
+        "pattern": "high_coupling",
+        "message": "import statement detected -- review total import count; excessive imports (>15) indicate high coupling",
+        "severity": "info"
+      }
+    }
+  ]
+}

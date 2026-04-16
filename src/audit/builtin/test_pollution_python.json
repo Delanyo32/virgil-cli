@@ -1,0 +1,24 @@
+{
+  "pipeline": "test_pollution",
+  "category": "tech_debt",
+  "description": "Detects mutable module-level and class-level state in test files that can cause cross-test pollution. Simplified from Rust: flags assignment nodes at module level in test files.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "select": "file",
+      "where": {
+        "is_test_file": true
+      }
+    },
+    {
+      "match_pattern": "(module (expression_statement (assignment)) @assignment)"
+    },
+    {
+      "flag": {
+        "pattern": "test_pollution",
+        "message": "module-level assignment in test file -- verify this is not mutable state (list, dict, set) that can cause cross-test pollution",
+        "severity": "warning"
+      }
+    }
+  ]
+}
