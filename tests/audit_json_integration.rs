@@ -1376,3 +1376,383 @@ fn memory_leak_indicators_javascript_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
+
+// ── Phase 4: Go Security + Scalability Pipelines ──
+
+// ── command_injection (Go) ──
+
+#[test]
+fn command_injection_go_finds_selector_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // exec.Command selector call -- triggers exec_command_injection pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nimport \"os/exec\"\nfunc f(cmd string) { exec.Command(cmd) }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "exec_command_injection"),
+        "expected command_injection/exec_command_injection finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only type/const declarations
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\ntype Config struct{ Name string }\nconst Limit = 100\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".go")),
+        "expected no command_injection finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── go_path_traversal (Go) ──
+
+#[test]
+fn go_path_traversal_go_finds_selector_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // filepath.Join selector call -- triggers unvalidated_path_join pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nimport \"path/filepath\"\nfunc serve(p string) { filepath.Join(\"/base\", p) }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "go_path_traversal" && f.pattern == "unvalidated_path_join"),
+        "expected go_path_traversal/unvalidated_path_join finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn go_path_traversal_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only type and constant declarations
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\ntype Handler struct{}\nconst BasePath = \"/srv\"\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "go_path_traversal"),
+        "expected no go_path_traversal finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── race_conditions (Go) ──
+
+#[test]
+fn race_conditions_go_finds_goroutine_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    // go_statement inside for_statement -- triggers loop_var_capture pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc f() { for i := 0; i < 10; i++ { go func(){} () } }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "race_conditions" && f.pattern == "loop_var_capture"),
+        "expected race_conditions/loop_var_capture finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn race_conditions_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // goroutine outside loop -- no loop_var_capture
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc f() { go func(){} () }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "race_conditions" && f.pattern == "loop_var_capture"),
+        "expected no race_conditions/loop_var_capture finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── resource_exhaustion (Go) ──
+
+#[test]
+fn resource_exhaustion_go_finds_goroutine_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    // go_statement inside for_statement -- triggers unbounded_goroutine_spawn pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc main() { for i := 0; i < 10; i++ { go func(){} () } }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "resource_exhaustion" && f.pattern == "unbounded_goroutine_spawn"),
+        "expected resource_exhaustion/unbounded_goroutine_spawn finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn resource_exhaustion_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // goroutine outside loop -- no unbounded_goroutine_spawn
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc main() { go func(){} () }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "resource_exhaustion" && f.pattern == "unbounded_goroutine_spawn"),
+        "expected no resource_exhaustion/unbounded_goroutine_spawn finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── go_integer_overflow (Go) ──
+
+#[test]
+fn go_integer_overflow_go_finds_type_conversion() {
+    let dir = tempfile::tempdir().unwrap();
+    // int32() type conversion -- triggers narrowing_conversion pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc f() { var x int64; _ = int32(x) }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "go_integer_overflow" && f.pattern == "narrowing_conversion"),
+        "expected go_integer_overflow/narrowing_conversion finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn go_integer_overflow_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No call expressions at all -- only type and variable declarations
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\ntype Point struct{ X, Y int }\nvar origin Point\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "go_integer_overflow"),
+        "expected no go_integer_overflow finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── go_type_confusion (Go) ──
+
+#[test]
+fn go_type_confusion_go_finds_type_assertion() {
+    let dir = tempfile::tempdir().unwrap();
+    // Unguarded type assertion x.(string) -- triggers unsafe_pointer_cast pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc f(x interface{}) { v := x.(string); _ = v }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "go_type_confusion" && f.pattern == "unsafe_pointer_cast"),
+        "expected go_type_confusion/unsafe_pointer_cast finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn go_type_confusion_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No type assertions -- only struct and interface definitions
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\ntype Stringer interface{ String() string }\ntype MyStr struct{ val string }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "go_type_confusion"),
+        "expected no go_type_confusion finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (Go, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_go_finds_goroutine_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    // go_statement inside for_statement -- triggers potential_memory_leak pattern
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc f() { for i := 0; i < 10; i++ { go func(){} () } }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_go_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // goroutine outside loop -- no potential_memory_leak
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nfunc f() { go func(){} () }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected no memory_leak_indicators/potential_memory_leak finding for Go; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
