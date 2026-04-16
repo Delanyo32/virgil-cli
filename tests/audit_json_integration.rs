@@ -3910,3 +3910,332 @@ fn memory_leak_indicators_csharp_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
+
+// ── command_injection (PHP, Security) ──
+
+#[test]
+fn command_injection_php_finds_function_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction f($cmd) { system($cmd); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "command_injection_call"),
+        "expected command_injection/command_injection_call finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only class definitions with no method body
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nclass SafeClass {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".php")),
+        "expected no command_injection finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── unsafe_include (PHP, Security) ──
+
+#[test]
+fn unsafe_include_php_finds_include_expression() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction f($path) { include($path); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "unsafe_include" && f.pattern == "unsafe_include"),
+        "expected unsafe_include finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn unsafe_include_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No include/require -- only class definition
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nclass Config { public $value = 'test'; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "unsafe_include" && f.file_path.ends_with(".php")),
+        "expected no unsafe_include finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── type_juggling (PHP, Security) ──
+
+#[test]
+fn type_juggling_php_finds_binary_expression() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction f($a, $b) { if ($a == $b) { return true; } }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "type_juggling" && f.pattern == "loose_comparison"),
+        "expected type_juggling/loose_comparison finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn type_juggling_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No binary expressions -- only interface definition
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\ninterface Comparable { public function compare(): int; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "type_juggling" && f.file_path.ends_with(".php")),
+        "expected no type_juggling finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── unescaped_output (PHP, Security) ──
+
+#[test]
+fn unescaped_output_php_finds_echo_statement() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction f($name) { echo $name; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "unescaped_output" && f.pattern == "unescaped_output"),
+        "expected unescaped_output finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn unescaped_output_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No echo statements -- only class with constant
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nclass View { const TEMPLATE = 'base'; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "unescaped_output" && f.file_path.ends_with(".php")),
+        "expected no unescaped_output finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── session_auth (PHP, Security) ──
+
+#[test]
+fn session_auth_php_finds_function_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction login($pw) { $hash = md5($pw); return $hash; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "session_auth" && f.pattern == "session_management"),
+        "expected session_auth/session_management finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn session_auth_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only trait definition
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\ntrait Authenticatable { public $remember_token; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "session_auth" && f.file_path.ends_with(".php")),
+        "expected no session_auth finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── insecure_deserialization (PHP, Security) ──
+
+#[test]
+fn insecure_deserialization_php_finds_function_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction load($data) { return unserialize($data); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.pattern == "insecure_deserialization"),
+        "expected insecure_deserialization finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn insecure_deserialization_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only enum definition
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nenum Status { case Active; case Inactive; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "insecure_deserialization" && f.file_path.ends_with(".php")),
+        "expected no insecure_deserialization finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (PHP, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_php_finds_function_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction f() { $fh = fopen('file.txt', 'r'); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_php_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only interface definition
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\ninterface Resource { public function getId(): int; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.file_path.ends_with(".php")),
+        "expected no memory_leak_indicators finding for clean PHP; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
