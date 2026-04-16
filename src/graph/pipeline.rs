@@ -141,6 +141,20 @@ pub struct WhereClause {
     pub edge_count: Option<NumericPredicate>,
     #[serde(default)]
     pub ratio: Option<NumericPredicate>,
+
+    // Symbol kind filter (for select stage kind filtering per D-03)
+    #[serde(default)]
+    pub kind: Option<Vec<String>>,
+
+    // Compute-metric predicates (for severity_map when clauses)
+    #[serde(default)]
+    pub cyclomatic_complexity: Option<NumericPredicate>,
+    #[serde(default)]
+    pub function_length: Option<NumericPredicate>,
+    #[serde(default)]
+    pub cognitive_complexity: Option<NumericPredicate>,
+    #[serde(default)]
+    pub comment_to_code_ratio: Option<NumericPredicate>,
 }
 
 impl WhereClause {
@@ -159,6 +173,11 @@ impl WhereClause {
             && self.depth.is_none()
             && self.edge_count.is_none()
             && self.ratio.is_none()
+            && self.kind.is_none()
+            && self.cyclomatic_complexity.is_none()
+            && self.function_length.is_none()
+            && self.cognitive_complexity.is_none()
+            && self.comment_to_code_ratio.is_none()
     }
 
     /// Evaluate predicate against a node's metrics only (no file system access).
@@ -209,6 +228,26 @@ impl WhereClause {
         }
         if let Some(ref pred) = self.ratio {
             if !pred.matches(node.metric_f64("ratio")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.cyclomatic_complexity {
+            if !pred.matches(node.metric_f64("cyclomatic_complexity")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.function_length {
+            if !pred.matches(node.metric_f64("function_length")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.cognitive_complexity {
+            if !pred.matches(node.metric_f64("cognitive_complexity")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.comment_to_code_ratio {
+            if !pred.matches(node.metric_f64("comment_to_code_ratio")) {
                 return false;
             }
         }
@@ -272,6 +311,11 @@ impl WhereClause {
                 return false;
             }
         }
+        if let Some(ref kinds) = self.kind {
+            if !kinds.iter().any(|k| k.eq_ignore_ascii_case(&node.kind)) {
+                return false;
+            }
+        }
         if let Some(ref pred) = self.count {
             if !pred.matches(node.metric_f64("count")) {
                 return false;
@@ -294,6 +338,26 @@ impl WhereClause {
         }
         if let Some(ref pred) = self.ratio {
             if !pred.matches(node.metric_f64("ratio")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.cyclomatic_complexity {
+            if !pred.matches(node.metric_f64("cyclomatic_complexity")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.function_length {
+            if !pred.matches(node.metric_f64("function_length")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.cognitive_complexity {
+            if !pred.matches(node.metric_f64("cognitive_complexity")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.comment_to_code_ratio {
+            if !pred.matches(node.metric_f64("comment_to_code_ratio")) {
                 return false;
             }
         }
@@ -1095,5 +1159,64 @@ mod tests {
     #[test]
     fn test_edge_direction_default_is_out() {
         assert_eq!(EdgeDirection::default(), EdgeDirection::Out);
+    }
+
+    #[test]
+    fn where_clause_metric_predicates_cyclomatic() {
+        let json = r#"{"cyclomatic_complexity": {"gt": 10}}"#;
+        let wc: WhereClause = serde_json::from_str(json).unwrap();
+        assert!(wc.cyclomatic_complexity.is_some());
+
+        let mut node = PipelineNode {
+            node_idx: petgraph::graph::NodeIndex::new(0),
+            file_path: "test.rs".to_string(),
+            name: "foo".to_string(),
+            kind: "function".to_string(),
+            line: 1,
+            exported: false,
+            language: "rust".to_string(),
+            metrics: std::collections::HashMap::new(),
+        };
+        // CC = 15 > 10 -- should pass
+        node.metrics.insert("cyclomatic_complexity".to_string(), MetricValue::Int(15));
+        assert!(wc.eval_metrics(&node));
+
+        // CC = 5 <= 10 -- should fail
+        node.metrics.insert("cyclomatic_complexity".to_string(), MetricValue::Int(5));
+        assert!(!wc.eval_metrics(&node));
+    }
+
+    #[test]
+    fn where_clause_kind_filter() {
+        let json = r#"{"kind": ["function", "method"]}"#;
+        let wc: WhereClause = serde_json::from_str(json).unwrap();
+        assert!(wc.kind.is_some());
+
+        let node_fn = PipelineNode {
+            node_idx: petgraph::graph::NodeIndex::new(0),
+            file_path: "test.rs".to_string(),
+            name: "foo".to_string(),
+            kind: "function".to_string(),
+            line: 1,
+            exported: false,
+            language: "rust".to_string(),
+            metrics: std::collections::HashMap::new(),
+        };
+        let is_test = |_: &str| false;
+        let is_gen = |_: &str| false;
+        let is_barrel = |_: &str| false;
+        assert!(wc.eval(&node_fn, &is_test, &is_gen, &is_barrel));
+
+        let node_class = PipelineNode {
+            node_idx: petgraph::graph::NodeIndex::new(0),
+            file_path: "test.rs".to_string(),
+            name: "Foo".to_string(),
+            kind: "class".to_string(),
+            line: 1,
+            exported: false,
+            language: "rust".to_string(),
+            metrics: std::collections::HashMap::new(),
+        };
+        assert!(!wc.eval(&node_class, &is_test, &is_gen, &is_barrel));
     }
 }
