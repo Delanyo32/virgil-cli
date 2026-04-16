@@ -47,74 +47,7 @@ pub fn execute_graph_pipeline(
     seed_nodes: Option<Vec<NodeIndex>>,
     pipeline_name: &str,
 ) -> anyhow::Result<PipelineOutput> {
-    // Start with seed nodes converted to PipelineNodes, or an empty set.
-    let mut nodes: Vec<PipelineNode> = match seed_nodes {
-        Some(idxs) => idxs
-            .into_iter()
-            .filter_map(|idx| pipeline_node_from_index(idx, graph))
-            .collect(),
-        None => Vec::new(),
-    };
-
-    // Helper closures for WhereClause::eval
-    let is_test_fn = |path: &str| is_test_file(path);
-    let is_generated_fn = |path: &str| {
-        let p = path.replace('\\', "/");
-        p.ends_with(".pb.go")
-            || p.ends_with("_gen.go")
-            || p.ends_with("_generated.go")
-            || p.ends_with(".pb.h")
-            || p.ends_with(".pb.cc")
-            || p.contains("/generated/")
-            || p.starts_with("generated/")
-            || is_excluded_for_arch_analysis(path)
-    };
-    let is_barrel_fn = |path: &str| is_barrel_file(path);
-
-    // Execute each stage in sequence
-    for stage in stages {
-        nodes = execute_stage(
-            stage,
-            nodes,
-            graph,
-            pipeline_name,
-            &is_test_fn,
-            &is_generated_fn,
-            &is_barrel_fn,
-        )?;
-    }
-
-    // Determine output type based on the last stage
-    let last_is_flag = matches!(stages.last(), Some(GraphStage::Flag { .. }));
-    if last_is_flag {
-        // Nodes were already converted to findings inside execute_stage for Flag.
-        // But since we need to return them from execute_stage as PipelineNodes (to keep
-        // the pipeline state consistent), we re-run the Flag stage logic here for output.
-        // Actually: the Flag stage in execute_stage returns the *input* nodes unchanged,
-        // and we collect findings separately. Let's restructure: Flag stage returns
-        // empty PipelineNodes and we collect findings in the output path.
-        // See execute_stage_flag for how findings are emitted.
-        //
-        // Because of the pipeline state design (Vec<PipelineNode> in, Vec<PipelineNode> out),
-        // the Flag stage sets a special marker. Instead, we execute the Flag stage separately
-        // at the end and return PipelineOutput::Findings.
-        //
-        // This block is only reached if the last stage is Flag and we already
-        // ran it via execute_stage (which returned an empty vec with findings
-        // deposited externally). However, that design is complex. Let's instead:
-        // re-execute the last stage as Flag here and produce findings.
-        //
-        // Since execute_stage was already called with the Flag stage, nodes are now
-        // the output of the Flag stage (empty). We need the pre-Flag nodes.
-        // Re-design: execute all stages except the last Flag, then run Flag separately.
-        Ok(PipelineOutput::Findings(Vec::new()))
-    } else {
-        let results = nodes
-            .into_iter()
-            .map(pipeline_node_to_query_result)
-            .collect();
-        Ok(PipelineOutput::Results(results))
-    }
+    run_pipeline(stages, graph, seed_nodes, pipeline_name)
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,19 +1296,41 @@ mod tests {
         }
     }
 
-    // ── Test 7: execute_graph_pipeline compatibility wrapper ─────────
+    // ── Test 7: execute_graph_pipeline delegates to run_pipeline ────────
 
     #[test]
     fn test_execute_graph_pipeline_wrapper() {
-        // The old wrapper now just returns empty — run_pipeline is the real one.
-        // This test just ensures it compiles and doesn't panic.
+        // execute_graph_pipeline must delegate to run_pipeline.
+        // A full pipeline ending in Flag should produce non-empty Findings
+        // with the correct pipeline name and pattern.
         let graph = make_file_graph(&["src/x.rs"]);
-        let stages = vec![GraphStage::Select {
-            select: NodeType::File,
-            filter: None,
-            exclude: None,
-        }];
-        let _ = execute_graph_pipeline(&stages, &graph, None, "test");
+        let stages = vec![
+            GraphStage::Select {
+                select: NodeType::File,
+                filter: None,
+                exclude: None,
+            },
+            GraphStage::Flag {
+                flag: FlagConfig {
+                    pattern: "wrapper_pattern".to_string(),
+                    message: "Found {{file}}".to_string(),
+                    severity: Some("warning".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+
+        let out = execute_graph_pipeline(&stages, &graph, None, "wrapper_pipeline").unwrap();
+        match out {
+            PipelineOutput::Findings(findings) => {
+                assert!(!findings.is_empty(), "expected at least one finding");
+                assert_eq!(findings[0].pipeline, "wrapper_pipeline");
+                assert_eq!(findings[0].pattern, "wrapper_pattern");
+                assert_eq!(findings[0].severity, "warning");
+            }
+            _ => panic!("expected Findings, not Results"),
+        }
     }
 
     // ── Test 8: ratio stage ──────────────────────────────────────────
