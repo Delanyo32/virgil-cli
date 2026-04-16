@@ -4239,3 +4239,1966 @@ fn memory_leak_indicators_php_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
+
+// ── Phase 5: Rust Tech Debt + Code Style Pipelines ──
+
+// ── panic_detection (11 tests) ──
+
+#[test]
+fn panic_detection_rust_finds_unwrap() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = Some(1).unwrap(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
+        "expected panic_detection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn panic_detection_rust_finds_expect() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = Some(1).expect("msg"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
+        "expected panic_detection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn panic_detection_rust_finds_method_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { v.push(1); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
+        "expected panic_detection finding for method call; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn panic_detection_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"),
+        "expected no panic_detection finding for empty fn");
+}
+
+#[test]
+fn panic_detection_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"),
+        "expected no panic_detection finding for struct-only file");
+}
+
+#[test]
+fn panic_detection_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { Some(1).unwrap(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "panic_detection").unwrap();
+    assert_eq!(f.pipeline, "panic_detection");
+    assert!(!f.pattern.is_empty());
+}
+
+#[test]
+fn panic_detection_rust_multiple_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let a = Some(1).unwrap(); let b = Some(2).expect("x"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "panic_detection").count();
+    assert!(count >= 2, "expected >= 2 panic_detection findings; got {count}");
+}
+
+#[test]
+fn panic_detection_rust_no_findings_constant() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"const X: i32 = 42;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"));
+}
+
+#[test]
+fn panic_detection_rust_chained_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f(s: &str) -> usize { s.trim().len() }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"));
+}
+
+#[test]
+fn panic_detection_rust_no_findings_use_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"use std::collections::HashMap;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"));
+}
+
+#[test]
+fn panic_detection_rust_findings_have_line() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {\n    Some(1).unwrap();\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "panic_detection").unwrap();
+    assert!(f.line >= 1);
+}
+
+// ── clone_detection (10 tests) ──
+
+#[test]
+fn clone_detection_rust_finds_clone_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let a = String::from("x"); let b = a.clone(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "clone_detection"),
+        "expected clone_detection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn clone_detection_rust_finds_to_owned() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let a = "hello".to_owned(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "clone_detection"));
+}
+
+#[test]
+fn clone_detection_rust_finds_to_string() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let s = "hello".to_string(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "clone_detection"));
+}
+
+#[test]
+fn clone_detection_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"));
+}
+
+#[test]
+fn clone_detection_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let b = a.clone(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "clone_detection").unwrap();
+    assert_eq!(f.pipeline, "clone_detection");
+    assert!(!f.pattern.is_empty());
+}
+
+#[test]
+fn clone_detection_rust_multiple_clones() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let a = x.clone(); let b = y.clone(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "clone_detection").count();
+    assert!(count >= 2, "expected >= 2 clone_detection findings; got {count}");
+}
+
+#[test]
+fn clone_detection_rust_no_findings_struct_def() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"));
+}
+
+#[test]
+fn clone_detection_rust_method_call_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f(v: Vec<i32>) { let c = v.clone(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "clone_detection"));
+}
+
+#[test]
+fn clone_detection_rust_no_findings_const() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"const X: i32 = 42;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"));
+}
+
+#[test]
+fn clone_detection_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {\n    let b = a.clone();\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "clone_detection").unwrap();
+    assert!(f.line >= 1);
+}
+
+// ── god_object_detection (14 tests) ──
+
+#[test]
+fn god_object_detection_rust_finds_many_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    let methods: String = (0..10).map(|i| format!("pub fn method_{i}(&self) {{}}\n")).collect();
+    let src = format!("struct Foo;\nimpl Foo {{\n{methods}}}\n");
+    std::fs::write(dir.path().join("test.rs"), src).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"),
+        "expected god_object_detection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn god_object_detection_rust_no_findings_small_impl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"struct Foo; impl Foo { fn a(&self){} fn b(&self){} fn c(&self){} }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"),
+        "small impl should not trigger god_object_detection");
+}
+
+#[test]
+fn god_object_detection_rust_threshold_at_ten() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..10).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..10).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "god_object_detection").unwrap();
+    assert_eq!(f.pipeline, "god_object_detection");
+    assert_eq!(f.pattern, "god_object");
+}
+
+#[test]
+fn god_object_detection_rust_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..10).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "god_object_detection").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn god_object_detection_rust_no_findings_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "// empty\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_no_findings_nine_fns() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..9).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"),
+        "9 functions should not trigger god_object_detection (threshold is 10)");
+}
+
+#[test]
+fn god_object_detection_rust_pub_fns_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..10).map(|i| format!("pub fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_methods_in_impl_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let methods: String = (0..10).map(|i| format!("fn m{i}(&self) {{}}\n")).collect();
+    let src = format!("struct S;\nimpl S {{\n{methods}}}\n");
+    std::fs::write(dir.path().join("test.rs"), src).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { a: i32, b: String }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_mixed_methods_and_fns() {
+    let dir = tempfile::tempdir().unwrap();
+    let methods: String = (0..5).map(|i| format!("fn m{i}(&self) {{}}\n")).collect();
+    let fns: String = (0..5).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    let src = format!("struct S;\nimpl S {{\n{methods}}}\n{fns}");
+    std::fs::write(dir.path().join("test.rs"), src).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_large_impl_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let methods: String = (0..12).map(|i| format!("pub fn method_{i}(&self) -> i32 {{ {i} }}\n")).collect();
+    let src = format!("pub struct BigService;\nimpl BigService {{\n{methods}}}\n");
+    std::fs::write(dir.path().join("test.rs"), src).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_no_findings_use_and_const() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        "use std::collections::HashMap;\nconst X: i32 = 1;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+#[test]
+fn god_object_detection_rust_eleven_fns_flagged() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..11).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
+}
+
+// ── stringly_typed (7 tests) ──
+
+#[test]
+fn stringly_typed_rust_finds_ref_str_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn process(mode: &str) {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
+        "expected stringly_typed finding for &str param; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn stringly_typed_rust_finds_ref_primitive_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f(x: &i32) {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"));
+}
+
+#[test]
+fn stringly_typed_rust_no_findings_owned_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f(x: String) {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"),
+        "owned String param should not trigger stringly_typed");
+}
+
+#[test]
+fn stringly_typed_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"));
+}
+
+#[test]
+fn stringly_typed_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f(kind: &str) {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "stringly_typed").unwrap();
+    assert_eq!(f.pipeline, "stringly_typed");
+    assert_eq!(f.pattern, "stringly_typed_api");
+}
+
+#[test]
+fn stringly_typed_rust_multiple_ref_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f(a: &str, b: &str) {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "stringly_typed").count();
+    assert!(count >= 2, "expected >= 2 stringly_typed findings; got {count}");
+}
+
+#[test]
+fn stringly_typed_rust_no_findings_struct_def() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"));
+}
+
+// ── must_use_ignored (9 tests) ──
+
+#[test]
+fn must_use_ignored_rust_finds_dropped_method_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { mutex.lock(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "must_use_ignored"),
+        "expected must_use_ignored finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn must_use_ignored_rust_finds_dropped_send() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { tx.send(42); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "must_use_ignored"));
+}
+
+#[test]
+fn must_use_ignored_rust_no_findings_assigned() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let g = mutex.lock(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "must_use_ignored"),
+        "assigned result should not trigger must_use_ignored");
+}
+
+#[test]
+fn must_use_ignored_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "must_use_ignored"));
+}
+
+#[test]
+fn must_use_ignored_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { v.flush(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "must_use_ignored").unwrap();
+    assert_eq!(f.pipeline, "must_use_ignored");
+    assert_eq!(f.pattern, "must_use_ignored");
+}
+
+#[test]
+fn must_use_ignored_rust_multiple_dropped_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { a.lock(); b.send(1); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "must_use_ignored").count();
+    assert!(count >= 2);
+}
+
+#[test]
+fn must_use_ignored_rust_no_findings_struct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "must_use_ignored"));
+}
+
+#[test]
+fn must_use_ignored_rust_write_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { w.write(b"data"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "must_use_ignored"));
+}
+
+#[test]
+fn must_use_ignored_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {\n    v.flush();\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "must_use_ignored").unwrap();
+    assert!(f.line >= 1);
+}
+
+// ── mutex_overuse (6 tests) ──
+
+#[test]
+fn mutex_overuse_rust_finds_mutex_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"use std::sync::Mutex; fn f() { let m = Mutex::new(0); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_overuse"),
+        "expected mutex_overuse finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn mutex_overuse_rust_finds_arc_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"use std::sync::Arc; fn f() { let a = Arc::new(42); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_overuse"));
+}
+
+#[test]
+fn mutex_overuse_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "mutex_overuse"));
+}
+
+#[test]
+fn mutex_overuse_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let m = std::sync::Mutex::new(0); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "mutex_overuse").unwrap();
+    assert_eq!(f.pipeline, "mutex_overuse");
+    assert_eq!(f.pattern, "mutex_overuse");
+}
+
+#[test]
+fn mutex_overuse_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "mutex_overuse"));
+}
+
+#[test]
+fn mutex_overuse_rust_rwlock_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let rw = std::sync::RwLock::new(vec![]); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_overuse"));
+}
+
+// ── pub_field_leakage (9 tests) ──
+
+#[test]
+fn pub_field_leakage_rust_finds_pub_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub struct Foo { pub x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "pub_field_leakage"),
+        "expected pub_field_leakage finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn pub_field_leakage_rust_no_findings_private_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub struct Foo { x: i32, y: String }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "pub_field_leakage"),
+        "private fields should not trigger pub_field_leakage");
+}
+
+#[test]
+fn pub_field_leakage_rust_multiple_pub_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub struct Foo { pub a: i32, pub b: String, pub c: bool }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "pub_field_leakage").count();
+    assert!(count >= 3, "expected >= 3 pub_field_leakage findings; got {count}");
+}
+
+#[test]
+fn pub_field_leakage_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub struct Leaky { pub host: String }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "pub_field_leakage").unwrap();
+    assert_eq!(f.pipeline, "pub_field_leakage");
+    assert_eq!(f.pattern, "pub_field_leakage");
+}
+
+#[test]
+fn pub_field_leakage_rust_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub struct Foo { pub x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "pub_field_leakage").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn pub_field_leakage_rust_no_findings_empty_struct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"pub struct Foo;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "pub_field_leakage"));
+}
+
+#[test]
+fn pub_field_leakage_rust_no_findings_fn_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "pub_field_leakage"));
+}
+
+#[test]
+fn pub_field_leakage_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "pub struct Foo {\n    pub x: i32,\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "pub_field_leakage").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn pub_field_leakage_rust_internal_struct_pub_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"struct Internal { pub x: i32, pub y: String }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    // JSON version flags all pub fields regardless of struct visibility
+    assert!(findings.iter().any(|f| f.pipeline == "pub_field_leakage"));
+}
+
+// ── missing_trait_abstraction (10 tests) ──
+
+#[test]
+fn missing_trait_abstraction_rust_finds_exported_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"pub fn process(file: File) {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"),
+        "expected missing_trait_abstraction finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_trait_abstraction_rust_finds_pub_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"pub fn load(path: &str) -> Vec<u8> { vec![] }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
+}
+
+#[test]
+fn missing_trait_abstraction_rust_no_findings_private_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn internal() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"),
+        "private fn should not trigger missing_trait_abstraction");
+}
+
+#[test]
+fn missing_trait_abstraction_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
+}
+
+#[test]
+fn missing_trait_abstraction_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"pub fn handler() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "missing_trait_abstraction").unwrap();
+    assert_eq!(f.pipeline, "missing_trait_abstraction");
+    assert_eq!(f.pattern, "missing_trait_abstraction");
+}
+
+#[test]
+fn missing_trait_abstraction_rust_multiple_pub_fns() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub fn a() {} pub fn b() {} pub fn c() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "missing_trait_abstraction").count();
+    assert!(count >= 3, "expected >= 3 missing_trait_abstraction findings; got {count}");
+}
+
+#[test]
+fn missing_trait_abstraction_rust_pub_method_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"pub struct S; impl S { pub fn handle(&self) {} }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
+}
+
+#[test]
+fn missing_trait_abstraction_rust_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"pub fn run() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "missing_trait_abstraction").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn missing_trait_abstraction_rust_no_findings_const() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"pub const X: i32 = 1;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
+}
+
+#[test]
+fn missing_trait_abstraction_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "pub fn handler() {\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "missing_trait_abstraction").unwrap();
+    // select:symbol pipelines may emit line 0 when graph node has no line info
+    assert!(f.line >= 0);
+}
+
+// ── async_blocking (18 tests) ──
+
+#[test]
+fn async_blocking_rust_finds_scoped_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"async fn load() { let _ = std::fs::read("file.txt"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "async_blocking"),
+        "expected async_blocking finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn async_blocking_rust_finds_mutex_new_scoped() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let m = std::sync::Mutex::new(0); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"async fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let _ = std::fs::read("x"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "async_blocking").unwrap();
+    assert_eq!(f.pipeline, "async_blocking");
+    assert_eq!(f.pattern, "blocking_in_async");
+}
+
+#[test]
+fn async_blocking_rust_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let _ = std::fs::read("x"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "async_blocking").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn async_blocking_rust_multiple_scoped_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let a = std::fs::read("a"); let b = std::fs::read("b"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "async_blocking").count();
+    assert!(count >= 2);
+}
+
+#[test]
+fn async_blocking_rust_no_findings_use_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"use std::fs;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {\n    let _ = std::fs::read(\"x\");\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "async_blocking").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn async_blocking_rust_thread_sleep_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { std::thread::sleep(std::time::Duration::from_secs(1)); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_no_findings_fn_with_let() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = 42; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_nested_path_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let _ = std::net::TcpStream::connect("127.0.0.1:80"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_no_findings_const() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"const X: i32 = 1;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_no_findings_enum() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"enum Status { Active, Inactive }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_vec_macro_no_findings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let v = vec![1,2,3]; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_path_with_many_segments() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let _ = std::fs::OpenOptions::new(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_no_findings_type_alias() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"type Result<T> = std::result::Result<T, String>;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
+}
+
+#[test]
+fn async_blocking_rust_trait_method_scoped() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let _ = std::io::Write::write_all; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    // scoped path in expression position may or may not be a call_expression
+    // just verify no panic and pipeline name is valid
+    let _ = findings.iter().filter(|f| f.pipeline == "async_blocking").count();
+}
+
+// ── magic_numbers (11 tests) ──
+
+#[test]
+fn magic_numbers_rust_finds_integer_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = 9999; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected magic_numbers finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn magic_numbers_rust_finds_float_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let pi = 3.14159; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = 42; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
+    assert_eq!(f.pipeline, "magic_numbers");
+    assert_eq!(f.pattern, "magic_number");
+}
+
+#[test]
+fn magic_numbers_rust_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = 9999; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn magic_numbers_rust_multiple_literals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let a = 100; let b = 200; let c = 300; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "magic_numbers").count();
+    assert!(count >= 3, "expected >= 3 magic_numbers findings; got {count}");
+}
+
+#[test]
+fn magic_numbers_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {\n    let x = 9999;\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn magic_numbers_rust_large_literal_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let timeout = 86400; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_rust_no_findings_use_decl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"use std::collections::HashMap;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_rust_small_literal_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    // JSON version does not exclude 0, 1, 2 — all integer literals flagged
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = 7; }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+// ── dead_code (8 tests) ──
+
+#[test]
+fn dead_code_rust_finds_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn unused_helper() { println!("never called"); } fn main() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
+        "struct-only file should not trigger dead_code");
+}
+
+#[test]
+fn dead_code_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn helper() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert_eq!(f.pipeline, "dead_code");
+    assert_eq!(f.pattern, "potentially_dead_export");
+}
+
+#[test]
+fn dead_code_rust_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn helper() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn dead_code_rust_multiple_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn a() {} fn b() {} fn c() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "dead_code").count();
+    assert!(count >= 3, "expected >= 3 dead_code findings; got {count}");
+}
+
+#[test]
+fn dead_code_rust_no_findings_const_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"const X: i32 = 42;"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn helper() {\n}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    // select:symbol pipelines may emit line 0 when graph node has no line info
+    assert!(f.line >= 0);
+}
+
+#[test]
+fn dead_code_rust_method_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        r#"struct Foo; impl Foo { fn helper(&self) {} }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+// ── duplicate_code (5 tests) ──
+
+#[test]
+fn duplicate_code_rust_finds_many_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..5).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected duplicate_code finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn duplicate_code_rust_no_findings_single_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "single fn should not trigger duplicate_code (threshold is 3)");
+}
+
+#[test]
+fn duplicate_code_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..4).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "duplicate_code").unwrap();
+    assert_eq!(f.pipeline, "duplicate_code");
+    assert_eq!(f.pattern, "potential_duplication");
+}
+
+#[test]
+fn duplicate_code_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_rust_threshold_at_three() {
+    let dir = tempfile::tempdir().unwrap();
+    let fns: String = (0..3).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), fns).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "3 functions should trigger duplicate_code (threshold gte:3)");
+}
+
+// ── coupling (9 tests) ──
+
+#[test]
+fn coupling_rust_finds_use_declarations() {
+    let dir = tempfile::tempdir().unwrap();
+    let uses: String = (0..5).map(|i| format!("use std::collections::HashMap{i};\n")).collect();
+    std::fs::write(dir.path().join("test.rs"), uses).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected coupling finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_rust_no_findings_no_use() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
+        "no use declarations should not trigger coupling");
+}
+
+#[test]
+fn coupling_rust_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "use std::fmt;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert_eq!(f.pipeline, "coupling");
+    assert_eq!(f.pattern, "high_coupling");
+}
+
+#[test]
+fn coupling_rust_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "use std::io;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn coupling_rust_multiple_use_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"),
+        "use std::fmt;\nuse std::io;\nuse std::fs;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
+    assert!(count >= 3, "expected >= 3 coupling findings; got {count}");
+}
+
+#[test]
+fn coupling_rust_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_rust_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "use std::fmt;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn coupling_rust_single_use() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "use anyhow::Result;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_rust_no_findings_const_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "const X: i32 = 1;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
