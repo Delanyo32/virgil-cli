@@ -1,0 +1,18 @@
+{
+  "pipeline": "csharp_path_traversal",
+  "category": "security",
+  "description": "Detects path traversal risks in C#: File.ReadAllText/WriteAllText/Open with dynamic paths, Path.Combine with unvalidated input. JSON version matches all invocation expressions (cannot filter by method name or argument content without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(invocation_expression function: (_) @fn_expr arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "path_traversal_risk",
+        "message": "Method invocation detected -- verify this is not File.ReadAllText/WriteAllText/Open or Path.Combine with dynamic user-controlled paths; validate with GetFullPath and StartsWith to prevent path traversal",
+        "severity": "warning"
+      }
+    }
+  ]
+}

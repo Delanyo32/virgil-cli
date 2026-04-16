@@ -1,0 +1,18 @@
+{
+  "pipeline": "weak_cryptography",
+  "category": "security",
+  "description": "Detects weak cryptography in C#: MD5.Create(), SHA1.Create(), DES.Create(), ECB cipher mode, insecure Random. JSON version matches all invocation expressions (cannot filter by method name without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(invocation_expression function: (_) @fn_expr arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "weak_crypto_usage",
+        "message": "Method invocation detected -- verify this is not MD5.Create(), SHA1.Create(), DES.Create(), or insecure Random usage; use SHA256/AES/RandomNumberGenerator instead",
+        "severity": "warning"
+      }
+    }
+  ]
+}

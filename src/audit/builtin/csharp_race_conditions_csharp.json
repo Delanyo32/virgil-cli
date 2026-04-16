@@ -1,0 +1,18 @@
+{
+  "pipeline": "csharp_race_conditions",
+  "category": "security",
+  "description": "Detects race condition risks in C#: field declarations that may be shared state in concurrent contexts (Dictionary, List, HashSet without thread safety). JSON version matches all field declarations (cannot verify concurrent context or check for Concurrent/Immutable types without #match? predicate support). Simplified per D-07.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(field_declaration (variable_declaration (variable_declarator (identifier) @field_name))) @field_decl"
+    },
+    {
+      "flag": {
+        "pattern": "thread_unsafe_field",
+        "message": "Field declaration detected -- verify this field is not a non-thread-safe collection (Dictionary, List, HashSet) used in concurrent context; use ConcurrentDictionary or lock",
+        "severity": "warning"
+      }
+    }
+  ]
+}

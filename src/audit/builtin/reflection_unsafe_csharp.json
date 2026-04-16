@@ -1,0 +1,18 @@
+{
+  "pipeline": "reflection_unsafe",
+  "category": "security",
+  "description": "Detects unsafe reflection in C#: Type.GetType() with dynamic input, Activator.CreateInstance() with dynamic type, Assembly.LoadFrom/LoadFile() with dynamic path. JSON version matches all invocation expressions (cannot filter by method name or argument type without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(invocation_expression function: (_) @fn_expr arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "reflection_injection",
+        "message": "Method invocation detected -- verify this is not Type.GetType(), Activator.CreateInstance(), or Assembly.LoadFrom() with dynamic user-controlled input enabling reflection injection",
+        "severity": "warning"
+      }
+    }
+  ]
+}
