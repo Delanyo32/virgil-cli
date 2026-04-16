@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leak_indicators",
+  "category": "scalability",
+  "description": "Detects potential memory leaks in Rust: Box::leak, mem::forget, ManuallyDrop::new calls; unbounded collection growth in loops. Simplified from Rust: flags all scoped identifier calls (cannot filter to only Box::leak/mem::forget/ManuallyDrop::new without #match? predicate support). Loop-body growth patterns (push/insert/extend in loops) omitted as they require two-stage filtering not expressible in a single match_pattern. Precision reduced -- all scoped calls flagged.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (scoped_identifier) @scoped_fn) @call"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "Scoped call detected -- verify this is not Box::leak, mem::forget, or ManuallyDrop::new which intentionally prevent memory deallocation",
+        "severity": "warning"
+      }
+    }
+  ]
+}

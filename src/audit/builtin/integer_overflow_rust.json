@@ -1,0 +1,18 @@
+{
+  "pipeline": "integer_overflow",
+  "category": "security",
+  "description": "Detects potential integer overflow in Rust: unchecked arithmetic operations. Simplified from Rust: flags all binary_expression nodes (cannot filter to only * and + operators without #match? predicate support in executor, and cannot scope to parameterized functions only). Precision reduced -- all binary expressions flagged including those outside parameterized functions.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(binary_expression left: (_) @left right: (_) @right) @bin_expr"
+    },
+    {
+      "flag": {
+        "pattern": "unchecked_arithmetic",
+        "message": "Arithmetic operation without overflow check -- verify bounds on untrusted input",
+        "severity": "warning"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "resource_exhaustion",
+  "category": "security",
+  "description": "Detects resource exhaustion risks in Rust: unbounded allocations from user input. Simplified from Rust: flags all scoped identifier calls (Vec::with_capacity, HashMap::with_capacity, etc.) rather than only those inside parameterized functions. Precision reduced -- internal callers also flagged.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (scoped_identifier) @scoped_fn) @call"
+    },
+    {
+      "flag": {
+        "pattern": "unbounded_allocation",
+        "message": "Scoped allocation call detected -- verify size argument is not derived from untrusted input",
+        "severity": "warning"
+      }
+    }
+  ]
+}

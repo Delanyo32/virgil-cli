@@ -1,0 +1,18 @@
+{
+  "pipeline": "toctou",
+  "category": "security",
+  "description": "Detects time-of-check-time-of-use races in Rust: path existence checks create TOCTOU windows. Simplified from Rust: flags all .exists()/.is_file()/.is_dir() method calls regardless of whether a file operation follows in the same if-body. Precision reduced -- checks without subsequent file operations also flagged.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method) @call_fn) @call"
+    },
+    {
+      "flag": {
+        "pattern": "path_check_use_race",
+        "message": "Path existence check (.exists()/.is_file()/.is_dir()) may create TOCTOU race window if followed by file operations",
+        "severity": "warning"
+      }
+    }
+  ]
+}
