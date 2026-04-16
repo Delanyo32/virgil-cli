@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_blocking_in_async",
+  "category": "scalability",
+  "description": "Detects call expressions inside goroutine bodies in Go (potential blocking calls like time.Sleep, http.Get, net.Dial, os.Open). Go uses goroutines, not async/await. JSON version cannot filter by package/method name.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(go_statement (call_expression function: (func_literal body: (block (expression_statement (call_expression) @call)))))"
+    },
+    {
+      "flag": {
+        "pattern": "blocking_in_goroutine",
+        "message": "Call expression inside goroutine body -- verify this is not a blocking I/O call",
+        "severity": "info"
+      }
+    }
+  ]
+}

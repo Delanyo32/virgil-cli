@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_blocking_in_async",
+  "category": "scalability",
+  "description": "Detects attribute calls in Python (potential blocking calls like time.sleep, requests.get, subprocess.run, socket.connect inside async def). JSON version cannot verify async def containment. All attribute calls flagged.",
+  "languages": ["python"],
+  "graph": [
+    {
+      "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"
+    },
+    {
+      "flag": {
+        "pattern": "blocking_in_async_def",
+        "message": "Attribute call detected -- verify this is not a blocking call inside an async def",
+        "severity": "info"
+      }
+    }
+  ]
+}

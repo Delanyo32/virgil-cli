@@ -1,0 +1,17 @@
+{
+  "pipeline": "n_plus_one_queries",
+  "category": "scalability",
+  "description": "Detects call expressions inside loop bodies (potential N+1 query pattern). This JSON version uses structural pattern matching only. It does NOT filter by DB/ORM/HTTP method names as the Rust version did (findOne, findUnique, findMany, find, findById, query, execute, axios.get/post/put/delete/patch, http.get/post/request, fetch, request, Model.find, db.collection). Expect higher false positive rate.",
+  "graph": [
+    {
+      "match_pattern": "[(for_statement body: (_ (expression_statement (call_expression) @call))) (for_in_statement body: (_ (expression_statement (call_expression) @call))) (while_statement body: (_ (expression_statement (call_expression) @call))) (do_statement body: (_ (expression_statement (call_expression) @call)))]"
+    },
+    {
+      "flag": {
+        "pattern": "query_in_loop",
+        "message": "Call expression inside loop body -- potential N+1 query pattern",
+        "severity": "warning"
+      }
+    }
+  ]
+}

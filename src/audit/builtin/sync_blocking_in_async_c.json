@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_blocking_in_async",
+  "category": "scalability",
+  "description": "Detects function calls in C/C++ that are commonly blocking (sleep, fread, recv, send, accept, connect, etc.). C and C++ lack native async/await -- this pipeline flags I/O and sleep calls that may block in event-loop or threaded contexts. JSON version cannot filter by function name.",
+  "languages": ["c", "cpp"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn_name)"
+    },
+    {
+      "flag": {
+        "pattern": "blocking_call_detected",
+        "message": "Function call detected -- verify this is not a blocking I/O or sleep call in a performance-sensitive context",
+        "severity": "info"
+      }
+    }
+  ]
+}

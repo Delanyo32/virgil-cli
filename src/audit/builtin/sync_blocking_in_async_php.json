@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_blocking_in_async",
+  "category": "scalability",
+  "description": "Detects function calls in PHP that are commonly blocking (sleep, usleep, file_get_contents, fread, fwrite, stream_get_contents). Relevant for long-running PHP processes (ReactPHP, Swoole, workers). JSON version cannot filter by function name.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(function_call_expression function: (name) @fn_name)"
+    },
+    {
+      "flag": {
+        "pattern": "blocking_call_detected",
+        "message": "Function call detected -- verify this is not a blocking I/O or sleep call in a long-running process",
+        "severity": "info"
+      }
+    }
+  ]
+}

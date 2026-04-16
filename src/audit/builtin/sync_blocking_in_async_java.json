@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_blocking_in_async",
+  "category": "scalability",
+  "description": "Detects potentially blocking method invocations in Java (Thread.sleep, synchronized blocks, blocking I/O). JSON version uses structural matching -- cannot filter by specific method names. Higher false positive rate than Rust version.",
+  "languages": ["java"],
+  "graph": [
+    {
+      "match_pattern": "(synchronized_statement body: (block) @sync_body)"
+    },
+    {
+      "flag": {
+        "pattern": "sync_blocking_call",
+        "message": "Synchronized block detected -- may cause blocking in concurrent/async contexts",
+        "severity": "info"
+      }
+    }
+  ]
+}

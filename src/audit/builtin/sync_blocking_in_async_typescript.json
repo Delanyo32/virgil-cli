@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_blocking_in_async",
+  "category": "scalability",
+  "description": "Detects synchronous blocking calls (*Sync methods like readFileSync, writeFileSync, etc.) in TypeScript/JavaScript. Note: JSON version cannot verify the call is inside an async function. All calls matching the Sync suffix pattern are flagged regardless of async context.",
+  "languages": ["typescript", "javascript"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method (#match? @method \"Sync$\")) @call)"
+    },
+    {
+      "flag": {
+        "pattern": "sync_call_in_async",
+        "message": "Synchronous call detected -- use async equivalent to avoid blocking the event loop",
+        "severity": "warning"
+      }
+    }
+  ]
+}
