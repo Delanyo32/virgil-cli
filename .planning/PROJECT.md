@@ -22,10 +22,14 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 - ✓ 36 per-language JSON architecture pipeline files for all 9 language groups (ARCH-01 through ARCH-09, Validated in Phase 1)
 - ✓ All legacy Rust architecture dispatch code removed; `Architecture` arm returns `vec![]` inline (ARCH-10, Validated in Phase 1)
 - ✓ Integration tests verifying JSON pipelines fire correctly and produce expected findings (TEST-01, TEST-02, Validated in Phase 1)
+- ✓ All non-taint security pipelines for all 9 language groups (Rust, JS/TS, Go, Python, Java, C, C++, C#, PHP) converted to JSON (SEC-01, SEC-02, Validated in Phase 4)
+- ✓ Per-language `memory_leak_indicators` scalability pipelines for all 9 language groups converted to JSON; legacy Rust files deleted (SCAL-02, SCAL-03, Validated in Phase 4)
+- ✓ 162 integration tests cover all migrated security + scalability pipelines with positive and negative fixtures (TEST-01, TEST-02, Validated in Phase 4)
+- ✓ Taint-based pipelines (SQL injection, XSS, SSRF, XXE) remain in Rust as documented permanent exceptions (Validated in Phase 4)
 
 ### Active
 
-- [ ] Convert remaining Rust audit pipelines (security, per-language tech-debt, code-style) to JSON definitions in `src/audit/builtin/`
+- [ ] Convert remaining Rust audit pipelines (per-language tech-debt, code-style, complexity) to JSON definitions in `src/audit/builtin/`
 - [ ] Remove or consolidate legacy analyzer helpers (`src/audit/analyzers/`) no longer needed
 - [ ] `cargo test` passes with zero failures after all changes
 
@@ -38,7 +42,7 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 
 ## Context
 
-**Current state (after Phase 3):** Architecture (Phase 1) and complexity+scalability (Phase 3) audit categories are 100% JSON-driven. 4 complexity JSON pipelines (cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio) and 9 scalability JSON pipelines (n_plus_one_queries + 8 per-language sync_blocking_in_async) now live in `src/audit/builtin/`. 60 legacy Rust pipeline files deleted. WhereClause extended with kind + 4 metric predicate fields; `resolve_severity` returns `Option<String>` for threshold-based suppression. 16 new integration tests confirm JSON pipelines produce correct findings. Next: migrate remaining Rust pipeline categories (security, per-language tech-debt, code-style) to JSON.
+**Current state (after Phase 4):** Architecture (Phase 1), complexity+scalability (Phase 3), and security+memory_leak_indicators (Phase 4) audit categories are 100% JSON-driven. ~75 new JSON security/scalability pipeline files added; ~75 legacy Rust pipeline files deleted. 162 integration tests (positive + negative fixtures per pipeline) committed alongside each batch. Taint-based pipelines (SQL injection, XSS, SSRF, XXE) remain in Rust as permanent documented exceptions — they depend on FlowsTo/SanitizedBy graph edges not expressible in match_pattern JSON. 2142 total tests pass. Next: migrate remaining Rust pipeline categories (per-language tech-debt, code-style) to JSON and restore test health.
 
 **JSON pipeline format:** Defined in `src/audit/builtin/*.json`. The engine (`src/audit/json_audit.rs`) loads these at startup via `include_dir!` macro and matches pipeline names against registered Rust pipelines — when a JSON file name matches a Rust pipeline name, the JSON version takes precedence.
 
