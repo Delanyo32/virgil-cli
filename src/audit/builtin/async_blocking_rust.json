@@ -1,0 +1,18 @@
+{
+  "pipeline": "async_blocking",
+  "category": "code-quality",
+  "description": "Detects blocking calls (std::fs, thread::sleep, .join()) inside async functions or async blocks in Rust. Simplified from Rust: flags all scoped calls (scoped_identifier in call position) without verifying async context containment. Cannot filter by specific std::fs:: / thread::sleep prefix.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (scoped_identifier) @fn)"
+    },
+    {
+      "flag": {
+        "pattern": "blocking_in_async",
+        "message": "Scoped call detected -- verify this is not a blocking I/O call inside an async fn (e.g. std::fs::*, thread::sleep)",
+        "severity": "warning"
+      }
+    }
+  ]
+}

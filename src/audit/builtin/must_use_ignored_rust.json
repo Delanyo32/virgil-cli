@@ -1,0 +1,18 @@
+{
+  "pipeline": "must_use_ignored",
+  "category": "code-quality",
+  "description": "Detects calls to Result-returning methods whose return value is ignored in Rust. Simplified from Rust: flags all expression-statement method calls (any call_expression in expression_statement position), not just lock/send/write/read/flush/recv methods. Cannot check for #[must_use] attribute.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(expression_statement (call_expression function: (field_expression field: (field_identifier) @method)) @call)"
+    },
+    {
+      "flag": {
+        "pattern": "must_use_ignored",
+        "message": "Method call return value ignored -- may silently discard an error",
+        "severity": "info"
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "pipeline": "missing_trait_abstraction",
+  "category": "code-quality",
+  "description": "Detects function parameters using concrete infrastructure types instead of trait abstractions in Rust. Simplified from Rust: flags all exported functions as candidates for missing trait abstraction (cannot inspect parameter types in JSON DSL without match_pattern). Uses select:symbol to identify exported functions as indicators.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method"], "exported": true},
+      "exclude": {"is_test_file": true}
+    },
+    {
+      "flag": {
+        "pattern": "missing_trait_abstraction",
+        "message": "Exported function detected -- verify parameters do not use concrete infrastructure types (File, TcpStream) instead of trait abstractions (impl Read, impl Write)",
+        "severity": "info"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "stringly_typed",
+  "category": "code-quality",
+  "description": "Detects struct fields and function parameters with string types that should be enums in Rust. Simplified from Rust: matches &str reference type parameters broadly (flags all reference to primitive type parameters, not just those with suspicious names like 'kind', 'status', 'mode').",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(parameter (reference_type (primitive_type) @ty))"
+    },
+    {
+      "flag": {
+        "pattern": "stringly_typed_api",
+        "message": "&str parameter detected -- consider using an enum instead of a string for type safety",
+        "severity": "info"
+      }
+    }
+  ]
+}

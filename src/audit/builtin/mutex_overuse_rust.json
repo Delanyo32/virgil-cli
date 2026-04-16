@@ -1,0 +1,18 @@
+{
+  "pipeline": "mutex_overuse",
+  "category": "code-quality",
+  "description": "Detects Arc<Mutex<T>> and Arc<RwLock<T>> patterns that may indicate over-synchronization in Rust. Simplified from Rust: matches all generic type usages via scoped Mutex::new / RwLock::new constructor calls. Cannot detect Arc<Mutex<bool>> vs Arc<Mutex<T>> distinction for severity graduation.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (scoped_identifier) @fn)"
+    },
+    {
+      "flag": {
+        "pattern": "mutex_overuse",
+        "message": "Mutex/RwLock constructor detected -- consider if a concurrent data structure or message passing would be simpler",
+        "severity": "info"
+      }
+    }
+  ]
+}

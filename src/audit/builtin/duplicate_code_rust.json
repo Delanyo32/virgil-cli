@@ -1,0 +1,22 @@
+{
+  "pipeline": "duplicate_code",
+  "category": "code-quality",
+  "description": "Detects potential duplicate function bodies and duplicate match arms in Rust. Simplified from Rust: rolling-hash body comparison not expressible in JSON DSL. Flags function-level structural indicators only -- functions with many siblings in the same file as candidates for duplication review.",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method"]},
+      "exclude": {"is_test_file": true}
+    },
+    {"group_by": "file"},
+    {"count": {"threshold": {"gte": 3}}},
+    {
+      "flag": {
+        "pattern": "potential_duplication",
+        "message": "File has {{count}} functions/methods -- review for duplicate logic that could be extracted",
+        "severity": "info"
+      }
+    }
+  ]
+}
