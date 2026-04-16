@@ -373,24 +373,7 @@ pub struct SeverityEntry {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TraverseConfig {
-    pub edge: EdgeType,
-    #[serde(default)]
-    pub direction: EdgeDirection,
-    #[serde(default)]
-    pub depth: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CountConfig {
-    pub threshold: NumericPredicate,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CountEdgesConfig {
-    pub edge: EdgeType,
-    #[serde(default)]
-    pub direction: EdgeDirection,
     pub threshold: NumericPredicate,
 }
 
@@ -405,32 +388,6 @@ pub struct MaxDepthConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindCyclesConfig {
     pub edge: EdgeType,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FilterConfig {
-    #[serde(default)]
-    pub no_incoming: Option<bool>,
-    #[serde(default)]
-    pub no_outgoing: Option<bool>,
-    #[serde(default)]
-    pub has_edge: Option<EdgeType>,
-    #[serde(default)]
-    pub direction: Option<EdgeDirection>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MatchNameConfig {
-    #[serde(default)]
-    pub glob: Option<String>,
-    #[serde(default)]
-    pub regex: Option<String>,
-    #[serde(default)]
-    pub contains: Option<String>,
-    #[serde(default)]
-    pub starts_with: Option<String>,
-    #[serde(default)]
-    pub ends_with: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -451,12 +408,6 @@ pub struct RatioConfig {
     pub denominator: DenominatorConfig,
     #[serde(default)]
     pub threshold: Option<WhereClause>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairConfig {
-    pub acquire_edge: EdgeType,
-    pub release_edge: EdgeType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -509,17 +460,11 @@ pub enum GraphStage {
         #[serde(default)]
         exclude: Option<WhereClause>,
     },
-    Traverse {
-        traverse: TraverseConfig,
-    },
     GroupBy {
         group_by: String,
     },
     Count {
         count: CountConfig,
-    },
-    CountEdges {
-        count_edges: CountEdgesConfig,
     },
     MaxDepth {
         max_depth: MaxDepthConfig,
@@ -527,17 +472,14 @@ pub enum GraphStage {
     FindCycles {
         find_cycles: FindCyclesConfig,
     },
-    Filter {
-        filter: FilterConfig,
-    },
-    MatchName {
-        match_name: MatchNameConfig,
-    },
     Ratio {
         ratio: RatioConfig,
     },
-    Pair {
-        pair: PairConfig,
+    MatchPattern {
+        match_pattern: String,
+    },
+    ComputeMetric {
+        compute_metric: String,
     },
     Flag {
         flag: FlagConfig,
@@ -1027,20 +969,6 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_traverse_stage() {
-        let json = r#"{"traverse": {"edge": "imports", "direction": "out"}}"#;
-        let stage: GraphStage = serde_json::from_str(json).unwrap();
-        match stage {
-            GraphStage::Traverse { traverse } => {
-                assert_eq!(traverse.edge, EdgeType::Imports);
-                assert_eq!(traverse.direction, EdgeDirection::Out);
-                assert!(traverse.depth.is_none());
-            }
-            _ => panic!("expected Traverse stage"),
-        }
-    }
-
-    #[test]
     fn test_deserialize_find_cycles_stage() {
         let json = r#"{"find_cycles": {"edge": "calls"}}"#;
         let stage: GraphStage = serde_json::from_str(json).unwrap();
@@ -1073,26 +1001,6 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_count_edges_stage() {
-        let json = r#"{
-            "count_edges": {
-                "edge": "imports",
-                "direction": "in",
-                "threshold": {"gte": 5}
-            }
-        }"#;
-        let stage: GraphStage = serde_json::from_str(json).unwrap();
-        match stage {
-            GraphStage::CountEdges { count_edges } => {
-                assert_eq!(count_edges.edge, EdgeType::Imports);
-                assert_eq!(count_edges.direction, EdgeDirection::In);
-                assert_eq!(count_edges.threshold.gte, Some(5.0));
-            }
-            _ => panic!("expected CountEdges stage"),
-        }
-    }
-
-    #[test]
     fn test_deserialize_group_by_stage() {
         let json = r#"{"group_by": "file_path"}"#;
         let stage: GraphStage = serde_json::from_str(json).unwrap();
@@ -1105,15 +1013,26 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_match_name_stage() {
-        let json = r#"{"match_name": {"contains": "Service"}}"#;
+    fn test_deserialize_match_pattern_stage() {
+        let json = r#"{"match_pattern": "(identifier) @name"}"#;
         let stage: GraphStage = serde_json::from_str(json).unwrap();
         match stage {
-            GraphStage::MatchName { match_name } => {
-                assert_eq!(match_name.contains, Some("Service".to_string()));
-                assert!(match_name.glob.is_none());
+            GraphStage::MatchPattern { match_pattern } => {
+                assert_eq!(match_pattern, "(identifier) @name");
             }
-            _ => panic!("expected MatchName stage"),
+            _ => panic!("expected MatchPattern stage"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_compute_metric_stage() {
+        let json = r#"{"compute_metric": "cyclomatic_complexity"}"#;
+        let stage: GraphStage = serde_json::from_str(json).unwrap();
+        match stage {
+            GraphStage::ComputeMetric { compute_metric } => {
+                assert_eq!(compute_metric, "cyclomatic_complexity");
+            }
+            _ => panic!("expected ComputeMetric stage"),
         }
     }
 

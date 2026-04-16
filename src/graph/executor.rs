@@ -161,25 +161,12 @@ fn execute_stage(
             // just pass nodes through unchanged.
             Ok(nodes)
         }
-        // Stubs for stages not needed by architecture pipelines
-        GraphStage::Traverse { .. } => {
-            // TODO: implement BFS traversal
+        GraphStage::MatchPattern { .. } => {
+            // TODO: implement tree-sitter pattern matching (Phase 2)
             Ok(nodes)
         }
-        GraphStage::Filter { .. } => {
-            // TODO: implement edge-based filter
-            Ok(nodes)
-        }
-        GraphStage::MatchName { .. } => {
-            // TODO: implement name matching
-            Ok(nodes)
-        }
-        GraphStage::CountEdges { .. } => {
-            // TODO: implement edge counting
-            Ok(nodes)
-        }
-        GraphStage::Pair { .. } => {
-            // TODO: implement acquire/release pairing
+        GraphStage::ComputeMetric { .. } => {
+            // TODO: implement metric computation (Phase 2)
             Ok(nodes)
         }
     }
