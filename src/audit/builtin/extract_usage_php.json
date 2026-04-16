@@ -1,0 +1,18 @@
+{
+  "pipeline": "extract_usage",
+  "category": "code-quality",
+  "description": "Detects use of extract() which pollutes the local scope with untracked variables. Simplified from Rust: flags all function_call_expression nodes whose function name is 'extract'. Cannot check the first argument for superglobals ($_POST, $_GET, etc.) or detect safe flags (EXTR_IF_EXISTS, EXTR_SKIP) without argument inspection support.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(function_call_expression function: (name) @fn_name) @call"
+    },
+    {
+      "flag": {
+        "pattern": "extract_usage",
+        "message": "extract() call detected -- pollutes local scope with untracked variables; use explicit array access instead",
+        "severity": "warning"
+      }
+    }
+  ]
+}

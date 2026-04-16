@@ -1,0 +1,18 @@
+{
+  "pipeline": "silent_exception",
+  "category": "code-quality",
+  "description": "Detects PHP catch blocks that silently swallow exceptions. Simplified from Rust: flags all catch_clause nodes. Cannot inspect the catch body contents to distinguish empty/trivial/substantive bodies, check for broad exception types (Exception/Throwable), or graduate severity by body kind.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(catch_clause) @catch"
+    },
+    {
+      "flag": {
+        "pattern": "silent_exception",
+        "message": "catch block detected -- verify it logs or rethrows the exception rather than swallowing it silently",
+        "severity": "warning"
+      }
+    }
+  ]
+}

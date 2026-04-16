@@ -1,0 +1,18 @@
+{
+  "pipeline": "deprecated_mysql_api",
+  "category": "code-quality",
+  "description": "Detects calls to the deprecated mysql_* extension functions removed in PHP 7.0. Simplified from Rust: flags all function_call_expression nodes whose function name starts with mysql_. Cannot restrict to the exact allowlist of ~50 removed functions without #match? predicate support. Expect some false positives for user-defined mysql_* helpers.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(function_call_expression function: (name) @fn_name) @call"
+    },
+    {
+      "flag": {
+        "pattern": "deprecated_mysql",
+        "message": "function call detected -- verify this is not a deprecated mysql_* extension call (mysql_connect, mysql_query, etc.) -- migrate to mysqli or PDO",
+        "severity": "warning"
+      }
+    }
+  ]
+}

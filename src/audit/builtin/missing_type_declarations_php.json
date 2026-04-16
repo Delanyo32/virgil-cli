@@ -1,0 +1,19 @@
+{
+  "pipeline": "missing_type_declarations",
+  "category": "code-quality",
+  "description": "Detects PHP functions and methods missing type declarations. Simplified from Rust: flags all function and method definitions. Cannot check individual parameter type hints, detect missing return types, distinguish magic methods (__construct, __toString), or graduate severity by visibility (public=warning, private=info).",
+  "languages": ["php"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method"]}
+    },
+    {
+      "flag": {
+        "pattern": "missing_type",
+        "message": "function/method detected -- verify it has complete parameter type hints and a return type declaration",
+        "severity": "info"
+      }
+    }
+  ]
+}

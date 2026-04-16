@@ -1,0 +1,18 @@
+{
+  "pipeline": "error_suppression",
+  "category": "code-quality",
+  "description": "Detects use of the @ error suppression operator in PHP. Simplified from Rust: flags all error_suppression_expression nodes. Cannot distinguish safe idioms (unlink, session_start, etc.) from risky suppressions, or suppress findings inside try/catch blocks.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "match_pattern": "(error_suppression_expression) @suppress"
+    },
+    {
+      "flag": {
+        "pattern": "error_suppression",
+        "message": "@ error suppression operator detected -- use proper error handling instead of silencing errors",
+        "severity": "warning"
+      }
+    }
+  ]
+}

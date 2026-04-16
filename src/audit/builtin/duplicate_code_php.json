@@ -1,0 +1,19 @@
+{
+  "pipeline": "duplicate_code",
+  "category": "code-quality",
+  "description": "Detects potentially duplicated function/method bodies in PHP. Simplified from Rust: flags all function and method declarations as candidates. Cannot compute rolling-hash similarity, detect duplicate switch cases, or compare function bodies across files.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method"]}
+    },
+    {
+      "flag": {
+        "pattern": "potential_duplication",
+        "message": "function/method detected -- verify bodies are not duplicated across the codebase (duplication detection simplified: hash-based comparison not available in JSON DSL)",
+        "severity": "info"
+      }
+    }
+  ]
+}
