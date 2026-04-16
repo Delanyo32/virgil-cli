@@ -48,7 +48,11 @@ Plans:
   2. A JSON pipeline using `compute_metric` with `cyclomatic_complexity` produces non-zero findings for functions that exceed the threshold
   3. Executor stages `traverse`, `filter`, `match_name`, `count_edges`, and `pair` either perform their intended operation or return a descriptive error — none silently pass all nodes through unchanged
   4. `cargo test` passes with zero failures
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Create metrics module, update GraphStage enum (add MatchPattern/ComputeMetric, delete 5 stubs)
+- [ ] 02-02-PLAN.md — Implement match_pattern + compute_metric executor stages, update engine.rs call site, add tests
 
 ### Phase 3: Tech Debt + Scalability JSON Migration
 **Goal**: All shared cross-language complexity pipelines and shared scalability pipelines run as JSON; corresponding Rust files are deleted; no regression in findings for cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio, n_plus_one_queries, or sync_blocking_in_async
@@ -88,12 +92,12 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Engine Fixes + Architecture JSON Expansion | 0/5 | Planned | - |
-| 2. Executor Stage Implementation | 0/TBD | Not started | - |
+| 1. Engine Fixes + Architecture JSON Expansion | 5/5 | Complete | - |
+| 2. Executor Stage Implementation | 0/2 | Planned | - |
 | 3. Tech Debt + Scalability JSON Migration | 0/TBD | Not started | - |
 | 4. Security + Per-Language Scalability Migration | 0/TBD | Not started | - |
 | 5. Final Cleanup + Test Health | 0/TBD | Not started | - |
