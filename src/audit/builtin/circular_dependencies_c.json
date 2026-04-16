@@ -1,0 +1,29 @@
+{
+  "pipeline": "circular_dependencies_c",
+  "category": "architecture",
+  "description": "Detect circular include chains in C codebases using Tarjan SCC algorithm",
+  "languages": ["c"],
+  "graph": [
+    {
+      "select": "file",
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true}
+        ]
+      }
+    },
+    {"find_cycles": {"edge": "imports"}},
+    {
+      "flag": {
+        "pattern": "circular_dependency",
+        "message": "Circular dependency ({{cycle_size}} files): {{cycle_path}}",
+        "severity_map": [
+          {"when": {"cycle_size": {"eq": 2}}, "severity": "info"},
+          {"when": {"cycle_size": {"lte": 5}}, "severity": "warning"},
+          {"severity": "error"}
+        ]
+      }
+    }
+  ]
+}

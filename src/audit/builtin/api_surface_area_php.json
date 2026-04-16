@@ -1,0 +1,37 @@
+{
+  "pipeline": "api_surface_area_php",
+  "category": "architecture",
+  "description": "Detect PHP files that export an excessive fraction of their symbols",
+  "languages": ["php"],
+  "graph": [
+    {
+      "select": "symbol",
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true}
+        ]
+      }
+    },
+    {"group_by": "file"},
+    {
+      "ratio": {
+        "numerator": {"where": {"exported": true}},
+        "denominator": {},
+        "threshold": {
+          "and": [
+            {"count": {"gte": 15}},
+            {"ratio": {"gte": 0.8}}
+          ]
+        }
+      }
+    },
+    {
+      "flag": {
+        "pattern": "excessive_public_api",
+        "message": "Excessive public API: {{file}} exports {{count}} symbols ({{ratio}}% of total)",
+        "severity": "info"
+      }
+    }
+  ]
+}
