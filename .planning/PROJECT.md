@@ -25,11 +25,8 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 
 ### Active
 
-- [ ] Convert all remaining Rust audit pipelines to JSON definitions in `src/audit/builtin/`
-- [ ] Wire all new JSON pipelines into the engine by name (engine discovers JSON files automatically)
-- [ ] Remove all old Rust pipeline `.rs` files after JSON replacements are validated
+- [ ] Convert remaining Rust audit pipelines (security, per-language tech-debt, code-style) to JSON definitions in `src/audit/builtin/`
 - [ ] Remove or consolidate legacy analyzer helpers (`src/audit/analyzers/`) no longer needed
-- [ ] Delete per-pipeline Rust unit tests that test removed code
 - [ ] `cargo test` passes with zero failures after all changes
 
 ### Out of Scope
@@ -41,7 +38,7 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 
 ## Context
 
-**Current state (after Phase 1):** Architecture audit category is 100% JSON-driven. 36 per-language JSON pipeline files exist in `src/audit/builtin/`. All legacy Rust architecture stubs removed. `include_dir!` auto-discovery means adding new JSON files requires no source changes. Next: migrate remaining Rust pipeline categories (tech-debt, code-style, security, scalability) to JSON. The `audit_plans/` directory contains detailed per-pipeline analysis documents (22 files covering architecture and tech debt for all 12 languages) that specify what each new JSON pipeline should detect, with threshold values and pattern names.
+**Current state (after Phase 3):** Architecture (Phase 1) and complexity+scalability (Phase 3) audit categories are 100% JSON-driven. 4 complexity JSON pipelines (cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio) and 9 scalability JSON pipelines (n_plus_one_queries + 8 per-language sync_blocking_in_async) now live in `src/audit/builtin/`. 60 legacy Rust pipeline files deleted. WhereClause extended with kind + 4 metric predicate fields; `resolve_severity` returns `Option<String>` for threshold-based suppression. 16 new integration tests confirm JSON pipelines produce correct findings. Next: migrate remaining Rust pipeline categories (security, per-language tech-debt, code-style) to JSON.
 
 **JSON pipeline format:** Defined in `src/audit/builtin/*.json`. The engine (`src/audit/json_audit.rs`) loads these at startup via `include_dir!` macro and matches pipeline names against registered Rust pipelines — when a JSON file name matches a Rust pipeline name, the JSON version takes precedence.
 
@@ -85,4 +82,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-16 after Phase 2 completion — executor stages `match_pattern` and `compute_metric` implemented; 5 stub stages removed*
+*Last updated: 2026-04-16 after Phase 3 completion — complexity + scalability pipelines migrated to JSON; 60 Rust files deleted; WhereClause extended with metric predicates and severity suppression*
