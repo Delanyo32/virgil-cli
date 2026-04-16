@@ -1,6 +1,7 @@
 pub mod builder;
 pub mod cfg;
 pub mod cfg_languages;
+pub mod pipeline;
 pub mod resource;
 pub mod taint;
 
