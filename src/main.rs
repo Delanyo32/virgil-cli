@@ -763,7 +763,7 @@ fn run_json_audit_file_ws(
     );
 
     let output =
-        virgil_cli::graph::executor::run_pipeline(&json_audit.graph, &graph, None, &json_audit.pipeline)?;
+        virgil_cli::graph::executor::run_pipeline(&json_audit.graph, &graph, None, None, None, &json_audit.pipeline)?;
 
     let findings = match output {
         virgil_cli::graph::executor::PipelineOutput::Findings(f) => f,

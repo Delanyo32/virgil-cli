@@ -20,6 +20,7 @@ use crate::graph::pipeline::{
 };
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 use crate::query_engine::QueryResult;
+use crate::workspace::Workspace;
 
 // ---------------------------------------------------------------------------
 // PipelineOutput
@@ -43,7 +44,7 @@ pub fn execute_graph_pipeline(
     seed_nodes: Option<Vec<NodeIndex>>,
     pipeline_name: &str,
 ) -> anyhow::Result<PipelineOutput> {
-    run_pipeline(stages, graph, seed_nodes, pipeline_name)
+    run_pipeline(stages, graph, None, None, seed_nodes, pipeline_name)
 }
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,8 @@ pub fn execute_graph_pipeline(
 pub fn run_pipeline(
     stages: &[GraphStage],
     graph: &CodeGraph,
+    workspace: Option<&Workspace>,
+    pipeline_languages: Option<&[String]>,
     seed_nodes: Option<Vec<NodeIndex>>,
     pipeline_name: &str,
 ) -> anyhow::Result<PipelineOutput> {
@@ -87,6 +90,8 @@ pub fn run_pipeline(
             stage,
             nodes,
             graph,
+            workspace,
+            pipeline_languages,
             pipeline_name,
             &is_test_fn,
             &is_generated_fn,
@@ -132,6 +137,8 @@ fn execute_stage(
     stage: &GraphStage,
     nodes: Vec<PipelineNode>,
     graph: &CodeGraph,
+    workspace: Option<&Workspace>,
+    pipeline_languages: Option<&[String]>,
     _pipeline_name: &str,
     is_test_fn: &impl Fn(&str) -> bool,
     is_generated_fn: &impl Fn(&str) -> bool,
@@ -161,13 +168,21 @@ fn execute_stage(
             // just pass nodes through unchanged.
             Ok(nodes)
         }
-        GraphStage::MatchPattern { .. } => {
-            // TODO: implement tree-sitter pattern matching (Phase 2)
-            Ok(nodes)
+        GraphStage::MatchPattern { match_pattern } => {
+            match workspace {
+                Some(ws) => execute_match_pattern(match_pattern, ws, pipeline_languages),
+                None => anyhow::bail!(
+                    "match_pattern stage requires workspace -- call run_pipeline with Some(workspace)"
+                ),
+            }
         }
-        GraphStage::ComputeMetric { .. } => {
-            // TODO: implement metric computation (Phase 2)
-            Ok(nodes)
+        GraphStage::ComputeMetric { compute_metric } => {
+            match workspace {
+                Some(ws) => execute_compute_metric(compute_metric, nodes, ws),
+                None => anyhow::bail!(
+                    "compute_metric stage requires workspace -- call run_pipeline with Some(workspace)"
+                ),
+            }
         }
     }
 }
@@ -693,6 +708,205 @@ fn execute_ratio(
 }
 
 // ---------------------------------------------------------------------------
+// MatchPattern stage (source: iterates workspace files, not graph nodes)
+// ---------------------------------------------------------------------------
+
+fn execute_match_pattern(
+    query_str: &str,
+    workspace: &Workspace,
+    pipeline_languages: Option<&[String]>,
+) -> anyhow::Result<Vec<PipelineNode>> {
+    use streaming_iterator::StreamingIterator;
+
+    let mut result = Vec::new();
+
+    for rel_path in workspace.files() {
+        let Some(lang) = workspace.file_language(rel_path) else {
+            continue;
+        };
+
+        // Apply pipeline language filter BEFORE parsing (per D-02:
+        // "iterates all workspace files filtered by the pipeline's languages field")
+        if let Some(langs) = pipeline_languages {
+            let lang_str = lang.as_str();
+            if !langs.iter().any(|l| l.eq_ignore_ascii_case(lang_str)) {
+                continue;
+            }
+        }
+
+        let Some(source) = workspace.read_file(rel_path) else {
+            continue;
+        };
+
+        let ts_lang = lang.tree_sitter_language();
+
+        // Compile query per language -- skip files whose grammar doesn't support the query
+        let query = match tree_sitter::Query::new(&ts_lang, query_str) {
+            Ok(q) => q,
+            Err(_e) => {
+                // Different languages have different grammars; a Rust-specific
+                // query will fail on a TS file. Skip non-matching languages.
+                continue;
+            }
+        };
+
+        let mut parser = crate::parser::create_parser(lang)?;
+        let tree = match parser.parse(source.as_bytes(), None) {
+            Some(t) => t,
+            None => {
+                eprintln!("Warning: match_pattern: failed to parse {rel_path}");
+                continue;
+            }
+        };
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                let node = cap.node;
+                let line = node.start_position().row as u32 + 1;
+                result.push(PipelineNode {
+                    node_idx: petgraph::graph::NodeIndex::new(0), // synthetic -- match_pattern nodes are not graph-backed
+                    file_path: rel_path.clone(),
+                    name: node.utf8_text(source.as_bytes()).unwrap_or("").to_string(),
+                    kind: node.kind().to_string(),
+                    line,
+                    exported: false,
+                    language: lang.as_str().to_string(),
+                    metrics: std::collections::HashMap::new(),
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// ComputeMetric stage (transform: reads file for each node, computes metric)
+// ---------------------------------------------------------------------------
+
+fn execute_compute_metric(
+    metric_name: &str,
+    nodes: Vec<PipelineNode>,
+    workspace: &Workspace,
+) -> anyhow::Result<Vec<PipelineNode>> {
+    let mut result = Vec::new();
+
+    for mut node in nodes {
+        let Some(lang) = workspace.file_language(&node.file_path) else {
+            result.push(node);
+            continue;
+        };
+        let Some(source) = workspace.read_file(&node.file_path) else {
+            result.push(node);
+            continue;
+        };
+
+        let mut parser = crate::parser::create_parser(lang)?;
+        let tree = match parser.parse(source.as_bytes(), None) {
+            Some(t) => t,
+            None => {
+                eprintln!(
+                    "Warning: compute_metric: failed to parse {}",
+                    node.file_path
+                );
+                result.push(node);
+                continue;
+            }
+        };
+
+        let config = crate::graph::metrics::control_flow_config_for_language(lang);
+        let target_line = node.line.saturating_sub(1) as usize; // convert 1-indexed to 0-indexed
+
+        // comment_to_code_ratio operates on the whole file, not a function body
+        // (file-level ratio applied per symbol node -- see RESEARCH.md Open Question 3 resolution)
+        if metric_name == "comment_to_code_ratio" {
+            let (comment_lines, code_lines) = crate::graph::metrics::compute_comment_ratio(
+                tree.root_node(),
+                source.as_bytes(),
+                &config,
+            );
+            let ratio = if code_lines > 0 {
+                (comment_lines as f64 / (comment_lines + code_lines) as f64 * 100.0) as i64
+            } else {
+                0
+            };
+            node.metrics
+                .insert(metric_name.to_string(), MetricValue::Int(ratio));
+            result.push(node);
+            continue;
+        }
+
+        // For function-level metrics, locate the function body at the node's line
+        let body_node = find_function_body_at_line(
+            tree.root_node(),
+            target_line,
+            lang,
+        );
+        let Some(body) = body_node else {
+            eprintln!(
+                "Warning: compute_metric: no function body at line {} in {}",
+                node.line, node.file_path
+            );
+            result.push(node);
+            continue;
+        };
+
+        let value: i64 = match metric_name {
+            "cyclomatic_complexity" => {
+                crate::graph::metrics::compute_cyclomatic(body, &config, source.as_bytes()) as i64
+            }
+            "function_length" => {
+                let (lines, _) = crate::graph::metrics::count_function_lines(body);
+                lines as i64
+            }
+            "cognitive_complexity" => {
+                crate::graph::metrics::compute_cognitive(body, &config, source.as_bytes()) as i64
+            }
+            other => {
+                anyhow::bail!(
+                    "compute_metric: unknown metric '{}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio",
+                    other
+                );
+            }
+        };
+
+        node.metrics
+            .insert(metric_name.to_string(), MetricValue::Int(value));
+        result.push(node);
+    }
+
+    Ok(result)
+}
+
+/// Walk the tree to find a function node whose start line matches `target_line`,
+/// then return its body child. Used by `execute_compute_metric` to locate the
+/// function body for metric computation.
+fn find_function_body_at_line(
+    root: tree_sitter::Node,
+    target_line: usize,
+    lang: crate::language::Language,
+) -> Option<tree_sitter::Node> {
+    let func_kinds = crate::graph::metrics::function_node_kinds_for_language(lang);
+    let body_field = crate::graph::metrics::body_field_for_language(lang);
+
+    let mut stack = vec![root];
+    while let Some(current) = stack.pop() {
+        if func_kinds.contains(&current.kind()) && current.start_position().row == target_line {
+            if let Some(body) = current.child_by_field_name(body_field) {
+                return Some(body);
+            }
+        }
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -905,7 +1119,7 @@ mod tests {
             filter: None,
             exclude: None,
         }];
-        let out = run_pipeline(&stages, &graph, None, "test").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
         match out {
             PipelineOutput::Results(results) => {
                 assert_eq!(results.len(), 2);
@@ -928,7 +1142,7 @@ mod tests {
                 ..Default::default()
             }),
         }];
-        let out = run_pipeline(&stages, &graph, None, "test").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
         match out {
             PipelineOutput::Results(results) => {
                 assert_eq!(results.len(), 1);
@@ -956,7 +1170,7 @@ mod tests {
                 find_cycles: FindCyclesConfig { edge: EdgeType::Imports },
             },
         ];
-        let out = run_pipeline(&stages, &graph, None, "test").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
         match out {
             PipelineOutput::Results(results) => {
                 assert_eq!(results.len(), 1, "expected exactly 1 cycle node");
@@ -987,6 +1201,8 @@ mod tests {
             &select_stage,
             Vec::new(),
             &graph,
+            None,
+            None,
             "test",
             &is_test_fn,
             &is_generated_fn,
@@ -1000,6 +1216,8 @@ mod tests {
             &cycle_stage,
             nodes,
             &graph,
+            None,
+            None,
             "test",
             &is_test_fn,
             &is_generated_fn,
@@ -1028,7 +1246,7 @@ mod tests {
                 find_cycles: FindCyclesConfig { edge: EdgeType::Imports },
             },
         ];
-        let out = run_pipeline(&stages, &graph, None, "test").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
         match out {
             PipelineOutput::Results(results) => {
                 assert!(results.is_empty(), "DAG should produce no cycles");
@@ -1089,7 +1307,7 @@ mod tests {
                 },
             },
         ];
-        let out = run_pipeline(&stages, &graph, None, "test").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
         match out {
             PipelineOutput::Results(results) => {
                 // Only src/a.rs has >= 2 symbols
@@ -1123,6 +1341,8 @@ mod tests {
             &select_stage,
             Vec::new(),
             &graph,
+            None,
+            None,
             "test",
             &is_test_fn,
             &is_generated_fn,
@@ -1144,6 +1364,8 @@ mod tests {
             &max_depth_stage,
             nodes,
             &graph,
+            None,
+            None,
             "test",
             &is_test_fn,
             &is_generated_fn,
@@ -1175,6 +1397,8 @@ mod tests {
             &select_stage,
             Vec::new(),
             &graph,
+            None,
+            None,
             "test_pipeline",
             &is_test_fn,
             &is_generated_fn,
@@ -1257,7 +1481,7 @@ mod tests {
             },
         ];
 
-        let out = run_pipeline(&stages, &graph, None, "my_pipeline").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "my_pipeline").unwrap();
         match out {
             PipelineOutput::Findings(findings) => {
                 assert_eq!(findings.len(), 1);
@@ -1294,7 +1518,7 @@ mod tests {
             },
         ];
 
-        let out = execute_graph_pipeline(&stages, &graph, None, "wrapper_pipeline").unwrap();
+        let out = execute_graph_pipeline(&stages, &graph, None, "wrapper_pipeline").unwrap(); // uses backward-compat wrapper
         match out {
             PipelineOutput::Findings(findings) => {
                 assert!(!findings.is_empty(), "expected at least one finding");
@@ -1307,6 +1531,225 @@ mod tests {
     }
 
     // ── Test 8: ratio stage ──────────────────────────────────────────
+
+    // -- match_pattern + compute_metric tests ----
+
+    #[test]
+    fn test_match_pattern_finds_panic_in_rust() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(
+            src_dir.join("lib.rs"),
+            r#"fn foo() { panic!("oops"); }
+fn bar() { println!("ok"); }
+"#,
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+
+        let stages = vec![
+            GraphStage::MatchPattern {
+                match_pattern: r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
+                    .to_string(),
+            },
+            GraphStage::Flag {
+                flag: crate::graph::pipeline::FlagConfig {
+                    pattern: "panic_detected".to_string(),
+                    message: "panic at {{file}}:{{line}}".to_string(),
+                    severity: Some("warning".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+        let graph = CodeGraph::new();
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "panic_detection").unwrap();
+        match out {
+            PipelineOutput::Findings(findings) => {
+                assert!(
+                    !findings.is_empty(),
+                    "expected at least one finding for panic!()"
+                );
+                assert_eq!(findings[0].pattern, "panic_detected");
+                assert_eq!(findings[0].line, 1);
+                assert!(findings[0].file_path.contains("lib.rs"));
+            }
+            _ => panic!("expected Findings"),
+        }
+    }
+
+    #[test]
+    fn test_match_pattern_no_match_returns_empty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(
+            src_dir.join("lib.rs"),
+            "fn clean() { println!(\"all good\"); }\n",
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+
+        let stages = vec![
+            GraphStage::MatchPattern {
+                match_pattern: r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
+                    .to_string(),
+            },
+            GraphStage::Flag {
+                flag: crate::graph::pipeline::FlagConfig {
+                    pattern: "panic_detected".to_string(),
+                    message: "panic at {{file}}:{{line}}".to_string(),
+                    severity: Some("warning".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+        let graph = CodeGraph::new();
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "panic_detection").unwrap();
+        match out {
+            PipelineOutput::Findings(findings) => {
+                assert!(
+                    findings.is_empty(),
+                    "expected zero findings for clean code, got {}",
+                    findings.len()
+                );
+            }
+            _ => panic!("expected Findings"),
+        }
+    }
+
+    #[test]
+    fn test_compute_metric_cyclomatic_flags_complex_function() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        // Function with CC > 1: multiple if branches
+        std::fs::write(
+            src_dir.join("complex.rs"),
+            r#"fn complex(x: i32, y: i32, z: i32) {
+    if x > 0 {
+        println!("a");
+    }
+    if y > 0 {
+        println!("b");
+    }
+    if z > 0 {
+        println!("c");
+    }
+    for i in 0..10 {
+        println!("{}", i);
+    }
+}
+"#,
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+
+        // Build a graph with a symbol node at line 1 (the function start)
+        let mut graph = CodeGraph::new();
+        let file_idx = graph.graph.add_node(NodeWeight::File {
+            path: "src/complex.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph.file_nodes.insert("src/complex.rs".to_string(), file_idx);
+        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: "complex".to_string(),
+            kind: crate::models::SymbolKind::Function,
+            file_path: "src/complex.rs".to_string(),
+            start_line: 1,
+            end_line: 14,
+            exported: false,
+        });
+        graph.symbol_nodes.insert(("src/complex.rs".to_string(), 1), sym_idx);
+
+        let stages = vec![
+            GraphStage::Select {
+                select: crate::graph::pipeline::NodeType::Symbol,
+                filter: None,
+                exclude: None,
+            },
+            GraphStage::ComputeMetric {
+                compute_metric: "cyclomatic_complexity".to_string(),
+            },
+            GraphStage::Flag {
+                flag: crate::graph::pipeline::FlagConfig {
+                    pattern: "high_cc".to_string(),
+                    message: "CC={{cyclomatic_complexity}} in {{name}}".to_string(),
+                    severity: Some("warning".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "cyclomatic_complexity").unwrap();
+        match out {
+            PipelineOutput::Findings(findings) => {
+                assert_eq!(findings.len(), 1, "expected 1 finding for complex function");
+                assert!(
+                    findings[0].message.contains("CC="),
+                    "message should contain CC value"
+                );
+                // CC = 1 (base) + 3 (if) + 1 (for) = 5
+                assert!(
+                    findings[0].message.contains("CC=5"),
+                    "expected CC=5, got: {}",
+                    findings[0].message
+                );
+            }
+            _ => panic!("expected Findings"),
+        }
+    }
+
+    #[test]
+    fn test_compute_metric_cyclomatic_clean_function_no_finding_above_threshold() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        // Simple function with CC=1 (no branches)
+        std::fs::write(
+            src_dir.join("simple.rs"),
+            "fn simple() {\n    println!(\"hello\");\n}\n",
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+
+        let mut graph = CodeGraph::new();
+        let file_idx = graph.graph.add_node(NodeWeight::File {
+            path: "src/simple.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph.file_nodes.insert("src/simple.rs".to_string(), file_idx);
+        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: "simple".to_string(),
+            kind: crate::models::SymbolKind::Function,
+            file_path: "src/simple.rs".to_string(),
+            start_line: 1,
+            end_line: 3,
+            exported: false,
+        });
+        graph.symbol_nodes.insert(("src/simple.rs".to_string(), 1), sym_idx);
+
+        let stages = vec![
+            GraphStage::Select {
+                select: crate::graph::pipeline::NodeType::Symbol,
+                filter: None,
+                exclude: None,
+            },
+            GraphStage::ComputeMetric {
+                compute_metric: "cyclomatic_complexity".to_string(),
+            },
+        ];
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "cc_test").unwrap();
+        match out {
+            PipelineOutput::Results(results) => {
+                assert_eq!(results.len(), 1, "expected 1 result for simple function");
+                // The node should have CC=1 (base complexity only)
+            }
+            _ => panic!("expected Results (no Flag stage)"),
+        }
+    }
 
     #[test]
     fn test_ratio_exported_symbols() {
@@ -1367,7 +1810,7 @@ mod tests {
                 },
             },
         ];
-        let out = run_pipeline(&stages, &graph, None, "test").unwrap();
+        let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
         match out {
             PipelineOutput::Results(results) => {
                 // 3/4 = 0.75 >= 0.5, so should pass

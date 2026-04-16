@@ -306,7 +306,7 @@ pub fn execute(
         };
 
         let pipeline_name = "graph_query";
-        match crate::graph::executor::run_pipeline(stages, graph, seed_nodes, pipeline_name)? {
+        match crate::graph::executor::run_pipeline(stages, graph, None, None, seed_nodes, pipeline_name)? {
             crate::graph::executor::PipelineOutput::Findings(findings) => {
                 return Ok(QueryOutput {
                     results: Vec::new(),
@@ -724,6 +724,8 @@ mod tests {
             query.graph.as_ref().unwrap(),
             &g,
             None,
+            None,
+            None,
             "graph_query",
         ).unwrap();
 
@@ -757,7 +759,7 @@ mod tests {
             exclude: None,
         }];
 
-        let out = crate::graph::executor::run_pipeline(&stages, &g, None, "graph_query").unwrap();
+        let out = crate::graph::executor::run_pipeline(&stages, &g, None, None, None, "graph_query").unwrap();
 
         match out {
             crate::graph::executor::PipelineOutput::Results(results) => {
