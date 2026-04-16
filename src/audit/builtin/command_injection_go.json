@@ -1,0 +1,18 @@
+{
+  "pipeline": "command_injection",
+  "category": "security",
+  "description": "Detects command injection risks in Go: exec.Command and os/exec selector calls. JSON version matches all selector_expression calls (cannot filter by package/method name without #match? predicate support). Precision reduced per D-07.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @method)) @call"
+    },
+    {
+      "flag": {
+        "pattern": "exec_command_injection",
+        "message": "Selector call expression detected -- verify this is not an exec.Command or shell invocation with dynamic arguments",
+        "severity": "error"
+      }
+    }
+  ]
+}

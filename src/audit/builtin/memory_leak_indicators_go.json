@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leak_indicators",
+  "category": "scalability",
+  "description": "Detects potential memory/goroutine leak patterns in Go: goroutines launched inside loops (goroutine_in_loop), defer inside loops (defer_in_loop), and unbounded appends in loops. JSON version matches for_statement containing go_statement or defer_statement. Languages field scoped to go only to avoid conflict with Rust memory_leak_indicators pipeline (same pipeline name). JSON cannot detect unbounded append -- covered by goroutine/defer patterns.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(for_statement body: (block (go_statement) @go_stmt)) @for_stmt"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "goroutine launched inside loop -- may cause goroutine leak or unbounded concurrency",
+        "severity": "warning"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "race_conditions",
+  "category": "security",
+  "description": "Detects race condition risks in Go: goroutines spawned inside for loops (loop variable capture risk) and goroutine bodies with map/slice bracket access. JSON version matches for_statement containing go_statement. Languages field scoped to go only to avoid conflict with Rust race_conditions pipeline (same pipeline name).",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(for_statement body: (block (go_statement) @go_stmt)) @for_stmt"
+    },
+    {
+      "flag": {
+        "pattern": "loop_var_capture",
+        "message": "goroutine spawned inside for loop -- loop variable may be captured by reference causing race conditions",
+        "severity": "warning"
+      }
+    }
+  ]
+}
