@@ -25,7 +25,6 @@ pub mod type_confusion;
 pub mod unsafe_memory;
 
 pub mod memory_leak_indicators;
-pub mod n_plus_one_queries;
 pub mod sync_blocking_in_async;
 
 use crate::audit::pipeline::{AnyPipeline, Pipeline};
@@ -73,7 +72,6 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
 
 pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
-        Box::new(n_plus_one_queries::NPlusOneQueriesPipeline::new()?),
         Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
         Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
