@@ -6202,3 +6202,1991 @@ fn coupling_rust_no_findings_const_only() {
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
 }
+
+// ── Phase 5: Go Tech Debt + Code Style Pipelines ──
+
+// ── error_swallowing (10 tests) ──
+
+#[test]
+fn error_swallowing_go_finds_blank_error_assignment() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "os"
+func main() {
+    var f *os.File
+    f, _ = os.Open("file.txt")
+    _ = f
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected error_swallowing finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn error_swallowing_go_finds_multi_blank() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    var a, b int
+    a, b, _ = multiReturn()
+    _ = a
+    _ = b
+}
+func multiReturn() (int, int, error) { return 1, 2, nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected error_swallowing finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn error_swallowing_go_no_findings_no_assignment() {
+    // Simplified JSON matches all assignment_statement nodes;
+    // code with only declarations (no assignments) produces no findings.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected no error_swallowing for empty function (no assignment_statement nodes)");
+}
+
+#[test]
+fn error_swallowing_go_no_findings_empty_package() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected no error_swallowing for empty package");
+}
+
+#[test]
+fn error_swallowing_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    var x int
+    x, _ = someFunc()
+    _ = x
+}
+func someFunc() (int, error) { return 1, nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "error_swallowing");
+    assert!(f.is_some(), "expected error_swallowing finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn error_swallowing_go_detects_nested_blank() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func process() {
+    var result int
+    result, _ = compute()
+    _ = result
+}
+func compute() (int, error) { return 42, nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected error_swallowing in nested function");
+}
+
+#[test]
+fn error_swallowing_go_no_findings_const_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nconst X = 42\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected no error_swallowing for const-only file");
+}
+
+#[test]
+fn error_swallowing_go_pattern_is_swallowed_error() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    var x int
+    x, _ = getVal()
+    _ = x
+}
+func getVal() (int, error) { return 0, nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "error_swallowing" && f.pattern == "swallowed_error"),
+        "expected pattern swallowed_error");
+}
+
+#[test]
+fn error_swallowing_go_no_findings_struct_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("types.go"), "package main\ntype Config struct { Port int }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected no error_swallowing for struct-only file");
+}
+
+#[test]
+fn error_swallowing_go_no_findings_go_file_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    // Non-.go file should not trigger Go pipeline
+    std::fs::write(dir.path().join("main.ts"), "const x = someFunc();\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
+        "expected no error_swallowing for non-Go files");
+}
+
+// ── god_struct (8 tests) ──
+
+#[test]
+fn god_struct_go_finds_struct_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type BigService struct {
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O int
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_struct"),
+        "expected god_struct finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn god_struct_go_finds_small_struct() {
+    // JSON version flags ALL structs (simplified), so even small ones produce findings
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Config struct { Port int }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_struct"),
+        "expected god_struct finding even for small struct (simplified JSON)");
+}
+
+#[test]
+fn god_struct_go_no_findings_empty_package() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_struct"),
+        "expected no god_struct for package with no struct symbols");
+}
+
+#[test]
+fn god_struct_go_pattern_is_god_struct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype Svc struct { Name string }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "god_struct" && f.pattern == "god_struct"),
+        "expected pattern god_struct");
+}
+
+#[test]
+fn god_struct_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype MyType struct { X int }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "god_struct");
+    assert!(f.is_some(), "expected god_struct finding");
+    assert!(f.unwrap().line >= 0, "expected line >= 0");
+}
+
+#[test]
+fn god_struct_go_multiple_structs_multiple_findings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type A struct { X int }
+type B struct { Y string }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "god_struct").count();
+    assert!(count >= 2, "expected at least 2 god_struct findings for 2 structs; got {count}");
+}
+
+#[test]
+fn god_struct_go_no_findings_interface_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Reader interface { Read([]byte) (int, error) }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_struct"),
+        "expected no god_struct for interface type (kind filter)");
+}
+
+#[test]
+fn god_struct_go_no_findings_rust_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.rs"), "struct BigStruct { a: i32 }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "god_struct"),
+        "expected no god_struct for non-Go Rust struct");
+}
+
+// ── goroutine_leak (6 tests) ──
+
+#[test]
+fn goroutine_leak_go_finds_go_statement() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    go func() {
+        for { doWork() }
+    }()
+}
+func doWork() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "goroutine_leak"),
+        "expected goroutine_leak finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn goroutine_leak_go_finds_named_goroutine() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    go worker()
+}
+func worker() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "goroutine_leak"),
+        "expected goroutine_leak for named goroutine launch");
+}
+
+#[test]
+fn goroutine_leak_go_no_findings_no_goroutine() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    doWork()
+}
+func doWork() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "goroutine_leak"),
+        "expected no goroutine_leak for synchronous code");
+}
+
+#[test]
+fn goroutine_leak_go_no_findings_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "goroutine_leak"),
+        "expected no goroutine_leak for empty main");
+}
+
+#[test]
+fn goroutine_leak_go_pattern_is_goroutine_leak_risk() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() { go doWork() }
+func doWork() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "goroutine_leak" && f.pattern == "goroutine_leak_risk"),
+        "expected pattern goroutine_leak_risk");
+}
+
+#[test]
+fn goroutine_leak_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    go func() { doWork() }()
+}
+func doWork() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "goroutine_leak");
+    assert!(f.is_some(), "expected goroutine_leak finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+// ── init_abuse (10 tests) ──
+
+#[test]
+fn init_abuse_go_finds_function_declaration() {
+    // JSON version flags all function declarations (simplified)
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "database/sql"
+func init() {
+    db, _ := sql.Open("postgres", "dsn")
+    _ = db
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected init_abuse finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn init_abuse_go_finds_any_function() {
+    // JSON version matches all function_declaration nodes
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected init_abuse finding for any function (simplified JSON matches all function_declaration)");
+}
+
+#[test]
+fn init_abuse_go_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype Config struct { Port int }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected no init_abuse for struct-only file");
+}
+
+#[test]
+fn init_abuse_go_no_findings_empty_package_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected no init_abuse for empty package");
+}
+
+#[test]
+fn init_abuse_go_pattern_is_init_function_abuse() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc init() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "init_abuse" && f.pattern == "init_function_abuse"),
+        "expected pattern init_function_abuse");
+}
+
+#[test]
+fn init_abuse_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc helper() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "init_abuse");
+    assert!(f.is_some(), "expected init_abuse finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn init_abuse_go_multiple_functions_multiple_findings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func init() {}
+func setup() {}
+func main() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "init_abuse").count();
+    assert!(count >= 3, "expected >= 3 init_abuse findings for 3 functions; got {count}");
+}
+
+#[test]
+fn init_abuse_go_no_findings_no_go_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected no init_abuse for non-Go files");
+}
+
+#[test]
+fn init_abuse_go_finds_exported_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("service.go"), "package svc\nfunc Start() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected init_abuse finding for exported function (simplified JSON)");
+}
+
+#[test]
+fn init_abuse_go_no_findings_interface_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("iface.go"), "package main\ntype Service interface { Run() error }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
+        "expected no init_abuse for interface-only file");
+}
+
+// ── magic_numbers (9 tests) ──
+
+#[test]
+fn magic_numbers_go_finds_int_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    x := 42 + 1
+    _ = x
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected magic_numbers finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn magic_numbers_go_finds_port_number() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    port := 8080
+    _ = port
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected magic_numbers for port literal");
+}
+
+#[test]
+fn magic_numbers_go_no_findings_no_literals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {
+    s := "hello"
+    _ = s
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected no magic_numbers for string-only file");
+}
+
+#[test]
+fn magic_numbers_go_pattern_is_magic_number() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc f() { x := 99; _ = x }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers" && f.pattern == "magic_number"),
+        "expected pattern magic_number");
+}
+
+#[test]
+fn magic_numbers_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f() {
+    x := 42
+    _ = x
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "magic_numbers");
+    assert!(f.is_some(), "expected magic_numbers finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn magic_numbers_go_no_findings_empty_func() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected no magic_numbers for empty function");
+}
+
+#[test]
+fn magic_numbers_go_finds_multiple_literals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f() {
+    a := 100
+    b := 200
+    _ = a + b
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "magic_numbers").count();
+    assert!(count >= 2, "expected >= 2 magic_numbers findings; got {count}");
+}
+
+#[test]
+fn magic_numbers_go_no_findings_struct_only_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype Config struct { Port string }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected no magic_numbers for struct-only file");
+}
+
+#[test]
+fn magic_numbers_go_finds_comparison_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func check(x int) bool {
+    return x > 999
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected magic_numbers for comparison literal");
+}
+
+// ── mutex_misuse (8 tests) ──
+
+#[test]
+fn mutex_misuse_go_finds_method_call() {
+    // JSON version flags ALL selector_expression method calls
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "sync"
+func main() {
+    var mu sync.Mutex
+    mu.Lock()
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse"),
+        "expected mutex_misuse finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn mutex_misuse_go_finds_selector_call_with_defer() {
+    // JSON version also flags this since it matches all selector_expression calls
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "sync"
+func f() {
+    var mu sync.Mutex
+    mu.Lock()
+    defer mu.Unlock()
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse"),
+        "expected mutex_misuse finding (simplified JSON flags all selector calls)");
+}
+
+#[test]
+fn mutex_misuse_go_no_findings_no_method_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() { x := 1; _ = x }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "mutex_misuse"),
+        "expected no mutex_misuse for code without method calls");
+}
+
+#[test]
+fn mutex_misuse_go_no_findings_empty_func() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "mutex_misuse"),
+        "expected no mutex_misuse for empty function");
+}
+
+#[test]
+fn mutex_misuse_go_pattern_is_mutex_misuse() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f() { x.Method() }
+var x interface{ Method() }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse" && f.pattern == "mutex_misuse"),
+        "expected pattern mutex_misuse");
+}
+
+#[test]
+fn mutex_misuse_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f() {
+    obj.Call()
+}
+var obj interface{ Call() }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "mutex_misuse");
+    assert!(f.is_some(), "expected mutex_misuse finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn mutex_misuse_go_finds_rlock() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "sync"
+func f() {
+    var mu sync.RWMutex
+    mu.RLock()
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse"),
+        "expected mutex_misuse for RLock call");
+}
+
+#[test]
+fn mutex_misuse_go_no_findings_no_selector_expr() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() { _ = len(\"hello\") }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "mutex_misuse"),
+        "expected no mutex_misuse for non-selector calls");
+}
+
+// ── naked_interface (9 tests) ──
+
+#[test]
+fn naked_interface_go_finds_interface_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func Process(v interface{}) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected naked_interface finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn naked_interface_go_finds_interface_with_methods() {
+    // JSON version flags ALL interface_type nodes (simplified), including non-empty ones
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Reader interface { Read([]byte) (int, error) }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected naked_interface for any interface type (simplified JSON)");
+}
+
+#[test]
+fn naked_interface_go_no_findings_no_interface() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() { x := 1; _ = x }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected no naked_interface for non-interface code");
+}
+
+#[test]
+fn naked_interface_go_no_findings_empty_func() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected no naked_interface for empty function");
+}
+
+#[test]
+fn naked_interface_go_pattern_is_naked_interface() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc f(v interface{}) {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "naked_interface" && f.pattern == "naked_interface"),
+        "expected pattern naked_interface");
+}
+
+#[test]
+fn naked_interface_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f(v interface{}) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "naked_interface");
+    assert!(f.is_some(), "expected naked_interface finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn naked_interface_go_finds_field_interface() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Config struct {
+    Value interface{}
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected naked_interface for struct field with interface type");
+}
+
+#[test]
+fn naked_interface_go_no_findings_concrete_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func Process(v string) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected no naked_interface for concrete string parameter");
+}
+
+#[test]
+fn naked_interface_go_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype Config struct { Port int }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
+        "expected no naked_interface for struct with concrete fields");
+}
+
+// ── stringly_typed_config (11 tests) ──
+
+#[test]
+fn stringly_typed_config_go_finds_map_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func NewService(cfg map[string]string) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected stringly_typed_config finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn stringly_typed_config_go_finds_map_string_any() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func New(cfg map[string]any) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected stringly_typed_config for map[string]any");
+}
+
+#[test]
+fn stringly_typed_config_go_finds_map_int_key() {
+    // JSON version flags ALL map_type nodes regardless of key/value types
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func Process(data map[int]string) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected stringly_typed_config for any map type (simplified JSON)");
+}
+
+#[test]
+fn stringly_typed_config_go_no_findings_no_map() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Config struct { Port int }
+func NewService(cfg Config) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected no stringly_typed_config for typed config struct");
+}
+
+#[test]
+fn stringly_typed_config_go_no_findings_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected no stringly_typed_config for empty function");
+}
+
+#[test]
+fn stringly_typed_config_go_pattern_is_stringly_typed_config() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc f(m map[string]string) {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config" && f.pattern == "stringly_typed_config"),
+        "expected pattern stringly_typed_config");
+}
+
+#[test]
+fn stringly_typed_config_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f(cfg map[string]string) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "stringly_typed_config");
+    assert!(f.is_some(), "expected stringly_typed_config finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn stringly_typed_config_go_finds_field_map() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Config struct {
+    Opts map[string]string
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected stringly_typed_config for map field");
+}
+
+#[test]
+fn stringly_typed_config_go_no_findings_primitive_types() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f(x int, y string, z bool) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected no stringly_typed_config for primitive params");
+}
+
+#[test]
+fn stringly_typed_config_go_no_findings_slice_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc f(items []string) {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
+        "expected no stringly_typed_config for slice type");
+}
+
+#[test]
+fn stringly_typed_config_go_multiple_map_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func f(a map[string]string, b map[string]int) {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "stringly_typed_config").count();
+    assert!(count >= 2, "expected >= 2 stringly_typed_config findings for 2 map params; got {count}");
+}
+
+// ── concrete_return_type (10 tests) ──
+
+#[test]
+fn concrete_return_type_go_finds_pointer_return() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Cache struct{}
+func GetCache() *Cache { return nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected concrete_return_type finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn concrete_return_type_go_finds_unexported_fn_with_pointer() {
+    // JSON version also flags unexported functions (simplified: no exported check)
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type DB struct{}
+func newDB() *DB { return nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected concrete_return_type for unexported function (simplified JSON)");
+}
+
+#[test]
+fn concrete_return_type_go_no_findings_interface_return() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Cache interface { Get(string) string }
+type RedisCache struct{}
+func NewCache() Cache { return &RedisCache{} }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected no concrete_return_type for interface return");
+}
+
+#[test]
+fn concrete_return_type_go_no_findings_value_return() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Config struct{ Port int }
+func GetConfig() Config { return Config{} }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected no concrete_return_type for non-pointer value return");
+}
+
+#[test]
+fn concrete_return_type_go_no_findings_string_return() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc GetName() string { return \"\" }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected no concrete_return_type for string return");
+}
+
+#[test]
+fn concrete_return_type_go_pattern_is_concrete_return_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Svc struct{}
+func GetSvc() *Svc { return nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type" && f.pattern == "concrete_return_type"),
+        "expected pattern concrete_return_type");
+}
+
+#[test]
+fn concrete_return_type_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type X struct{}
+func GetX() *X { return nil }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "concrete_return_type");
+    assert!(f.is_some(), "expected concrete_return_type finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn concrete_return_type_go_no_findings_empty_func() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected no concrete_return_type for empty function");
+}
+
+#[test]
+fn concrete_return_type_go_no_findings_no_return_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc DoWork() { _ = 1 }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected no concrete_return_type for void function");
+}
+
+#[test]
+fn concrete_return_type_go_finds_constructor_with_pointer() {
+    // JSON version flags New* factories too (simplified: no factory prefix check)
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type DB struct{}
+func NewDB() *DB { return &DB{} }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type"),
+        "expected concrete_return_type for New* constructor (simplified JSON)");
+}
+
+// ── context_not_propagated (10 tests) ──
+
+#[test]
+fn context_not_propagated_go_finds_context_call() {
+    // JSON version flags ALL selector_expression calls in Go files
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "context"
+func doWork() {
+    ctx := context.Background()
+    _ = ctx
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected context_not_propagated finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn context_not_propagated_go_finds_todo_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "context"
+func handle() {
+    ctx := context.TODO()
+    _ = ctx
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected context_not_propagated for context.TODO()");
+}
+
+#[test]
+fn context_not_propagated_go_finds_other_selector_call() {
+    // JSON version flags ALL selector expression calls (simplified)
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "fmt"
+func doWork() {
+    fmt.Println("hello")
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected context_not_propagated for any pkg.Method() call (simplified JSON)");
+}
+
+#[test]
+fn context_not_propagated_go_no_findings_no_selector_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() { x := 1; _ = x }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected no context_not_propagated without selector calls");
+}
+
+#[test]
+fn context_not_propagated_go_no_findings_empty_func() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected no context_not_propagated for empty function");
+}
+
+#[test]
+fn context_not_propagated_go_pattern_is_context_not_propagated() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "context"
+func f() { _ = context.Background() }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated" && f.pattern == "context_not_propagated"),
+        "expected pattern context_not_propagated");
+}
+
+#[test]
+fn context_not_propagated_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "context"
+func f() {
+    _ = context.Background()
+}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "context_not_propagated");
+    assert!(f.is_some(), "expected context_not_propagated finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn context_not_propagated_go_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype Svc struct { Name string }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected no context_not_propagated for struct-only file");
+}
+
+#[test]
+fn context_not_propagated_go_no_findings_const_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nconst MaxSize = 100\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected no context_not_propagated for const-only file");
+}
+
+#[test]
+fn context_not_propagated_go_no_findings_no_go_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.py"), "import os\nos.getcwd()\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
+        "expected no context_not_propagated for non-Go files");
+}
+
+// ── dead_code_go (9 tests) ──
+
+#[test]
+fn dead_code_go_finds_function_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_go_finds_exported_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("service.go"), "package svc\nfunc Start() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code for exported function symbol");
+}
+
+#[test]
+fn dead_code_go_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("types.go"), "package main\ntype Config struct { Port int }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected no dead_code for struct-only file (no function symbols)");
+}
+
+#[test]
+fn dead_code_go_no_findings_empty_package() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected no dead_code for empty package");
+}
+
+#[test]
+fn dead_code_go_pattern_is_potentially_dead_export() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code" && f.pattern == "potentially_dead_export"),
+        "expected pattern potentially_dead_export");
+}
+
+#[test]
+fn dead_code_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc helper() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "dead_code");
+    assert!(f.is_some(), "expected dead_code finding");
+    assert!(f.unwrap().line >= 0, "expected line >= 0");
+}
+
+#[test]
+fn dead_code_go_finds_method_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+type Svc struct{}
+func (s *Svc) Run() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code for method symbol");
+}
+
+#[test]
+fn dead_code_go_multiple_functions_multiple_findings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+func main() {}
+func helper() {}
+func setup() {}
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "dead_code").count();
+    assert!(count >= 3, "expected >= 3 dead_code findings for 3 functions; got {count}");
+}
+
+#[test]
+fn dead_code_go_no_findings_no_go_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.rs"), "pub fn foo() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected no dead_code for non-Go files");
+}
+
+// ── duplicate_code_go (5 tests) ──
+
+#[test]
+fn duplicate_code_go_finds_function_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc doA() {}\nfunc doB() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected duplicate_code finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn duplicate_code_go_no_findings_empty_package() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected no duplicate_code for empty package");
+}
+
+#[test]
+fn duplicate_code_go_pattern_is_potential_duplication() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc doWork() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code" && f.pattern == "potential_duplication"),
+        "expected pattern potential_duplication");
+}
+
+#[test]
+fn duplicate_code_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc helper() {}\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "duplicate_code");
+    assert!(f.is_some(), "expected duplicate_code finding");
+    assert!(f.unwrap().line >= 0, "expected line >= 0");
+}
+
+#[test]
+fn duplicate_code_go_no_findings_struct_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\ntype Config struct { Port int }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected no duplicate_code for struct-only file");
+}
+
+// ── coupling_go (7 tests) ──
+
+#[test]
+fn coupling_go_finds_import_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import (
+    "fmt"
+    "os"
+)
+func main() { fmt.Println(os.Args) }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected coupling finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_go_no_findings_no_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main() { x := 1; _ = x }\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected no coupling for file without imports");
+}
+
+#[test]
+fn coupling_go_pattern_is_high_coupling() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "fmt"
+func main() { fmt.Println("hi") }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "coupling" && f.pattern == "high_coupling"),
+        "expected pattern high_coupling");
+}
+
+#[test]
+fn coupling_go_has_line_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "os"
+func main() { _ = os.Args }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "coupling");
+    assert!(f.is_some(), "expected coupling finding");
+    assert!(f.unwrap().line >= 1, "expected line >= 1");
+}
+
+#[test]
+fn coupling_go_single_import_finds_one() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), r#"package main
+import "fmt"
+func main() { fmt.Println("hello") }
+"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
+    assert!(count >= 1, "expected >= 1 coupling finding for single import; got {count}");
+}
+
+#[test]
+fn coupling_go_no_findings_empty_package() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected no coupling for empty package without imports");
+}
+
+#[test]
+fn coupling_go_no_findings_no_go_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "use std::io;\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected no coupling for non-Go files");
+}
