@@ -1104,3 +1104,275 @@ fn cyclomatic_complexity_python_clean_function() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
+
+// ── Phase 4: JavaScript/TypeScript Security + Scalability Pipelines ──
+
+// ── command_injection (JavaScript) ──
+
+#[test]
+fn command_injection_javascript_finds_exec_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // exec() method call on child_process object -- triggers exec_command_injection pattern
+    std::fs::write(
+        dir.path().join("test.js"),
+        "const cp = require('child_process');\ncp.exec(userInput, (err, out) => { console.log(out); });\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "exec_command_injection"),
+        "expected command_injection/exec_command_injection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_javascript_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls at all -- only variable declarations with literals
+    std::fs::write(
+        dir.path().join("test.js"),
+        "const name = 'world';\nconst greeting = 'hello';\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection"),
+        "expected no command_injection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── code_injection (JavaScript) ──
+
+#[test]
+fn code_injection_javascript_finds_direct_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // Direct function call (identifier-style) -- triggers code_injection_call pattern
+    std::fs::write(
+        dir.path().join("test.js"),
+        "eval(userInput);\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "code_injection" && f.pattern == "code_injection_call"),
+        "expected code_injection/code_injection_call finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn code_injection_javascript_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only object/constant declarations
+    std::fs::write(
+        dir.path().join("test.js"),
+        "const obj = { name: 'test', value: 42 };\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "code_injection"),
+        "expected no code_injection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── prototype_pollution (JavaScript) ──
+
+#[test]
+fn prototype_pollution_javascript_finds_for_in() {
+    let dir = tempfile::tempdir().unwrap();
+    // for...in loop -- triggers prototype_pollution_risk pattern
+    std::fs::write(
+        dir.path().join("test.js"),
+        "function merge(target, source) {\n  for (let key in source) {\n    target[key] = source[key];\n  }\n}\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "prototype_pollution" && f.pattern == "prototype_pollution_risk"),
+        "expected prototype_pollution/prototype_pollution_risk finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn prototype_pollution_javascript_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No for-in loops -- only a regular for loop and object literal
+    std::fs::write(
+        dir.path().join("test.js"),
+        "const arr = [1, 2, 3];\nfor (let i = 0; i < arr.length; i++) { console.log(arr[i]); }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "prototype_pollution"),
+        "expected no prototype_pollution finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── type_system_bypass (TypeScript) ──
+
+#[test]
+fn type_system_bypass_typescript_finds_as_expression() {
+    let dir = tempfile::tempdir().unwrap();
+    // TypeScript 'as' cast -- triggers type_system_bypass pattern
+    std::fs::write(
+        dir.path().join("test.ts"),
+        "const data: unknown = JSON.parse(input);\nconst user = data as User;\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "type_system_bypass" && f.pattern == "type_system_bypass"),
+        "expected type_system_bypass/type_system_bypass finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn type_system_bypass_typescript_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No type assertions -- only plain TypeScript with type annotations
+    std::fs::write(
+        dir.path().join("test.ts"),
+        "function greet(name: string): string {\n  return 'hello ' + name;\n}\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "type_system_bypass"),
+        "expected no type_system_bypass finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (JavaScript, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_javascript_finds_direct_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // Direct function call (setInterval) -- triggers potential_memory_leak pattern
+    std::fs::write(
+        dir.path().join("test.js"),
+        "setInterval(() => { doWork(); }, 1000);\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_javascript_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only variable declarations with literals
+    std::fs::write(
+        dir.path().join("test.js"),
+        "const x = 42;\nconst name = 'hello';\nconst flag = true;\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators"),
+        "expected no memory_leak_indicators finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
