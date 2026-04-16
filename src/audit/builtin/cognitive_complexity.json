@@ -1,0 +1,23 @@
+{
+  "pipeline": "cognitive_complexity",
+  "category": "code-quality",
+  "description": "Detects functions with high cognitive complexity. Cognitive complexity penalizes nesting depth beyond cyclomatic complexity. Threshold: warning > 15, error >= 30.",
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method", "arrow_function"]},
+      "exclude": {"is_test_file": true}
+    },
+    {"compute_metric": "cognitive_complexity"},
+    {
+      "flag": {
+        "pattern": "high_cognitive_complexity",
+        "message": "Function `{{name}}` has cognitive complexity of {{cognitive_complexity}} (threshold: 15)",
+        "severity_map": [
+          {"when": {"cognitive_complexity": {"gte": 30}}, "severity": "error"},
+          {"when": {"cognitive_complexity": {"gt": 15}}, "severity": "warning"}
+        ]
+      }
+    }
+  ]
+}

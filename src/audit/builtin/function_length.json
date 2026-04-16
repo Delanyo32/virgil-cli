@@ -1,0 +1,23 @@
+{
+  "pipeline": "function_length",
+  "category": "code-quality",
+  "description": "Detects functions that are too long. Threshold: warning > 50 lines, error >= 100 lines. Note: the Rust implementation also checked statement count (> 20 statements); that check is not expressible in the current JSON DSL and is dropped.",
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method", "arrow_function"]},
+      "exclude": {"is_test_file": true}
+    },
+    {"compute_metric": "function_length"},
+    {
+      "flag": {
+        "pattern": "function_too_long",
+        "message": "Function `{{name}}` is {{function_length}} lines long (threshold: 50)",
+        "severity_map": [
+          {"when": {"function_length": {"gte": 100}}, "severity": "error"},
+          {"when": {"function_length": {"gt": 50}}, "severity": "warning"}
+        ]
+      }
+    }
+  ]
+}

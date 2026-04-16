@@ -1,0 +1,22 @@
+{
+  "pipeline": "comment_to_code_ratio",
+  "category": "code-quality",
+  "description": "Detects files with too few or too many comments relative to code. Value stored as integer percentage (0-100). Under-documented = ratio < 5%; over-documented = ratio > 60%.",
+  "graph": [
+    {
+      "select": "file",
+      "exclude": {"is_test_file": true}
+    },
+    {"compute_metric": "comment_to_code_ratio"},
+    {
+      "flag": {
+        "pattern": "comment_ratio_violation",
+        "message": "File has comment ratio of {{comment_to_code_ratio}}% (expected range: 5%-60%)",
+        "severity_map": [
+          {"when": {"comment_to_code_ratio": {"lt": 5}}, "severity": "warning"},
+          {"when": {"comment_to_code_ratio": {"gt": 60}}, "severity": "warning"}
+        ]
+      }
+    }
+  ]
+}
