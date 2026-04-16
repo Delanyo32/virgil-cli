@@ -1,0 +1,18 @@
+{
+  "pipeline": "error_swallowing",
+  "category": "code-quality",
+  "description": "Detects discarded error returns via blank identifier in Go: `data, _ := someFunc()`. Simplified from Rust: flags all assignment_statement nodes with a blank_identifier on the left-hand side. Cannot distinguish error positions from other return values, skip defer context, or apply safe-cleanup method exemptions.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(assignment_statement left: (expression_list (blank_identifier) @blank)) @assign"
+    },
+    {
+      "flag": {
+        "pattern": "swallowed_error",
+        "message": "blank identifier `_` in assignment -- potential error return discarded",
+        "severity": "warning"
+      }
+    }
+  ]
+}

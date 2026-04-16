@@ -1,0 +1,20 @@
+{
+  "pipeline": "dead_code",
+  "category": "code-quality",
+  "description": "Detects potentially unused exported symbols in Go files that may indicate dead code. Simplified from Rust: flags all exported functions/methods as candidates. Cannot detect unused private functions (no cross-file reference counting), unused imports, or unreachable code blocks.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"kind": ["function", "method"]},
+      "exclude": {"is_test_file": true}
+    },
+    {
+      "flag": {
+        "pattern": "potentially_dead_export",
+        "message": "function/method detected -- verify it is actually referenced (dead code detection simplified: cross-file reference counting not available)",
+        "severity": "info"
+      }
+    }
+  ]
+}

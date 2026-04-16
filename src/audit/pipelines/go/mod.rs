@@ -1,20 +1,5 @@
 pub mod primitives;
 
-pub mod concrete_return_type;
-pub mod context_not_propagated;
-pub mod error_swallowing;
-pub mod god_struct;
-pub mod goroutine_leak;
-pub mod init_abuse;
-pub mod magic_numbers;
-pub mod mutex_misuse;
-pub mod naked_interface;
-pub mod stringly_typed_config;
-
-pub mod coupling;
-pub mod dead_code;
-pub mod duplicate_code;
-
 pub mod sql_injection;
 pub mod ssrf_open_redirect;
 
@@ -22,18 +7,7 @@ use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
 
 pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
-    Ok(vec![
-        AnyPipeline::Graph(Box::new(error_swallowing::ErrorSwallowingPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(god_struct::GodStructPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(naked_interface::NakedInterfacePipeline::new()?)),
-        AnyPipeline::Graph(Box::new(context_not_propagated::ContextNotPropagatedPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(init_abuse::InitAbusePipeline::new()?)),
-        AnyPipeline::Graph(Box::new(mutex_misuse::MutexMisusePipeline::new()?)),
-        AnyPipeline::Graph(Box::new(goroutine_leak::GoroutineLeakPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(stringly_typed_config::StringlyTypedConfigPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(concrete_return_type::ConcreteReturnTypePipeline::new()?)),
-        AnyPipeline::Graph(Box::new(magic_numbers::GoMagicNumbersPipeline::new()?)),
-    ])
+    Ok(vec![])
 }
 
 pub fn complexity_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
@@ -41,11 +15,7 @@ pub fn complexity_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
 }
 
 pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(dead_code::DeadCodePipeline::new()?),
-        Box::new(duplicate_code::DuplicateCodePipeline::new()?),
-        Box::new(coupling::CouplingPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 
 pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
@@ -58,4 +28,3 @@ pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
 pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![])
 }
-

@@ -1,0 +1,18 @@
+{
+  "pipeline": "stringly_typed_config",
+  "category": "code-quality",
+  "description": "Detects map[string]string parameters and fields in Go that indicate stringly-typed configuration. Simplified from Rust: flags all map_type nodes. Cannot filter for string key+value specifically, skip legitimate uses (headers, labels, tags), or check for map[string]interface{}/map[string]any variants.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(map_type) @map"
+    },
+    {
+      "flag": {
+        "pattern": "stringly_typed_config",
+        "message": "map type detected -- verify this is not a map[string]string/map[string]any config; consider a typed struct instead",
+        "severity": "info"
+      }
+    }
+  ]
+}

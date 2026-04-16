@@ -1,0 +1,18 @@
+{
+  "pipeline": "naked_interface",
+  "category": "code-quality",
+  "description": "Detects use of empty interface{} or any types in Go parameters and fields, which loses type safety. Simplified from Rust: flags all interface_type nodes. Cannot distinguish empty interface{} (0 children) from interfaces with methods, cannot check for any type_identifier, and cannot skip test files.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(interface_type) @iface"
+    },
+    {
+      "flag": {
+        "pattern": "naked_interface",
+        "message": "interface type detected -- verify this is not an empty interface{} or any that loses type safety; prefer a concrete interface",
+        "severity": "info"
+      }
+    }
+  ]
+}

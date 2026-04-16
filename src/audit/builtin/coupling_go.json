@@ -1,0 +1,18 @@
+{
+  "pipeline": "coupling",
+  "category": "code-quality",
+  "description": "Detects high coupling in Go files via import declarations. Simplified from Rust: flags all import_declaration nodes as coupling indicators. Cannot count total imports against a threshold (>=15), detect parameter overload (>=5 params), or check low-cohesion methods.",
+  "languages": ["go"],
+  "graph": [
+    {
+      "match_pattern": "(import_declaration) @import"
+    },
+    {
+      "flag": {
+        "pattern": "high_coupling",
+        "message": "import declaration detected -- monitor total import count; high coupling (>=15 imports) indicates a module doing too much",
+        "severity": "info"
+      }
+    }
+  ]
+}
