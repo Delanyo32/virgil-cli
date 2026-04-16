@@ -94,35 +94,35 @@ All dependencies already present. `graph/metrics.rs` uses only types from `tree-
 
 ```
 JSON audit file
-    │
-    ▼
-AuditEngine::run()          ← engine.rs
-    │  passes Some(workspace)
-    ▼
-run_pipeline(stages, graph, workspace, pipeline_name)   ← executor.rs
-    │
-    ├── MatchPattern stage  ─────────────────────────────────────────────────┐
-    │   │  for each file in workspace filtered by pipeline.languages:        │
-    │   │    1. workspace.read_file(path) → Arc<str>                         │
-    │   │    2. parser::create_parser(lang) → Parser                         │
-    │   │    3. parser.parse(source) → Tree                                  │
-    │   │    4. Query::new(ts_lang, match_pattern) → Query  [compile once]   │
-    │   │    5. cursor.matches(query, root, source) → QueryMatches           │
-    │   │    6. while let Some(m) = matches.next() → emit PipelineNode       │
-    │   └── returns Vec<PipelineNode>                                         │
-    │                                                                         │
-    ├── ComputeMetric stage ──────────────────────────────────────────────────┤
-    │   │  for each PipelineNode (symbol from prior select(symbol) stage):   │
-    │   │    1. workspace.read_file(node.file_path) → Arc<str>               │
-    │   │    2. create_parser(lang) + parse → Tree                            │
-    │   │    3. locate function body by node.line in tree                     │
-    │   │    4. dispatch to metrics::compute_* via metric_name               │
-    │   │    5. node.metrics.insert(metric_name, MetricValue::Int(value))    │
-    │   └── returns Vec<PipelineNode> with metrics populated                  │
-    │                                                                         │
-    └── Flag stage  ──────────────────────────────────────────────────────────┘
-        │  maps PipelineNode → AuditFinding using node.metrics
-        ▼
+    |
+    v
+AuditEngine::run()          <- engine.rs
+    |  passes Some(workspace) + json_audit.languages.as_deref()
+    v
+run_pipeline(stages, graph, workspace, pipeline_languages, pipeline_name)   <- executor.rs
+    |
+    +-- MatchPattern stage  -----------------------------------------------------+
+    |   |  for each file in workspace filtered by pipeline_languages:            |
+    |   |    1. workspace.read_file(path) -> Arc<str>                            |
+    |   |    2. parser::create_parser(lang) -> Parser                            |
+    |   |    3. parser.parse(source) -> Tree                                     |
+    |   |    4. Query::new(ts_lang, match_pattern) -> Query  [compile once]      |
+    |   |    5. cursor.matches(query, root, source) -> QueryMatches              |
+    |   |    6. while let Some(m) = matches.next() -> emit PipelineNode          |
+    |   +-- returns Vec<PipelineNode>                                            |
+    |                                                                            |
+    +-- ComputeMetric stage -----------------------------------------------------+
+    |   |  for each PipelineNode (symbol from prior select(symbol) stage):       |
+    |   |    1. workspace.read_file(node.file_path) -> Arc<str>                  |
+    |   |    2. create_parser(lang) + parse -> Tree                              |
+    |   |    3. locate function body by node.line in tree                        |
+    |   |    4. dispatch to metrics::compute_* via metric_name                   |
+    |   |    5. node.metrics.insert(metric_name, MetricValue::Int(value))        |
+    |   +-- returns Vec<PipelineNode> with metrics populated                     |
+    |                                                                            |
+    +-- Flag stage  -------------------------------------------------------------+
+        |  maps PipelineNode -> AuditFinding using node.metrics
+        v
     PipelineOutput::Findings(Vec<AuditFinding>)
 ```
 
@@ -130,14 +130,14 @@ run_pipeline(stages, graph, workspace, pipeline_name)   ← executor.rs
 
 ```
 src/
-├── graph/
-│   ├── mod.rs           # add: pub mod metrics;
-│   ├── executor.rs      # change: run_pipeline signature + MatchPattern/ComputeMetric arms
-│   ├── pipeline.rs      # change: add 2 variants, remove 5 variants + 5 config structs
-│   └── metrics.rs       # NEW: ControlFlowConfig + per-language configs + compute_* functions
-└── audit/
-    └── pipelines/
-        └── helpers.rs   # change: re-export from graph::metrics (backward compat)
++-- graph/
+|   +-- mod.rs           # add: pub mod metrics;
+|   +-- executor.rs      # change: run_pipeline signature + MatchPattern/ComputeMetric arms
+|   +-- pipeline.rs      # change: add 2 variants, remove 5 variants + 5 config structs
+|   +-- metrics.rs       # NEW: ControlFlowConfig + per-language configs + compute_* functions
++-- audit/
+    +-- pipelines/
+        +-- helpers.rs   # change: re-export from graph::metrics (backward compat)
 ```
 
 ### Pattern 1: Untagged Serde Enum Addition
@@ -198,7 +198,7 @@ while let Some(m) = matches.next() {
 fn execute_match_pattern(
     query_str: &str,
     workspace: &Workspace,
-    languages: Option<&[String]>,  // from JsonAuditFile.languages, passed through
+    pipeline_languages: Option<&[String]>,  // from JsonAuditFile.languages, passed through run_pipeline
 ) -> anyhow::Result<Vec<PipelineNode>> {
     use streaming_iterator::StreamingIterator;
 
@@ -207,8 +207,8 @@ fn execute_match_pattern(
     for rel_path in workspace.files() {
         let Some(lang) = workspace.file_language(rel_path) else { continue };
 
-        // Apply language filter if provided
-        if let Some(langs) = languages {
+        // Apply pipeline language filter BEFORE parsing (per D-02)
+        if let Some(langs) = pipeline_languages {
             let lang_str = lang.as_str();
             if !langs.iter().any(|l| l.eq_ignore_ascii_case(lang_str)) {
                 continue;
@@ -327,7 +327,7 @@ fn execute_compute_metric(
                 ratio
             }
             other => {
-                anyhow::bail!("compute_metric: unknown metric '{other}' — supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio");
+                anyhow::bail!("compute_metric: unknown metric '{other}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio");
             }
         };
 
@@ -387,12 +387,13 @@ pub fn run_pipeline(
 ) -> anyhow::Result<PipelineOutput>
 ```
 
-New signature (D-01):
+New signature (D-01 + D-02):
 ```rust
 pub fn run_pipeline(
     stages: &[GraphStage],
     graph: &CodeGraph,
     workspace: Option<&Workspace>,
+    pipeline_languages: Option<&[String]>,
     seed_nodes: Option<Vec<NodeIndex>>,
     pipeline_name: &str,
 ) -> anyhow::Result<PipelineOutput>
@@ -412,13 +413,14 @@ to:
 match crate::graph::executor::run_pipeline(
     &json_audit.graph,
     g,
-    Some(workspace),   // workspace — NEW
-    None,              // seed_nodes
+    Some(workspace),                      // workspace -- NEW
+    json_audit.languages.as_deref(),      // pipeline_languages -- NEW (per D-02)
+    None,                                 // seed_nodes
     &json_audit.pipeline,
 )
 ```
 
-The `execute_graph_pipeline` compatibility wrapper (line 40-47 of executor.rs) also needs updating to pass `None` for workspace to maintain backward compatibility.
+The `execute_graph_pipeline` compatibility wrapper (line 40-47 of executor.rs) also needs updating to pass `None` for both workspace and pipeline_languages to maintain backward compatibility.
 
 ### Pattern 7: Stub Stage Deletion
 
@@ -435,7 +437,7 @@ Items to delete from `executor.rs`:
 
 Tests to delete from `pipeline.rs` `#[cfg(test)]`:
 - `test_deserialize_traverse_stage` (line ~1030)
-- `test_deserialize_find_cycles_stage` — this one stays (find_cycles is kept)
+- `test_deserialize_find_cycles_stage` -- this one stays (find_cycles is kept)
 - `test_deserialize_count_edges_stage` (line ~1076)
 - `test_deserialize_match_name_stage` (line ~1105)
 
@@ -446,7 +448,7 @@ Tests to delete from `pipeline.rs` `#[cfg(test)]`:
 - **Using `for` loop on `QueryMatches` directly:** `QueryMatches` implements `StreamingIterator`, not `Iterator`. Using `for m in matches` will fail to compile. Always use `while let Some(m) = matches.next()`.
 - **Compiling the S-expression query inside a rayon task:** Query compilation is language-specific and relatively cheap, but if called per-file in a rayon parallel loop, errors are silently discarded. Compile the query once before the parallel loop if `match_pattern` is later parallelized.
 - **Returning `anyhow::Error` for unknown metrics mid-pipeline:** An unknown metric name in `compute_metric` should bail early with a descriptive error (as shown in the Pattern 4 example). Do NOT silently pass nodes through — that would produce a silent no-op, violating ENG-05's "fail loudly" requirement.
-- **`node_idx` confusion:** `match_pattern` nodes use a synthetic `NodeIndex::new(0)`. Do not feed these into `execute_find_cycles` or `execute_max_depth` — those stages expect real graph nodes. The executor stage dispatch should document this invariant.
+- **`node_idx` confusion:** `match_pattern` nodes use a synthetic `NodeIndex::new(0)`. Do not feed these into `execute_find_cycles` or `execute_max_depth` -- those stages expect real graph nodes. The executor stage dispatch should document this invariant.
 - **Re-using a `tree_sitter::Parser` across rayon tasks:** `Parser` is `!Send`. Create one per task/invocation as all other pipeline code does.
 
 ---
@@ -455,13 +457,13 @@ Tests to delete from `pipeline.rs` `#[cfg(test)]`:
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| Streaming tree-sitter iteration | Custom iterator adapter | `streaming_iterator::StreamingIterator::next()` | API contract for tree-sitter 0.25 — other patterns don't compile |
+| Streaming tree-sitter iteration | Custom iterator adapter | `streaming_iterator::StreamingIterator::next()` | API contract for tree-sitter 0.25 -- other patterns don't compile |
 | Cyclomatic complexity | Custom CFG analysis | `compute_cyclomatic()` from metrics.rs | Already tested and correct; see helpers.rs tests |
 | Cognitive complexity | Custom nesting tracker | `compute_cognitive()` from metrics.rs | Stack-based, avoids stack overflow on deep ASTs |
 | Function line counting | Line-split + count | `count_function_lines()` from metrics.rs | Handles multi-line bodies, statement counting |
 | Per-language tree-sitter language handle | Hardcoded grammar constants | `Language::tree_sitter_language()` | Central dispatch; handles all 12 language variants |
 
-**Key insight:** The entire compute_metric implementation is a wiring exercise — the hard algorithmic work (cyclomatic complexity, cognitive complexity, function length) is already implemented and tested in `helpers.rs`. The task is moving those functions to a better module location and calling them from the executor.
+**Key insight:** The entire compute_metric implementation is a wiring exercise -- the hard algorithmic work (cyclomatic complexity, cognitive complexity, function length) is already implemented and tested in `helpers.rs`. The task is moving those functions to a better module location and calling them from the executor.
 
 ---
 
@@ -480,9 +482,9 @@ Tests to delete from `pipeline.rs` `#[cfg(test)]`:
 **Warning signs:** Compile error at `execute_graph_pipeline` call site.
 
 ### Pitfall 3: match_pattern Language Filter vs. Pipeline Language Filter
-**What goes wrong:** `JsonAuditFile.languages` is `Option<Vec<String>>`. The engine's `engine.rs` already filters by language before calling `run_pipeline`. But inside `run_pipeline`, `match_pattern` iterates `workspace.files()` — which may contain files in many languages. Without an additional language filter inside `execute_match_pattern`, it would try to run a Rust S-expression query against TypeScript files.
+**What goes wrong:** `JsonAuditFile.languages` is `Option<Vec<String>>`. The engine's `engine.rs` already filters by language before calling `run_pipeline`. But inside `run_pipeline`, `match_pattern` iterates `workspace.files()` -- which may contain files in many languages. Without an additional language filter inside `execute_match_pattern`, it would try to run a Rust S-expression query against TypeScript files.
 **Why it happens:** `workspace` is not pre-filtered by the pipeline's languages.
-**How to avoid:** Pass the `json_audit.languages` filter into `run_pipeline` (or derive it from context) and apply it inside `execute_match_pattern`. The simplest approach: add a `pipeline_languages: Option<&[String]>` argument to `execute_match_pattern`, extracted from the pipeline's JSON.
+**How to avoid:** Pass the `json_audit.languages` filter into `run_pipeline` as `pipeline_languages: Option<&[String]>` and apply it inside `execute_match_pattern` BEFORE parsing each file. The engine.rs call site passes `json_audit.languages.as_deref()`.
 **Warning signs:** Tree-sitter query compilation errors for wrong-language files, or spurious matches in wrong-language files.
 
 ### Pitfall 4: compute_metric Fails to Find Body Node
@@ -494,7 +496,7 @@ Tests to delete from `pipeline.rs` `#[cfg(test)]`:
 ### Pitfall 5: Circular Dependency When Importing Workspace from graph::executor
 **What goes wrong:** `graph/executor.rs` importing `crate::workspace::Workspace` might create a circular dependency if `workspace.rs` imports from `graph/`.
 **Why it happens:** Module dependency cycles in Rust.
-**How to avoid:** Verify `workspace.rs` imports — it only uses `crate::discovery`, `crate::file_source`, `crate::language`, `crate::s3`. It does NOT import from `crate::graph`. So the import direction `graph::executor → workspace` is safe with no cycle. [VERIFIED: codebase read of workspace.rs imports lines 1-11]
+**How to avoid:** Verify `workspace.rs` imports -- it only uses `crate::discovery`, `crate::file_source`, `crate::language`, `crate::s3`. It does NOT import from `crate::graph`. So the import direction `graph::executor -> workspace` is safe with no cycle. [VERIFIED: codebase read of workspace.rs imports lines 1-11]
 **Warning signs:** Compiler error "cycle detected when computing the crate dependency graph".
 
 ### Pitfall 6: helpers.rs Re-export Completeness
@@ -511,7 +513,7 @@ Tests to delete from `pipeline.rs` `#[cfg(test)]`:
 
 [VERIFIED: codebase read of executor.rs execute_stage dispatch]
 
-The dispatch arm in `execute_stage` signature must accommodate `workspace`:
+The dispatch arm in `execute_stage` signature must accommodate `workspace` and `pipeline_languages`:
 
 ```rust
 fn execute_stage(
@@ -531,7 +533,7 @@ fn execute_stage(
             match workspace {
                 Some(ws) => execute_match_pattern(match_pattern, ws, pipeline_languages),
                 None => anyhow::bail!(
-                    "match_pattern stage requires workspace — call run_pipeline with Some(workspace)"
+                    "match_pattern stage requires workspace -- call run_pipeline with Some(workspace)"
                 ),
             }
         }
@@ -539,7 +541,7 @@ fn execute_stage(
             match workspace {
                 Some(ws) => execute_compute_metric(compute_metric, nodes, ws),
                 None => anyhow::bail!(
-                    "compute_metric stage requires workspace — call run_pipeline with Some(workspace)"
+                    "compute_metric stage requires workspace -- call run_pipeline with Some(workspace)"
                 ),
             }
         }
@@ -593,7 +595,7 @@ mod tests {
             },
         ];
         let graph = CodeGraph::new();
-        let out = run_pipeline(&stages, &graph, Some(&ws), None, "panic_detection").unwrap();
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "panic_detection").unwrap();
         match out {
             PipelineOutput::Findings(findings) => {
                 assert_eq!(findings.len(), 1);
@@ -617,7 +619,7 @@ mod tests {
 use crate::language::Language;
 use tree_sitter::Node;
 
-// Re-exported from old location — helpers.rs will re-export these
+// Re-exported from old location -- helpers.rs will re-export these
 pub struct ControlFlowConfig { /* existing fields */ }
 pub fn compute_cyclomatic(body: Node, config: &ControlFlowConfig, source: &[u8]) -> usize { ... }
 pub fn compute_cognitive(body: Node, config: &ControlFlowConfig, source: &[u8]) -> usize { ... }
@@ -644,13 +646,13 @@ pub fn function_node_kinds_for_language(lang: Language) -> &'static [&'static st
 pub fn body_field_for_language(lang: Language) -> &'static str { ... }
 ```
 
-The per-language `ControlFlowConfig` values can be copied directly from the existing per-language `cyclomatic.rs` files. Each language directory (`rust/`, `typescript/`, `go/`, etc.) has its own `config()` function — these become the named functions in `metrics.rs`.
+The per-language `ControlFlowConfig` values can be copied directly from the existing per-language `cyclomatic.rs` files. Each language directory (`rust/`, `typescript/`, `go/`, etc.) has its own `config()` function -- these become the named functions in `metrics.rs`.
 
 ---
 
 ## Runtime State Inventory
 
-Not applicable — this is a greenfield engine implementation phase, not a rename/refactor/migration phase.
+Not applicable -- this is a greenfield engine implementation phase, not a rename/refactor/migration phase.
 
 ---
 
@@ -660,12 +662,12 @@ Step 2.6: No external dependencies beyond the Rust toolchain. All tools verified
 
 | Dependency | Required By | Available | Version | Fallback |
 |------------|------------|-----------|---------|----------|
-| Rust stable toolchain | All compilation | Yes | Rust 2024 edition | — |
-| cargo test | Test verification | Yes | cargo (from toolchain) | — |
-| tree-sitter 0.25 | match_pattern | Yes | 0.25 (Cargo.lock) | — |
-| streaming-iterator | match_pattern QueryMatches | Yes | 0.1 (Cargo.lock) | — |
+| Rust stable toolchain | All compilation | Yes | Rust 2024 edition | -- |
+| cargo test | Test verification | Yes | cargo (from toolchain) | -- |
+| tree-sitter 0.25 | match_pattern | Yes | 0.25 (Cargo.lock) | -- |
+| streaming-iterator | match_pattern QueryMatches | Yes | 0.1 (Cargo.lock) | -- |
 
-[VERIFIED: `cargo test --lib --quiet` → 2559 passed; 0 failed]
+[VERIFIED: `cargo test --lib --quiet` -> 2559 passed; 0 failed]
 
 ---
 
@@ -684,12 +686,12 @@ Step 2.6: No external dependencies beyond the Rust toolchain. All tools verified
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| ENG-03 | match_pattern finds panic!() in Rust source | unit | `cargo test --lib graph::executor::tests::test_match_pattern` | ❌ Wave 0 |
-| ENG-03 | match_pattern returns empty for no-match source | unit | `cargo test --lib graph::executor::tests::test_match_pattern_no_match` | ❌ Wave 0 |
-| ENG-04 | compute_metric cyclomatic flags complex function | unit | `cargo test --lib graph::executor::tests::test_compute_metric_cyclomatic` | ❌ Wave 0 |
-| ENG-04 | compute_metric cyclomatic: clean function no finding | unit | `cargo test --lib graph::executor::tests::test_compute_metric_cyclomatic_clean` | ❌ Wave 0 |
-| ENG-05 | Deleted stub stages fail at deserialization time | unit | `cargo test --lib graph::pipeline::tests` | ❌ Wave 0 (remove traverse/match_name/count_edges deser tests) |
-| TEST-02 | No regressions in full test suite | regression | `cargo test` | ✅ existing |
+| ENG-03 | match_pattern finds panic!() in Rust source | unit | `cargo test --lib graph::executor::tests::test_match_pattern` | No Wave 0 |
+| ENG-03 | match_pattern returns empty for no-match source | unit | `cargo test --lib graph::executor::tests::test_match_pattern_no_match` | No Wave 0 |
+| ENG-04 | compute_metric cyclomatic flags complex function | unit | `cargo test --lib graph::executor::tests::test_compute_metric_cyclomatic` | No Wave 0 |
+| ENG-04 | compute_metric cyclomatic: clean function no finding | unit | `cargo test --lib graph::executor::tests::test_compute_metric_cyclomatic_clean` | No Wave 0 |
+| ENG-05 | Deleted stub stages fail at deserialization time | unit | `cargo test --lib graph::pipeline::tests` | No Wave 0 (remove traverse/match_name/count_edges deser tests) |
+| TEST-02 | No regressions in full test suite | regression | `cargo test` | Yes existing |
 
 ### Sampling Rate
 
@@ -699,28 +701,25 @@ Step 2.6: No external dependencies beyond the Rust toolchain. All tools verified
 
 ### Wave 0 Gaps
 
-- [ ] `src/graph/metrics.rs` — new file, all compute metric functions
+- [ ] `src/graph/metrics.rs` -- new file, all compute metric functions
 - [ ] Four new unit tests in `src/graph/executor.rs` `#[cfg(test)]`
 - [ ] Test helper: in-memory workspace construction (either `Workspace::from_parts` constructor or `tempfile`-based setup)
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Workspace constructor for tests**
+1. **Workspace constructor for tests** (RESOLVED)
    - What we know: Existing executor tests use `make_file_graph()` with manual node construction. Workspace tests in `workspace.rs` use `tempfile::tempdir()` + disk writes.
-   - What's unclear: The cleanest test setup for `execute_match_pattern` tests — `Workspace::from_parts` doesn't exist; `tempfile` works but requires I/O.
-   - Recommendation: Add a package-private `Workspace::from_parts(root, source_box, lang_map)` constructor to `workspace.rs` for test use. Three lines of code; avoids disk I/O in unit tests. Alternative: use `tempfile` (already a dev-dependency from workspace.rs tests) for the four new unit tests.
+   - Resolution: Use `tempfile::tempdir()` + `Workspace::load()` for the four D-09 unit tests. Already a dev-dependency; avoids adding new constructors to production code.
 
-2. **pipeline_languages threading into execute_match_pattern**
+2. **pipeline_languages threading into execute_match_pattern** (RESOLVED)
    - What we know: `JsonAuditFile.languages` is the language filter. It's available in `engine.rs` but not currently passed to `run_pipeline`.
-   - What's unclear: Whether to thread it through `run_pipeline`'s new signature or derive it from the pipeline stages at call time.
-   - Recommendation: The simplest approach — add `pipeline_languages: Option<&[String]>` as a parameter to `run_pipeline` alongside `workspace`. The planner should decide this explicitly. Alternatively, apply the language filter only in `execute_match_pattern` based on the node's language after parsing, not before.
+   - Resolution: Thread `pipeline_languages: Option<&[String]>` through `run_pipeline` -> `execute_stage` -> `execute_match_pattern`. Engine.rs passes `json_audit.languages.as_deref()`. This honors D-02 ("filtered by the pipeline's languages field") with an explicit pre-parse filter.
 
-3. **`comment_to_code_ratio` metric semantics in compute_metric context**
-   - What we know: `compute_comment_ratio` in helpers.rs operates on the entire file root node, not a single function body. When `compute_metric: "comment_to_code_ratio"` is used with a `select(symbol)` pipeline, it would compute the file-level ratio and apply it to each symbol node in that file.
-   - What's unclear: Whether this semantic (file-level ratio applied to per-symbol nodes) is correct or whether each symbol should get the ratio of its own body.
-   - Recommendation: Implement as file-level ratio per symbol (compute once per file, apply to all symbols in that file) with a comment in the code. Document the semantics in the `ComputeMetric` stage doc comment.
+3. **`comment_to_code_ratio` metric semantics in compute_metric context** (RESOLVED)
+   - What we know: `compute_comment_ratio` in helpers.rs operates on the entire file root node, not a single function body.
+   - Resolution: Implement as file-level ratio per symbol (compute once per file, apply to all symbols in that file). Semantics documented in the `ComputeMetric` stage dispatch code comment.
 
 ---
 
@@ -742,9 +741,9 @@ Step 2.6: No external dependencies beyond the Rust toolchain. All tools verified
 | A1 | `MemoryFileSource::new(file_map, size_map)` accepts `HashMap<String, Arc<str>>` and `HashMap<String, u64>` | Code Examples (test helper) | Compilation error in test; need to check MemoryFileSource constructor signature |
 | A2 | All CLI audit paths (`tech-debt`, `complexity`, `security`, `scalability`) build and pass `Some(&graph)` to engine.run() | Architecture | If any path passes `None`, JSON pipelines using `match_pattern` for those categories would silently receive `None` workspace |
 
-[VERIFIED A1 partial: workspace.rs line 69 shows `MemoryFileSource::new(file_map, size_map)` — file_map is `HashMap<String, Arc<str>>`, size_map is `HashMap<String, u64>`]
+[VERIFIED A1 partial: workspace.rs line 69 shows `MemoryFileSource::new(file_map, size_map)` -- file_map is `HashMap<String, Arc<str>>`, size_map is `HashMap<String, u64>`]
 
-**D-03 note:** A2 is explicitly resolved by decision D-03 in CONTEXT.md — confirmed not a concern.
+**D-03 note:** A2 is explicitly resolved by decision D-03 in CONTEXT.md -- confirmed not a concern.
 
 If this table is empty for verified claims: All other claims in this research were verified against the codebase.
 
@@ -753,16 +752,16 @@ If this table is empty for verified claims: All other claims in this research we
 ## Sources
 
 ### Primary (HIGH confidence)
-- `src/graph/executor.rs` — current `run_pipeline` / `execute_stage` signatures; test helpers; all existing stage implementations [VERIFIED: full file read]
-- `src/graph/pipeline.rs` — `GraphStage` enum; config structs; `PipelineNode`; `MetricValue`; tests to keep/delete [VERIFIED: full file read]
-- `src/audit/pipelines/helpers.rs` — `ControlFlowConfig`, `compute_cyclomatic`, `compute_cognitive`, `count_function_lines`, `compute_comment_ratio` [VERIFIED: full file read]
-- `src/audit/engine.rs` lines 260-299 — `run_pipeline` call site; `json_audit.languages` access pattern [VERIFIED: file read]
-- `src/workspace.rs` — `Workspace` API: `files()`, `read_file()`, `file_language()` [VERIFIED: file read]
-- `src/parser.rs` — `create_parser()`, `parse_content()` signatures [VERIFIED: file read]
-- `src/language.rs` — `Language::tree_sitter_language()`, `Language::as_str()` [VERIFIED: file read]
-- `src/languages/rust_lang.rs` — streaming_iterator pattern for QueryMatches [VERIFIED: file read]
-- `src/audit/pipelines/rust/cyclomatic.rs` — per-language ControlFlowConfig + function query pattern [VERIFIED: file read]
-- CLAUDE.md — tree-sitter 0.25 streaming_iterator constraint [VERIFIED: project instructions]
+- `src/graph/executor.rs` -- current `run_pipeline` / `execute_stage` signatures; test helpers; all existing stage implementations [VERIFIED: full file read]
+- `src/graph/pipeline.rs` -- `GraphStage` enum; config structs; `PipelineNode`; `MetricValue`; tests to keep/delete [VERIFIED: full file read]
+- `src/audit/pipelines/helpers.rs` -- `ControlFlowConfig`, `compute_cyclomatic`, `compute_cognitive`, `count_function_lines`, `compute_comment_ratio` [VERIFIED: full file read]
+- `src/audit/engine.rs` lines 260-299 -- `run_pipeline` call site; `json_audit.languages` access pattern [VERIFIED: file read]
+- `src/workspace.rs` -- `Workspace` API: `files()`, `read_file()`, `file_language()` [VERIFIED: file read]
+- `src/parser.rs` -- `create_parser()`, `parse_content()` signatures [VERIFIED: file read]
+- `src/language.rs` -- `Language::tree_sitter_language()`, `Language::as_str()` [VERIFIED: file read]
+- `src/languages/rust_lang.rs` -- streaming_iterator pattern for QueryMatches [VERIFIED: file read]
+- `src/audit/pipelines/rust/cyclomatic.rs` -- per-language ControlFlowConfig + function query pattern [VERIFIED: file read]
+- CLAUDE.md -- tree-sitter 0.25 streaming_iterator constraint [VERIFIED: project instructions]
 
 ### Secondary (MEDIUM confidence)
 - `cargo test` output: 2559 tests pass, 0 fail [VERIFIED: live test run]
@@ -772,10 +771,10 @@ If this table is empty for verified claims: All other claims in this research we
 ## Metadata
 
 **Confidence breakdown:**
-- Standard stack: HIGH — all dependencies pre-existing, verified in Cargo.toml
-- Architecture: HIGH — executor/pipeline structure fully read; no ambiguity
-- Pitfalls: HIGH — identified from codebase structure + CLAUDE.md constraints
-- Test strategy: HIGH — 4 required tests specified in D-09, helper pattern clear
+- Standard stack: HIGH -- all dependencies pre-existing, verified in Cargo.toml
+- Architecture: HIGH -- executor/pipeline structure fully read; no ambiguity
+- Pitfalls: HIGH -- identified from codebase structure + CLAUDE.md constraints
+- Test strategy: HIGH -- 4 required tests specified in D-09, helper pattern clear
 
 **Research date:** 2026-04-16
 **Valid until:** 2026-05-16 (stable Rust ecosystem, no external service dependencies)
