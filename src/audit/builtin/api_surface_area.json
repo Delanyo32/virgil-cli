@@ -28,7 +28,7 @@
     {
       "flag": {
         "pattern": "excessive_public_api",
-        "message": "Excessive public API: {{file}} exports {{count}} of {{count}} symbols ({{ratio}}%)",
+        "message": "Excessive public API: {{file}} exports {{count}} symbols ({{ratio}}% of total)",
         "severity": "info"
       }
     }
