@@ -106,6 +106,9 @@ impl AuditEngine {
                 }
             };
 
+            // ENG-01: suppress Rust lang_pipelines that are overridden by a JSON pipeline
+            lang_pipelines.retain(|p| !json_pipeline_names.contains(&p.name().to_string()));
+
             if !self.pipeline_filter.is_empty() {
                 lang_pipelines.retain(|p| self.pipeline_filter.contains(&p.name().to_string()));
             }
