@@ -36,8 +36,8 @@ Plans:
 - [x] 01-01-PLAN.md — Engine fixes: include_dir auto-discovery + doubled-findings suppression
 - [x] 01-02-PLAN.md — JSON architecture pipelines for TypeScript/JS, Python, Rust, Go, Java (20 files)
 - [x] 01-03-PLAN.md — JSON architecture pipelines for C, C++, C#, PHP (16 files)
-- [ ] 01-04-PLAN.md — Delete old JSON files + remove Rust architecture stubs
-- [ ] 01-05-PLAN.md — Integration tests (8 tests: 4 positive + 4 negative)
+- [x] 01-04-PLAN.md — Delete old JSON files + remove Rust architecture stubs
+- [x] 01-05-PLAN.md — Integration tests (8 tests: 4 positive + 4 negative)
 
 ### Phase 2: Executor Stage Implementation
 **Goal**: The JSON executor can run tree-sitter pattern matching and metric computation per file — `match_pattern` and `compute_metric` stages produce correct findings; all stub stages either work or fail loudly with a clear error
