@@ -13,21 +13,9 @@ pub mod typedef_pointer_hiding;
 pub mod unchecked_malloc;
 pub mod void_pointer_abuse;
 
-pub mod c_buffer_overflow_security;
-pub mod c_command_injection;
-pub mod c_integer_overflow;
-pub mod c_memory_mismanagement;
-pub mod c_path_traversal;
-pub mod c_toctou;
-pub mod c_uninitialized_memory;
-pub mod c_weak_randomness;
-pub mod format_string;
-
 pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
-
-pub mod memory_leak_indicators;
 
 use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use anyhow::Result;
@@ -62,22 +50,10 @@ pub fn code_style_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
 }
 
 pub fn security_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(format_string::FormatStringPipeline::new()?),
-        Box::new(c_command_injection::CCommandInjectionPipeline::new()?),
-        Box::new(c_weak_randomness::CWeakRandomnessPipeline::new()?),
-        Box::new(c_buffer_overflow_security::CBufferOverflowSecurityPipeline::new()?),
-        Box::new(c_integer_overflow::CIntegerOverflowPipeline::new()?),
-        Box::new(c_toctou::CToctouPipeline::new()?),
-        Box::new(c_memory_mismanagement::CMemoryMismanagementPipeline::new()?),
-        Box::new(c_path_traversal::CPathTraversalPipeline::new()?),
-        Box::new(c_uninitialized_memory::CUninitializedMemoryPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 
 pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
-    ])
+    Ok(vec![])
 }
 

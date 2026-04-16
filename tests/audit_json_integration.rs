@@ -2517,3 +2517,535 @@ fn memory_leak_indicators_java_clean() {
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }
+
+// ── C Security Pipelines ──
+
+// ── format_string (C, Security) ──
+
+#[test]
+fn format_string_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdio.h>\nvoid f(char *s) { printf(s); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "format_string" && f.pattern == "format_string_vulnerability"),
+        "expected format_string/format_string_vulnerability finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn format_string_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a struct definition
+    std::fs::write(
+        dir.path().join("test.c"),
+        "struct Point { int x; int y; };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "format_string" && f.file_path.ends_with(".c")),
+        "expected no format_string finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_command_injection (C, Security) ──
+
+#[test]
+fn c_command_injection_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdlib.h>\nvoid f(char *cmd) { system(cmd); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_command_injection" && f.pattern == "command_injection_call"),
+        "expected c_command_injection/command_injection_call finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_command_injection_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a typedef
+    std::fs::write(
+        dir.path().join("test.c"),
+        "typedef unsigned int uint32_t;",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_command_injection" && f.file_path.ends_with(".c")),
+        "expected no c_command_injection finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_buffer_overflow_security (C, Security) ──
+
+#[test]
+fn c_buffer_overflow_security_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <string.h>\nvoid f(char *s) { char buf[10]; strcpy(buf, s); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_buffer_overflow_security" && f.pattern == "buffer_overflow_risk"),
+        "expected c_buffer_overflow_security/buffer_overflow_risk finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_buffer_overflow_security_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only an enum definition
+    std::fs::write(
+        dir.path().join("test.c"),
+        "enum Color { RED, GREEN, BLUE };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_buffer_overflow_security" && f.file_path.ends_with(".c")),
+        "expected no c_buffer_overflow_security finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_integer_overflow (C, Security) ──
+
+#[test]
+fn c_integer_overflow_c_finds_binary_expr() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdlib.h>\nvoid f(int n, int m) { char *p = malloc(n * m); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_integer_overflow" && f.pattern == "unchecked_arithmetic"),
+        "expected c_integer_overflow/unchecked_arithmetic finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_integer_overflow_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No binary expressions -- only a constant declaration
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#define MAX_SIZE 100\ntypedef int MyInt;",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_integer_overflow" && f.file_path.ends_with(".c")),
+        "expected no c_integer_overflow finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_toctou (C, Security) ──
+
+#[test]
+fn c_toctou_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <unistd.h>\n#include <stdio.h>\nvoid f(const char *path) { if (access(path, R_OK) == 0) { FILE *fp = fopen(path, \"r\"); } }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_toctou" && f.pattern == "toctou_check"),
+        "expected c_toctou/toctou_check finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_toctou_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only struct and global constant
+    std::fs::write(
+        dir.path().join("test.c"),
+        "struct Config { int version; int max_retries; };\nstatic const int DEFAULT_VERSION = 1;",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_toctou" && f.file_path.ends_with(".c")),
+        "expected no c_toctou finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── memory_leak_indicators (C, Scalability) ──
+
+#[test]
+fn memory_leak_indicators_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdlib.h>\nvoid f() { int *p = malloc(sizeof(int)); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.pattern == "potential_memory_leak"),
+        "expected memory_leak_indicators/potential_memory_leak finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn memory_leak_indicators_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a struct and an enum
+    std::fs::write(
+        dir.path().join("test.c"),
+        "struct Node { int val; struct Node *next; };\nenum Status { OK, ERROR, PENDING };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "memory_leak_indicators" && f.file_path.ends_with(".c")),
+        "expected no memory_leak_indicators finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_weak_randomness (C, Security) ──
+
+#[test]
+fn c_weak_randomness_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdlib.h>\nvoid generate_auth_token() { int x = rand(); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_weak_randomness" && f.pattern == "weak_randomness"),
+        "expected c_weak_randomness/weak_randomness finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_weak_randomness_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a macro definition
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#define BUFFER_SIZE 256\n#define MAX_CONNECTIONS 100",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_weak_randomness" && f.file_path.ends_with(".c")),
+        "expected no c_weak_randomness finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_memory_mismanagement (C, Security) ──
+
+#[test]
+fn c_memory_mismanagement_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdlib.h>\nvoid f() { int *p = malloc(sizeof(int)); free(p); free(p); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_memory_mismanagement" && f.pattern == "memory_mismanagement"),
+        "expected c_memory_mismanagement/memory_mismanagement finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_memory_mismanagement_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a struct definition with initializer
+    std::fs::write(
+        dir.path().join("test.c"),
+        "typedef struct { int x; int y; } Point;",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_memory_mismanagement" && f.file_path.ends_with(".c")),
+        "expected no c_memory_mismanagement finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_path_traversal (C, Security) ──
+
+#[test]
+fn c_path_traversal_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdio.h>\nvoid read_file(const char *path) { FILE *fp = fopen(path, \"r\"); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_path_traversal" && f.pattern == "path_traversal_risk"),
+        "expected c_path_traversal/path_traversal_risk finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_path_traversal_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only global variable declarations
+    std::fs::write(
+        dir.path().join("test.c"),
+        "static int global_counter = 0;\nstatic const char *app_name = \"myapp\";",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_path_traversal" && f.file_path.ends_with(".c")),
+        "expected no c_path_traversal finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+// ── c_uninitialized_memory (C, Security) ──
+
+#[test]
+fn c_uninitialized_memory_c_finds_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <stdlib.h>\nvoid f(int size) { char *buf = malloc(size); }",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "c_uninitialized_memory" && f.pattern == "uninitialized_memory"),
+        "expected c_uninitialized_memory/uninitialized_memory finding for C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_uninitialized_memory_c_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    // No function calls -- only a union definition
+    std::fs::write(
+        dir.path().join("test.c"),
+        "union Data { int i; float f; char c; };",
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::Security)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_uninitialized_memory" && f.file_path.ends_with(".c")),
+        "expected no c_uninitialized_memory finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
