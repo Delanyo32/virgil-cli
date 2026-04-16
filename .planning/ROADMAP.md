@@ -67,7 +67,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Extend WhereClause with kind + 4 metric predicate fields (prerequisite)
+- [x] 03-01-PLAN.md — Extend WhereClause with kind + 4 metric predicate fields (prerequisite)
 - [ ] 03-02-PLAN.md — Create 4 cross-language complexity JSON pipelines + delete 40 Rust files
 - [ ] 03-03-PLAN.md — Create 5 scalability JSON pipelines + delete 15 Rust files
 - [ ] 03-04-PLAN.md — Add 12 integration tests (6 pipelines x 2 tests)
