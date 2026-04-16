@@ -15,9 +15,13 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 - ✓ On-demand parsing with tree-sitter across 12 languages — existing
 - ✓ Audit engine with 4 categories (code-quality, security, scalability, architecture) — existing
 - ✓ JSON audit engine (`json_audit.rs`) integrated with `AuditEngine` by pipeline name — existing
-- ✓ 4 architecture pipelines migrated to JSON (`api_surface_area`, `circular_dependencies`, `dependency_depth`, `module_size_distribution`) — existing
 - ✓ audit_plans/ specs written for all remaining pipelines (architecture + tech debt across all 12 languages) — existing
 - ✓ S3 support, server mode, query language — existing (out of scope for this milestone)
+- ✓ `include_dir!` auto-discovery replaces hardcoded array — new JSON files added without source changes (ENG-02, Validated in Phase 1)
+- ✓ `lang_pipelines.retain()` suppresses doubled findings when Rust + JSON pipelines share a name (ENG-01, Validated in Phase 1)
+- ✓ 36 per-language JSON architecture pipeline files for all 9 language groups (ARCH-01 through ARCH-09, Validated in Phase 1)
+- ✓ All legacy Rust architecture dispatch code removed; `Architecture` arm returns `vec![]` inline (ARCH-10, Validated in Phase 1)
+- ✓ Integration tests verifying JSON pipelines fire correctly and produce expected findings (TEST-01, TEST-02, Validated in Phase 1)
 
 ### Active
 
@@ -26,7 +30,6 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 - [ ] Remove all old Rust pipeline `.rs` files after JSON replacements are validated
 - [ ] Remove or consolidate legacy analyzer helpers (`src/audit/analyzers/`) no longer needed
 - [ ] Delete per-pipeline Rust unit tests that test removed code
-- [ ] Add integration-level tests verifying JSON pipelines fire correctly and produce expected findings
 - [ ] `cargo test` passes with zero failures after all changes
 
 ### Out of Scope
@@ -38,7 +41,7 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 
 ## Context
 
-**Current state:** There are ~327 Rust files in `src/audit/` including ~300 pipeline files across all languages and categories. The `audit_plans/` directory contains detailed per-pipeline analysis documents (22 files covering architecture and tech debt for all 12 languages) that specify what each new JSON pipeline should detect, with threshold values and pattern names.
+**Current state (after Phase 1):** Architecture audit category is 100% JSON-driven. 36 per-language JSON pipeline files exist in `src/audit/builtin/`. All legacy Rust architecture stubs removed. `include_dir!` auto-discovery means adding new JSON files requires no source changes. Next: migrate remaining Rust pipeline categories (tech-debt, code-style, security, scalability) to JSON. The `audit_plans/` directory contains detailed per-pipeline analysis documents (22 files covering architecture and tech debt for all 12 languages) that specify what each new JSON pipeline should detect, with threshold values and pattern names.
 
 **JSON pipeline format:** Defined in `src/audit/builtin/*.json`. The engine (`src/audit/json_audit.rs`) loads these at startup via `include_dir!` macro and matches pipeline names against registered Rust pipelines — when a JSON file name matches a Rust pipeline name, the JSON version takes precedence.
 
@@ -82,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-16 after initialization*
+*Last updated: 2026-04-16 after Phase 1 completion*
