@@ -30,7 +30,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. No Rust files remain in `src/audit/pipelines/architecture/` — the directory is empty or deleted
   4. `cargo test` passes with zero failures after all architecture Rust files are deleted
   5. A JSON pipeline and its former Rust pipeline running simultaneously produce a single set of findings, not doubled results
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Engine fixes: include_dir auto-discovery + doubled-findings suppression
+- [ ] 01-02-PLAN.md — JSON architecture pipelines for TypeScript/JS, Python, Rust, Go, Java (20 files)
+- [ ] 01-03-PLAN.md — JSON architecture pipelines for C, C++, C#, PHP (16 files)
+- [ ] 01-04-PLAN.md — Delete old JSON files + remove Rust architecture stubs
+- [ ] 01-05-PLAN.md — Integration tests (8 tests: 4 positive + 4 negative)
 
 ### Phase 2: Executor Stage Implementation
 **Goal**: The JSON executor can run tree-sitter pattern matching and metric computation per file — `match_pattern` and `compute_metric` stages produce correct findings; all stub stages either work or fail loudly with a clear error
@@ -85,7 +92,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Engine Fixes + Architecture JSON Expansion | 0/TBD | Not started | - |
+| 1. Engine Fixes + Architecture JSON Expansion | 0/5 | Planned | - |
 | 2. Executor Stage Implementation | 0/TBD | Not started | - |
 | 3. Tech Debt + Scalability JSON Migration | 0/TBD | Not started | - |
 | 4. Security + Per-Language Scalability Migration | 0/TBD | Not started | - |
