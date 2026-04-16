@@ -268,3 +268,414 @@ fn dependency_graph_depth_typescript_shallow_is_clean() {
         "expected no deep_import_chain finding"
     );
 }
+
+// ── Phase 3: Complexity Pipelines (compute_metric) ──
+
+#[test]
+fn cyclomatic_complexity_ts_finds_complex_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // 12 if-statements = CC of 13 (1 base + 12 decision points), exceeds threshold of 10
+    let mut content = String::from("export function complex(x: number) {\n");
+    for i in 0..12 {
+        content.push_str(&format!("  if (x > {i}) {{ console.log({i}); }}\n"));
+    }
+    content.push_str("}\n");
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
+        "expected high_cyclomatic_complexity finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cyclomatic_complexity_ts_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "export function simple(x: number) {\n  if (x > 0) { return x; }\n  return 0;\n}\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
+        "expected no high_cyclomatic_complexity finding for simple function; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn function_length_ts_finds_long_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut content = String::from("export function longFunc() {\n");
+    for i in 0..55 {
+        content.push_str(&format!("  const x{i} = {i};\n"));
+    }
+    content.push_str("}\n");
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "function_length" && f.pattern == "function_too_long"),
+        "expected function_too_long finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn function_length_ts_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "export function short() {\n  return 1;\n}\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "function_length" && f.pattern == "function_too_long"),
+        "expected no function_too_long finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cognitive_complexity_ts_finds_complex_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // Deeply nested: if > for > while > if > if > if produces cognitive complexity well above 15
+    let content = r#"export function deepNest(x: number) {
+  if (x > 0) {
+    for (let i = 0; i < x; i++) {
+      while (i > 0) {
+        if (i % 2 === 0) {
+          if (i % 3 === 0) {
+            if (i % 5 === 0) {
+              console.log(i);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (x > 1) {
+    if (x > 2) {
+      if (x > 3) {
+        console.log(x);
+      }
+    }
+  }
+}
+"#;
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cognitive_complexity" && f.pattern == "high_cognitive_complexity"),
+        "expected high_cognitive_complexity finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cognitive_complexity_ts_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "export function simple(x: number) {\n  if (x > 0) { return x; }\n  return 0;\n}\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cognitive_complexity" && f.pattern == "high_cognitive_complexity"),
+        "expected no high_cognitive_complexity finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn comment_to_code_ratio_ts_finds_under_documented() {
+    let dir = tempfile::tempdir().unwrap();
+    // 30 lines of code, zero comments = 0% ratio, below 5% threshold
+    let mut content = String::new();
+    for i in 0..30 {
+        content.push_str(&format!("const x{i} = {i};\n"));
+    }
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "comment_to_code_ratio" && f.pattern == "comment_ratio_violation"),
+        "expected comment_ratio_violation finding for under-documented file; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn comment_to_code_ratio_ts_clean_file() {
+    let dir = tempfile::tempdir().unwrap();
+    // 5 comment lines + 5 code lines = 50% ratio, within acceptable range (5%-60%)
+    let content = "// comment 1\n// comment 2\n// comment 3\n// comment 4\n// comment 5\nconst a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "comment_to_code_ratio" && f.pattern == "comment_ratio_violation"),
+        "expected no comment_ratio_violation finding for balanced file; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── Phase 3: Scalability Pipelines (match_pattern) ──
+
+#[test]
+fn n_plus_one_queries_ts_finds_call_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"
+const db = { findOne: (id: number) => ({}) };
+const ids = [1, 2, 3];
+for (let i = 0; i < ids.length; i++) {
+  db.findOne(ids[i]);
+}
+"#;
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "n_plus_one_queries" && f.pattern == "query_in_loop"),
+        "expected query_in_loop finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn n_plus_one_queries_ts_clean_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "const db = { findOne: (id: number) => ({}) };\nconst user = db.findOne(1);\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "n_plus_one_queries" && f.pattern == "query_in_loop"),
+        "expected no query_in_loop finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn sync_blocking_in_async_ts_finds_sync_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "import * as fs from 'fs';\nfs.readFileSync('test.txt');\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "sync_blocking_in_async" && f.pattern == "sync_call_in_async"),
+        "expected sync_call_in_async finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn sync_blocking_in_async_ts_clean_code() {
+    let dir = tempfile::tempdir().unwrap();
+    // Only async/promise calls, no Sync suffix methods
+    let content = "async function load() {\n  const data = await fetch('https://example.com');\n  return data;\n}\n";
+    std::fs::write(dir.path().join("test.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .pipeline_selector(PipelineSelector::Scalability)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "sync_blocking_in_async" && f.pattern == "sync_call_in_async"),
+        "expected no sync_call_in_async finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+// ── Phase 3: Cross-Language Verification (Rust + Python) ──
+
+#[test]
+fn cyclomatic_complexity_rust_finds_complex_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // 12 if-statements in a Rust function = CC of 13, exceeds threshold of 10
+    let mut content = String::from("pub fn complex(x: i32) {\n");
+    for i in 0..12 {
+        content.push_str(&format!("    if x > {i} {{ println!(\"{i}\"); }}\n"));
+    }
+    content.push_str("}\n");
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
+        "expected high_cyclomatic_complexity finding for Rust; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cyclomatic_complexity_rust_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "pub fn simple(x: i32) -> i32 {\n    if x > 0 { x } else { 0 }\n}\n";
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
+        "expected no high_cyclomatic_complexity finding for simple Rust function; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cyclomatic_complexity_python_finds_complex_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // 12 if-statements in a Python function = CC of 13, exceeds threshold of 10
+    let mut content = String::from("def complex(x):\n");
+    for i in 0..12 {
+        content.push_str(&format!("    if x > {i}:\n        print({i})\n"));
+    }
+    std::fs::write(dir.path().join("test.py"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
+        "expected high_cyclomatic_complexity finding for Python; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cyclomatic_complexity_python_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "def simple(x):\n    if x > 0:\n        return x\n    return 0\n";
+    std::fs::write(dir.path().join("test.py"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .pipeline_selector(PipelineSelector::Complexity)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
+        "expected no high_cyclomatic_complexity finding for simple Python function; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}

@@ -58,28 +58,49 @@ fn builtin_audits() -> Vec<JsonAuditFile> {
 // Discovery
 // ---------------------------------------------------------------------------
 
+/// Compute a deduplication key for a JSON audit file.
+///
+/// Two files with the same pipeline name but different language filters are
+/// considered distinct variants and should both run (e.g., 8 per-language
+/// sync_blocking_in_async files). Two files with the same pipeline name AND
+/// the same language filter are duplicates — project-local wins over built-in.
+fn dedup_key(audit: &JsonAuditFile) -> String {
+    let lang_key = match &audit.languages {
+        Some(langs) => {
+            let mut sorted = langs.clone();
+            sorted.sort();
+            sorted.join(",")
+        }
+        None => "*".to_string(),
+    };
+    format!("{}:{}", audit.pipeline, lang_key)
+}
+
 /// Discover JSON audit files from: project-local → user-global → built-ins.
-/// If multiple files declare the same pipeline name, the first one wins
-/// (project-local beats user-global beats built-in).
+/// Files with the same pipeline name AND the same language filter deduplicate
+/// (project-local beats user-global beats built-in). Files with the same
+/// pipeline name but DIFFERENT language filters are all included — this
+/// supports per-language variants of a pipeline (e.g., sync_blocking_in_async).
 pub fn discover_json_audits(project_dir: Option<&std::path::Path>) -> Vec<JsonAuditFile> {
-    let mut seen_pipelines: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut result: Vec<JsonAuditFile> = Vec::new();
 
     // 1. Project-local: {project_dir}/.virgil/audits/*.json
     if let Some(dir) = project_dir {
         let audit_dir = dir.join(".virgil").join("audits");
-        load_json_audits_from_dir(&audit_dir, &mut seen_pipelines, &mut result);
+        load_json_audits_from_dir(&audit_dir, &mut seen_keys, &mut result);
     }
 
     // 2. User-global: ~/.virgil-cli/audits/*.json
     if let Some(home) = dirs::home_dir() {
         let audit_dir = home.join(".virgil-cli").join("audits");
-        load_json_audits_from_dir(&audit_dir, &mut seen_pipelines, &mut result);
+        load_json_audits_from_dir(&audit_dir, &mut seen_keys, &mut result);
     }
 
     // 3. Built-ins (embedded in binary)
     for audit in builtin_audits() {
-        if seen_pipelines.insert(audit.pipeline.clone()) {
+        let key = dedup_key(&audit);
+        if seen_keys.insert(key) {
             result.push(audit);
         }
     }
@@ -106,7 +127,8 @@ fn load_json_audits_from_dir(
         match std::fs::read_to_string(&path) {
             Ok(content) => match serde_json::from_str::<JsonAuditFile>(&content) {
                 Ok(audit) => {
-                    if seen.insert(audit.pipeline.clone()) {
+                    let key = dedup_key(&audit);
+                    if seen.insert(key) {
                         result.push(audit);
                     }
                 }

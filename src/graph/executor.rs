@@ -1859,4 +1859,5 @@ fn bar() { println!("ok"); }
             _ => panic!("expected Results"),
         }
     }
+
 }
