@@ -70,7 +70,7 @@ Plans:
 - [x] 03-01-PLAN.md — Extend WhereClause with kind + 4 metric predicate fields (prerequisite)
 - [x] 03-02-PLAN.md — Create 4 cross-language complexity JSON pipelines + delete 40 Rust files
 - [x] 03-03-PLAN.md — Create 5 scalability JSON pipelines + delete 15 Rust files
-- [ ] 03-04-PLAN.md — Add 12 integration tests (6 pipelines x 2 tests)
+- [x] 03-04-PLAN.md — Add 12 integration tests (6 pipelines x 2 tests)
 
 ### Phase 4: Security + Per-Language Scalability Migration
 **Goal**: All non-taint security patterns and all per-language scalability pipelines run as JSON; corresponding Rust files are deleted; taint-based pipelines remain in Rust as documented permanent exceptions
