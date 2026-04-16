@@ -493,8 +493,10 @@ pub struct FlagConfig {
 impl FlagConfig {
     /// Resolve the effective severity given the current node's metrics.
     /// Checks severity_map entries in order; first matching `when` wins.
-    /// Falls back to `severity` field or "warning" if nothing matches.
-    pub fn resolve_severity(&self, node: &PipelineNode) -> String {
+    /// Falls back to `severity` field if no severity_map entry matches.
+    /// Returns None (suppresses finding) when severity_map has only conditional
+    /// entries, none match, and no bare `severity` field exists.
+    pub fn resolve_severity(&self, node: &PipelineNode) -> Option<String> {
         if let Some(ref map) = self.severity_map {
             for entry in map {
                 let matches = match &entry.when {
@@ -502,11 +504,17 @@ impl FlagConfig {
                     Some(wc) => wc.is_empty() || wc.eval_metrics(node),
                 };
                 if matches {
-                    return entry.severity.clone();
+                    return Some(entry.severity.clone());
                 }
             }
+            // severity_map existed but no entry matched.
+            // If there's a bare severity field, use it as fallback.
+            // If not, suppress the finding (return None).
+            self.severity.clone().map(Some).unwrap_or(None)
+        } else {
+            // No severity_map at all -- use severity field or default "warning"
+            Some(self.severity.clone().unwrap_or_else(|| "warning".to_string()))
         }
-        self.severity.clone().unwrap_or_else(|| "warning".to_string())
     }
 }
 
@@ -831,7 +839,7 @@ mod tests {
             pipeline_name: None,
         };
         let node = make_node(vec![]);
-        assert_eq!(flag.resolve_severity(&node), "warning");
+        assert_eq!(flag.resolve_severity(&node), Some("warning".to_string()));
     }
 
     #[test]
@@ -844,7 +852,7 @@ mod tests {
             pipeline_name: None,
         };
         let node = make_node(vec![]);
-        assert_eq!(flag.resolve_severity(&node), "error");
+        assert_eq!(flag.resolve_severity(&node), Some("error".to_string()));
     }
 
     #[test]
@@ -874,7 +882,7 @@ mod tests {
             pipeline_name: None,
         };
         // count=25 >= 20 matches first entry
-        assert_eq!(flag.resolve_severity(&node), "error");
+        assert_eq!(flag.resolve_severity(&node), Some("error".to_string()));
     }
 
     #[test]
@@ -904,7 +912,7 @@ mod tests {
             pipeline_name: None,
         };
         // count=12 does NOT match first (>= 20), does match second (>= 10)
-        assert_eq!(flag.resolve_severity(&node), "warning");
+        assert_eq!(flag.resolve_severity(&node), Some("warning".to_string()));
     }
 
     #[test]
@@ -931,7 +939,7 @@ mod tests {
             pipeline_name: None,
         };
         // count=0 does not match first, second has no condition => "hint"
-        assert_eq!(flag.resolve_severity(&node), "hint");
+        assert_eq!(flag.resolve_severity(&node), Some("hint".to_string()));
     }
 
     #[test]
@@ -951,7 +959,38 @@ mod tests {
             pipeline_name: None,
         };
         // Nothing matches, falls back to severity field
-        assert_eq!(flag.resolve_severity(&node), "info");
+        assert_eq!(flag.resolve_severity(&node), Some("info".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_severity_map_no_match_no_severity_suppresses() {
+        // severity_map has only conditional entries, none match, no bare severity field
+        // -> returns None (suppression)
+        let node = make_node(vec![("cyclomatic_complexity", MetricValue::Int(3))]);
+        let flag = FlagConfig {
+            pattern: "test".to_string(),
+            message: "msg".to_string(),
+            severity: None, // NO bare severity field
+            severity_map: Some(vec![
+                SeverityEntry {
+                    when: Some(WhereClause {
+                        cyclomatic_complexity: Some(NumericPredicate { gte: Some(20.0), ..Default::default() }),
+                        ..Default::default()
+                    }),
+                    severity: "error".to_string(),
+                },
+                SeverityEntry {
+                    when: Some(WhereClause {
+                        cyclomatic_complexity: Some(NumericPredicate { gt: Some(10.0), ..Default::default() }),
+                        ..Default::default()
+                    }),
+                    severity: "warning".to_string(),
+                },
+            ]),
+            pipeline_name: None,
+        };
+        // CC=3: neither >= 20 nor > 10, and no bare severity => suppressed
+        assert_eq!(flag.resolve_severity(&node), None);
     }
 
     // -----------------------------------------------------------------------

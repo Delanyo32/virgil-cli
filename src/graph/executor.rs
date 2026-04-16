@@ -104,10 +104,10 @@ pub fn run_pipeline(
         let effective_pipeline = flag.pipeline_name.as_deref().unwrap_or(pipeline_name);
         let findings = nodes
             .iter()
-            .map(|node| {
-                let severity = flag.resolve_severity(node);
+            .filter_map(|node| {
+                let severity = flag.resolve_severity(node)?;
                 let message = interpolate_message(&flag.message, node);
-                AuditFinding {
+                Some(AuditFinding {
                     file_path: node.file_path.clone(),
                     line: node.line,
                     column: 1,
@@ -116,7 +116,7 @@ pub fn run_pipeline(
                     pattern: flag.pattern.clone(),
                     message,
                     snippet: String::new(),
-                }
+                })
             })
             .collect();
         Ok(PipelineOutput::Findings(findings))
@@ -1436,10 +1436,10 @@ mod tests {
         let effective_pipeline = flag_config.pipeline_name.as_deref().unwrap_or("test_pipeline");
         let findings: Vec<AuditFinding> = nodes
             .iter()
-            .map(|node| {
-                let severity = flag_config.resolve_severity(node);
+            .filter_map(|node| {
+                let severity = flag_config.resolve_severity(node)?;
                 let message = interpolate_message(&flag_config.message, node);
-                AuditFinding {
+                Some(AuditFinding {
                     file_path: node.file_path.clone(),
                     line: node.line,
                     column: 1,
@@ -1448,7 +1448,7 @@ mod tests {
                     pattern: flag_config.pattern.clone(),
                     message,
                     snippet: String::new(),
-                }
+                })
             })
             .collect();
 
