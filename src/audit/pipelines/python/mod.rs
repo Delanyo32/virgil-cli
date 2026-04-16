@@ -23,7 +23,6 @@ pub mod ssrf;
 pub mod xxe_format_string;
 
 pub mod memory_leak_indicators;
-pub mod sync_blocking_in_async;
 
 pub mod empty_test_files;
 pub mod test_assertions;
@@ -77,7 +76,6 @@ pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
 
 pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
     Ok(vec![
-        AnyPipeline::Graph(Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?)),
         AnyPipeline::Graph(Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?)),
     ])
 }

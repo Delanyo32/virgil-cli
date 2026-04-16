@@ -20,7 +20,6 @@ pub mod type_system_bypass;
 pub mod unsafe_type_assertions_security;
 
 pub mod memory_leak_indicators;
-pub mod sync_blocking_in_async;
 
 use crate::audit::pipeline::Pipeline;
 use crate::audit::pipelines;
@@ -76,9 +75,6 @@ pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> 
 
 pub fn scalability_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
-        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new(
-            language,
-        )?),
         Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new(
             language,
         )?),

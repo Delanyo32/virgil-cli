@@ -28,7 +28,6 @@ pub mod timing_weak_crypto;
 pub mod xss_dom_injection;
 
 pub mod memory_leak_indicators;
-pub mod sync_blocking_in_async;
 
 use crate::audit::pipeline::{AnyPipeline, Pipeline};
 use crate::language::Language;
@@ -81,7 +80,6 @@ pub fn security_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> 
 
 pub fn scalability_pipelines() -> Result<Vec<Box<dyn Pipeline>>> {
     Ok(vec![
-        Box::new(sync_blocking_in_async::SyncBlockingInAsyncPipeline::new()?),
         Box::new(memory_leak_indicators::MemoryLeakIndicatorsPipeline::new()?),
     ])
 }
