@@ -64,7 +64,13 @@ Plans:
   3. No Rust pipeline files remain for tech debt complexity pipelines (`cyclomatic_complexity`, `function_length`, `cognitive_complexity`, `comment_to_code_ratio`) or the shared scalability pipelines
   4. Each deleted pipeline batch has at least one positive-case integration test (code that should trigger a finding) and one negative-case test (clean code, no finding) in `tests/audit_json_integration.rs`
   5. `cargo test` passes with zero failures after all tech-debt Rust files are deleted
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Extend WhereClause with kind + 4 metric predicate fields (prerequisite)
+- [ ] 03-02-PLAN.md — Create 4 cross-language complexity JSON pipelines + delete 40 Rust files
+- [ ] 03-03-PLAN.md — Create 5 scalability JSON pipelines + delete 15 Rust files
+- [ ] 03-04-PLAN.md — Add 12 integration tests (6 pipelines x 2 tests)
 
 ### Phase 4: Security + Per-Language Scalability Migration
 **Goal**: All non-taint security patterns and all per-language scalability pipelines run as JSON; corresponding Rust files are deleted; taint-based pipelines remain in Rust as documented permanent exceptions
@@ -97,7 +103,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Engine Fixes + Architecture JSON Expansion | 5/5 | Complete | - |
-| 2. Executor Stage Implementation | 0/2 | Planned | - |
-| 3. Tech Debt + Scalability JSON Migration | 0/TBD | Not started | - |
+| 2. Executor Stage Implementation | 2/2 | Complete | - |
+| 3. Tech Debt + Scalability JSON Migration | 0/4 | Planned | - |
 | 4. Security + Per-Language Scalability Migration | 0/TBD | Not started | - |
 | 5. Final Cleanup + Test Health | 0/TBD | Not started | - |
