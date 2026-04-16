@@ -9,11 +9,6 @@ pub mod missing_type_hints;
 pub mod mutable_default_args;
 pub mod stringly_typed;
 
-pub mod cognitive;
-pub mod comment_ratio;
-pub mod cyclomatic;
-pub mod function_length;
-
 pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
@@ -57,12 +52,7 @@ pub fn tech_debt_pipelines() -> Result<Vec<AnyPipeline>> {
 }
 
 pub fn complexity_pipelines() -> Result<Vec<AnyPipeline>> {
-    Ok(vec![
-        AnyPipeline::Node(Box::new(cyclomatic::CyclomaticComplexityPipeline::new()?)),
-        AnyPipeline::Node(Box::new(function_length::FunctionLengthPipeline::new()?)),
-        AnyPipeline::Node(Box::new(cognitive::CognitiveComplexityPipeline::new()?)),
-        AnyPipeline::Node(Box::new(comment_ratio::CommentToCodeRatioPipeline::new()?)),
-    ])
+    Ok(vec![])
 }
 
 pub fn code_style_pipelines() -> Result<Vec<AnyPipeline>> {
