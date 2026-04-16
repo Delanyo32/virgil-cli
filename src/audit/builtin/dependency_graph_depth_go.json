@@ -1,0 +1,35 @@
+{
+  "pipeline": "dependency_graph_depth_go",
+  "category": "architecture",
+  "description": "Detect deep import chains in Go packages",
+  "languages": ["go"],
+  "graph": [
+    {
+      "select": "file",
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true}
+        ]
+      }
+    },
+    {
+      "max_depth": {
+        "edge": "imports",
+        "skip_barrel_files": true,
+        "threshold": {"gte": 5}
+      }
+    },
+    {
+      "flag": {
+        "pattern": "deep_import_chain",
+        "message": "Deep import chain: {{file}} is {{depth}} hops from entry points",
+        "severity_map": [
+          {"when": {"depth": {"gte": 13}}, "severity": "error"},
+          {"when": {"depth": {"gte": 9}}, "severity": "warning"},
+          {"severity": "info"}
+        ]
+      }
+    }
+  ]
+}
