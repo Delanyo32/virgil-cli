@@ -28,6 +28,8 @@ pub enum EdgeType {
     Acquires,
     ReleasedBy,
     Contains,
+    Exports,
+    // SanitizedBy excluded — has a string payload, handled separately in taint analysis
     DefinedIn,
 }
 
@@ -119,6 +121,8 @@ pub struct WhereClause {
     pub is_generated: Option<bool>,
     #[serde(default)]
     pub is_barrel_file: Option<bool>,
+    /// NOTE: not evaluated by WhereClause::eval() — the executor checks NOLINT
+    /// suppression separately. This field is reserved for future executor integration.
     #[serde(default)]
     pub is_nolint: Option<bool>,
 
@@ -260,6 +264,9 @@ impl WhereClause {
                 return false;
             }
         }
+        // is_nolint: requires source-level comment scanning — not evaluatable from
+        // file path alone. Implemented in executor (Task 2) via a separate nolint check.
+        // For now, is_nolint predicate in WhereClause is a no-op in eval().
         if let Some(exp) = self.exported {
             if node.exported != exp {
                 return false;
@@ -1156,6 +1163,7 @@ mod tests {
             EdgeType::Acquires,
             EdgeType::ReleasedBy,
             EdgeType::Contains,
+            EdgeType::Exports,
             EdgeType::DefinedIn,
         ];
         for v in variants {
