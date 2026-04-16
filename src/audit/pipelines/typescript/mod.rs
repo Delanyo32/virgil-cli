@@ -12,11 +12,6 @@ pub mod type_duplication;
 pub mod unchecked_index_access;
 pub mod unconstrained_generics;
 
-pub mod cognitive;
-pub mod comment_ratio;
-pub mod cyclomatic;
-pub mod function_length;
-
 pub mod coupling;
 pub mod dead_code;
 pub mod duplicate_code;
@@ -55,13 +50,8 @@ pub fn tech_debt_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>>
     ])
 }
 
-pub fn complexity_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
-    Ok(vec![
-        Box::new(cyclomatic::CyclomaticComplexityPipeline::new(language)?),
-        Box::new(function_length::FunctionLengthPipeline::new(language)?),
-        Box::new(cognitive::CognitiveComplexityPipeline::new(language)?),
-        Box::new(comment_ratio::CommentToCodeRatioPipeline::new(language)?),
-    ])
+pub fn complexity_pipelines(_language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
+    Ok(vec![])
 }
 
 pub fn code_style_pipelines(language: Language) -> Result<Vec<Box<dyn Pipeline>>> {
