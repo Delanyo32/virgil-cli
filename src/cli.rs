@@ -64,6 +64,11 @@ pub enum Command {
         #[arg(long, default_value = "table")]
         format: OutputFormat,
 
+        /// Run a specific JSON audit file instead of (or in addition to) built-ins.
+        /// Example: --file ./my_audit.json
+        #[arg(long, value_name = "FILE")]
+        file: Option<PathBuf>,
+
         #[command(subcommand)]
         command: Option<AuditCommand>,
     },

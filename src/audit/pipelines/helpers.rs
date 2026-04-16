@@ -688,6 +688,55 @@ pub fn is_test_file(file_path: &str) -> bool {
     false
 }
 
+/// Returns `true` if the file should be excluded from cross-file architecture
+/// analysis. Covers test files, generated files (path-detectable), and
+/// vendor/third-party directories. Does not require file source bytes.
+pub fn is_excluded_for_arch_analysis(path: &str) -> bool {
+    if is_test_file(path) {
+        return true;
+    }
+    let p = path.replace('\\', "/");
+    // Generated file patterns detectable from path alone
+    if p.ends_with(".pb.go")
+        || p.ends_with("_gen.go")
+        || p.ends_with("_generated.go")
+        || p.ends_with(".pb.h")
+        || p.ends_with(".pb.cc")
+        || p.contains("/generated/")
+        || p.starts_with("generated/")
+    {
+        return true;
+    }
+    // Vendor / third-party / build directories
+    if p.contains("/vendor/")
+        || p.starts_with("vendor/")
+        || p.contains("/third_party/")
+        || p.starts_with("third_party/")
+        || p.contains("/node_modules/")
+        || p.starts_with("node_modules/")
+        || p.contains("/_deps/")
+        || p.starts_with("_deps/")
+    {
+        return true;
+    }
+    false
+}
+
+/// Returns `true` if the file is a barrel / re-export aggregator by name.
+/// Barrel files (index.ts, __init__.py, mod.rs, etc.) should not count as
+/// a depth hop in dependency chains and should not trigger efferent coupling
+/// findings, because their high import count is intentional.
+pub fn is_barrel_file(path: &str) -> bool {
+    let file_name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("");
+    matches!(
+        file_name,
+        "index.ts" | "index.tsx" | "index.js" | "index.jsx" | "__init__.py" | "mod.rs"
+    )
+}
+
 /// Walk the parent chain of `node`; return true if any ancestor's kind is in `kinds`.
 pub fn ancestor_has_kind(node: Node, kinds: &[&str]) -> bool {
     let mut current = node.parent();
@@ -1826,5 +1875,44 @@ mod tests {
         // Negative — "test" as substring is not enough
         assert!(!is_test_file("attestation.cpp"));
         assert!(!is_test_file("latest_data.cpp"));
+    }
+
+    #[test]
+    fn test_is_excluded_for_arch_analysis() {
+        // Test files are excluded
+        assert!(is_excluded_for_arch_analysis("src/foo_test.rs"));
+        assert!(is_excluded_for_arch_analysis("pkg/handler_test.go"));
+        assert!(is_excluded_for_arch_analysis("tests/integration.rs"));
+        // Generated file patterns
+        assert!(is_excluded_for_arch_analysis("proto/service.pb.go"));
+        assert!(is_excluded_for_arch_analysis("models/user_gen.go"));
+        assert!(is_excluded_for_arch_analysis("models/schema_generated.go"));
+        assert!(is_excluded_for_arch_analysis("include/api.pb.h"));
+        assert!(is_excluded_for_arch_analysis("src/generated/schema.ts"));
+        assert!(is_excluded_for_arch_analysis("generated/models.rs"));
+        // Vendor / third-party directories
+        assert!(is_excluded_for_arch_analysis("vendor/serde/src/lib.rs"));
+        assert!(is_excluded_for_arch_analysis("third_party/openssl/ssl.h"));
+        assert!(is_excluded_for_arch_analysis("node_modules/react/index.js"));
+        assert!(is_excluded_for_arch_analysis("_deps/googletest/src/gtest.cc"));
+        // Normal source files are NOT excluded
+        assert!(!is_excluded_for_arch_analysis("src/main.rs"));
+        assert!(!is_excluded_for_arch_analysis("src/auth/service.ts"));
+        assert!(!is_excluded_for_arch_analysis("lib/utils.py"));
+    }
+
+    #[test]
+    fn test_is_barrel_file() {
+        assert!(is_barrel_file("src/index.ts"));
+        assert!(is_barrel_file("components/index.tsx"));
+        assert!(is_barrel_file("src/index.js"));
+        assert!(is_barrel_file("lib/index.jsx"));
+        assert!(is_barrel_file("src/models/__init__.py"));
+        assert!(is_barrel_file("src/models/mod.rs"));
+        // Non-barrel files
+        assert!(!is_barrel_file("src/auth.ts"));
+        assert!(!is_barrel_file("src/service/user.ts"));
+        assert!(!is_barrel_file("src/models/user.rs"));
+        assert!(!is_barrel_file("src/reindex.ts")); // contains "index" but not a barrel
     }
 }

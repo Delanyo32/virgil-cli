@@ -15,3 +15,7 @@ pub mod s3;
 pub mod server;
 pub mod signature;
 pub mod workspace;
+
+pub use audit::json_audit;
+pub use graph::executor;
+pub use graph::pipeline;

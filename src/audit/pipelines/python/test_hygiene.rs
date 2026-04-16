@@ -45,15 +45,14 @@ impl GraphPipeline for TestHygienePipeline {
 
         let mut findings = Vec::new();
 
-        // --- Pattern 1: excessive_mocking ---
         self.check_excessive_mocking(tree, source, file_path, &mut findings);
-
-        // --- Pattern 2: sleep_in_test ---
         self.check_sleep_in_test(tree, source, file_path, &mut findings);
 
         findings
     }
 }
+
+const EXCESSIVE_MOCK_THRESHOLD: usize = 3;
 
 impl TestHygienePipeline {
     /// Detect test functions with more than 3 patch decorators.
@@ -131,7 +130,7 @@ impl TestHygienePipeline {
             }
         }
 
-        if patch_count > 3 {
+        if patch_count > EXCESSIVE_MOCK_THRESHOLD {
             let start = node.start_position();
             findings.push(AuditFinding {
                 file_path: file_path.to_string(),
