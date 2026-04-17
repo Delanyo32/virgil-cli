@@ -184,6 +184,12 @@ fn execute_stage(
                 ),
             }
         }
+        GraphStage::Taint { .. } => {
+            anyhow::bail!("taint stage not yet wired — implement in Task 3")
+        }
+        GraphStage::FindDuplicates { .. } => {
+            anyhow::bail!("find_duplicates stage not yet wired — implement in Task 3")
+        }
     }
 }
 
