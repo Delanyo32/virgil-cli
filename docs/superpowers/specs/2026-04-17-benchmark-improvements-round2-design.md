@@ -50,18 +50,21 @@ All Rust-level changes are grouped in Part 1. JSON pipeline additions follow in 
 
 **Root cause (C++):** `function_definition` nodes with qualified names (e.g. `MyClass::method`) have an additional `declarator` layer. The CFG builder's `find_compound_statement` traverses past this layer using custom logic, but `find_function_body_at_line` uses `child_by_field_name("body")` directly, which may return `None` for qualified definitions. Forward declarations (`declaration` nodes) are also symbolized as `Function` kind, creating spurious no-body lookups.
 
+**Root cause (C#):** C# `function_length` manifest entries still miss some cases. Same investigation path: verify `method_declaration` and `constructor_declaration` nodes in the C# tree-sitter grammar expose a `"body"` field that `find_function_body_at_line` can retrieve, and confirm `function_node_kinds_for_language` for C# covers all relevant node kinds (e.g. local functions, property accessors if applicable).
+
 **Fix:**
-1. Write a targeted failing unit test for each: a JS arrow function and a C++ qualified method that should produce a `nesting_depth` metric.
+1. Write a targeted failing unit test for each affected language: JS arrow function, C++ qualified method, and C# method that should produce a `nesting_depth` or `function_length` metric.
 2. Fix `body_field_for_language` and/or `find_function_body_at_line` to handle cases where the body is not a direct `"body"`-named field:
    - For JS `arrow_function`: traverse to the `arrow_function` child of `variable_declarator` before calling `child_by_field_name("body")`, or add `arrow_function` to the walk with a fallback to its expression body.
    - For C++: use the same compound-statement traversal already in `CppCfgBuilder::find_compound_statement`, or unify the two paths.
+   - For C#: verify and extend `function_node_kinds_for_language` if additional node kinds are needed.
 3. In the C++ parser, skip `declaration` nodes (forward declarations) when creating `Function` kind symbols — they have no body and produce silent `compute_metric` warnings.
 
 **Files:**
 - `src/pipeline/executor.rs` — `find_function_body_at_line`
 - `src/graph/metrics.rs` — `function_node_kinds_for_language`, `body_field_for_language`
 - `src/languages/cpp.rs` — skip forward declarations in symbol extraction
-- Tests: new unit tests in `src/pipeline/executor.rs` for JS arrow function and C++ qualified method metrics
+- Tests: new unit tests in `src/pipeline/executor.rs` for JS arrow function, C++ qualified method, and C# method metrics
 
 ### 1B. `lhs_is_parameter` Predicate + Pipeline Audit
 
@@ -122,35 +125,28 @@ All Rust-level changes are grouped in Part 1. JSON pipeline additions follow in 
 
 No dependency-detection gate. Flagging `print()` in any non-test Python module is high-signal enough given the benchmark codebase already declares `logging`/`structlog` as dependencies.
 
-### 2C. `hardcoded_secrets` — New Python Pipeline
+### 2C. `hardcoded_secrets` — New Pipelines (All Languages)
 
-**New file:** `src/audit/builtin/hardcoded_secrets_python.json`
+One pipeline file per language. Each matches assignments where the LHS identifier name suggests a secret and the RHS is a string literal. The name-matching regex is identical across all languages; only the tree-sitter pattern differs.
 
-Pattern matches assignments where the LHS identifier name suggests a secret and the RHS is a string literal:
+**New files and their patterns:**
 
-```json
-{
-  "pipeline": "hardcoded_secrets",
-  "category": "security",
-  "description": "Detects hardcoded secrets assigned to variables with secret-suggesting names in Python.",
-  "languages": ["python"],
-  "graph": [
-    {
-      "match_pattern": "(assignment left: (identifier) @name (#match? @name \"(?i)(secret|password|api_key|token|credential|auth_key|private_key)\") right: (string) @val) @assign",
-      "exclude": { "is_test_file": true }
-    },
-    {
-      "flag": {
-        "pattern": "hardcoded_secrets",
-        "message": "Potential hardcoded secret in `{{name}}` — move to environment variable or secrets manager",
-        "severity": "error"
-      }
-    }
-  ]
-}
-```
+| File | Language | Tree-sitter pattern (LHS → RHS) |
+|---|---|---|
+| `hardcoded_secrets_python.json` | python | `(assignment left: (identifier) @name right: (string) @val)` |
+| `hardcoded_secrets_javascript.json` | javascript | `(lexical_declaration (variable_declarator name: (identifier) @name value: (string) @val))` |
+| `hardcoded_secrets_typescript.json` | typescript | same as JS |
+| `hardcoded_secrets_java.json` | java | `(field_declaration (variable_declarator name: (identifier) @name value: (string_literal) @val))` |
+| `hardcoded_secrets_go.json` | go | `(const_declaration (const_spec name: (identifier) @name value: (interpreted_string_literal) @val))` |
+| `hardcoded_secrets_rust.json` | rust | `(const_item name: (identifier) @name value: (string_literal) @val)` |
+| `hardcoded_secrets_csharp.json` | csharp | `(field_declaration (variable_declarator name: (identifier) @name value: (string_literal) @val))` |
+| `hardcoded_secrets_php.json` | php | `(assignment_expression left: (variable_name (name) @name) right: (string) @val)` |
+| `hardcoded_secrets_c.json` | c | `(init_declarator declarator: (identifier) @name value: (string_literal) @val)` |
+| `hardcoded_secrets_cpp.json` | cpp | same as C |
 
-Entropy-based detection (for high-entropy strings not named obviously) is deferred — name-matching covers the benchmark's `config.py` examples cleanly and has low FP rate.
+All pipelines share the same structure: `#match?` predicate on `@name` against `(?i)(secret|password|api_key|token|credential|auth_key|private_key)`, `category: "security"`, `severity: "error"`, test files excluded.
+
+Entropy-based detection (for high-entropy strings not named obviously) is deferred — name-matching covers the benchmark examples cleanly and has low FP rate.
 
 ### 2D. `high_coupling` for Java — Pipeline Rewrite
 
@@ -218,12 +214,12 @@ Once these symbols are in the graph with `is_exported: true`, the existing `dead
 ## Acceptance Criteria
 
 1. `cargo test` passes with no regressions.
-2. `deep_nesting`, `function_length`, `cyclomatic_complexity` produce findings for JavaScript arrow functions and C++ qualified methods in test cases.
+2. `deep_nesting`, `function_length`, `cyclomatic_complexity` produce findings for JavaScript arrow functions, C++ qualified methods, and C# methods in test cases.
 3. `argument_mutation` produces zero findings for locally-constructed objects (`const filter = {}; filter.role = role`) and fires on genuine parameter mutations.
 4. All built-in pipelines audited for `lhs_is_parameter` applicability; audit findings documented.
 5. `api_surface_area_go.json` fires on files with ≥ 10 exported symbols at ≥ 80% export ratio.
 6. `print_instead_of_logging` fires on `print()` calls in non-test Python files.
-7. `hardcoded_secrets` fires on assignments like `SECRET_KEY = "abc123"` in Python.
+7. `hardcoded_secrets` fires on secret-named string assignments in all 10 supported languages.
 8. `coupling_java.json` fires `high_coupling` on Java files with ≥ 8 unique imports (not on every individual import line).
 9. CommonJS `module.exports.foo` and `exports.foo` symbols appear as `is_exported: true` and are caught by `dead_exports.json`.
 10. PHP `high_coupling` findings point to import lines, not class declaration lines.
@@ -235,5 +231,3 @@ Once these symbols are in the graph with `is_exported: true`, the existing `dead
 - Build-file patterns: `outdated_dependency`, `deprecated_api_usage`, `eol_runtime`, `abandoned_library`, `version_drift`, `legacy_pattern`
 - `argument_mutation` for languages other than JavaScript
 - Entropy-based `hardcoded_secrets` detection
-- `hardcoded_secrets` for languages other than Python (can be added later as separate pipelines)
-- C# `function_length` remaining misses (lower priority, same fix path as JS/C++)
