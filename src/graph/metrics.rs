@@ -114,6 +114,38 @@ pub fn compute_cognitive(body: Node, config: &ControlFlowConfig, source: &[u8]) 
     score
 }
 
+/// Compute maximum control flow nesting depth for a function body node.
+///
+/// Counts how deeply `nesting_increments` nodes are nested within each other.
+/// Returns the maximum depth reached (0 = no nesting).
+pub fn compute_nesting_depth(body: Node, config: &ControlFlowConfig) -> usize {
+    let mut max_depth: usize = 0;
+    let mut stack: Vec<(Node, usize)> = Vec::new();
+    let mut cursor = body.walk();
+    let children: Vec<_> = body.children(&mut cursor).collect();
+    for child in children.into_iter().rev() {
+        stack.push((child, 0));
+    }
+    while let Some((node, depth)) = stack.pop() {
+        let kind = node.kind();
+        let next_depth = if config.nesting_increments.contains(&kind) {
+            let new_depth = depth + 1;
+            if new_depth > max_depth {
+                max_depth = new_depth;
+            }
+            new_depth
+        } else {
+            depth
+        };
+        let mut child_cursor = node.walk();
+        let node_children: Vec<_> = node.children(&mut child_cursor).collect();
+        for child in node_children.into_iter().rev() {
+            stack.push((child, next_depth));
+        }
+    }
+    max_depth
+}
+
 /// Count lines and statements in a function body.
 ///
 /// Returns (total_lines, statement_count).

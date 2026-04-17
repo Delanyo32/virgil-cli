@@ -951,9 +951,12 @@ fn execute_compute_metric(
             "cognitive_complexity" => {
                 crate::graph::metrics::compute_cognitive(body, &config, source.as_bytes()) as i64
             }
+            "nesting_depth" => {
+                crate::graph::metrics::compute_nesting_depth(body, &config) as i64
+            }
             other => {
                 anyhow::bail!(
-                    "compute_metric: unknown metric '{}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio, efferent_coupling, afferent_coupling",
+                    "compute_metric: unknown metric '{}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio, nesting_depth, efferent_coupling, afferent_coupling",
                     other
                 );
             }
@@ -1697,7 +1700,7 @@ mod tests {
             },
         ];
 
-        let out = execute_graph_pipeline(&stages, &graph, None, "wrapper_pipeline").unwrap(); // uses backward-compat wrapper
+        let out = run_pipeline(&stages, &graph, None, None, None, "wrapper_pipeline").unwrap();
         match out {
             PipelineOutput::Findings(findings) => {
                 assert!(!findings.is_empty(), "expected at least one finding");
@@ -2038,6 +2041,94 @@ fn bar() { println!("ok"); }
             }
             _ => panic!("expected Results"),
         }
+    }
+
+    #[test]
+    fn test_compute_metric_nesting_depth_detects_deep_nesting() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        // 4 levels of nesting: for > if > for > if
+        std::fs::write(
+            src_dir.join("lib.rs"),
+            r#"fn deeply_nested(items: &[i32]) -> i32 {
+    let mut sum = 0;
+    for item in items {
+        if *item > 0 {
+            for _ in 0..*item {
+                if *item > 5 {
+                    sum += 1;
+                }
+            }
+        }
+    }
+    sum
+}
+"#,
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+
+        let mut graph = CodeGraph::new();
+        let file_idx = graph.graph.add_node(NodeWeight::File {
+            path: "src/lib.rs".to_string(),
+            language: Language::Rust,
+        });
+        graph.file_nodes.insert("src/lib.rs".to_string(), file_idx);
+        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: "deeply_nested".to_string(),
+            kind: crate::models::SymbolKind::Function,
+            file_path: "src/lib.rs".to_string(),
+            start_line: 1,
+            end_line: 13,
+            exported: false,
+        });
+        graph.symbol_nodes.insert(("src/lib.rs".to_string(), 1), sym_idx);
+
+        let is_test_fn = |path: &str| is_test_file(path);
+        let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
+        let is_barrel_fn = |path: &str| is_barrel_file(path);
+        let mut taint_ctx = TaintContext::default();
+
+        let select_stage = GraphStage::Select {
+            select: crate::pipeline::dsl::NodeType::Symbol,
+            filter: None,
+            exclude: None,
+        };
+        let nodes = execute_stage(
+            &select_stage,
+            Vec::new(),
+            &graph,
+            Some(&ws),
+            None,
+            "nesting_depth_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
+
+        let metric_stage = GraphStage::ComputeMetric {
+            compute_metric: "nesting_depth".to_string(),
+        };
+        let result_nodes = execute_stage(
+            &metric_stage,
+            nodes,
+            &graph,
+            Some(&ws),
+            None,
+            "nesting_depth_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
+
+        assert_eq!(result_nodes.len(), 1, "expected 1 result for deeply_nested function");
+        let depth = result_nodes[0].metric_f64("nesting_depth") as i64;
+        assert!(depth >= 4, "expected nesting_depth >= 4 for 4-level nesting, got {}", depth);
     }
 
 }
