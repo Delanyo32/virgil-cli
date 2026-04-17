@@ -20616,3 +20616,228 @@ fn deep_nesting_rust_clean_function() {
         "expected no excessive_nesting_depth finding"
     );
 }
+
+// ── cpp_buffer_overflow (C++) ──
+
+#[test]
+fn cpp_buffer_overflow_finds_strcpy() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"#include <string.h>
+void copy_name(char *dst, const char *src) {
+    strcpy(dst, src);
+}
+"#;
+    std::fs::write(dir.path().join("util.cpp"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pattern == "buffer_overflow_risk"),
+        "expected buffer_overflow_risk for strcpy; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_buffer_overflow_no_false_positive_on_safe_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"#include <stdio.h>
+#include <string>
+void safe_fn(const std::string &s) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s", s.c_str());
+}
+"#;
+    std::fs::write(dir.path().join("safe.cpp"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "buffer_overflow_risk"),
+        "expected no buffer_overflow_risk for safe code; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+// ── callback_hell (JavaScript) ──
+
+#[test]
+fn callback_hell_javascript_no_false_positive_on_map() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"
+function processItems(items) {
+    return items
+        .filter(item => item.active)
+        .map(item => ({ id: item.id, name: item.name }));
+}
+"#;
+    std::fs::write(dir.path().join("service.js"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .categories(vec!["code_style".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "nested_callback"),
+        "expected no nested_callback for idiomatic .map().filter(); got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn callback_hell_javascript_finds_async_nesting() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"
+function fetchData(id, callback) {
+    setTimeout(function() {
+        getData(id, function(err, data) {
+            if (err) callback(err);
+            else callback(null, data);
+        });
+    }, 100);
+}
+"#;
+    std::fs::write(dir.path().join("legacy.js"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .categories(vec!["code_style".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pattern == "nested_callback"),
+        "expected nested_callback for setTimeout nesting; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+// ── anemic_domain_model (C#) ──
+
+#[test]
+fn anemic_domain_model_csharp_no_false_positive_on_controller() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"public class OrderController {
+    public IActionResult Index() { return Ok(); }
+    public IActionResult Create() { return Ok(); }
+}
+"#;
+    std::fs::write(dir.path().join("OrderController.cs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .categories(vec!["code_style".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "anemic_class"),
+        "expected no anemic_class for Controller; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn anemic_domain_model_csharp_finds_domain_class() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"public class Order {
+    public int Id { get; set; }
+    public string Status { get; set; }
+}
+"#;
+    std::fs::write(dir.path().join("Order.cs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .categories(vec!["code_style".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pattern == "anemic_class"),
+        "expected anemic_class for plain domain class; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+// ── any_escape_hatch (TypeScript) ──
+
+#[test]
+fn any_annotation_typescript_no_false_positive_on_string_type() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "function greet(name: string, age: number, active: boolean): string { return name; }\n";
+    std::fs::write(dir.path().join("util.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .categories(vec!["code_style".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "any_annotation"),
+        "expected no any_annotation for string/number/boolean params; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn any_annotation_typescript_finds_any_type_and_reports_correct_line() {
+    let dir = tempfile::tempdir().unwrap();
+    // `any` is on line 2, not line 1
+    let content = "function safe(x: string): string { return x; }\nfunction risky(data: any): any { return data; }\n";
+    std::fs::write(dir.path().join("api.ts"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::TypeScript])
+        .categories(vec!["code_style".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    let any_findings: Vec<_> = findings.iter().filter(|f| f.pattern == "any_annotation").collect();
+    assert!(
+        !any_findings.is_empty(),
+        "expected any_annotation findings"
+    );
+    for f in &any_findings {
+        assert_eq!(
+            f.line, 2,
+            "any_annotation finding should be on line 2 (where `any` appears), got line {}",
+            f.line
+        );
+    }
+}
