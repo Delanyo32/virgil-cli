@@ -45,7 +45,6 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 - **Core workflow**: Register → Query → Drill-down exploration pattern
 - **6 strategic playbooks**: Architecture understanding, symbol tracing, onboarding, bug investigation, dependency mapping, API surface mapping
 - **Full command reference**: 4 project commands + audit commands
-- **Note**: Skill reference files (`.agents/skills/virgil/`) still reference old architecture — separate update needed
 
 ## Usage
 
@@ -190,72 +189,49 @@ Wrapping structure:
 
 ## Audit
 
-Static analysis and tech debt detection. All audit commands are nested under `virgil audit`:
+Static analysis across 6 categories. All audit logic is JSON-driven — pipelines are loaded from built-in files and optionally supplemented with custom JSON files.
 
 ```bash
 # Local directory
-virgil audit <DIR>                         # Run all audit categories
-virgil audit code-quality <DIR>            # All code quality checks
-virgil audit code-quality tech-debt <DIR>  # Tech debt patterns
-virgil audit code-quality complexity <DIR> # Complexity metrics
-virgil audit code-quality code-style <DIR> # Code style issues
-virgil audit security <DIR>               # Security vulnerabilities
-virgil audit scalability <DIR>            # Scalability issues
-virgil audit architecture <DIR>           # Architecture analysis
+virgil audit ./src                                        # All categories
+virgil audit ./src --category security                    # Security only
+virgil audit ./src --category architecture                # Architecture only
+virgil audit ./src --category tech_debt                   # Tech debt only
+virgil audit ./src --category code_style                  # Code style only
+virgil audit ./src --category scalability                 # Scalability only
+
+# Multiple categories
+virgil audit ./src --category "security,architecture"
 
 # S3/R2 (no registration needed)
 virgil audit --s3 s3://bucket/prefix
-virgil audit security --s3 s3://bucket/prefix --language rs
+virgil audit --s3 s3://bucket/prefix --language rs --category security
 ```
 
-### Common Options
-
-All audit subcommands support:
+### Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `<DIR>` | Root directory to analyze | — |
 | `--s3` | S3 URI — audit codebase directly from S3/R2 (replaces `<DIR>`) | — |
+| `--category` | Comma-separated category filter | all |
 | `-l`, `--language` | Comma-separated language filter | all supported |
-| `--pipeline` | Comma-separated pipeline filter | all pipelines |
+| `--pipeline` | Comma-separated pipeline name filter | all pipelines |
+| `--file` | Path to a custom JSON audit pipeline file | — |
 | `--format` | Output format (table, json, csv) | `table` |
 | `--per-page` | Findings per page | `20` |
 | `--page` | Page number (1-indexed) | `1` |
 
-### `audit code-quality tech-debt`
+### Categories
 
-Detect tech debt patterns in source code.
-
-Pipelines: `panic_detection`
-
-### `audit code-quality complexity`
-
-Measure code complexity metrics.
-
-Pipelines: `cyclomatic_complexity`, `function_length`, `cognitive_complexity`, `comment_to_code_ratio`
-
-### `audit code-quality code-style`
-
-Detect code style issues.
-
-Pipelines: `dead_code`, `duplicate_code`, `coupling`
-
-### `audit security`
-
-Security vulnerability detection.
-
-Pipelines: injection, unsafe memory, race conditions
-
-### `audit scalability`
-
-Scalability analysis.
-
-Pipelines: `n_plus_one_queries`, `sync_blocking_in_async`, `memory_leak_indicators`
-
-### `audit architecture`
-
-Architecture analysis.
-
-Pipelines: `module_size_distribution`, `circular_dependencies`, `dependency_graph_depth`, `api_surface_area`
+| Category | Description | Example Pipelines |
+|----------|-------------|-------------------|
+| `security` | Vulnerability detection | SQL injection, unsafe memory, race conditions |
+| `architecture` | Structural analysis | Circular dependencies, module size, API surface area |
+| `tech_debt` | Tech debt patterns | Panic usage, deprecated APIs |
+| `code_style` | Style issues | Dead code, duplicate code, coupling |
+| `scalability` | Scalability risks | N+1 queries, sync blocking in async, memory leaks |
+| `complexity` | Complexity metrics | Cyclomatic complexity, function length, cognitive complexity |
 
 ## Examples
 
@@ -309,13 +285,13 @@ virgil projects query myapp --file query.json
 virgil audit ./src
 
 # Run security audit with JSON output
-virgil audit security ./src --format json
+virgil audit ./src --category security --format json
 
 # Run complexity analysis filtered to Rust
-virgil audit code-quality complexity ./src --language rs
+virgil audit ./src --category complexity --language rs
 
 # Run a specific architecture pipeline
-virgil audit architecture ./src --pipeline circular_dependencies
+virgil audit ./src --pipeline circular_dependencies
 
 # Delete a project
 virgil projects delete myapp
@@ -443,7 +419,7 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 - **JSON query language** — composable filters for symbols, files, visibility, call graphs, and more
 - **Call graph** — name-based callee/caller traversal with configurable depth
 - **Export detection** — tracks whether symbols are exported (ES exports, C linkage, C#/Java access modifiers, Rust visibility, Go capitalization, Python underscore convention, PHP visibility)
-- **Static analysis** — 4 audit categories (code quality, security, scalability, architecture) with multiple pipelines
+- **Static analysis** — 6 audit categories (security, architecture, tech_debt, code_style, scalability, complexity) with JSON-driven pipelines
 - **File reading** — read source files or specific line ranges via the `read` query field
 - **Multiple output formats** — outline, snippet, full, tree, locations, summary (all JSON)
 - **In-memory workspace** — files loaded upfront for fast repeated queries

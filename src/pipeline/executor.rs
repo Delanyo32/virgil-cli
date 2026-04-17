@@ -44,25 +44,7 @@ struct TaintContext {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Alias for [`run_pipeline`]. Prefer calling [`run_pipeline`] directly.
-/// Kept for backward compatibility.
-pub(crate) fn execute_graph_pipeline(
-    stages: &[GraphStage],
-    graph: &CodeGraph,
-    seed_nodes: Option<Vec<NodeIndex>>,
-    pipeline_name: &str,
-) -> anyhow::Result<PipelineOutput> {
-    run_pipeline(stages, graph, None, None, seed_nodes, pipeline_name)
-}
-
-// ---------------------------------------------------------------------------
-// Real entry point — clean design avoiding the "last is flag" ambiguity
-// ---------------------------------------------------------------------------
-
 /// Execute a graph pipeline against a `CodeGraph`.
-///
-/// This is the canonical implementation. The function above is a wrapper that
-/// calls this one.
 pub fn run_pipeline(
     stages: &[GraphStage],
     graph: &CodeGraph,
