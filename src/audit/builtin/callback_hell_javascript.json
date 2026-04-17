@@ -5,7 +5,7 @@
   "languages": ["javascript"],
   "graph": [
     {
-      "match_pattern": "[(call_expression function: (identifier) @fn_name (#match? @fn_name \"^(setTimeout|setInterval|setImmediate|queueMicrotask|requestAnimationFrame|nextTick|process\\.nextTick)$\") arguments: (arguments [(arrow_function) (function_expression)] @callback)) (call_expression function: (member_expression property: (property_identifier) @fn_name (#not-match? @fn_name \"^(map|filter|reduce|forEach|find|findIndex|some|every|flatMap|then|catch|finally)$\")) arguments: (arguments [(arrow_function) (function_expression)] @callback))]"
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (arguments [(arrow_function) (function_expression)] @callback)) (call_expression function: (member_expression property: (property_identifier) @method_name (#not-match? @method_name \"^(map|filter|reduce|forEach|find|findIndex|some|every|flatMap|then|catch|finally)$\")) arguments: (arguments [(arrow_function) (function_expression)] @callback))"
     },
     {
       "flag": {
