@@ -1,0 +1,18 @@
+{
+  "pipeline": "ignored_return_values",
+  "category": "code-quality",
+  "description": "Detects discarded return values from functions whose return value indicates success/failure. Simplified from Rust: flags all call_expression nodes appearing as expression_statement without filtering by dangerous function name or severity graduation. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(expression_statement (call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call)"
+    },
+    {
+      "flag": {
+        "pattern": "ignored_return_value",
+        "message": "Function call return value discarded -- verify this is intentional. fopen(), open(), socket() return NULL/negative on failure (error). fwrite(), fread(), read(), write(), recv(), send(), connect(), bind(), listen(), accept(), pthread_create() return partial counts or error codes that must be checked.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

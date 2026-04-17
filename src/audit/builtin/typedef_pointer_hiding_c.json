@@ -1,0 +1,18 @@
+{
+  "pipeline": "typedef_pointer_hiding",
+  "category": "code-quality",
+  "description": "Detects typedefs that hide pointer types, making ownership and nullability unclear. Simplified from Rust: flags all type_definition nodes containing pointer_declarator without checking for function pointer typedefs, opaque pointer patterns, or const qualifiers. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(type_definition declarator: (pointer_declarator) @ptr_decl) @typedef_decl"
+    },
+    {
+      "flag": {
+        "pattern": "typedef_hides_pointer",
+        "message": "Typedef hides a pointer type -- makes ownership and nullability unclear to callers. Consider using explicit pointer syntax (e.g., Foo *) instead of hiding it in the typedef. Exception: opaque pointer patterns (typedef struct Impl *Handle) and function pointer typedefs are acceptable.",
+        "severity": "info"
+      }
+    }
+  ]
+}

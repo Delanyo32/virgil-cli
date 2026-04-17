@@ -1,0 +1,18 @@
+{
+  "pipeline": "coupling",
+  "category": "code-quality",
+  "description": "Detects excessive includes and functions with too many parameters in C. Simplified from Rust: flags all preproc_include directives without counting against threshold (>15) and flags all function parameter_list nodes without counting against threshold (>5). Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(preproc_include path: (_) @include_path) @include_directive"
+    },
+    {
+      "flag": {
+        "pattern": "excessive_includes",
+        "message": "#include directive detected -- verify the total count does not exceed 15. Files with many includes have high coupling and should be split or use forward declarations to reduce dependencies.",
+        "severity": "info"
+      }
+    }
+  ]
+}

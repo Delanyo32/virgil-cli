@@ -1,0 +1,18 @@
+{
+  "pipeline": "magic_numbers",
+  "category": "code-quality",
+  "description": "Detects numeric literals outside const/#define/enum contexts that should be named constants. Simplified from Rust: flags all number_literal nodes without exempt-value filtering, context exemptions, or NOLINT suppression. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(number_literal) @number"
+    },
+    {
+      "flag": {
+        "pattern": "magic_number",
+        "message": "Numeric literal detected -- consider extracting to a named constant (#define or const variable) for readability and maintainability.",
+        "severity": "info"
+      }
+    }
+  ]
+}

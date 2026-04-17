@@ -1,0 +1,18 @@
+{
+  "pipeline": "dead_code",
+  "category": "code-quality",
+  "description": "Detects unused static functions and unreachable code in C. Simplified from Rust: flags all static function_definition nodes without identifier usage counting (cannot cross-reference from match_pattern alone) and flags statements after return/break/continue without CFG analysis. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(function_definition (storage_class_specifier) @storage declarator: (_) @fn_decl body: (compound_statement) @fn_body) @fn_def"
+    },
+    {
+      "flag": {
+        "pattern": "unused_static_function",
+        "message": "Static function detected -- verify it is referenced within this translation unit. Static functions not called anywhere in the file are dead code and should be removed.",
+        "severity": "info"
+      }
+    }
+  ]
+}

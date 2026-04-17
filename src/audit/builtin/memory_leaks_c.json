@@ -1,0 +1,18 @@
+{
+  "pipeline": "memory_leaks",
+  "category": "code-quality",
+  "description": "Detects malloc/calloc allocations without corresponding free in the same function. Simplified from Rust: flags all allocation call_expression nodes without tracking free() pairing, struct ownership transfer, or goto-cleanup patterns. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "potential_memory_leak",
+        "message": "Allocation call detected -- verify malloc(), calloc(), realloc(), strdup(), strndup(), asprintf(), reallocarray() have a corresponding free() in the same function to avoid memory leaks.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

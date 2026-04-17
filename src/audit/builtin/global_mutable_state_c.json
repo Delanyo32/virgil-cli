@@ -1,0 +1,18 @@
+{
+  "pipeline": "global_mutable_state",
+  "category": "code-quality",
+  "description": "Detects file-scope non-const mutable variables that create hidden shared state. Simplified from Rust: flags all top-level declaration nodes without distinguishing const, extern, _Thread_local, or static qualifiers. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(translation_unit (declaration declarator: (_) @decl) @global_decl)"
+    },
+    {
+      "flag": {
+        "pattern": "global_mutable_state",
+        "message": "Global variable declaration detected -- verify it is const or extern. Non-const file-scope variables create hidden shared state that impedes testability and thread safety.",
+        "severity": "error"
+      }
+    }
+  ]
+}

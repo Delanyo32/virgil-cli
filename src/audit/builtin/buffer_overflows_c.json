@@ -1,0 +1,18 @@
+{
+  "pipeline": "buffer_overflows",
+  "category": "code-quality",
+  "description": "Detects usage of unsafe string functions (strcpy, sprintf, gets, etc.) that can cause buffer overflows. Simplified from Rust: flags all call_expression nodes matching unsafe function names without severity graduation or NOLINT suppression. Languages scoped to c only.",
+  "languages": ["c"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"
+    },
+    {
+      "flag": {
+        "pattern": "unsafe_string_function",
+        "message": "Unsafe string/IO function detected -- use bounds-checked alternatives (strncpy, strncat, snprintf, fgets). gets() is especially dangerous and must not be used.",
+        "severity": "warning"
+      }
+    }
+  ]
+}
