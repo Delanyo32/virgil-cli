@@ -8352,7 +8352,7 @@ fn deep_nesting_python_finding_has_correct_pattern() {
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "deep_nesting" && f.pattern == "deep_nesting"),
-        "expected excessive_nesting_depth pattern");
+        "expected deep_nesting pattern");
 }
 
 #[test]
@@ -20848,7 +20848,7 @@ fn deep_nesting_rust_finds_deeply_nested_function() {
 
     assert!(
         findings.iter().any(|f| f.pattern == "deep_nesting"),
-        "expected excessive_nesting_depth finding; got: {:?}",
+        "expected deep_nesting finding; got: {:?}",
         findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
     );
 }
@@ -20871,7 +20871,7 @@ fn deep_nesting_rust_clean_function() {
 
     assert!(
         !findings.iter().any(|f| f.pattern == "deep_nesting"),
-        "expected no excessive_nesting_depth finding"
+        "expected no deep_nesting finding"
     );
 }
 
