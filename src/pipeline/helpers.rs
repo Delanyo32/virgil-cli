@@ -1,3 +1,6 @@
+// These three functions are the subset of audit/pipelines/helpers.rs used by the executor.
+// The full helpers.rs (with dead-code and taint helpers) will be deleted in Task 2
+// when audit/pipelines/ is removed.
 pub fn is_test_file(file_path: &str) -> bool {
     let file_name = std::path::Path::new(file_path)
         .file_name()

@@ -291,7 +291,7 @@ impl WhereClause {
 
     /// Evaluate predicate against a node including file-system semantic checks.
     /// `is_test_file_fn`, `is_generated_fn`, `is_barrel_file_fn` are function pointers
-    /// to helper functions from audit/pipelines/helpers.rs.
+    /// to helper functions from pipeline/helpers.rs.
     pub fn eval(
         &self,
         node: &PipelineNode,

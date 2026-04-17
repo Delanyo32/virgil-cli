@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
-use crate::audit;
 use crate::audit::engine::AuditEngine;
 use crate::audit::models::AuditFinding;
 use crate::graph::CodeGraph;

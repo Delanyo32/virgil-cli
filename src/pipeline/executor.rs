@@ -38,7 +38,7 @@ pub enum PipelineOutput {
 
 /// Alias for [`run_pipeline`]. Prefer calling [`run_pipeline`] directly.
 /// Kept for backward compatibility.
-pub fn execute_graph_pipeline(
+pub(crate) fn execute_graph_pipeline(
     stages: &[GraphStage],
     graph: &CodeGraph,
     seed_nodes: Option<Vec<NodeIndex>>,
