@@ -21,6 +21,17 @@ const CPP_SYMBOL_QUERY: &str = r#"
     declarator: (function_declarator
       declarator: (identifier) @name))) @definition
 
+(function_definition
+  declarator: (function_declarator
+    declarator: (qualified_identifier
+      name: (identifier) @name))) @definition
+
+(function_definition
+  declarator: (pointer_declarator
+    declarator: (function_declarator
+      declarator: (qualified_identifier
+        name: (identifier) @name)))) @definition
+
 (declaration
   declarator: (function_declarator
     declarator: (identifier) @name)) @definition
@@ -539,5 +550,21 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_qualified_name_function() {
+        let syms = parse_and_extract("int DataProcessor::process(int x) { return x; }");
+        let s = syms.iter().find(|s| s.name == "process");
+        assert!(s.is_some(), "qualified-name function definition must be extracted");
+        assert_eq!(s.unwrap().kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn extract_qualified_name_pointer_return_function() {
+        let syms = parse_and_extract("int* DataProcessor::get(int x) { return nullptr; }");
+        let s = syms.iter().find(|s| s.name == "get");
+        assert!(s.is_some(), "qualified-name pointer-return function must be extracted");
+        assert_eq!(s.unwrap().kind, SymbolKind::Function);
     }
 }

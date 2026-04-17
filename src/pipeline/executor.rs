@@ -2221,4 +2221,69 @@ fn bar() { println!("ok"); }
         }
     }
 
+    #[test]
+    fn test_compute_metric_nesting_depth_cpp_qualified_method() {
+        // Regression test: CPP_SYMBOL_QUERY must match qualified-name function definitions
+        // like `int DataProcessor::process(int x, int y) { ... }`. Previously only
+        // plain `(identifier)` declarators were matched, so out-of-class method definitions
+        // were never symbolised and never reached the metric pipeline.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(
+            src_dir.join("processor.cpp"),
+            r#"int DataProcessor::process(int x, int y) {
+    if (x > 0) {
+        if (y > 0) {
+            if (x > y) {
+                if (x > 10) {
+                    return x;
+                }
+            }
+        }
+    }
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::Cpp], None).unwrap();
+        // Use GraphBuilder so the test exercises the full symbol-discovery path
+        // (including CPP_SYMBOL_QUERY), not just execute_stage with a hand-built graph.
+        let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::Cpp])
+            .build()
+            .unwrap();
+
+        assert!(
+            graph.symbol_nodes.len() >= 1,
+            "CPP_SYMBOL_QUERY must match qualified-name function definition -- got 0 symbols"
+        );
+
+        let is_test_fn = |path: &str| is_test_file(path);
+        let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
+        let is_barrel_fn = |path: &str| is_barrel_file(path);
+        let mut taint_ctx = TaintContext::default();
+
+        let nodes = execute_stage(
+            &GraphStage::Select { select: crate::pipeline::dsl::NodeType::Symbol, filter: None, exclude: None },
+            Vec::new(), &graph, Some(&ws), None, "cpp_nesting_test",
+            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
+        ).unwrap();
+
+        let result_nodes = execute_stage(
+            &GraphStage::ComputeMetric { compute_metric: "nesting_depth".to_string() },
+            nodes, &graph, Some(&ws), None, "cpp_nesting_test",
+            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
+        ).unwrap();
+
+        assert_eq!(result_nodes.len(), 1, "expected 1 symbol node");
+        let depth = result_nodes[0].metrics.get("nesting_depth")
+            .expect("nesting_depth metric should be present -- CPP_SYMBOL_QUERY must match qualified-name functions");
+        // 4 levels: if > if > if > if
+        match depth {
+            MetricValue::Int(v) => assert_eq!(*v, 4, "expected nesting depth 4, got {}", v),
+            _ => panic!("expected Int metric"),
+        }
+    }
+
 }
