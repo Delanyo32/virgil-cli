@@ -5,7 +5,7 @@
   "languages": ["cpp"],
   "graph": [
     {
-      "match_pattern": "(call_expression function: (identifier) @fn_name (#match? @fn_name \"^(strcpy|strcat|sprintf|vsprintf|gets|memcpy|memmove|wcscpy|wcscat|scanf|strdup)$\"))"
+      "match_pattern": "[(call_expression function: (identifier) @fn_name (#match? @fn_name \"^(strcpy|strcat|sprintf|vsprintf|gets|memcpy|memmove|wcscpy|wcscat|scanf|strdup)$\")) (call_expression function: (qualified_identifier name: (identifier) @fn_name) (#match? @fn_name \"^(strcpy|strcat|sprintf|vsprintf|gets|memcpy|memmove|wcscpy|wcscat|scanf|strdup)$\"))]"
     },
     {
       "flag": {
