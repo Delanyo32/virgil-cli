@@ -21099,3 +21099,93 @@ fn any_annotation_typescript_finds_any_type_and_reports_correct_line() {
         );
     }
 }
+
+// ── JavaScript metric pipelines (deep_nesting / function_length / cyclomatic_complexity) ──
+
+#[test]
+fn deep_nesting_javascript_arrow_function_finds_finding() {
+    let dir = tempfile::tempdir().unwrap();
+    // 4 levels of nesting inside an async arrow function — should trigger deep_nesting
+    std::fs::write(
+        dir.path().join("controller.js"),
+        r#"const createComment = async (req, res) => {
+    if (req.body) {
+        if (req.user) {
+            if (req.params.id) {
+                if (req.body.parentId) {
+                    return req.body;
+                }
+            }
+        }
+    }
+};
+"#,
+    )
+    .unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "deep_nesting"),
+        "expected deep_nesting finding for JS async arrow function; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn function_length_javascript_arrow_function_finds_finding() {
+    let dir = tempfile::tempdir().unwrap();
+    // Arrow function with >50 statements — should trigger function_length
+    let mut content = String::from("const longFn = () => {\n");
+    for i in 0..55 {
+        content.push_str(&format!("    const x{i} = {i};\n"));
+    }
+    content.push_str("};\n");
+    std::fs::write(dir.path().join("utils.js"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "function_length"),
+        "expected function_length finding for JS arrow function; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cyclomatic_complexity_javascript_arrow_function_finds_finding() {
+    let dir = tempfile::tempdir().unwrap();
+    // Arrow function with 12 if-branches = CC of 13, exceeds threshold of 10
+    let mut content = String::from("const complex = (x) => {\n");
+    for i in 0..12 {
+        content.push_str(&format!("    if (x > {i}) {{ console.log({i}); }}\n"));
+    }
+    content.push_str("};\n");
+    std::fs::write(dir.path().join("service.js"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity"),
+        "expected cyclomatic_complexity finding for JS arrow function; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}

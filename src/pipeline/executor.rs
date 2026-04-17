@@ -2131,4 +2131,94 @@ fn bar() { println!("ok"); }
         assert!(depth >= 4, "expected nesting_depth >= 4 for 4-level nesting, got {}", depth);
     }
 
+    #[test]
+    fn test_compute_metric_nesting_depth_javascript_arrow_function() {
+        // Regression test: JS async arrow functions must produce nesting_depth metrics.
+        // Uses GraphBuilder so the test exercises the full symbol-discovery path,
+        // not just execute_stage with a hand-built graph.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("controller.js"),
+            r#"const createComment = async (req, res) => {
+    if (req.body) {
+        if (req.user) {
+            if (req.params.id) {
+                if (req.body.parentId) {
+                    return req.body;
+                }
+            }
+        }
+    }
+};
+"#,
+        )
+        .unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
+        let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::JavaScript])
+            .build()
+            .unwrap();
+
+        // Assert the graph builder actually registered the arrow function symbol.
+        let sym_count = graph.symbol_nodes.len();
+        assert!(
+            sym_count >= 1,
+            "expected at least 1 symbol node from JS arrow function, got {}",
+            sym_count
+        );
+
+        let is_test_fn = |path: &str| is_test_file(path);
+        let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
+        let is_barrel_fn = |path: &str| is_barrel_file(path);
+        let mut taint_ctx = TaintContext::default();
+
+        let select_stage = GraphStage::Select {
+            select: crate::pipeline::dsl::NodeType::Symbol,
+            filter: None,
+            exclude: None,
+        };
+        let nodes = execute_stage(
+            &select_stage, Vec::new(), &graph, Some(&ws), None,
+            "js_nesting_test", &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
+        ).unwrap();
+
+        assert_eq!(nodes.len(), 1, "expected 1 symbol node, got {}", nodes.len());
+
+        let metric_stage = GraphStage::ComputeMetric {
+            compute_metric: "nesting_depth".to_string(),
+        };
+        let result_nodes = execute_stage(
+            &metric_stage, nodes, &graph, Some(&ws), None,
+            "js_nesting_test", &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
+        ).unwrap();
+
+        assert_eq!(result_nodes.len(), 1, "expected 1 node after compute_metric");
+        // 4 levels: if > if > if > if
+        let depth = result_nodes[0].metric_f64("nesting_depth") as i64;
+        assert_eq!(depth, 4, "expected nesting depth of 4, got {}", depth);
+    }
+
+    #[test]
+    fn debug_js_async_arrow_function_ast() {
+        let source = b"const createComment = async (req, res) => {\n    if (req.body) { return req.body; }\n};\n";
+        let mut parser = crate::parser::create_parser(Language::JavaScript).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let mut stack = vec![tree.root_node()];
+        while let Some(node) = stack.pop() {
+            if node.start_position().row <= 1 {
+                let body_field = node.child_by_field_name("body").map(|b| format!("{}@row{}", b.kind(), b.start_position().row));
+                eprintln!(
+                    "kind={:30} row={} col={} body_field={:?}",
+                    node.kind(),
+                    node.start_position().row,
+                    node.start_position().column,
+                    body_field
+                );
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
+    }
+
 }
