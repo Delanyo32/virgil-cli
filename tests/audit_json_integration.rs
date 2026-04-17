@@ -4428,10 +4428,10 @@ fn memory_leak_indicators_php_clean() {
 
 // ── Phase 5: Rust Tech Debt + Code Style Pipelines ──
 
-// ── panic_detection (11 tests) ──
+// ── panic_prone_calls_rust + panic_prone_macros_rust (14 tests) ──
 
 #[test]
-fn panic_detection_rust_finds_unwrap() {
+fn panic_prone_calls_rust_finds_unwrap() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = Some(1).unwrap(); }"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4440,13 +4440,13 @@ fn panic_detection_rust_finds_unwrap() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
-        "expected panic_detection finding; got: {:?}",
+    assert!(findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"),
+        "expected panic_prone_calls_rust finding; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
 }
 
 #[test]
-fn panic_detection_rust_finds_expect() {
+fn panic_prone_calls_rust_finds_expect() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"fn f() { let x = Some(1).expect("msg"); }"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4455,13 +4455,13 @@ fn panic_detection_rust_finds_expect() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
-        "expected panic_detection finding; got: {:?}",
+    assert!(findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"),
+        "expected panic_prone_calls_rust finding; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
 }
 
 #[test]
-fn panic_detection_rust_finds_method_call() {
+fn panic_prone_calls_rust_ignores_push() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"fn f() { v.push(1); }"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4470,13 +4470,13 @@ fn panic_detection_rust_finds_method_call() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
-        "expected panic_detection finding for method call; got: {:?}",
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"),
+        "expected no panic_prone_calls_rust finding for push; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
 }
 
 #[test]
-fn panic_detection_rust_no_findings_empty_fn() {
+fn panic_prone_calls_rust_no_findings_empty_fn() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4485,12 +4485,12 @@ fn panic_detection_rust_no_findings_empty_fn() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"),
-        "expected no panic_detection finding for empty fn");
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"),
+        "expected no panic_prone_calls_rust finding for empty fn");
 }
 
 #[test]
-fn panic_detection_rust_no_findings_struct_only() {
+fn panic_prone_calls_rust_no_findings_struct_only() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"struct Foo { x: i32 }"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4499,12 +4499,12 @@ fn panic_detection_rust_no_findings_struct_only() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"),
-        "expected no panic_detection finding for struct-only file");
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"),
+        "expected no panic_prone_calls_rust finding for struct-only file");
 }
 
 #[test]
-fn panic_detection_rust_metadata_correct() {
+fn panic_prone_calls_rust_metadata_correct() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"fn f() { Some(1).unwrap(); }"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4513,13 +4513,13 @@ fn panic_detection_rust_metadata_correct() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    let f = findings.iter().find(|f| f.pipeline == "panic_detection").unwrap();
-    assert_eq!(f.pipeline, "panic_detection");
+    let f = findings.iter().find(|f| f.pipeline == "panic_prone_calls_rust").unwrap();
+    assert_eq!(f.pipeline, "panic_prone_calls_rust");
     assert!(!f.pattern.is_empty());
 }
 
 #[test]
-fn panic_detection_rust_multiple_calls() {
+fn panic_prone_calls_rust_multiple_calls() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"),
         r#"fn f() { let a = Some(1).unwrap(); let b = Some(2).expect("x"); }"#).unwrap();
@@ -4529,12 +4529,12 @@ fn panic_detection_rust_multiple_calls() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    let count = findings.iter().filter(|f| f.pipeline == "panic_detection").count();
-    assert!(count >= 2, "expected >= 2 panic_detection findings; got {count}");
+    let count = findings.iter().filter(|f| f.pipeline == "panic_prone_calls_rust").count();
+    assert!(count >= 2, "expected >= 2 panic_prone_calls_rust findings; got {count}");
 }
 
 #[test]
-fn panic_detection_rust_no_findings_constant() {
+fn panic_prone_calls_rust_no_findings_constant() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"const X: i32 = 42;"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4543,11 +4543,11 @@ fn panic_detection_rust_no_findings_constant() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"));
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"));
 }
 
 #[test]
-fn panic_detection_rust_chained_method() {
+fn panic_prone_calls_rust_ignores_trim_len() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"),
         r#"fn f(s: &str) -> usize { s.trim().len() }"#).unwrap();
@@ -4557,11 +4557,13 @@ fn panic_detection_rust_chained_method() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "panic_detection"));
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"),
+        "expected no panic_prone_calls_rust finding for trim().len(); got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
 }
 
 #[test]
-fn panic_detection_rust_no_findings_use_only() {
+fn panic_prone_calls_rust_no_findings_use_only() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), r#"use std::collections::HashMap;"#).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4570,11 +4572,11 @@ fn panic_detection_rust_no_findings_use_only() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"));
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_calls_rust"));
 }
 
 #[test]
-fn panic_detection_rust_findings_have_line() {
+fn panic_prone_calls_rust_findings_have_line() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("test.rs"), "fn f() {\n    Some(1).unwrap();\n}\n").unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
@@ -4583,8 +4585,52 @@ fn panic_detection_rust_findings_have_line() {
         .languages(vec![Language::Rust])
         .run(&workspace, Some(&graph))
         .unwrap();
-    let f = findings.iter().find(|f| f.pipeline == "panic_detection").unwrap();
+    let f = findings.iter().find(|f| f.pipeline == "panic_prone_calls_rust").unwrap();
     assert!(f.line >= 1);
+}
+
+#[test]
+fn panic_prone_macros_rust_finds_panic_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { panic!("boom"); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "panic_prone_macros_rust"),
+        "expected panic_prone_macros_rust finding for panic!; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn panic_prone_macros_rust_finds_todo_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { todo!() }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(findings.iter().any(|f| f.pipeline == "panic_prone_macros_rust"),
+        "expected panic_prone_macros_rust finding for todo!; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
+#[test]
+fn panic_prone_macros_rust_no_findings_empty_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() {}"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "panic_prone_macros_rust"),
+        "expected no panic_prone_macros_rust finding for empty fn");
 }
 
 // ── clone_detection (10 tests) ──

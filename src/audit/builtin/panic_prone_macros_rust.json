@@ -1,0 +1,18 @@
+{
+  "pipeline": "panic_prone_macros_rust",
+  "category": "tech_debt",
+  "description": "Detect panic!(), todo!(), unimplemented!(), and unreachable!() macros in Rust production code",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(macro_invocation macro: (identifier) @name (#match? @name \"^(panic|todo|unimplemented|unreachable)$\"))"
+    },
+    {
+      "flag": {
+        "pattern": "panic_prone_macro",
+        "message": "{{name}}!() macro will panic at runtime — remove before shipping to production",
+        "severity": "warning"
+      }
+    }
+  ]
+}

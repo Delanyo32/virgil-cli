@@ -1,0 +1,18 @@
+{
+  "pipeline": "panic_prone_calls_rust",
+  "category": "tech_debt",
+  "description": "Detect .unwrap() and .expect() method calls in Rust that may panic at runtime",
+  "languages": ["rust"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method) (#match? @method \"^(unwrap|expect)$\"))"
+    },
+    {
+      "flag": {
+        "pattern": "panic_prone_call",
+        "message": ".{{method}}() call may panic at runtime — consider using if let, match, or ? operator",
+        "severity": "warning"
+      }
+    }
+  ]
+}
