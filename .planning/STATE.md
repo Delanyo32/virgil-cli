@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-08-PLAN.md
-last_updated: "2026-04-17T00:48:51.065Z"
+stopped_at: Completed 05-09-PLAN.md
+last_updated: "2026-04-17T01:00:04.063Z"
 last_activity: 2026-04-17
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 31
-  completed_plans: 28
-  percent: 90
+  completed_plans: 29
+  percent: 94
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 ## Current Position
 
 Phase: 05 (final-cleanup-test-health) — EXECUTING
-Plan: 9 of 11
+Plan: 10 of 11
 Status: Ready to execute
 Last activity: 2026-04-17
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P06 | 25 | 2 tasks | 32 files |
 | Phase 05 P07 | 10 | 2 tasks | 32 files |
 | Phase 05 P08 | 671 | 2 tasks | 33 files |
+| Phase 05 P09 | 10 | 2 tasks | 31 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,9 @@ Recent decisions affecting current work:
 - [Phase 05]: endl_flush_cpp.json flags all qualified_identifier nodes broadly; clean tests avoid std::cout to prevent false positives
 - [Phase 05]: primitives.rs retained (slim) in javascript/: still used by xss_dom_injection.rs and ssrf.rs taint exceptions
 - [Phase 05]: no_optional_chaining.json uses 3-nested member_expression pattern to detect 4-deep chains correctly
+- [Phase 05]: TypeScript JSON pipelines use languages:[typescript] only; predefined_type flags all types not just any (simplified)
+- [Phase 05]: tech_debt_pipelines() return type is Vec<Box<dyn Pipeline>> not AnyPipeline for typescript module
+- [Phase 05]: security_pipelines delegation from typescript to javascript module preserved in minimal mod.rs
 
 ### Pending Todos
 
@@ -115,6 +119,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-04-17T00:48:51.062Z
-Stopped at: Completed 05-08-PLAN.md
+Last session: 2026-04-17T01:00:04.060Z
+Stopped at: Completed 05-09-PLAN.md
 Resume file: None
