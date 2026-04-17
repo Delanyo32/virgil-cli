@@ -1,0 +1,24 @@
+{
+  "pipeline": "deep_nesting_php",
+  "category": "complexity",
+  "description": "Detects PHP functions with excessive control flow nesting depth. Threshold: warning >= 4, error >= 6.",
+  "languages": ["php"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": { "kind": ["function", "method"] },
+      "exclude": { "is_test_file": true }
+    },
+    { "compute_metric": "nesting_depth" },
+    {
+      "flag": {
+        "pattern": "excessive_nesting_depth",
+        "message": "Function `{{name}}` has nesting depth of {{nesting_depth}} (threshold: 4)",
+        "severity_map": [
+          { "when": { "metrics": { "nesting_depth": { "gte": 6 } } }, "severity": "error" },
+          { "when": { "metrics": { "nesting_depth": { "gte": 4 } } }, "severity": "warning" }
+        ]
+      }
+    }
+  ]
+}
