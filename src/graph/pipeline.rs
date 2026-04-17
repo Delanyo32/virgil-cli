@@ -544,6 +544,7 @@ pub struct TaintSanitizerPattern {
 pub struct TaintStage {
     pub sources: Vec<TaintSourcePattern>,
     pub sinks: Vec<TaintSinkPattern>,
+    #[serde(default)]
     pub sanitizers: Vec<TaintSanitizerPattern>,
 }
 
