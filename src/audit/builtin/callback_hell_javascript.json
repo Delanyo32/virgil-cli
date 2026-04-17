@@ -1,18 +1,16 @@
 {
   "pipeline": "callback_hell",
-  "category": "code-quality",
-  "description": "Detects deeply nested callbacks (callback hell) in JavaScript. Simplified from Rust: flags all arrow_function and function_expression nodes passed as arguments (inside arguments nodes), without counting nesting depth against a threshold (>3), without test-framework context suppression (describe/it/test), and without graduated severity.",
-  "languages": [
-    "javascript"
-  ],
+  "category": "code_style",
+  "description": "Detects JavaScript callback hell: functions passed as arguments to non-functional-array methods. Excludes idiomatic array methods (map, filter, reduce, forEach, find, findIndex, some, every, flatMap) and Promise chain methods (then, catch, finally).",
+  "languages": ["javascript"],
   "graph": [
     {
-      "match_pattern": "(arguments [(arrow_function) (function_expression)] @callback)"
+      "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (arguments [(arrow_function) (function_expression)] @callback)) (call_expression function: (member_expression property: (property_identifier) @method_name (#not-match? @method_name \"^(map|filter|reduce|forEach|find|findIndex|some|every|flatMap|then|catch|finally)$\")) arguments: (arguments [(arrow_function) (function_expression)] @callback))"
     },
     {
       "flag": {
         "pattern": "nested_callback",
-        "message": "Callback function passed as argument -- if deeply nested (>3 levels), consider async/await or named functions to avoid callback hell",
+        "message": "Callback passed to `{{name}}` -- if deeply nested, consider async/await or named functions",
         "severity": "info"
       }
     }
