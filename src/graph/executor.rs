@@ -178,17 +178,17 @@ fn execute_stage(
         }
         GraphStage::ComputeMetric { compute_metric } => {
             match workspace {
-                Some(ws) => execute_compute_metric(compute_metric, nodes, ws),
+                Some(ws) => execute_compute_metric(compute_metric, nodes, ws, graph),
                 None => anyhow::bail!(
                     "compute_metric stage requires workspace -- call run_pipeline with Some(workspace)"
                 ),
             }
         }
-        GraphStage::Taint { .. } => {
-            anyhow::bail!("taint stage not yet wired — implement in Task 3")
+        GraphStage::Taint { taint } => {
+            execute_taint(taint, graph)
         }
-        GraphStage::FindDuplicates { .. } => {
-            anyhow::bail!("find_duplicates stage not yet wired — implement in Task 3")
+        GraphStage::FindDuplicates { find_duplicates } => {
+            Ok(execute_find_duplicates(find_duplicates, nodes))
         }
     }
 }
@@ -242,7 +242,7 @@ fn execute_select(
             }
         }
         NodeType::Symbol => {
-            for idx in graph.graph.node_indices() {
+            for sym_idx in graph.graph.node_indices() {
                 if let NodeWeight::Symbol {
                     name,
                     kind,
@@ -250,7 +250,7 @@ fn execute_select(
                     start_line,
                     exported,
                     ..
-                } = &graph.graph[idx]
+                } = &graph.graph[sym_idx]
                 {
                     let language = graph
                         .file_nodes
@@ -261,15 +261,45 @@ fn execute_select(
                         })
                         .unwrap_or_default();
 
+                    let mut metrics = HashMap::new();
+
+                    // unreferenced: no incoming Calls or Imports edges from outside this file
+                    let incoming_external = graph
+                        .graph
+                        .edges_directed(sym_idx, Direction::Incoming)
+                        .filter(|e| {
+                            matches!(e.weight(), EdgeWeight::Calls | EdgeWeight::Imports)
+                                && node_path(&graph.graph[e.source()]) != *file_path
+                        })
+                        .count();
+                    metrics.insert(
+                        "unreferenced".to_string(),
+                        MetricValue::Int(if incoming_external == 0 { 1 } else { 0 }),
+                    );
+
+                    // is_entry_point: file stem matches known entry-point names
+                    const ENTRY_POINT_NAMES: &[&str] = &[
+                        "main", "lib", "mod", "index", "__init__", "__main__",
+                    ];
+                    let stem = std::path::Path::new(file_path.as_str())
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    let ep = ENTRY_POINT_NAMES.iter().any(|&e| stem == e);
+                    metrics.insert(
+                        "is_entry_point".to_string(),
+                        MetricValue::Int(if ep { 1 } else { 0 }),
+                    );
+
                     let node = PipelineNode {
-                        node_idx: idx,
+                        node_idx: sym_idx,
                         file_path: file_path.clone(),
                         name: name.clone(),
                         kind: kind.to_string(),
                         line: *start_line,
                         exported: *exported,
                         language,
-                        metrics: HashMap::new(),
+                        metrics,
                     };
                     // Apply where clause
                     if let Some(wc) = filter {
@@ -796,7 +826,43 @@ fn execute_compute_metric(
     metric_name: &str,
     nodes: Vec<PipelineNode>,
     workspace: &Workspace,
+    graph: &CodeGraph,
 ) -> anyhow::Result<Vec<PipelineNode>> {
+    // Graph-only metrics (no workspace/AST needed)
+    match metric_name {
+        "efferent_coupling" => {
+            let mut result = nodes;
+            for node in &mut result {
+                let count = graph
+                    .graph
+                    .edges_directed(node.node_idx, Direction::Outgoing)
+                    .filter(|e| matches!(e.weight(), EdgeWeight::Imports))
+                    .count();
+                node.metrics.insert(
+                    "efferent_coupling".to_string(),
+                    MetricValue::Int(count as i64),
+                );
+            }
+            return Ok(result);
+        }
+        "afferent_coupling" => {
+            let mut result = nodes;
+            for node in &mut result {
+                let count = graph
+                    .graph
+                    .edges_directed(node.node_idx, Direction::Incoming)
+                    .filter(|e| matches!(e.weight(), EdgeWeight::Imports | EdgeWeight::Calls))
+                    .count();
+                node.metrics.insert(
+                    "afferent_coupling".to_string(),
+                    MetricValue::Int(count as i64),
+                );
+            }
+            return Ok(result);
+        }
+        _ => {}
+    }
+
     let mut result = Vec::new();
 
     for mut node in nodes {
@@ -872,7 +938,7 @@ fn execute_compute_metric(
             }
             other => {
                 anyhow::bail!(
-                    "compute_metric: unknown metric '{}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio",
+                    "compute_metric: unknown metric '{}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio, efferent_coupling, afferent_coupling",
                     other
                 );
             }
@@ -884,6 +950,95 @@ fn execute_compute_metric(
     }
 
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Taint stage
+// ---------------------------------------------------------------------------
+
+fn execute_taint(
+    stage: &crate::graph::pipeline::TaintStage,
+    graph: &CodeGraph,
+) -> anyhow::Result<Vec<PipelineNode>> {
+    use crate::graph::taint::{TaintConfig, TaintEngine};
+
+    let config = TaintConfig {
+        sources: stage.sources.clone(),
+        sinks: stage.sinks.clone(),
+        sanitizers: stage.sanitizers.clone(),
+    };
+
+    let findings = TaintEngine::analyze_all(graph, &config);
+
+    let nodes = findings
+        .into_iter()
+        .map(|f| {
+            let mut metrics = HashMap::new();
+            metrics.insert("sink".to_string(), MetricValue::Text(f.sink_name.clone()));
+            // derive vulnerability from first matching sink pattern
+            let vulnerability = stage
+                .sinks
+                .iter()
+                .find(|s| f.sink_name.contains(s.pattern.as_str()))
+                .map(|s| s.vulnerability.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+            metrics.insert("vulnerability".to_string(), MetricValue::Text(vulnerability));
+            metrics.insert("tainted_var".to_string(), MetricValue::Text(f.tainted_var.clone()));
+            metrics.insert("source_description".to_string(), MetricValue::Text(f.source_description.clone()));
+            PipelineNode {
+                node_idx: f.function_node,
+                file_path: f.file_path.clone(),
+                name: f.function_name.clone(),
+                kind: "taint_finding".to_string(),
+                line: f.sink_line,
+                exported: false,
+                language: String::new(),
+                metrics,
+            }
+        })
+        .collect();
+
+    Ok(nodes)
+}
+
+// ---------------------------------------------------------------------------
+// FindDuplicates stage
+// ---------------------------------------------------------------------------
+
+fn execute_find_duplicates(
+    stage: &crate::graph::pipeline::FindDuplicatesStage,
+    nodes: Vec<PipelineNode>,
+) -> Vec<PipelineNode> {
+    let mut groups: HashMap<String, Vec<PipelineNode>> = HashMap::new();
+    for node in nodes {
+        let key = match stage.by.as_str() {
+            "name" => node.name.clone(),
+            other => node
+                .metrics
+                .get(other)
+                .map(|v| match v {
+                    MetricValue::Text(s) => s.clone(),
+                    MetricValue::Int(i) => i.to_string(),
+                    MetricValue::Float(f) => f.to_string(),
+                })
+                .unwrap_or_default(),
+        };
+        groups.entry(key).or_default().push(node);
+    }
+
+    groups
+        .into_iter()
+        .filter(|(_, members)| members.len() >= stage.min_count)
+        .map(|(key, members)| {
+            let count = members.len();
+            let files: Vec<String> = members.iter().map(|n| n.file_path.clone()).collect();
+            let mut rep = members.into_iter().next().unwrap();
+            rep.metrics.insert("count".to_string(), MetricValue::Int(count as i64));
+            rep.metrics.insert("files".to_string(), MetricValue::Text(files.join(", ")));
+            rep.metrics.insert("name".to_string(), MetricValue::Text(key));
+            rep
+        })
+        .collect()
 }
 
 /// Walk the tree to find a function node whose start line matches `target_line`,
