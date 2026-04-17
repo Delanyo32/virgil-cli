@@ -1,0 +1,18 @@
+{
+  "pipeline": "any_escape_hatch",
+  "category": "code-quality",
+  "description": "Detects usage of `any` type which bypasses TypeScript's type system. Simplified from Rust: flags all predefined_type nodes whose text is `any` (cannot filter by parent kind or check suppression comments). Catches any annotations, generic args, and return types. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(predefined_type) @ty"
+    },
+    {
+      "flag": {
+        "pattern": "any_annotation",
+        "message": "`any` type detected -- bypasses TypeScript type safety; prefer `unknown` if the type is truly dynamic",
+        "severity": "warning"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "unchecked_index_access",
+  "category": "code-quality",
+  "description": "Detects unguarded array/object index access that may return undefined. Simplified from Rust: flags all subscript_expression nodes. Cannot check if inside an if-condition guard, assignment target, or nullish coalescing guard. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(subscript_expression object: (_) @obj index: (_) @idx) @sub"
+    },
+    {
+      "flag": {
+        "pattern": "unchecked_index",
+        "message": "Index access detected -- may return `undefined` without `noUncheckedIndexedAccess`; consider optional chaining or bounds checking",
+        "severity": "info"
+      }
+    }
+  ]
+}

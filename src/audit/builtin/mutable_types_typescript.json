@@ -1,0 +1,18 @@
+{
+  "pipeline": "mutable_types",
+  "category": "code-quality",
+  "description": "Detects interfaces where all properties are mutable (no `readonly`). Simplified from Rust: flags all interface_declaration nodes. Cannot count properties, check readonly modifiers, or inspect property count threshold (>3). Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(interface_declaration name: (type_identifier) @name body: (interface_body) @body) @decl"
+    },
+    {
+      "flag": {
+        "pattern": "mutable_interface",
+        "message": "Interface declaration detected -- if all properties are mutable, consider adding `readonly` modifiers to prevent accidental mutation",
+        "severity": "info"
+      }
+    }
+  ]
+}

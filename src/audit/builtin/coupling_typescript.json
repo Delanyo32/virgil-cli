@@ -1,0 +1,18 @@
+{
+  "pipeline": "coupling",
+  "category": "code-quality",
+  "description": "Detects excessive imports, parameter overload, and low class cohesion in TypeScript. Simplified from Rust: flags all import_statement nodes (without counting against threshold >15) and all formal_parameters nodes (without checking parameter count >5). Low cohesion (no `this` access) not detectable in JSON DSL. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(import_statement) @import"
+    },
+    {
+      "flag": {
+        "pattern": "excessive_imports",
+        "message": "import statement detected -- if the total exceeds 15, consider splitting this module to reduce coupling",
+        "severity": "info"
+      }
+    }
+  ]
+}

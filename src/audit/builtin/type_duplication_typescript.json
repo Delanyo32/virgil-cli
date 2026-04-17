@@ -1,0 +1,18 @@
+{
+  "pipeline": "type_duplication",
+  "category": "code-quality",
+  "description": "Detects interfaces with highly overlapping property sets suggesting type duplication. Simplified from Rust: flags all interface_declaration nodes. Cannot compute Jaccard similarity between interfaces or detect suffix patterns (UserRow/UserDTO). Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(interface_declaration name: (type_identifier) @name body: (interface_body) @body) @decl"
+    },
+    {
+      "flag": {
+        "pattern": "duplicate_shape",
+        "message": "Interface declaration detected -- verify it does not duplicate the shape of another interface; consider extracting a common base type",
+        "severity": "info"
+      }
+    }
+  ]
+}

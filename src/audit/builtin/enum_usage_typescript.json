@@ -1,0 +1,18 @@
+{
+  "pipeline": "enum_usage",
+  "category": "code-quality",
+  "description": "Detects TypeScript enum declarations -- union types or `as const` are often better alternatives. Simplified from Rust: flags all enum_declaration nodes without distinguishing const enums, bitflag enums, or string enums. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(enum_declaration name: (identifier) @name) @decl"
+    },
+    {
+      "flag": {
+        "pattern": "numeric_enum",
+        "message": "Enum declaration detected -- enums compile to reverse-mapped objects; prefer union types or `as const` for better tree-shaking",
+        "severity": "warning"
+      }
+    }
+  ]
+}

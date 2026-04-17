@@ -1,0 +1,18 @@
+{
+  "pipeline": "leaking_impl_types",
+  "category": "code-quality",
+  "description": "Detects exported functions that expose ORM/database implementation types in their return type. Simplified from Rust: flags all function_declaration nodes inside export_statement nodes. Cannot inspect return type text for specific ORM type names -- all exported functions with return types flagged. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "(export_statement (function_declaration name: (identifier) @name) @fn)"
+    },
+    {
+      "flag": {
+        "pattern": "leaking_orm_type",
+        "message": "Exported function detected -- verify the return type does not expose ORM/database implementation types (PrismaClient, Repository, etc.) to consumers",
+        "severity": "warning"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "optional_everything",
+  "category": "code-quality",
+  "description": "Detects interfaces where most properties are optional, suggesting a design smell. Simplified from Rust: flags all interface_declaration and type_alias_declaration nodes. Cannot count total vs optional properties or enforce the >60% optional threshold. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "[(interface_declaration name: (type_identifier) @name) (type_alias_declaration name: (type_identifier) @name)] @decl"
+    },
+    {
+      "flag": {
+        "pattern": "optional_overload",
+        "message": "Interface or type alias detected -- if most properties are optional, consider splitting into required and optional parts",
+        "severity": "info"
+      }
+    }
+  ]
+}

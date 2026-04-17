@@ -1,0 +1,18 @@
+{
+  "pipeline": "record_string_any",
+  "category": "code-quality",
+  "description": "Detects `Record<string, any>` which is a type-unsafe catch-all. Simplified from Rust: flags all generic_type nodes and index_signature nodes. Cannot filter to only Record<string, any> or index signatures with `any` value type -- all generic types and index signatures flagged. Language scoped to typescript only.",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "match_pattern": "[(generic_type name: (type_identifier) @name) (index_signature) @idx] @target"
+    },
+    {
+      "flag": {
+        "pattern": "record_any",
+        "message": "Generic type or index signature detected -- if using `Record<string, any>` or `{ [key: string]: any }`, prefer a specific value type or `unknown`",
+        "severity": "warning"
+      }
+    }
+  ]
+}
