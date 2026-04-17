@@ -1,16 +1,16 @@
 {
   "pipeline": "string_concat_in_loops",
   "category": "code-quality",
-  "description": "Detects string concatenation via += inside loops in Java. Simplified from Rust: flags assignment_expression nodes inside loop constructs (for_statement, enhanced_for_statement, while_statement, do_statement). Cannot resolve LHS variable type, verify RHS is a string, or check @SuppressWarnings.",
+  "description": "Detects string concatenation via += inside loops in Java. Simplified from Rust: flags all assignment_expression nodes. Cannot verify the assignment is inside a loop, resolve LHS variable type to String, or check @SuppressWarnings.",
   "languages": ["java"],
   "graph": [
     {
-      "match_pattern": "(for_statement (assignment_expression) @assign) @loop"
+      "match_pattern": "(assignment_expression) @assign"
     },
     {
       "flag": {
         "pattern": "string_concat_in_loop",
-        "message": "assignment expression in for loop detected -- verify string concatenation (+=) is not used; prefer StringBuilder for loop-based string building",
+        "message": "assignment expression detected -- verify string concatenation (+=) is not used inside loops; prefer StringBuilder for loop-based string building",
         "severity": "warning"
       }
     }

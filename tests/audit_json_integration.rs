@@ -12879,3 +12879,1366 @@ fn coupling_php_clean_no_findings_constants_only() {
         "expected no coupling for constants-only file"
     );
 }
+
+// ── Phase 5: Java Tech Debt + Code Style Pipelines ──
+
+// ── exception_swallowing (Java, 10 tests) ──
+
+fn run_java_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+fn run_java_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+#[test]
+fn exception_swallowing_java_finds_catch_clause() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { try { } catch (Exception e) { } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "exception_swallowing"),
+        "expected exception_swallowing finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn exception_swallowing_java_clean_no_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { int x = 1; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "exception_swallowing"),
+        "expected no exception_swallowing; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn exception_swallowing_java_finds_multiple_catches() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { try { } catch (IOException e) { } catch (Exception e) { } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().filter(|f| f.pipeline == "exception_swallowing").count() >= 2,
+        "expected at least 2 exception_swallowing findings"
+    );
+}
+
+#[test]
+fn exception_swallowing_java_finds_nested_try() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { try { try { } catch (Exception e) { } } catch (Exception e) { } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().filter(|f| f.pipeline == "exception_swallowing").count() >= 2,
+        "expected findings for nested catches"
+    );
+}
+
+#[test]
+fn exception_swallowing_java_clean_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Test.java"), "class Test { }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_swallowing"));
+}
+
+#[test]
+fn exception_swallowing_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_swallowing"));
+}
+
+#[test]
+fn exception_swallowing_java_finds_catch_with_body() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { try { doWork(); } catch (RuntimeException e) { e.printStackTrace(); } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_swallowing"));
+}
+
+#[test]
+fn exception_swallowing_java_pattern_is_empty_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { try { } catch (Exception e) { } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "exception_swallowing" && f.pattern == "empty_catch"),
+        "expected empty_catch pattern"
+    );
+}
+
+#[test]
+fn exception_swallowing_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { void m() { try { } catch (Exception e) { } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_swallowing" && f.severity == "warning"));
+}
+
+#[test]
+fn exception_swallowing_java_clean_interface_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "interface MyService { void execute(); }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_swallowing"));
+}
+
+// ── god_class (Java, 14 tests) ──
+
+#[test]
+fn god_class_java_finds_class_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Big.java"), "class BigClass { void m1(){} void m2(){} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "god_class"),
+        "expected god_class finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn god_class_java_clean_no_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_pattern_is_god_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class" && f.pattern == "god_class"));
+}
+
+#[test]
+fn god_class_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class" && f.severity == "warning"));
+}
+
+#[test]
+fn god_class_java_finds_multiple_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Two.java"), "class A {} class B {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().filter(|f| f.pipeline == "god_class").count() >= 2,
+        "expected 2 god_class findings for 2 classes"
+    );
+}
+
+#[test]
+fn god_class_java_clean_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "// no class here").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_finds_class_with_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    let methods: String = (0..12).map(|i| format!("void m{}(){{}}", i)).collect::<Vec<_>>().join(" ");
+    std::fs::write(dir.path().join("Large.java"), format!("class Large {{ {} }}", methods)).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_finds_class_with_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let fields: String = (0..15).map(|i| format!("int field{};", i)).collect::<Vec<_>>().join(" ");
+    std::fs::write(dir.path().join("DataObj.java"), format!("class DataObj {{ {} }}", fields)).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_excludes_test_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("MyTest.java"), "class MyTest { void testSomething(){} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "god_class"),
+        "test file should be excluded from god_class"
+    );
+}
+
+#[test]
+fn god_class_java_finds_public_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Pub.java"), "public class Pub { void doWork(){} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_finds_abstract_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Base.java"), "abstract class Base { abstract void run(); }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_clean_interface_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "interface Svc { void execute(); }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_finds_inner_class_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Outer.java"),
+        "class Outer { class Inner {} }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main\nfunc main(){}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+// ── instanceof_chains (Java, 10 tests) ──
+
+#[test]
+fn instanceof_chains_java_finds_instanceof_expr() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Check.java"),
+        "class Check { void m(Object o) { if (o instanceof String) {} } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "instanceof_chains"),
+        "expected instanceof_chains finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn instanceof_chains_java_clean_no_instanceof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Clean.java"),
+        "class Clean { void m(Object o) { o.toString(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "instanceof_chains"));
+}
+
+#[test]
+fn instanceof_chains_java_pattern_is_instanceof_chain() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Check.java"),
+        "class Check { void m(Object o) { if (o instanceof String) {} } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "instanceof_chains" && f.pattern == "instanceof_chain"));
+}
+
+#[test]
+fn instanceof_chains_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Check.java"),
+        "class Check { void m(Object o) { if (o instanceof String) {} } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "instanceof_chains" && f.severity == "warning"));
+}
+
+#[test]
+fn instanceof_chains_java_finds_multiple_instanceof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { void m(Object o) { if (o instanceof String) {} if (o instanceof Integer) {} if (o instanceof Long) {} } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().filter(|f| f.pipeline == "instanceof_chains").count() >= 3,
+        "expected 3+ instanceof_chains findings"
+    );
+}
+
+#[test]
+fn instanceof_chains_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "instanceof_chains"));
+}
+
+#[test]
+fn instanceof_chains_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.py"), "def f(): pass").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "instanceof_chains"));
+}
+
+#[test]
+fn instanceof_chains_java_finds_in_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Visitor.java"),
+        "class Visitor { void visit(Node n) { if (n instanceof Add) {} else if (n instanceof Sub) {} else if (n instanceof Mul) {} } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "instanceof_chains"));
+}
+
+#[test]
+fn instanceof_chains_java_finds_in_nested_if() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Nested.java"),
+        "class Nested { void m(Object a, Object b) { if (a instanceof String) { if (b instanceof Integer) {} } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "instanceof_chains").count() >= 2);
+}
+
+#[test]
+fn instanceof_chains_java_clean_arithmetic_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Math.java"),
+        "class Math { int add(int a, int b) { return a + b; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "instanceof_chains"));
+}
+
+// ── magic_strings (Java, 9 tests) ──
+
+#[test]
+fn magic_strings_java_finds_method_call_with_string_arg() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Auth.java"),
+        "class Auth { boolean check(String role) { return role.equals(\"ADMIN\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "magic_strings"),
+        "expected magic_strings finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn magic_strings_java_clean_no_string_arg_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Clean.java"),
+        "class Clean { void m() { int x = 1 + 2; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_strings"));
+}
+
+#[test]
+fn magic_strings_java_pattern_is_magic_string() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Auth.java"),
+        "class Auth { boolean check(String s) { return s.equals(\"ADMIN\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_strings" && f.pattern == "magic_string"));
+}
+
+#[test]
+fn magic_strings_java_severity_is_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Auth.java"),
+        "class Auth { boolean check(String s) { return s.equals(\"ADMIN\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_strings" && f.severity == "info"));
+}
+
+#[test]
+fn magic_strings_java_finds_equals_ignore_case() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "class Test { boolean check(String s) { return s.equalsIgnoreCase(\"yes\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_strings"));
+}
+
+#[test]
+fn magic_strings_java_finds_multiple_string_args() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { void m(String a, String b) { a.equals(\"X\"); b.equals(\"Y\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "magic_strings").count() >= 2);
+}
+
+#[test]
+fn magic_strings_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.ts"), "const x = 1;").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_strings"));
+}
+
+#[test]
+fn magic_strings_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_strings"));
+}
+
+#[test]
+fn magic_strings_java_finds_contains_string_arg() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Url.java"),
+        "class Url { boolean isAdmin(String path) { return path.contains(\"/admin\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_strings"));
+}
+
+// ── missing_final (Java, 9 tests) ──
+
+#[test]
+fn missing_final_java_finds_field_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { private int count; }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "missing_final"),
+        "expected missing_final finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn missing_final_java_clean_no_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void m() {} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_final"));
+}
+
+#[test]
+fn missing_final_java_pattern_is_missing_final_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { private int x; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_final" && f.pattern == "missing_final_field"));
+}
+
+#[test]
+fn missing_final_java_severity_is_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { private int x; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_final" && f.severity == "info"));
+}
+
+#[test]
+fn missing_final_java_finds_multiple_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { private int a; private String b; private boolean c; }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "missing_final").count() >= 3);
+}
+
+#[test]
+fn missing_final_java_finds_public_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Pub.java"), "class Pub { public int x; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_final"));
+}
+
+#[test]
+fn missing_final_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.go"), "package main").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_final"));
+}
+
+#[test]
+fn missing_final_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_final"));
+}
+
+#[test]
+fn missing_final_java_finds_final_field_too() {
+    // Simplified pipeline flags ALL field_declaration nodes, even final ones
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Const.java"), "class Const { private final int MAX = 10; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_final"));
+}
+
+// ── mutable_public_fields (Java, 9 tests) ──
+
+#[test]
+fn mutable_public_fields_java_finds_exported_variable() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Dto.java"),
+        "class Dto { public String name; }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "mutable_public_fields"),
+        "expected mutable_public_fields finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn mutable_public_fields_java_clean_no_exported_variables() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { private int count; void m(){} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "mutable_public_fields"));
+}
+
+#[test]
+fn mutable_public_fields_java_pattern_is_mutable_public_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Dto.java"), "class Dto { public String name; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "mutable_public_fields" && f.pattern == "mutable_public_field"));
+}
+
+#[test]
+fn mutable_public_fields_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Dto.java"), "class Dto { public int x; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "mutable_public_fields" && f.severity == "warning"));
+}
+
+#[test]
+fn mutable_public_fields_java_finds_multiple_public_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { public int a; public String b; public boolean c; }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "mutable_public_fields").count() >= 3);
+}
+
+#[test]
+fn mutable_public_fields_java_excludes_test_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("FooTest.java"), "class FooTest { public String field; }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "mutable_public_fields"));
+}
+
+#[test]
+fn mutable_public_fields_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main(){}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "mutable_public_fields"));
+}
+
+#[test]
+fn mutable_public_fields_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "mutable_public_fields"));
+}
+
+#[test]
+fn mutable_public_fields_java_finds_static_public_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Constants.java"),
+        "class Constants { public static int MAX = 100; }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "mutable_public_fields"));
+}
+
+// ── null_returns (Java, 14 tests) ──
+
+#[test]
+fn null_returns_java_finds_return_null() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Repo.java"),
+        "class Repo { Object find(int id) { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "null_returns"),
+        "expected null_returns finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn null_returns_java_clean_no_return_null() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Repo.java"),
+        "class Repo { Object find(int id) { return new Object(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_pattern_is_null_return() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Repo.java"),
+        "class Repo { Object find() { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns" && f.pattern == "null_return"));
+}
+
+#[test]
+fn null_returns_java_severity_is_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Repo.java"),
+        "class Repo { Object find() { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns" && f.severity == "info"));
+}
+
+#[test]
+fn null_returns_java_finds_multiple_null_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { Object a() { return null; } Object b() { return null; } Object c() { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "null_returns").count() >= 3);
+}
+
+#[test]
+fn null_returns_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.py"), "def f(): return None").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_finds_null_in_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { Object m() { try { return new Object(); } catch (Exception e) { return null; } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_finds_null_in_private_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { private Object helper() { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_finds_null_in_public_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { public Object getUser() { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_clean_returns_value() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { String getName() { return \"Alice\"; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_clean_returns_optional() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { Object find() { return Optional.empty(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_finds_null_in_static_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Factory.java"),
+        "class Factory { static Object create(String type) { if (type == null) return null; return new Object(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+#[test]
+fn null_returns_java_finds_null_in_interface_default() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Iface.java"),
+        "interface Iface { default Object get() { return null; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_returns"));
+}
+
+// ── raw_types (Java, 10 tests) ──
+
+#[test]
+fn raw_types_java_finds_local_variable_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { String s = \"hello\"; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "raw_types"),
+        "expected raw_types finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn raw_types_java_clean_no_local_vars() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty { void m() {} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_types"));
+}
+
+#[test]
+fn raw_types_java_pattern_is_raw_generic_type() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void m() { int x = 1; } }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_types" && f.pattern == "raw_generic_type"));
+}
+
+#[test]
+fn raw_types_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void m() { int x = 1; } }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_types" && f.severity == "warning"));
+}
+
+#[test]
+fn raw_types_java_finds_multiple_local_vars() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { void m() { int a = 1; String b = \"x\"; boolean c = true; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "raw_types").count() >= 3);
+}
+
+#[test]
+fn raw_types_java_finds_raw_list() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { List items = new ArrayList(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_types"));
+}
+
+#[test]
+fn raw_types_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"), "class T { void M() { } }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_types"));
+}
+
+#[test]
+fn raw_types_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_types"));
+}
+
+#[test]
+fn raw_types_java_finds_in_loop_body() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Loop.java"),
+        "class Loop { void m() { for (int i = 0; i < 10; i++) { String s = \"x\"; } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_types"));
+}
+
+#[test]
+fn raw_types_java_finds_in_if_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Branch.java"),
+        "class Branch { void m(boolean flag) { if (flag) { Object o = new Object(); } } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_types"));
+}
+
+// ── resource_leaks (Java, 8 tests) ──
+
+#[test]
+fn resource_leaks_java_finds_object_creation_in_local_var() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { Connection c = new Connection(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "resource_leaks"),
+        "expected resource_leaks finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn resource_leaks_java_clean_no_object_creation_in_local() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { int x = 42; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "resource_leaks"));
+}
+
+#[test]
+fn resource_leaks_java_pattern_is_resource_leak() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { Object o = new Object(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "resource_leaks" && f.pattern == "resource_leak"));
+}
+
+#[test]
+fn resource_leaks_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { Object o = new Object(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "resource_leaks" && f.severity == "warning"));
+}
+
+#[test]
+fn resource_leaks_java_finds_multiple_creations() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { void m() { Object a = new Object(); Object b = new Object(); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "resource_leaks").count() >= 2);
+}
+
+#[test]
+fn resource_leaks_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.go"), "package main").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "resource_leaks"));
+}
+
+#[test]
+fn resource_leaks_java_clean_empty_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void m() {} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "resource_leaks"));
+}
+
+#[test]
+fn resource_leaks_java_finds_file_input_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Reader.java"),
+        "class Reader { void m() { FileInputStream fis = new FileInputStream(\"f.txt\"); } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "resource_leaks"));
+}
+
+// ── static_utility_sprawl (Java, 8 tests) ──
+
+#[test]
+fn static_utility_sprawl_java_finds_class_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Utils.java"),
+        "class Utils { static void a(){} static void b(){} static void c(){} static void d(){} }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "static_utility_sprawl"),
+        "expected static_utility_sprawl finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn static_utility_sprawl_java_clean_no_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn main(){}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "static_utility_sprawl"));
+}
+
+#[test]
+fn static_utility_sprawl_java_pattern_is_static_utility_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Utils.java"), "class Utils {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "static_utility_sprawl" && f.pattern == "static_utility_class"));
+}
+
+#[test]
+fn static_utility_sprawl_java_severity_is_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Utils.java"), "class Utils {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "static_utility_sprawl" && f.severity == "info"));
+}
+
+#[test]
+fn static_utility_sprawl_java_excludes_test_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("UtilsTest.java"), "class UtilsTest { void testA(){} }").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "static_utility_sprawl"));
+}
+
+#[test]
+fn static_utility_sprawl_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("util.py"), "def helper(): pass").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "static_utility_sprawl"));
+}
+
+#[test]
+fn static_utility_sprawl_java_finds_multiple_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Both.java"), "class A {} class B {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "static_utility_sprawl").count() >= 2);
+}
+
+#[test]
+fn static_utility_sprawl_java_clean_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "// empty").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "static_utility_sprawl"));
+}
+
+// ── string_concat_in_loops (Java, 7 tests) ──
+
+#[test]
+fn string_concat_in_loops_java_finds_assignment_expression() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Builder.java"),
+        "class Builder { void m() { int x = 0; x += 1; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "string_concat_in_loops"),
+        "expected string_concat_in_loops finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn string_concat_in_loops_java_clean_no_assignment_expression() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void m() { int x = 1; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "string_concat_in_loops"));
+}
+
+#[test]
+fn string_concat_in_loops_java_pattern_is_string_concat_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Builder.java"),
+        "class Builder { void m() { int s = 0; s += 1; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "string_concat_in_loops" && f.pattern == "string_concat_in_loop"));
+}
+
+#[test]
+fn string_concat_in_loops_java_severity_is_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Builder.java"),
+        "class Builder { void m() { int s = 0; s += 1; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "string_concat_in_loops" && f.severity == "warning"));
+}
+
+#[test]
+fn string_concat_in_loops_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.go"), "package main").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "string_concat_in_loops"));
+}
+
+#[test]
+fn string_concat_in_loops_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "string_concat_in_loops"));
+}
+
+#[test]
+fn string_concat_in_loops_java_finds_multiple_assignments() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { void m() { int a = 0; a += 1; int b = 0; b += 2; } }",
+    ).unwrap();
+    let findings = run_java_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "string_concat_in_loops").count() >= 2);
+}
+
+// ── dead_code (Java, 9 tests) ──
+
+#[test]
+fn dead_code_java_finds_method_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void doWork() {} }",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn dead_code_java_clean_no_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Data.java"), "class Data { int x; }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_java_pattern_is_potentially_dead_export() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void run() {} }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code" && f.pattern == "potentially_dead_export"));
+}
+
+#[test]
+fn dead_code_java_severity_is_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void run() {} }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code" && f.severity == "info"));
+}
+
+#[test]
+fn dead_code_java_finds_multiple_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Multi.java"),
+        "class Multi { void a(){} void b(){} void c(){} }",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "dead_code").count() >= 3);
+}
+
+#[test]
+fn dead_code_java_excludes_test_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("FooTest.java"), "class FooTest { void testRun(){} }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main(){}").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_java_finds_public_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { public void execute() {} }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+// ── duplicate_code (Java, 4 tests) ──
+
+#[test]
+fn duplicate_code_java_finds_method_symbol() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "class Svc { void doWork() { int x = 1; } void doWork2() { int x = 1; } }",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected duplicate_code finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn duplicate_code_java_clean_no_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Data.java"), "class Data { int x; }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_java_pattern_is_potential_duplication() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void run() {} }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code" && f.pattern == "potential_duplication"));
+}
+
+#[test]
+fn duplicate_code_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.py"), "def f(): pass").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+// ── coupling (Java, 8 tests) ──
+
+#[test]
+fn coupling_java_finds_import_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "import java.util.List;\nclass Svc {}",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(
+        findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected coupling finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn coupling_java_clean_no_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Svc.java"), "class Svc { void m() {} }").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_java_pattern_is_excessive_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "import java.util.List;\nclass Svc {}",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling" && f.pattern == "excessive_imports"));
+}
+
+#[test]
+fn coupling_java_severity_is_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Svc.java"),
+        "import java.util.List;\nclass Svc {}",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling" && f.severity == "info"));
+}
+
+#[test]
+fn coupling_java_finds_multiple_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Heavy.java"),
+        "import java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.io.File;\nclass Heavy {}",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 4);
+}
+
+#[test]
+fn coupling_java_clean_no_java_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.go"), "package main").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_java_clean_empty_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Empty.java"), "class Empty {}").unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_java_finds_static_import() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Test.java"),
+        "import static java.lang.Math.abs;\nclass Test { int m(int x) { return abs(x); } }",
+    ).unwrap();
+    let findings = run_java_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"));
+}
