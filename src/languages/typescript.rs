@@ -174,9 +174,9 @@ pub fn extract_symbols(
             name,
             kind,
             file_path: file_path.to_string(),
-            start_line: def_node.start_position().row as u32,
+            start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
-            end_line: def_node.end_position().row as u32,
+            end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
         };
@@ -259,7 +259,7 @@ pub fn extract_imports(
                 .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
                 .unwrap()
                 .node;
-            let line = import_node.start_position().row as u32;
+            let line = import_node.start_position().row as u32 + 1;
             let is_type_only = has_type_keyword(import_node);
             let extracted = extract_import_bindings(import_node, source);
 
@@ -296,7 +296,7 @@ pub fn extract_imports(
                 .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
                 .unwrap()
                 .node;
-            let line = reexport_node.start_position().row as u32;
+            let line = reexport_node.start_position().row as u32 + 1;
             let extracted = extract_reexport_bindings(reexport_node, source);
             let is_external = ImportInfo::is_external_specifier(&module_specifier);
 
@@ -337,7 +337,7 @@ pub fn extract_imports(
                 local_name: "*".to_string(),
                 kind: "dynamic".to_string(),
                 is_type_only: false,
-                line: dynamic_node.start_position().row as u32,
+                line: dynamic_node.start_position().row as u32 + 1,
                 is_external: ImportInfo::is_external_specifier(&module_specifier),
             });
         } else if has_call {
@@ -357,7 +357,7 @@ pub fn extract_imports(
                         local_name: "*".to_string(),
                         kind: "require".to_string(),
                         is_type_only: false,
-                        line: call_node.start_position().row as u32,
+                        line: call_node.start_position().row as u32 + 1,
                         is_external: ImportInfo::is_external_specifier(&module_specifier),
                     });
                 }
@@ -559,9 +559,9 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
-            start_line: node.start_position().row as u32,
+            start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
-            end_line: node.end_position().row as u32,
+            end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
             associated_symbol_kind,
@@ -904,7 +904,7 @@ mod tests {
         let source = "function foo() {\n  return 1;\n}";
         let syms = parse_and_extract(source, Language::TypeScript);
         assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].start_line, 0);
+        assert_eq!(syms[0].start_line, 1);
         assert!(syms[0].end_line >= syms[0].start_line);
     }
 
@@ -1099,6 +1099,6 @@ const fs = require("fs");
         let source = "// comment\nimport { foo } from \"./bar\";\n";
         let imports = parse_and_extract_imports(source, Language::TypeScript);
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].line, 1);
+        assert_eq!(imports[0].line, 2);
     }
 }
