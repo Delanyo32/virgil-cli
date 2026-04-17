@@ -1,3 +1,6 @@
+// PERMANENT RUST EXCEPTION: This pipeline requires FlowsTo/SanitizedBy graph
+// predicates for taint propagation analysis. These are not expressible in the
+// match_pattern JSON DSL. Do not migrate -- this file stays as Rust intentionally.
 use std::sync::Arc;
 
 use anyhow::Result;
