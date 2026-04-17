@@ -1,0 +1,18 @@
+{
+  "pipeline": "callback_hell",
+  "category": "code-quality",
+  "description": "Detects deeply nested callbacks (callback hell) in JavaScript. Simplified from Rust: flags all arrow_function and function_expression nodes passed as arguments (inside arguments nodes), without counting nesting depth against a threshold (>3), without test-framework context suppression (describe/it/test), and without graduated severity.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(arguments [(arrow_function) (function_expression)] @callback)"
+    },
+    {
+      "flag": {
+        "pattern": "nested_callback",
+        "message": "Callback function passed as argument -- if deeply nested (>3 levels), consider async/await or named functions to avoid callback hell",
+        "severity": "info"
+      }
+    }
+  ]
+}

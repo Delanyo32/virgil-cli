@@ -1,0 +1,18 @@
+{
+  "pipeline": "duplicate_code",
+  "category": "code-quality",
+  "description": "Detects duplicate function bodies and duplicate switch cases in JavaScript. Simplified from Rust: flags all function_declaration and arrow_function nodes without rolling-hash body comparison. Cannot detect actual duplicates -- all function definitions flagged as candidates. Language scoped to javascript only.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "[(function_declaration name: (identifier) @name) (arrow_function) @arrow] @fn"
+    },
+    {
+      "flag": {
+        "pattern": "duplicate_function_body",
+        "message": "Function definition detected -- verify the body is not duplicated elsewhere in this file",
+        "severity": "info"
+      }
+    }
+  ]
+}

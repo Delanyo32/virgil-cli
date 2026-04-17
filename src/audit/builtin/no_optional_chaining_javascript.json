@@ -1,0 +1,18 @@
+{
+  "pipeline": "no_optional_chaining",
+  "category": "code-quality",
+  "description": "Detects deep property chains (4+ levels) in JavaScript without optional chaining (?.). Simplified from Rust: flags all member_expression nodes without counting chain depth against a threshold, without filtering out safe root globals (document, window, Math, etc.), and without graduated severity.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(member_expression object: (member_expression object: (member_expression object: (member_expression) @deep) @level3) @level2) @chain"
+    },
+    {
+      "flag": {
+        "pattern": "deep_property_chain",
+        "message": "Deep property chain detected (4+ levels) without optional chaining -- consider using `?.` to handle null/undefined safely",
+        "severity": "info"
+      }
+    }
+  ]
+}

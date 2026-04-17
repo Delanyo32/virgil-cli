@@ -1,0 +1,18 @@
+{
+  "pipeline": "shallow_spread_copy",
+  "category": "code-quality",
+  "description": "Detects `{ ...obj }` shallow copies in JavaScript that may not deeply clone nested objects. Simplified from Rust: flags all spread_element nodes inside object expressions without suppressing the { ...state, key: val } immutable update pattern, JSX contexts, or reducer function contexts.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(object (spread_element) @spread) @obj"
+    },
+    {
+      "flag": {
+        "pattern": "shallow_spread_copy",
+        "message": "Spread copy detected -- if the object has nested objects, this is a shallow copy and nested objects remain as shared references",
+        "severity": "info"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "var_usage",
+  "category": "code-quality",
+  "description": "Detects `var` declarations that should use `let` or `const` in JavaScript. Simplified from Rust: flags all variable_declaration nodes with `var` keyword without distinguishing for-loop context or suggesting const vs let based on reassignment analysis.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(variable_declaration \"var\" @var_kw) @decl"
+    },
+    {
+      "flag": {
+        "pattern": "var_usage",
+        "message": "`var` has function scope and hoisting -- prefer `let` or `const`",
+        "severity": "warning"
+      }
+    }
+  ]
+}

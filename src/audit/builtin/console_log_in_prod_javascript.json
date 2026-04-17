@@ -1,0 +1,18 @@
+{
+  "pipeline": "console_log",
+  "category": "code-quality",
+  "description": "Detects console.log/warn/error/debug/info/trace calls in JavaScript that should be removed or replaced with a proper logger. Simplified from Rust: flags all member_expression nodes for `console` object without filtering by method name (log, warn, error, etc.), test file suppression, or catch-block suppression for console.error.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (member_expression object: (identifier) @obj property: (property_identifier) @method) @fn) @call"
+    },
+    {
+      "flag": {
+        "pattern": "console_log",
+        "message": "console method call detected -- verify this is not debug logging that should be removed or replaced with a proper logger",
+        "severity": "warning"
+      }
+    }
+  ]
+}

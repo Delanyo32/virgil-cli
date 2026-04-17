@@ -1,0 +1,18 @@
+{
+  "pipeline": "magic_numbers",
+  "category": "code-quality",
+  "description": "Detects numeric literals in JavaScript that should be extracted to named constants. Simplified from Rust: flags all number nodes without excluding common values (0, 1, 2, 10, etc.), const declaration contexts, array index expressions, or test file suppression.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(number) @lit"
+    },
+    {
+      "flag": {
+        "pattern": "magic_number",
+        "message": "Numeric literal detected -- consider extracting to a named constant for clarity",
+        "severity": "info"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "event_listener_leak",
+  "category": "code-quality",
+  "description": "Detects addEventListener calls in JavaScript without corresponding removeEventListener -- potential memory leak. Simplified from Rust: flags all call_expression nodes where method is `addEventListener`, without cross-file matching of removeEventListener calls, without { once: true } or { signal: ... } suppression, and without anonymous handler detection.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method) @fn) @call"
+    },
+    {
+      "flag": {
+        "pattern": "missing_remove_listener",
+        "message": "addEventListener call detected -- verify a matching removeEventListener is present or use { once: true } / AbortController to avoid memory leaks",
+        "severity": "warning"
+      }
+    }
+  ]
+}

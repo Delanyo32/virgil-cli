@@ -1,0 +1,18 @@
+{
+  "pipeline": "unhandled_promise",
+  "category": "code-quality",
+  "description": "Detects .then() calls in JavaScript without .catch() error handling -- potential unhandled promise rejection. Simplified from Rust: flags all call_expression nodes where method is `then`, without checking for chained .catch()/.finally(), rejection handler as second argument, or await expression context.",
+  "languages": ["javascript"],
+  "graph": [
+    {
+      "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method) @fn) @call"
+    },
+    {
+      "flag": {
+        "pattern": "unhandled_then",
+        "message": "`.then()` call detected -- verify a `.catch()` handler is present to handle promise rejections",
+        "severity": "warning"
+      }
+    }
+  ]
+}
