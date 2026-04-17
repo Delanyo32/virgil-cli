@@ -46,13 +46,13 @@
 ### Test Coverage
 
 - [ ] **TEST-01**: Each pipeline deletion batch has corresponding JSON integration tests added in the same phase — minimum one positive case (finds expected pattern) and one negative case (clean code, no finding) per pipeline
-- [ ] **TEST-02**: `cargo test` passes with zero failures at every phase boundary — no intermediate broken state committed
+- [x] **TEST-02**: `cargo test` passes with zero failures at every phase boundary — no intermediate broken state committed
 
 ### Cleanup
 
-- [ ] **CLEAN-01**: `src/audit/analyzers/` helpers removed if no longer referenced by any remaining pipeline
-- [ ] **CLEAN-02**: `src/audit/pipelines/` directory empty or removed after full migration
-- [ ] **CLEAN-03**: Dead imports and unused helper functions in `src/audit/` cleaned up after all deletions
+- [x] **CLEAN-01**: `src/audit/analyzers/` helpers removed if no longer referenced by any remaining pipeline
+- [x] **CLEAN-02**: `src/audit/pipelines/` directory empty or removed after full migration
+- [x] **CLEAN-03**: Dead imports and unused helper functions in `src/audit/` cleaned up after all deletions
 
 ## v2 Requirements
 
@@ -103,10 +103,10 @@
 | SCAL-02 | Phase 4 | Pending |
 | SCAL-03 | Phase 4 | Pending |
 | TEST-01 | Phase 1-4 | Pending |
-| TEST-02 | Phase 1-4 | Pending |
-| CLEAN-01 | Phase 5 | Pending |
-| CLEAN-02 | Phase 5 | Pending |
-| CLEAN-03 | Phase 5 | Pending |
+| TEST-02 | Phase 1-4 | Complete |
+| CLEAN-01 | Phase 5 | Complete |
+| CLEAN-02 | Phase 5 | Complete |
+| CLEAN-03 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 28 total

@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Executor Stage Implementation** - Implement match_pattern and compute_metric stages; stub remaining stages loudly; no pipeline migrations (pure engine work)
 - [ ] **Phase 3: Tech Debt + Scalability JSON Migration** - Migrate shared cross-language complexity/tech-debt pipelines and shared scalability pipelines using the new stages; delete replaced Rust files
 - [ ] **Phase 4: Security + Per-Language Scalability Migration** - Migrate non-taint security pipelines and per-language scalability pipelines; delete replaced Rust files
-- [ ] **Phase 5: Final Cleanup + Test Health** - Migrate all per-language tech-debt + code-style pipelines to JSON, remove dead helpers, empty the pipelines directory, verify zero test failures
+- [x] **Phase 5: Final Cleanup + Test Health** - Migrate all per-language tech-debt + code-style pipelines to JSON, remove dead helpers, empty the pipelines directory, verify zero test failures (completed 2026-04-17)
 
 ## Phase Details
 
@@ -104,7 +104,7 @@ Plans:
   2. `src/audit/pipelines/` is empty or deleted — no Rust pipeline files remain for any category that has been fully migrated to JSON
   3. `cargo test` passes with zero failures and no compiler warnings about unused imports or dead code in `src/audit/`
   4. `virgil audit` (all categories, all languages) produces non-empty output — no category silently regressed to zero findings during cleanup
-**Plans:** 10/11 plans executed
+**Plans:** 11/11 plans complete
 
 Plans:
 - [x] 05-01-PLAN.md — Rust tech-debt + code-style migration (13 pipelines, 127 tests)
@@ -117,7 +117,7 @@ Plans:
 - [x] 05-08-PLAN.md — JavaScript tech-debt + code-style migration (15 pipelines, 142 tests)
 - [x] 05-09-PLAN.md — TypeScript tech-debt + code-style migration (14 pipelines, 141 tests)
 - [x] 05-10-PLAN.md — C# tech-debt + code-style migration (15 pipelines, 131 tests)
-- [ ] 05-11-PLAN.md — Final cleanup: helpers.rs pruning, dead dir deletion, taint exception annotations
+- [x] 05-11-PLAN.md — Final cleanup: helpers.rs pruning, dead dir deletion, taint exception annotations
 
 ## Progress
 
@@ -130,4 +130,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Executor Stage Implementation | 2/2 | Complete | - |
 | 3. Tech Debt + Scalability JSON Migration | 0/4 | Planned | - |
 | 4. Security + Per-Language Scalability Migration | 0/9 | Planned | - |
-| 5. Final Cleanup + Test Health | 10/11 | In Progress|  |
+| 5. Final Cleanup + Test Health | 11/11 | Complete   | 2026-04-17 |

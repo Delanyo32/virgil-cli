@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 05-10-PLAN.md
-last_updated: "2026-04-17T01:10:58.850Z"
+status: verifying
+stopped_at: Completed 05-11-PLAN.md
+last_updated: "2026-04-17T01:23:19.796Z"
 last_activity: 2026-04-17
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 31
-  completed_plans: 30
-  percent: 97
+  completed_plans: 31
+  percent: 100
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 
 Phase: 05 (final-cleanup-test-health) — EXECUTING
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-17
 
 Progress: [░░░░░░░░░░] 0%
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P08 | 671 | 2 tasks | 33 files |
 | Phase 05 P09 | 10 | 2 tasks | 31 files |
 | Phase 05 P10 | 10 | 2 tasks | 19 files |
+| Phase 05 P11 | 8 | 2 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase 05]: security_pipelines delegation from typescript to javascript module preserved in minimal mod.rs
 - [Phase 05]: primitives.rs retained (slim) in csharp/: still required by csharp_ssrf.rs, sql_injection.rs, and xxe.rs taint exceptions
 - [Phase 05]: C# JSON pipelines use simplified match_pattern (structural detection only -- no count thresholds, attribute filters, or modifier checks)
+- [Phase 05]: helpers.rs pruned from 1743 to ~250 lines — 8 live functions kept, ~49 dead pub fn deleted after grep-verified zero callers
+- [Phase 05]: PERMANENT RUST EXCEPTION comment added to all 14 taint pipeline files (D-12 complete) — FlowsTo/SanitizedBy predicates not expressible in match_pattern JSON DSL
+- [Phase 05]: rust/, c/, cpp/ pipeline directories deleted — all pipelines migrated to JSON in Plans 01-10; empty mod.rs stubs removed along with pipeline.rs dispatch arms
 
 ### Pending Todos
 
@@ -122,6 +126,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-04-17T01:10:58.848Z
-Stopped at: Completed 05-10-PLAN.md
+Last session: 2026-04-17T01:23:19.793Z
+Stopped at: Completed 05-11-PLAN.md
 Resume file: None
