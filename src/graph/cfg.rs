@@ -79,6 +79,8 @@ pub struct FunctionCfg {
     pub blocks: DiGraph<BasicBlock, CfgEdge>,
     pub entry: NodeIndex,
     pub exits: Vec<NodeIndex>,
+    /// Parameter names declared in the function signature.
+    pub param_names: Vec<String>,
 }
 
 impl Default for FunctionCfg {
@@ -95,6 +97,7 @@ impl FunctionCfg {
             blocks,
             entry,
             exits: Vec::new(),
+            param_names: Vec::new(),
         }
     }
 }

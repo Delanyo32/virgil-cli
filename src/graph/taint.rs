@@ -129,8 +129,16 @@ impl TaintEngine {
             // Collect parameter nodes for this function.
             let param_names = collect_parameter_names(graph, *func_idx);
 
+            // Prefer param names stored in the CFG (populated by language-specific builders).
+            // Fall back to graph Parameter nodes for backwards compatibility with unit tests.
+            let effective_params = if !cfg.param_names.is_empty() {
+                cfg.param_names.clone()
+            } else {
+                param_names.clone()
+            };
+
             let findings =
-                Self::analyze_function(*func_idx, func_name, file_path, &cfg, &param_names, config);
+                Self::analyze_function(*func_idx, func_name, file_path, &cfg, &effective_params, config);
 
             all_findings.extend(findings);
         }
@@ -667,6 +675,7 @@ mod tests {
             blocks: cfg_graph,
             entry,
             exits: vec![entry],
+            param_names: Vec::new(),
         };
 
         graph.function_cfgs.insert(func_idx, cfg);
@@ -947,6 +956,7 @@ mod tests {
             blocks: cfg_graph,
             entry: b0_idx,
             exits: vec![b3_idx],
+            param_names: Vec::new(),
         };
 
         let mut graph = CodeGraph::new();
@@ -1041,6 +1051,7 @@ mod tests {
             blocks,
             entry,
             exits: vec![entry],
+            param_names: Vec::new(),
         };
         let order = topo_order_or_bfs(&cfg);
         assert_eq!(order.len(), 1);
@@ -1059,6 +1070,7 @@ mod tests {
             blocks,
             entry: b0,
             exits: vec![b1],
+            param_names: Vec::new(),
         };
         let order = topo_order_or_bfs(&cfg);
         // Both blocks should be present despite the cycle.

@@ -12,6 +12,42 @@ impl CfgBuilder for PythonCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut ctx = BuildCtx::new();
 
+        // Extract parameter names from the function signature
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.children(&mut cursor) {
+                match child.kind() {
+                    "identifier" => {
+                        let name = child.utf8_text(source).unwrap_or("").to_string();
+                        if !name.is_empty() {
+                            ctx.cfg.param_names.push(name);
+                        }
+                    }
+                    "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
+                        // first named child is the identifier
+                        if let Some(ident) = child.named_child(0) {
+                            if ident.kind() == "identifier" {
+                                let name = ident.utf8_text(source).unwrap_or("").to_string();
+                                if !name.is_empty() {
+                                    ctx.cfg.param_names.push(name);
+                                }
+                            }
+                        }
+                    }
+                    "list_splat_pattern" | "dictionary_splat_pattern" => {
+                        // *args / **kwargs — get the inner identifier
+                        if let Some(ident) = child.named_child(0) {
+                            let name = ident.utf8_text(source).unwrap_or("").to_string();
+                            if !name.is_empty() {
+                                ctx.cfg.param_names.push(name);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Find the body block of the function
         let body = function_node
             .child_by_field_name("body")

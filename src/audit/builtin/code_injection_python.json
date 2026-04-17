@@ -1,18 +1,39 @@
 {
   "pipeline": "code_injection",
   "category": "security",
-  "description": "Detects code injection risks in Python: eval(), exec(), compile() with dynamic arguments. Simplified from Rust: flags all direct identifier function calls. Cannot filter to only eval/exec/compile or check for non-literal arguments without #match? predicate support.",
-  "languages": [
-    "python"
-  ],
+  "description": "Detect code injection in Python via taint analysis: user-controlled data reaching eval(), exec(), or compile() sinks",
+  "languages": ["python"],
   "graph": [
     {
-      "match_pattern": "(call function: (identifier) @fn)"
+      "taint_sources": [
+        {"pattern": "request.form", "kind": "user_input"},
+        {"pattern": "request.args", "kind": "user_input"},
+        {"pattern": "request.data", "kind": "user_input"},
+        {"pattern": "request.json", "kind": "user_input"},
+        {"pattern": "request.values", "kind": "user_input"},
+        {"pattern": "request.POST", "kind": "user_input"},
+        {"pattern": "request.GET", "kind": "user_input"},
+        {"pattern": "request.body", "kind": "user_input"},
+        {"pattern": "input(", "kind": "user_input"},
+        {"pattern": "sys.argv", "kind": "user_input"},
+        {"pattern": "os.environ", "kind": "env_var"},
+        {"pattern": "os.environ.get", "kind": "env_var"}
+      ]
+    },
+    {
+      "taint_sanitizers": []
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "eval", "vulnerability": "code_injection"},
+        {"pattern": "exec", "vulnerability": "code_injection"},
+        {"pattern": "compile", "vulnerability": "code_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "code_injection_call",
-        "message": "Direct function call detected -- verify this is not eval(), exec(), or compile() with a dynamic argument",
+        "message": "Code injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

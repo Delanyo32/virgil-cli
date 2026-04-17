@@ -1752,22 +1752,18 @@ fn command_injection_python_clean() {
 #[test]
 fn code_injection_python_finds_direct_call() {
     let dir = tempfile::tempdir().unwrap();
-    // Direct identifier call -- triggers code_injection_call pattern
+    // 'request' is auto-tainted (matches PARAM_PATTERNS); eval() is the sink.
     std::fs::write(
         dir.path().join("test.py"),
-        "eval(user_input)\n",
-    )
-    .unwrap();
-
+        "def handle(request):\n    user_input = request.args.get('cmd')\n    eval(user_input)\n",
+    ).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
-
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
         .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
-
     assert!(
         findings.iter().any(|f| f.pipeline == "code_injection" && f.pattern == "code_injection_call"),
         "expected code_injection/code_injection_call finding for Python; got: {:?}",
@@ -1798,6 +1794,26 @@ fn code_injection_python_clean() {
         !findings.iter().any(|f| f.pipeline == "code_injection" && f.file_path.ends_with(".py")),
         "expected no code_injection finding for Python; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn code_injection_python_no_fp_eval_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    // eval() with a literal arg — no taint source anywhere in the file.
+    // Currently fires (broad match_pattern); after fix must NOT fire.
+    std::fs::write(dir.path().join("test.py"), "eval(\"1 + 1\")\n").unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "code_injection"),
+        "expected no code_injection finding for eval with literal; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
 
