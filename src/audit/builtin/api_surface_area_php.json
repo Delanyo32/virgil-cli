@@ -35,7 +35,7 @@
             {
               "metrics": {
                 "count": {
-                  "gte": 15
+                  "gte": 20
                 }
               }
             },

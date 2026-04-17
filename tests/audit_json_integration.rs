@@ -76,8 +76,8 @@ fn module_size_distribution_rust_clean_file() {
 #[test]
 fn api_surface_area_typescript_finds_excessive() {
     let dir = tempfile::tempdir().unwrap();
-    // 11 exported functions in one file, all exported = 100% ratio > 80% threshold
-    let content: String = (0..11)
+    // 21 exported functions in one file, all exported = 100% ratio > 80% threshold, count > 20 threshold
+    let content: String = (0..21)
         .map(|i| format!("export function handler_{i}() {{}}\n"))
         .collect();
     std::fs::write(dir.path().join("handlers.ts"), content).unwrap();
