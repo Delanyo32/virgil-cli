@@ -1,0 +1,48 @@
+{
+  "pipeline": "sql_injection_python",
+  "category": "security",
+  "description": "Detect SQL injection via taint analysis: user-controlled data reaching SQL execution sinks without sanitization",
+  "languages": ["python"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "request.form", "kind": "user_input"},
+          {"pattern": "request.args", "kind": "user_input"},
+          {"pattern": "request.data", "kind": "user_input"},
+          {"pattern": "request.json", "kind": "user_input"},
+          {"pattern": "request.values", "kind": "user_input"},
+          {"pattern": "os.environ", "kind": "env_var"},
+          {"pattern": "os.environ.get", "kind": "env_var"},
+          {"pattern": "input(", "kind": "user_input"},
+          {"pattern": "sys.argv", "kind": "user_input"}
+        ],
+        "sinks": [
+          {"pattern": "cursor.execute", "vulnerability": "sql_injection"},
+          {"pattern": "cursor.executemany", "vulnerability": "sql_injection"},
+          {"pattern": "db.execute", "vulnerability": "sql_injection"},
+          {"pattern": "connection.execute", "vulnerability": "sql_injection"},
+          {"pattern": "session.execute", "vulnerability": "sql_injection"},
+          {"pattern": "engine.execute", "vulnerability": "sql_injection"},
+          {"pattern": "raw(", "vulnerability": "sql_injection"},
+          {"pattern": "text(", "vulnerability": "sql_injection"}
+        ],
+        "sanitizers": [
+          {"pattern": "escape"},
+          {"pattern": "quote"},
+          {"pattern": "prepare"},
+          {"pattern": "parameterize"},
+          {"pattern": "bind_param"},
+          {"pattern": "placeholder"}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "sql_injection",
+        "message": "SQL injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}

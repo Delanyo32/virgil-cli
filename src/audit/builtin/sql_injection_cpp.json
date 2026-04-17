@@ -1,0 +1,41 @@
+{
+  "pipeline": "sql_injection_cpp",
+  "category": "security",
+  "description": "Detect SQL injection in C++ via taint analysis",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "getenv(", "kind": "env_var"},
+          {"pattern": "fgets(", "kind": "user_input"},
+          {"pattern": "scanf(", "kind": "user_input"},
+          {"pattern": "cin >>", "kind": "user_input"},
+          {"pattern": "readline(", "kind": "user_input"},
+          {"pattern": "argv[", "kind": "user_input"}
+        ],
+        "sinks": [
+          {"pattern": "mysql_query(", "vulnerability": "sql_injection"},
+          {"pattern": "sqlite3_exec(", "vulnerability": "sql_injection"},
+          {"pattern": "PQexec(", "vulnerability": "sql_injection"},
+          {"pattern": "execute(", "vulnerability": "sql_injection"},
+          {"pattern": "sprintf(", "vulnerability": "sql_injection"}
+        ],
+        "sanitizers": [
+          {"pattern": "mysql_real_escape_string"},
+          {"pattern": "sqlite3_prepare"},
+          {"pattern": "PQprepare"},
+          {"pattern": "snprintf"},
+          {"pattern": "strlcpy"}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "sql_injection",
+        "message": "SQL injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}

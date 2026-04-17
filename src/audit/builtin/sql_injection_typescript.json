@@ -1,0 +1,48 @@
+{
+  "pipeline": "sql_injection_typescript",
+  "category": "security",
+  "description": "Detect SQL injection in TypeScript via taint analysis",
+  "languages": ["typescript"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "req.body", "kind": "user_input"},
+          {"pattern": "req.query", "kind": "user_input"},
+          {"pattern": "req.params", "kind": "user_input"},
+          {"pattern": "req.headers", "kind": "user_input"},
+          {"pattern": "request.body", "kind": "user_input"},
+          {"pattern": "request.query", "kind": "user_input"},
+          {"pattern": "process.env", "kind": "env_var"},
+          {"pattern": "process.argv", "kind": "user_input"}
+        ],
+        "sinks": [
+          {"pattern": "query(", "vulnerability": "sql_injection"},
+          {"pattern": "execute(", "vulnerability": "sql_injection"},
+          {"pattern": "raw(", "vulnerability": "sql_injection"},
+          {"pattern": "db.query", "vulnerability": "sql_injection"},
+          {"pattern": "connection.query", "vulnerability": "sql_injection"},
+          {"pattern": "pool.query", "vulnerability": "sql_injection"},
+          {"pattern": "knex.raw", "vulnerability": "sql_injection"},
+          {"pattern": "sequelize.query", "vulnerability": "sql_injection"}
+        ],
+        "sanitizers": [
+          {"pattern": "escape"},
+          {"pattern": "sanitize"},
+          {"pattern": "parameterize"},
+          {"pattern": "placeholder"},
+          {"pattern": "parseInt"},
+          {"pattern": "parseFloat"},
+          {"pattern": "Number("}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "sql_injection",
+        "message": "SQL injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}

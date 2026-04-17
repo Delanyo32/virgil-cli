@@ -1,0 +1,45 @@
+{
+  "pipeline": "sql_injection_java",
+  "category": "security",
+  "description": "Detect SQL injection in Java via taint analysis",
+  "languages": ["java"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "getParameter", "kind": "user_input"},
+          {"pattern": "getHeader", "kind": "user_input"},
+          {"pattern": "getInputStream", "kind": "user_input"},
+          {"pattern": "getReader", "kind": "user_input"},
+          {"pattern": "System.getenv", "kind": "env_var"},
+          {"pattern": "System.getProperty", "kind": "env_var"},
+          {"pattern": "args[", "kind": "user_input"},
+          {"pattern": "readLine", "kind": "user_input"}
+        ],
+        "sinks": [
+          {"pattern": "executeQuery", "vulnerability": "sql_injection"},
+          {"pattern": "executeUpdate", "vulnerability": "sql_injection"},
+          {"pattern": "execute(", "vulnerability": "sql_injection"},
+          {"pattern": "createStatement", "vulnerability": "sql_injection"},
+          {"pattern": "addBatch", "vulnerability": "sql_injection"},
+          {"pattern": "nativeQuery", "vulnerability": "sql_injection"}
+        ],
+        "sanitizers": [
+          {"pattern": "PreparedStatement"},
+          {"pattern": "prepareStatement"},
+          {"pattern": "setString"},
+          {"pattern": "setInt"},
+          {"pattern": "parameterize"},
+          {"pattern": "StringEscapeUtils.escapeSql"}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "sql_injection",
+        "message": "SQL injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}
