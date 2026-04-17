@@ -1,7 +1,7 @@
 {
   "pipeline": "argument_mutation",
-  "category": "code-quality",
-  "description": "Detects mutation of function parameters in JavaScript -- creates hidden side effects for callers. Simplified from Rust: flags all assignment_expression nodes inside function bodies without checking if the left-hand side refers to a parameter identifier (no scope analysis), without Object.assign detection, and without NOLINT support.",
+  "category": "code_style",
+  "description": "Detects mutation of function parameters in JavaScript. NOTE: high false positive rate -- fires on any member property assignment inside a function body, including locally-constructed objects (e.g. const filter = {}; filter.role = role). A proper fix requires scope analysis (lhs_is_parameter primitive) planned as a follow-up. Manual triage required.",
   "languages": [
     "javascript"
   ],
@@ -12,8 +12,8 @@
     {
       "flag": {
         "pattern": "argument_mutation",
-        "message": "Member expression assignment detected -- if the object is a function parameter, this mutates the caller's data creating hidden side effects",
-        "severity": "warning"
+        "message": "Member expression assignment -- manually verify the object is a function parameter, not a local variable (false positives likely)",
+        "severity": "info"
       }
     }
   ]
