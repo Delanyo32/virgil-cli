@@ -9,7 +9,6 @@ use crate::language::Language;
 use crate::parser;
 use crate::workspace::Workspace;
 
-use super::analyzers;
 use super::models::{AuditFinding, AuditSummary};
 use super::pipeline::{self, AnyPipeline, GraphPipelineContext, PipelineContext};
 use super::pipelines::helpers::count_all_identifier_occurrences;
@@ -236,27 +235,6 @@ impl AuditEngine {
 
         let mut findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
 
-        // Run project-level analyzers if graph is provided
-        if let Some(g) = graph {
-            let mut project_analyzers: Vec<Box<dyn super::project_analyzer::ProjectAnalyzer>> =
-                match self.pipeline_selector {
-                    PipelineSelector::Architecture => analyzers::architecture_analyzers(),
-                    PipelineSelector::CodeStyle => analyzers::code_style_analyzers(),
-                    _ => Vec::new(),
-                };
-
-            // JSON audits override Rust analyzers with the same pipeline name
-            project_analyzers.retain(|a| !json_pipeline_names.contains(a.name()));
-
-            if !self.pipeline_filter.is_empty() {
-                project_analyzers.retain(|a| self.pipeline_filter.contains(&a.name().to_string()));
-            }
-
-            for analyzer in &project_analyzers {
-                findings.extend(analyzer.analyze(g));
-            }
-        }
-
         // Run JSON audit pipelines after Rust pipelines
         if let Some(g) = graph {
             for json_audit in &json_audits {
@@ -482,32 +460,21 @@ mod tests {
         assert!(summary.total_findings > 0);
     }
 
-    /// When a project-local JSON audit has the same pipeline name as a built-in Rust
-    /// ProjectAnalyzer, the Rust analyzer is skipped (JSON wins).
+    /// A project-local JSON audit named "cross_file_coupling" runs and produces findings
+    /// (all architecture analysis is now JSON-only; no Rust ProjectAnalyzer to override).
     #[test]
-    fn engine_json_audit_overrides_rust_project_analyzer() {
-        use crate::audit::analyzers;
-
-        // Verify that "cross_file_coupling" is among the architecture analyzers
-        // (so we know we're testing a real override of a Rust ProjectAnalyzer).
-        let arch_analyzers = analyzers::architecture_analyzers();
-        let arch_names: Vec<&str> = arch_analyzers.iter().map(|a| a.name()).collect();
-        assert!(
-            arch_names.contains(&"cross_file_coupling"),
-            "precondition: cross_file_coupling must be an architecture analyzer"
-        );
-
-        // Build a project dir with a JSON audit that overrides cross_file_coupling
+    fn engine_json_audit_cross_file_coupling_runs() {
+        // Build a project dir with a JSON audit for cross_file_coupling
         let proj_dir = tempfile::tempdir().expect("proj_dir");
         let audit_dir = proj_dir.path().join(".virgil").join("audits");
         std::fs::create_dir_all(&audit_dir).unwrap();
         let override_json = r#"{
             "pipeline": "cross_file_coupling",
             "category": "architecture",
-            "description": "JSON override of cross_file_coupling",
+            "description": "JSON cross_file_coupling",
             "graph": [
                 {"select": "file"},
-                {"flag": {"pattern": "json_coupling", "message": "json override {{file}}", "severity": "info"}}
+                {"flag": {"pattern": "json_coupling", "message": "json coupling {{file}}", "severity": "info"}}
             ]
         }"#;
         std::fs::write(
@@ -531,14 +498,14 @@ mod tests {
             .run(&workspace, Some(&graph))
             .unwrap();
 
-        // The JSON override should produce json_coupling findings, not the Rust analyzer output
+        // The JSON pipeline should produce json_coupling findings
         let json_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.pipeline == "cross_file_coupling" && f.pattern == "json_coupling")
             .collect();
         assert!(
             !json_findings.is_empty(),
-            "expected json_coupling findings from the JSON override"
+            "expected json_coupling findings from the JSON pipeline"
         );
     }
 }
