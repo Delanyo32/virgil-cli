@@ -304,8 +304,8 @@ fn find_node_at_line(
     start_line: u32,
     end_line: u32,
 ) -> Option<tree_sitter::Node> {
-    let node_start = node.start_position().row as u32;
-    let node_end = node.end_position().row as u32;
+    let node_start = node.start_position().row as u32 + 1;
+    let node_end = node.end_position().row as u32 + 1;
 
     if node_start == start_line && node_end == end_line {
         return Some(node);
