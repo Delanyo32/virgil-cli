@@ -2,7 +2,9 @@
   "pipeline": "magic_numbers",
   "category": "code-quality",
   "description": "Detects numeric literals outside const/constexpr/enum/macro contexts in C++ that should be named constants. Simplified from Rust: flags all number_literal nodes (info severity) without exempt-value filtering (0, 1, 2, powers-of-2), context exemptions (const, constexpr, enum, #define, case labels, template args), suffix normalization, or NOLINT suppression. Higher false-positive rate.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(number_literal) @number"

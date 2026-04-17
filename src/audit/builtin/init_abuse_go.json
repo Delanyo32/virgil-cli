@@ -2,7 +2,9 @@
   "pipeline": "init_abuse",
   "category": "code-quality",
   "description": "Detects side effects in Go init() functions: database opens, HTTP calls, file I/O, and other startup-time anti-patterns. Simplified from Rust: flags all function declarations named 'init'. Cannot filter for specific side-effect call patterns inside the init body.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(function_declaration name: (identifier) @name body: (block) @body) @fn"

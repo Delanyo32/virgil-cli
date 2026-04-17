@@ -2,7 +2,9 @@
   "pipeline": "cpp_integer_overflow",
   "category": "security",
   "description": "Detects integer overflow risks in C++: unchecked multiplication in new[] allocation, signed-to-size_t casts, size_t subtraction underflow. Simplified from Rust per D-07: flags new_expression nodes broadly (cannot verify multiplication operand types or detect cast expressions without deep AST traversal).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(new_expression) @new_expr"

@@ -2,7 +2,9 @@
   "pipeline": "dead_code",
   "category": "code-quality",
   "description": "Detects unused imports and unreachable code in JavaScript. Simplified from Rust: flags import_statement nodes (unused imports) and return/throw/break/continue statements (potential unreachable code follows). Cannot perform cross-file usage analysis or detect actual unreachable statements -- all imports and early-exit statements flagged.",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "[(import_statement) @import (return_statement) @ret (throw_statement) @throw]"

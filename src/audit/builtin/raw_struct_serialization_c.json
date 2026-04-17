@@ -2,7 +2,9 @@
   "pipeline": "raw_struct_serialization",
   "category": "code-quality",
   "description": "Detects fwrite/fread/write/send with sizeof(struct) which is non-portable due to padding. Simplified from Rust: flags all call_expression nodes without filtering by function name or verifying sizeof argument contains a struct type. Does not check for __attribute__((packed)) or #pragma pack. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list (sizeof_expression) @sizeof_arg) @args) @call"

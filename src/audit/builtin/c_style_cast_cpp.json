@@ -2,7 +2,9 @@
   "pipeline": "c_style_cast",
   "category": "code-quality",
   "description": "Detects C-style casts in C++ -- prefer static_cast/dynamic_cast/const_cast/reinterpret_cast. Simplified from Rust: flags all cast_expression nodes uniformly (warning severity) without distinguishing pointer casts (error) vs numeric casts (info) vs void casts (skip). NOLINT suppression and macro-context detection are not supported in the JSON DSL.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(cast_expression) @cast_expr"

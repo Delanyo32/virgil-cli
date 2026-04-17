@@ -2,7 +2,9 @@
   "pipeline": "duplicate_code",
   "category": "code-quality",
   "description": "Detects duplicate function bodies and duplicate switch case arms in C. Simplified from Rust: flags all function_definition nodes with compound_statement body without hash-based similarity detection across functions. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(function_definition declarator: (_) @fn_decl body: (compound_statement) @fn_body) @fn_def"

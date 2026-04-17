@@ -2,7 +2,9 @@
   "pipeline": "path_traversal",
   "category": "security",
   "description": "Detects path traversal risks in Rust: unvalidated path join/push calls. Simplified from Rust: flags all .join() and .push() method calls on any receiver, not just those with param-derived arguments or path-named receivers. Precision reduced -- non-path join/push calls also flagged.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method) @call_fn) @call"

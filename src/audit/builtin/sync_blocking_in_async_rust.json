@@ -2,7 +2,9 @@
   "pipeline": "sync_blocking_in_async",
   "category": "scalability",
   "description": "Detects scoped function calls in Rust (potential std::fs::*, std::thread::sleep, std::net::* blocking calls inside async fn). JSON version cannot filter by path prefix or verify async fn containment. All scoped calls flagged.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (scoped_identifier) @fn)"

@@ -2,30 +2,74 @@
   "pipeline": "xxe_python",
   "category": "security",
   "description": "Detect XXE in Python: user-controlled XML parsed without disabling external entities",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "taint": {
         "sources": [
-          {"pattern": "request.data",     "kind": "user_input"},
-          {"pattern": "request.body",     "kind": "user_input"},
-          {"pattern": "request.files",    "kind": "user_input"},
-          {"pattern": "request.form",     "kind": "user_input"},
-          {"pattern": "input(",           "kind": "user_input"}
+          {
+            "pattern": "request.data",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "request.body",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "request.files",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "request.form",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "input(",
+            "kind": "user_input"
+          }
         ],
         "sinks": [
-          {"pattern": "etree.parse(",                    "vulnerability": "xxe"},
-          {"pattern": "etree.fromstring(",               "vulnerability": "xxe"},
-          {"pattern": "xml.etree.ElementTree.parse",     "vulnerability": "xxe"},
-          {"pattern": "lxml.etree.parse(",               "vulnerability": "xxe"},
-          {"pattern": "minidom.parseString(",            "vulnerability": "xxe"},
-          {"pattern": "sax.parse(",                      "vulnerability": "xxe"},
-          {"pattern": "xmltodict.parse(",                "vulnerability": "xxe"}
+          {
+            "pattern": "etree.parse(",
+            "vulnerability": "xxe"
+          },
+          {
+            "pattern": "etree.fromstring(",
+            "vulnerability": "xxe"
+          },
+          {
+            "pattern": "xml.etree.ElementTree.parse",
+            "vulnerability": "xxe"
+          },
+          {
+            "pattern": "lxml.etree.parse(",
+            "vulnerability": "xxe"
+          },
+          {
+            "pattern": "minidom.parseString(",
+            "vulnerability": "xxe"
+          },
+          {
+            "pattern": "sax.parse(",
+            "vulnerability": "xxe"
+          },
+          {
+            "pattern": "xmltodict.parse(",
+            "vulnerability": "xxe"
+          }
         ],
         "sanitizers": [
-          {"pattern": "defusedxml"},
-          {"pattern": "resolve_entities=False"},
-          {"pattern": "XMLParser(resolve_entities=False)"}
+          {
+            "pattern": "defusedxml"
+          },
+          {
+            "pattern": "resolve_entities=False"
+          },
+          {
+            "pattern": "XMLParser(resolve_entities=False)"
+          }
         ]
       }
     },

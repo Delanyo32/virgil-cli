@@ -1,19 +1,30 @@
 {
   "pipeline": "duplicate_symbols",
   "category": "code_style",
-  "description": "Detect exported symbols with the same name defined across multiple files — potential naming collisions.",
+  "description": "Detect exported symbols with the same name defined across multiple files \u2014 potential naming collisions.",
   "graph": [
     {
       "select": "symbol",
-      "where": {"exported": true},
+      "where": {
+        "exported": true
+      },
       "exclude": {
         "or": [
-          {"is_test_file": true},
-          {"is_generated": true}
+          {
+            "is_test_file": true
+          },
+          {
+            "is_generated": true
+          }
         ]
       }
     },
-    {"find_duplicates": {"by": "name", "min_count": 2}},
+    {
+      "find_duplicates": {
+        "by": "name",
+        "min_count": 2
+      }
+    },
     {
       "flag": {
         "pattern": "duplicate_symbol",

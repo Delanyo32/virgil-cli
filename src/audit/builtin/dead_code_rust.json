@@ -2,12 +2,21 @@
   "pipeline": "dead_code",
   "category": "code-quality",
   "description": "Detects potentially unused private functions, unused imports, and unreachable code in Rust. Simplified from Rust: flags exported symbols as candidates (no cross-file reference counting available in JSON DSL). Cannot detect unused_private_function or unreachable_code patterns.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["function", "method"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "function",
+          "method"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

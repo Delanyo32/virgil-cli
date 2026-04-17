@@ -2,7 +2,9 @@
   "pipeline": "coupling",
   "category": "code-quality",
   "description": "Detects high coupling in PHP files via use/require/include statements. Simplified from Rust: flags all namespace_use_declaration nodes as coupling indicators. Cannot count total imports against the 15-import threshold, detect parameter overload (>=5 params), or check low-cohesion methods missing $this references.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "match_pattern": "(namespace_use_declaration) @use_stmt"

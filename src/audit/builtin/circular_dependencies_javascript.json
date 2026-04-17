@@ -2,26 +2,59 @@
   "pipeline": "circular_dependencies_javascript",
   "category": "architecture",
   "description": "Detect circular import chains in TypeScript/JavaScript using Tarjan SCC algorithm",
-  "languages": ["typescript", "javascript", "tsx", "jsx"],
+  "languages": [
+    "typescript",
+    "javascript",
+    "tsx",
+    "jsx"
+  ],
   "graph": [
     {
       "select": "file",
       "exclude": {
         "or": [
-          {"is_test_file": true},
-          {"is_generated": true}
+          {
+            "is_test_file": true
+          },
+          {
+            "is_generated": true
+          }
         ]
       }
     },
-    {"find_cycles": {"edge": "imports"}},
+    {
+      "find_cycles": {
+        "edge": "imports"
+      }
+    },
     {
       "flag": {
         "pattern": "circular_dependency",
         "message": "Circular dependency ({{cycle_size}} files): {{cycle_path}}",
         "severity_map": [
-          {"when": {"cycle_size": {"eq": 2}}, "severity": "info"},
-          {"when": {"cycle_size": {"lte": 5}}, "severity": "warning"},
-          {"severity": "error"}
+          {
+            "when": {
+              "metrics": {
+                "cycle_size": {
+                  "eq": 2
+                }
+              }
+            },
+            "severity": "info"
+          },
+          {
+            "when": {
+              "metrics": {
+                "cycle_size": {
+                  "lte": 5
+                }
+              }
+            },
+            "severity": "warning"
+          },
+          {
+            "severity": "error"
+          }
         ]
       }
     }

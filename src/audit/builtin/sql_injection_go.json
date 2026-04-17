@@ -2,34 +2,88 @@
   "pipeline": "sql_injection_go",
   "category": "security",
   "description": "Detect SQL injection in Go via taint analysis",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "taint": {
         "sources": [
-          {"pattern": "r.URL.Query()", "kind": "user_input"},
-          {"pattern": "r.FormValue", "kind": "user_input"},
-          {"pattern": "r.PostFormValue", "kind": "user_input"},
-          {"pattern": "r.Header.Get", "kind": "user_input"},
-          {"pattern": "r.Body", "kind": "user_input"},
-          {"pattern": "os.Getenv", "kind": "env_var"},
-          {"pattern": "os.Args", "kind": "user_input"},
-          {"pattern": "flag.String", "kind": "user_input"}
+          {
+            "pattern": "r.URL.Query()",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "r.FormValue",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "r.PostFormValue",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "r.Header.Get",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "r.Body",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "os.Getenv",
+            "kind": "env_var"
+          },
+          {
+            "pattern": "os.Args",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "flag.String",
+            "kind": "user_input"
+          }
         ],
         "sinks": [
-          {"pattern": "db.Query", "vulnerability": "sql_injection"},
-          {"pattern": "db.Exec", "vulnerability": "sql_injection"},
-          {"pattern": "db.QueryRow", "vulnerability": "sql_injection"},
-          {"pattern": "tx.Query", "vulnerability": "sql_injection"},
-          {"pattern": "tx.Exec", "vulnerability": "sql_injection"},
-          {"pattern": "Sprintf", "vulnerability": "sql_injection"}
+          {
+            "pattern": "db.Query",
+            "vulnerability": "sql_injection"
+          },
+          {
+            "pattern": "db.Exec",
+            "vulnerability": "sql_injection"
+          },
+          {
+            "pattern": "db.QueryRow",
+            "vulnerability": "sql_injection"
+          },
+          {
+            "pattern": "tx.Query",
+            "vulnerability": "sql_injection"
+          },
+          {
+            "pattern": "tx.Exec",
+            "vulnerability": "sql_injection"
+          },
+          {
+            "pattern": "Sprintf",
+            "vulnerability": "sql_injection"
+          }
         ],
         "sanitizers": [
-          {"pattern": "db.Prepare"},
-          {"pattern": "db.PrepareContext"},
-          {"pattern": "strconv.Atoi"},
-          {"pattern": "strconv.ParseInt"},
-          {"pattern": "regexp.MustCompile"}
+          {
+            "pattern": "db.Prepare"
+          },
+          {
+            "pattern": "db.PrepareContext"
+          },
+          {
+            "pattern": "strconv.Atoi"
+          },
+          {
+            "pattern": "strconv.ParseInt"
+          },
+          {
+            "pattern": "regexp.MustCompile"
+          }
         ]
       }
     },

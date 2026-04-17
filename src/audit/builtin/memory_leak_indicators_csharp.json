@@ -2,7 +2,9 @@
   "pipeline": "memory_leak_indicators",
   "category": "scalability",
   "description": "Detects memory leak indicators in C#: object creation expressions for known IDisposable types (SqlConnection, HttpClient, StreamReader, FileStream, etc.) that may not be properly disposed. Simplified per D-09: flags IDisposable type instantiations without verifying using block. Cannot verify try-with-resources closure without cross-statement analysis.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(object_creation_expression type: (_) @type_name arguments: (argument_list) @args) @creation"

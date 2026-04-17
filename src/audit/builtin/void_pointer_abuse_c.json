@@ -2,7 +2,9 @@
   "pipeline": "void_pointer_abuse",
   "category": "code-quality",
   "description": "Detects void* parameters and return types that bypass type safety. Simplified from Rust: flags all parameter_declaration nodes with void type and pointer_declarator without checking for const void*, callback context patterns, or function-pointer co-occurrence. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(parameter_declaration type: (primitive_type) @type_name declarator: (pointer_declarator) @ptr_decl) @param_decl"

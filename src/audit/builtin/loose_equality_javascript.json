@@ -2,7 +2,9 @@
   "pipeline": "loose_equality",
   "category": "code-quality",
   "description": "Detects `==` and `!=` operators in JavaScript which perform type coercion. Simplified from Rust: flags all binary_expression nodes without filtering out typeof comparisons or null checks. Prefer `===` and `!==` for strict comparison.",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "[(binary_expression operator: \"==\" @op) (binary_expression operator: \"!=\" @op)] @expr"

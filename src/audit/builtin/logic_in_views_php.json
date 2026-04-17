@@ -2,7 +2,9 @@
   "pipeline": "logic_in_views",
   "category": "code-quality",
   "description": "Detects PHP control flow and database calls that indicate MVC violations (logic in view files). Simplified from Rust: flags all if_statement nodes in PHP files as potential logic-in-view indicators. Cannot detect HTML output context, restrict to DB function calls (mysqli_query, pg_query), or filter by DB object variable names ($db, $pdo, etc.).",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "match_pattern": "(if_statement) @if_stmt"

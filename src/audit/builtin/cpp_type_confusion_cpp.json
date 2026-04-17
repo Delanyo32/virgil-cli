@@ -2,7 +2,9 @@
   "pipeline": "cpp_type_confusion",
   "category": "security",
   "description": "Detects type confusion in C++: reinterpret_cast between unrelated types, unsafe static_cast downcasts, union with typed fields (type-punning risk). Simplified from Rust per D-07: flags new_expression nodes broadly (cannot verify cast target types or union field diversity without deep AST inspection).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(new_expression) @new_expr"

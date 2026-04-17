@@ -2,7 +2,9 @@
   "pipeline": "mutable_default_args",
   "category": "tech_debt",
   "description": "Detects mutable default arguments (list, dict, set literals and mutable constructor calls) in function parameters. Simplified from Rust: flags all default_parameter and typed_default_parameter nodes.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "[(default_parameter) @param (typed_default_parameter) @param]"

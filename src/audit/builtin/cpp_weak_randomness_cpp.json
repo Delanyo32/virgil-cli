@@ -2,7 +2,9 @@
   "pipeline": "cpp_weak_randomness",
   "category": "security",
   "description": "Detects weak randomness in C++: rand()/srand() in security contexts, timing side-channel via memcmp/strcmp on sensitive data. Simplified from Rust per D-07: flags all call_expression nodes (cannot check enclosing function name or argument content for security keywords without cross-node analysis).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (_) @fn_name arguments: (argument_list) @args) @call"

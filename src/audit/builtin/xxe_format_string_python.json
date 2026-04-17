@@ -2,7 +2,9 @@
   "pipeline": "xxe_format_string",
   "category": "security",
   "description": "Detects XXE risks and format string injection in Python: XML parsing with ET.fromstring/ET.parse/etree.parse, and variable.format() calls. Simplified from Rust: flags all attribute calls (cannot distinguish XML parse methods from safe calls, cannot verify dynamic input, cannot verify .format() is on an identifier vs string literal). All attribute calls flagged.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"

@@ -2,7 +2,9 @@
   "pipeline": "error_swallowing",
   "category": "code-quality",
   "description": "Detects potential discarded error returns in Go via assignment_statement nodes. Simplified from Rust: flags all assignment_statement nodes. Cannot check for blank_identifier specifically, cannot distinguish error vs. non-error returns, cannot skip defer context or safe cleanup methods. Higher false positive rate than Rust implementation.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(assignment_statement) @assign"

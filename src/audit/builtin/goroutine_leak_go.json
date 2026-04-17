@@ -2,7 +2,9 @@
   "pipeline": "goroutine_leak",
   "category": "code-quality",
   "description": "Detects goroutine launches in Go that may leak: `go func(){}()` or `go namedFunc()`. Simplified from Rust: flags all go_statement nodes without checking for for-loop containment, select+ctx.Done() presence, or for-range channel patterns. Higher false positive rate than Rust implementation.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(go_statement) @go"

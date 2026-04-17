@@ -2,7 +2,9 @@
   "pipeline": "csharp_race_conditions",
   "category": "security",
   "description": "Detects race condition risks in C#: field declarations that may be shared state in concurrent contexts (Dictionary, List, HashSet without thread safety). JSON version matches all field declarations (cannot verify concurrent context or check for Concurrent/Immutable types without #match? predicate support). Simplified per D-07.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(field_declaration (variable_declaration (variable_declarator (identifier) @field_name))) @field_decl"

@@ -2,7 +2,9 @@
   "pipeline": "uninitialized_member",
   "category": "code-quality",
   "description": "Detects uninitialized primitive member variables in classes/structs in C++. Simplified from Rust: flags all field_declaration nodes inside class/struct bodies (warning severity) without filtering by primitive type, checking for NSDMI initializers, constructor initializer lists, static members, or NOLINT suppression. Higher false-positive rate -- all class fields are flagged.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(field_declaration) @field_decl"

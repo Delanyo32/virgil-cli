@@ -2,7 +2,9 @@
   "pipeline": "null_reference_risk",
   "category": "code-quality",
   "description": "Detects C# explicit null returns and deep member access chains without null-conditional operators. Simplified from Rust: flags all null_literal nodes. Cannot detect deep member access chains (a.b.c.d patterns) or filter by nullable return type context. Pattern detection only.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(null_literal) @null_lit"

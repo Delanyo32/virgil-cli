@@ -2,7 +2,10 @@
   "pipeline": "unsafe_type_assertions_security",
   "category": "security",
   "description": "Detects unsafe type assertion patterns in TypeScript security context: type predicate functions using 'as any' (guard may lie about runtime type), generic functions returning JSON.parse without validation (caller trusts arbitrary shape). Simplified from Rust: flags all as_expression nodes within function bodies (cannot filter to only type predicate functions or check for JSON.parse + return without validation without #match? predicate support). All type assertions flagged.",
-  "languages": ["typescript", "tsx"],
+  "languages": [
+    "typescript",
+    "tsx"
+  ],
   "graph": [
     {
       "match_pattern": "(as_expression) @as_expr"

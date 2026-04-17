@@ -2,7 +2,10 @@
   "pipeline": "sync_blocking_in_async",
   "category": "scalability",
   "description": "Detects synchronous method calls in TypeScript/JavaScript (any member expression call). Note: JSON version cannot filter by Sync suffix (no #match? predicate support in executor) and cannot verify async containment. All member expression call_expressions are flagged. Dropped: Sync-suffix filtering, async-function containment check.",
-  "languages": ["typescript", "javascript"],
+  "languages": [
+    "typescript",
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression (member_expression (property_identifier) @method))"

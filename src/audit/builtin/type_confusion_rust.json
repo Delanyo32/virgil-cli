@@ -2,7 +2,9 @@
   "pipeline": "type_confusion",
   "category": "security",
   "description": "Detects type confusion risks in Rust: union definitions enable type reinterpretation. Simplified from Rust: flags union_item definitions only. Transmute detection overlaps with unsafe_memory pipeline and is omitted here to avoid duplicate findings.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(union_item name: (type_identifier) @union_name) @union_def"

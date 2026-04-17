@@ -2,7 +2,9 @@
   "pipeline": "c_weak_randomness",
   "category": "security",
   "description": "Detects weak randomness usage in C: rand(), random(), srand(time(NULL)), and memcmp/strcmp on security-sensitive data. Simplified from Rust: flags all call_expression nodes (cannot filter by function name or enclosing function name without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"

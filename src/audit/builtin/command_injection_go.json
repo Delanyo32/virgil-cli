@@ -2,7 +2,9 @@
   "pipeline": "command_injection",
   "category": "security",
   "description": "Detects command injection risks in Go: exec.Command and os/exec selector calls. JSON version matches all selector_expression calls (cannot filter by package/method name without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @method)) @call"

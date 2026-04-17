@@ -2,7 +2,9 @@
   "pipeline": "c_toctou",
   "category": "security",
   "description": "Detects TOCTOU (time-of-check time-of-use) race conditions in C: access() or stat() followed by open() on the same path. Simplified from Rust: flags all call_expression nodes (cannot detect check-then-use pairs across statements without multi-match support). Simplified per D-07: match access()/stat() calls broadly.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"

@@ -2,7 +2,9 @@
   "pipeline": "insecure_deserialization",
   "category": "security",
   "description": "Detects insecure deserialization in Python: pickle.loads/load, marshal.loads/load, shelve.open, yaml.load. Simplified from Rust: flags all attribute calls on any object. Cannot filter to only pickle/marshal/yaml objects or check for SafeLoader without #match? predicate support.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"

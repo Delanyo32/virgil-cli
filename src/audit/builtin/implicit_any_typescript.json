@@ -2,7 +2,9 @@
   "pipeline": "implicit_any",
   "category": "code-quality",
   "description": "Detects function parameters without type annotations (implicit any). Simplified from Rust: flags all formal_parameters nodes inside function declarations, arrow functions, and method definitions. Cannot inspect individual parameter children for type annotations -- all parameter lists flagged. Language scoped to typescript only.",
-  "languages": ["typescript"],
+  "languages": [
+    "typescript"
+  ],
   "graph": [
     {
       "match_pattern": "[(function_declaration parameters: (formal_parameters) @params) (arrow_function parameters: (formal_parameters) @params) (method_definition parameters: (formal_parameters) @params)]"

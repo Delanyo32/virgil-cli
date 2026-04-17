@@ -2,7 +2,9 @@
   "pipeline": "coupling",
   "category": "code-quality",
   "description": "Detects excessive includes, parameter overload, and low method cohesion in C++. Simplified from Rust: flags all preproc_include nodes (info severity) without threshold counting, parameter count checks, or method cohesion (this-reference) analysis. No cross-function reference counting in JSON DSL. Precision reduced -- every include directive is flagged.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(preproc_include) @include_dir"

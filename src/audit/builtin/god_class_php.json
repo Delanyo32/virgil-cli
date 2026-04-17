@@ -2,12 +2,20 @@
   "pipeline": "god_class",
   "category": "code-quality",
   "description": "Detects PHP classes with too many symbols, indicating a need to split responsibilities. Simplified from Rust: flags all classes via select:symbol without method/property counting. Cannot apply the 10-method threshold, composite threshold (7 methods + 10 properties), or trait-use allowance adjustment.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["class"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "class"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

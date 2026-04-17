@@ -2,7 +2,9 @@
   "pipeline": "test_pollution",
   "category": "tech_debt",
   "description": "Detects mutable module-level and class-level state in test files that can cause cross-test pollution. Simplified from Rust: flags assignment nodes at module level in test files.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "select": "file",

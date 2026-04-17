@@ -2,7 +2,9 @@
   "pipeline": "missing_final",
   "category": "code-quality",
   "description": "Detects private non-final fields in Java that could be made final. Simplified from Rust: flags all field_declaration nodes. Cannot check for private+non-final modifier combination, injection annotations (@Autowired, @Inject, @Value), volatile fields, or assignment-only-in-constructor detection.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "match_pattern": "(field_declaration) @field"

@@ -2,15 +2,21 @@
   "pipeline": "mutable_public_fields",
   "category": "code-quality",
   "description": "Detects public non-final fields in Java that expose mutable state. Simplified from Rust: flags exported variable symbols. Cannot check for the final modifier, injection annotations (@Entity, @Autowired), volatile/transient fields, or record declarations.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "select": "symbol",
       "where": {
-        "kind": ["variable"],
+        "kind": [
+          "variable"
+        ],
         "exported": true
       },
-      "exclude": {"is_test_file": true}
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

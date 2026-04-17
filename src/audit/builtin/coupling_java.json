@@ -2,7 +2,9 @@
   "pipeline": "coupling",
   "category": "code-quality",
   "description": "Detects high coupling in Java files via import declarations. Simplified from Rust: flags all import_declaration nodes as coupling indicators. Cannot count total imports against the 15-import threshold, detect parameter overload (>=5 params), or check low-cohesion methods.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "match_pattern": "(import_declaration) @import_stmt"

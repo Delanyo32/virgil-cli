@@ -2,7 +2,12 @@
   "pipeline": "timing_weak_crypto",
   "category": "security",
   "description": "Detects timing attacks and weak cryptography in JavaScript/TypeScript: string comparison on tokens/secrets (=== instead of constant-time compare), Math.random() for security values, createHash with MD5/SHA1, createCipheriv with ECB mode. Simplified from Rust: flags all member expression call_expressions (cannot filter to only Math.random/createHash/createCipheriv or check variable names without #match? predicate support). All method calls flagged.",
-  "languages": ["javascript", "jsx", "typescript", "tsx"],
+  "languages": [
+    "javascript",
+    "jsx",
+    "typescript",
+    "tsx"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method))"

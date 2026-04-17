@@ -2,7 +2,9 @@
   "pipeline": "pub_field_leakage",
   "category": "code-quality",
   "description": "Detects pub struct fields that expose implementation details in Rust. Simplified from Rust: matches any struct field with a visibility_modifier (pub). Does not check if enclosing struct itself is pub, does not exempt Config/Settings/Options/Params structs, does not skip structs with fewer than 3 fields or serde derives.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(field_declaration (visibility_modifier) @vis name: (field_identifier) @name)"

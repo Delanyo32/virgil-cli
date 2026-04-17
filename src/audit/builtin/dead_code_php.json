@@ -2,12 +2,21 @@
   "pipeline": "dead_code",
   "category": "code-quality",
   "description": "Detects potentially unused exported symbols in PHP files that may indicate dead code. Simplified from Rust: flags all function and method symbols as candidates. Cannot detect unused private methods (no cross-file reference counting), unused use-imports, or unreachable code after return/break/continue/throw.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["function", "method"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "function",
+          "method"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

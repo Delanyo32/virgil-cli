@@ -2,7 +2,9 @@
   "pipeline": "coupling",
   "category": "code-quality",
   "description": "Detects excessive imports, parameter overload, and low class cohesion in JavaScript. Simplified from Rust: flags all import_statement nodes (without counting against threshold >15) and all formal_parameters nodes with 6+ parameters (without threshold check). Low cohesion (no `this` access) not detectable in JSON DSL. Language scoped to javascript only.",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "(import_statement) @import"

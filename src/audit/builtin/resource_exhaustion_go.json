@@ -2,7 +2,9 @@
   "pipeline": "resource_exhaustion",
   "category": "security",
   "description": "Detects resource exhaustion risks in Go: unbounded goroutine spawning in loops. JSON version matches for_statement containing statement_list containing go_statement. Languages field scoped to go only to avoid conflict with Rust resource_exhaustion pipeline (same pipeline name). Go grammar wraps block contents in statement_list node. Precision reduced per D-07.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(for_statement body: (block (statement_list (go_statement) @go_stmt))) @for_stmt"

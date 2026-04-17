@@ -2,7 +2,9 @@
   "pipeline": "path_traversal",
   "category": "security",
   "description": "Detects path traversal risks in Python: os.path.join with dynamic args, open() with dynamic args. Simplified from Rust: flags all attribute calls (potential os.path.join, os.path.open) and direct identifier calls (potential open()). Cannot verify that args contain function parameters or that path validation is absent without #match? predicate support.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"

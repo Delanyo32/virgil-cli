@@ -2,7 +2,9 @@
   "pipeline": "go_type_confusion",
   "category": "security",
   "description": "Detects type confusion risks in Go: unsafe.Pointer casts, unguarded type assertions, and uintptr conversions. JSON version matches type_assertion_expression (all type assertions flagged -- cannot distinguish guarded from unguarded without #match? predicate). Precision reduced per D-07.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(type_assertion_expression (_) @operand (type_identifier) @asserted_type) @type_assertion"

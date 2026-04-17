@@ -2,7 +2,12 @@
   "pipeline": "insecure_deserialization",
   "category": "security",
   "description": "Detects insecure deserialization in JavaScript/TypeScript: eval/Function on JSON.parse result, postMessage without origin check. Simplified from Rust: flags all call_expression nodes with member_expression function (JSON.parse pattern) -- cannot filter to only JSON.parse or check if result is passed to eval without #match? predicate support. All member calls flagged.",
-  "languages": ["javascript", "jsx", "typescript", "tsx"],
+  "languages": [
+    "javascript",
+    "jsx",
+    "typescript",
+    "tsx"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (member_expression object: (identifier) @obj property: (property_identifier) @method))"

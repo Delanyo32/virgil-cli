@@ -2,12 +2,17 @@
   "pipeline": "duplicate_code",
   "category": "code_style",
   "description": "Detects duplicate function bodies and duplicate if/elif branches in Python. Simplified from Rust: flags function and method symbols as candidates for duplication review.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "select": "symbol",
       "where": {
-        "kind": ["function", "method"]
+        "kind": [
+          "function",
+          "method"
+        ]
       }
     },
     {

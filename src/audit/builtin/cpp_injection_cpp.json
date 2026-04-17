@@ -2,7 +2,9 @@
   "pipeline": "cpp_injection",
   "category": "security",
   "description": "Detects injection risks in C++: system()/popen() calls with dynamic arguments, printf family with variable format strings. Simplified from Rust per D-07: flags all call_expression nodes (cannot filter by function name or verify literal argument without #match? predicate support).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (_) @fn_name arguments: (argument_list) @args) @call"

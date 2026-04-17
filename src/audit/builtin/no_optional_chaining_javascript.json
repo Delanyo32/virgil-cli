@@ -2,7 +2,9 @@
   "pipeline": "no_optional_chaining",
   "category": "code-quality",
   "description": "Detects deep property chains (4+ levels) in JavaScript without optional chaining (?.). Simplified from Rust: flags member_expression nodes whose object is itself a member_expression nested at least 2 levels deep (indicating 4+ segments). Cannot detect optional_chain_expression usage or filter safe root globals. All 4+ deep chains flagged regardless of root.",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "(member_expression object: (member_expression object: (member_expression object: (_)))) @chain"

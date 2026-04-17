@@ -2,7 +2,9 @@
   "pipeline": "memory_leak_indicators",
   "category": "scalability",
   "description": "Detects potential memory/goroutine leak patterns in Go: goroutines launched inside loops. JSON version matches for_statement containing statement_list containing go_statement. Languages field scoped to go only to avoid conflict with Rust memory_leak_indicators pipeline (same pipeline name). Go grammar wraps block contents in statement_list node. JSON cannot detect unbounded append or defer-in-loop without additional patterns.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(for_statement body: (block (statement_list (go_statement) @go_stmt))) @for_stmt"

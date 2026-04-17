@@ -2,7 +2,9 @@
   "pipeline": "cpp_memory_mismanagement",
   "category": "security",
   "description": "Detects memory mismanagement in C++: delete-then-use (use-after-free), dangling string_view from temporaries, free() on new-allocated memory. Simplified from Rust per D-07: flags delete_expression nodes broadly (cannot track cross-statement variable liveness or verify string_view initializer type without full data-flow analysis).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(delete_expression) @del_expr"

@@ -2,7 +2,9 @@
   "pipeline": "unconstrained_generics",
   "category": "code-quality",
   "description": "Detects generic type parameters without `extends` constraints in function/method signatures. Simplified from Rust: flags all type_parameter nodes. Cannot check for constraint field, default type value, or limit to function/method context (class-level generics also flagged). Language scoped to typescript only.",
-  "languages": ["typescript"],
+  "languages": [
+    "typescript"
+  ],
   "graph": [
     {
       "match_pattern": "(type_parameter name: (type_identifier) @name) @param"

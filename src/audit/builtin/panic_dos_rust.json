@@ -2,7 +2,9 @@
   "pipeline": "panic_dos",
   "category": "security",
   "description": "Detects denial-of-service via panics in Rust: unwrap/expect on untrusted input. Simplified from Rust: flags all .unwrap() and .expect() method calls, not just those inside parameterized functions. Index expressions and narrowing casts omitted (cannot express without #match? predicate support). Precision reduced -- calls in zero-param functions also flagged.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method) @call_fn) @call"

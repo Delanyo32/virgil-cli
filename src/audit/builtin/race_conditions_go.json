@@ -2,7 +2,9 @@
   "pipeline": "race_conditions",
   "category": "security",
   "description": "Detects race condition risks in Go: goroutines spawned inside for loops (loop variable capture risk). JSON version matches for_statement containing statement_list containing go_statement. Languages field scoped to go only to avoid conflict with Rust race_conditions pipeline (same pipeline name). Go grammar wraps block contents in statement_list node.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(for_statement body: (block (statement_list (go_statement) @go_stmt))) @for_stmt"

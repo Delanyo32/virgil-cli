@@ -2,7 +2,9 @@
   "pipeline": "memory_leak_indicators",
   "category": "scalability",
   "description": "Detects memory leak indicators in PHP: fopen/curl_init/mysql_connect resource handles that may not be properly closed, and array growth patterns in loops. JSON version flags all function_call_expression nodes (cannot filter to resource-acquiring functions or verify fclose pairing without cross-statement analysis). Precision reduced per D-09.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "match_pattern": "(function_call_expression function: (name) @fn_name arguments: (arguments) @args) @call"

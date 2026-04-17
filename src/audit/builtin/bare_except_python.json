@@ -2,7 +2,9 @@
   "pipeline": "bare_except",
   "category": "tech_debt",
   "description": "Detects bare except: clauses without specifying an exception type. Simplified from Rust: flags all except_clause nodes. Cannot check for re-raise pattern or noqa suppression without predicate support.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(except_clause) @except"

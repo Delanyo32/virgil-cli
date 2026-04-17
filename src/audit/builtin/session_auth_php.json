@@ -2,7 +2,9 @@
   "pipeline": "session_auth",
   "category": "security",
   "description": "Detects weak session/authentication patterns in PHP: md5/sha1 for hashing, weak random for tokens (uniqid, rand, mt_rand). JSON version flags all function_call_expression nodes (cannot filter by function name or argument content without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "match_pattern": "(function_call_expression function: (name) @fn_name arguments: (arguments) @args) @call"

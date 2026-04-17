@@ -2,7 +2,9 @@
   "pipeline": "command_injection",
   "category": "security",
   "description": "Detects command injection risks in C#: Process.Start(), ProcessStartInfo with dynamic arguments, cmd.exe/powershell calls. JSON version matches all invocation expressions (cannot filter by method name or argument content without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(invocation_expression function: (_) @fn_expr arguments: (argument_list) @args) @call"

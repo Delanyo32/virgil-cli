@@ -2,7 +2,9 @@
   "pipeline": "java_race_conditions",
   "category": "security",
   "description": "Detects race condition risks in Java: unsynchronized shared collection fields (HashMap, ArrayList, etc.) in classes with threading constructs. JSON version matches all field_declaration nodes (cannot filter by type name or check for concurrent context without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "match_pattern": "(field_declaration declarator: (variable_declarator name: (identifier) @name)) @field"

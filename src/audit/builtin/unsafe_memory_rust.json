@@ -2,7 +2,9 @@
   "pipeline": "unsafe_memory",
   "category": "security",
   "description": "Detects unsafe memory operations in Rust: raw pointer dereference, pointer arithmetic, transmute in unsafe blocks. Simplified from Rust: flags all unsafe blocks rather than specific sub-operations (transmute, pointer arithmetic, raw deref). Precision reduced -- all unsafe blocks flagged regardless of content.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(unsafe_block (block) @unsafe_body) @unsafe_blk"

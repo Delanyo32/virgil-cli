@@ -2,39 +2,107 @@
   "pipeline": "xss_javascript",
   "category": "security",
   "description": "Detect DOM-based XSS in JavaScript: user input reaching DOM sinks",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "taint": {
         "sources": [
-          {"pattern": "req.body",          "kind": "user_input"},
-          {"pattern": "req.query",         "kind": "user_input"},
-          {"pattern": "req.params",        "kind": "user_input"},
-          {"pattern": "location.search",   "kind": "user_input"},
-          {"pattern": "location.href",     "kind": "user_input"},
-          {"pattern": "document.cookie",   "kind": "user_input"},
-          {"pattern": "window.location",   "kind": "user_input"},
-          {"pattern": "URLSearchParams",   "kind": "user_input"}
+          {
+            "pattern": "req.body",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "req.query",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "req.params",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "location.search",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "location.href",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "document.cookie",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "window.location",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "URLSearchParams",
+            "kind": "user_input"
+          }
         ],
         "sinks": [
-          {"pattern": "innerHTML",                  "vulnerability": "xss"},
-          {"pattern": "outerHTML",                  "vulnerability": "xss"},
-          {"pattern": "document.write(",            "vulnerability": "xss"},
-          {"pattern": "document.writeln(",          "vulnerability": "xss"},
-          {"pattern": "dangerouslySetInnerHTML",    "vulnerability": "xss"},
-          {"pattern": "insertAdjacentHTML",         "vulnerability": "xss"},
-          {"pattern": "eval(",                      "vulnerability": "xss"},
-          {"pattern": "Function(",                  "vulnerability": "xss"},
-          {"pattern": "setTimeout(",                "vulnerability": "xss"},
-          {"pattern": "setInterval(",               "vulnerability": "xss"}
+          {
+            "pattern": "innerHTML",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "outerHTML",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "document.write(",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "document.writeln(",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "dangerouslySetInnerHTML",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "insertAdjacentHTML",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "eval(",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "Function(",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "setTimeout(",
+            "vulnerability": "xss"
+          },
+          {
+            "pattern": "setInterval(",
+            "vulnerability": "xss"
+          }
         ],
         "sanitizers": [
-          {"pattern": "DOMPurify.sanitize"},
-          {"pattern": "xss("},
-          {"pattern": "escapeHtml"},
-          {"pattern": "encodeURIComponent"},
-          {"pattern": "encodeURI"},
-          {"pattern": "textContent"}
+          {
+            "pattern": "DOMPurify.sanitize"
+          },
+          {
+            "pattern": "xss("
+          },
+          {
+            "pattern": "escapeHtml"
+          },
+          {
+            "pattern": "encodeURIComponent"
+          },
+          {
+            "pattern": "encodeURI"
+          },
+          {
+            "pattern": "textContent"
+          }
         ]
       }
     },

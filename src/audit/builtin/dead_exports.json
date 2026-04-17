@@ -7,15 +7,25 @@
       "select": "symbol",
       "where": {
         "and": [
-          {"exported": true},
-          {"is_entry_point": false},
-          {"unreferenced": true}
+          {
+            "exported": true
+          },
+          {
+            "is_entry_point": false
+          },
+          {
+            "unreferenced": true
+          }
         ]
       },
       "exclude": {
         "or": [
-          {"is_test_file": true},
-          {"is_generated": true}
+          {
+            "is_test_file": true
+          },
+          {
+            "is_generated": true
+          }
         ]
       }
     },

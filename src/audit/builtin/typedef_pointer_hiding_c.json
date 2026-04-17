@@ -2,7 +2,9 @@
   "pipeline": "typedef_pointer_hiding",
   "category": "code-quality",
   "description": "Detects typedefs that hide pointer types, making ownership and nullability unclear. Simplified from Rust: flags all type_definition nodes containing pointer_declarator without checking for function pointer typedefs, opaque pointer patterns, or const qualifiers. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(type_definition declarator: (pointer_declarator) @ptr_decl) @typedef_decl"

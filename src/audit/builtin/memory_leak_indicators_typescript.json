@@ -2,7 +2,10 @@
   "pipeline": "memory_leak_indicators",
   "category": "scalability",
   "description": "Detects potential memory leaks in TypeScript: addEventListener without corresponding removeEventListener, setInterval without clearInterval, unbounded array growth (.push/.unshift in loops). Simplified from Rust: flags all call_expression nodes with member_expression function (cannot filter to only addEventListener/setInterval or verify cleanup patterns elsewhere in the file without #match? predicate support). All member expression calls flagged -- higher false positive rate than Rust version.",
-  "languages": ["typescript", "tsx"],
+  "languages": [
+    "typescript",
+    "tsx"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method))"

@@ -2,7 +2,9 @@
   "pipeline": "god_functions",
   "category": "tech_debt",
   "description": "Detects functions exceeding size thresholds. Simplified from Rust: flags all function_definition nodes. Cannot perform line-count threshold checking in the JSON DSL without compute_metric support.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(function_definition name: (identifier) @fn_name) @fn_def"

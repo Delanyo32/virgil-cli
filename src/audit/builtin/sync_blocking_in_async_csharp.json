@@ -2,7 +2,9 @@
   "pipeline": "sync_blocking_in_async",
   "category": "scalability",
   "description": "Detects member access expressions in C# that may indicate blocking on async results (.Result, .Wait(), .GetAwaiter().GetResult()). JSON version uses structural matching on member access -- cannot filter by specific property names. Higher false positive rate than Rust version.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(member_access_expression name: (identifier) @member_name)"

@@ -2,7 +2,9 @@
   "pipeline": "missing_const",
   "category": "code-quality",
   "description": "Detects non-const pointer parameters that could be const for safety and clarity. Simplified from Rust: flags all parameter_declaration nodes containing pointer_declarator without checking existing const qualifier, write-through usage, double pointers, or output naming conventions. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(parameter_declaration declarator: (pointer_declarator) @ptr_decl) @param_decl"

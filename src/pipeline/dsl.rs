@@ -136,43 +136,20 @@ pub struct WhereClause {
     #[serde(default)]
     pub exported: Option<bool>,
 
-    // Metric predicates (for severity_map "when" clauses)
-    #[serde(default)]
-    pub count: Option<NumericPredicate>,
-    #[serde(default)]
-    pub cycle_size: Option<NumericPredicate>,
-    #[serde(default)]
-    pub depth: Option<NumericPredicate>,
-    #[serde(default)]
-    pub edge_count: Option<NumericPredicate>,
-    #[serde(default)]
-    pub ratio: Option<NumericPredicate>,
-
     // Symbol kind filter (for select stage kind filtering per D-03)
     #[serde(default)]
     pub kind: Option<Vec<String>>,
-
-    // Compute-metric predicates (for severity_map when clauses)
-    #[serde(default)]
-    pub cyclomatic_complexity: Option<NumericPredicate>,
-    #[serde(default)]
-    pub function_length: Option<NumericPredicate>,
-    #[serde(default)]
-    pub cognitive_complexity: Option<NumericPredicate>,
-    #[serde(default)]
-    pub comment_to_code_ratio: Option<NumericPredicate>,
-
-    // Coupling predicates (populated after compute_metric: efferent/afferent_coupling)
-    #[serde(default)]
-    pub efferent_coupling: Option<NumericPredicate>,
-    #[serde(default)]
-    pub afferent_coupling: Option<NumericPredicate>,
 
     // Dead-export predicates
     #[serde(default)]
     pub unreferenced: Option<bool>,
     #[serde(default)]
     pub is_entry_point: Option<bool>,
+
+    /// Generic computed-metric predicates. Any metric produced by a `compute_metric` stage
+    /// can be filtered without changing the Rust schema.
+    #[serde(default)]
+    pub metrics: HashMap<String, NumericPredicate>,
 }
 
 impl WhereClause {
@@ -186,20 +163,10 @@ impl WhereClause {
             && self.is_barrel_file.is_none()
             && self.is_nolint.is_none()
             && self.exported.is_none()
-            && self.count.is_none()
-            && self.cycle_size.is_none()
-            && self.depth.is_none()
-            && self.edge_count.is_none()
-            && self.ratio.is_none()
             && self.kind.is_none()
-            && self.cyclomatic_complexity.is_none()
-            && self.function_length.is_none()
-            && self.cognitive_complexity.is_none()
-            && self.comment_to_code_ratio.is_none()
-            && self.efferent_coupling.is_none()
-            && self.afferent_coupling.is_none()
             && self.unreferenced.is_none()
             && self.is_entry_point.is_none()
+            && self.metrics.is_empty()
     }
 
     /// Evaluate predicate against a node's metrics only (no file system access).
@@ -227,59 +194,9 @@ impl WhereClause {
                 return false;
             }
         }
-        // Metric predicates
-        if let Some(ref pred) = self.count {
-            if !pred.matches(node.metric_f64("count")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.cycle_size {
-            if !pred.matches(node.metric_f64("cycle_size")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.depth {
-            if !pred.matches(node.metric_f64("depth")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.edge_count {
-            if !pred.matches(node.metric_f64("edge_count")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.ratio {
-            if !pred.matches(node.metric_f64("ratio")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.cyclomatic_complexity {
-            if !pred.matches(node.metric_f64("cyclomatic_complexity")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.function_length {
-            if !pred.matches(node.metric_f64("function_length")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.cognitive_complexity {
-            if !pred.matches(node.metric_f64("cognitive_complexity")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.comment_to_code_ratio {
-            if !pred.matches(node.metric_f64("comment_to_code_ratio")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.efferent_coupling {
-            if !pred.matches(node.metric_f64("efferent_coupling")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.afferent_coupling {
-            if !pred.matches(node.metric_f64("afferent_coupling")) {
+        // Generic metric predicates — any key produced by compute_metric
+        for (metric_name, pred) in &self.metrics {
+            if !pred.matches(node.metric_f64(metric_name)) {
                 return false;
             }
         }
@@ -349,58 +266,9 @@ impl WhereClause {
                 return false;
             }
         }
-        if let Some(ref pred) = self.count {
-            if !pred.matches(node.metric_f64("count")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.cycle_size {
-            if !pred.matches(node.metric_f64("cycle_size")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.depth {
-            if !pred.matches(node.metric_f64("depth")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.edge_count {
-            if !pred.matches(node.metric_f64("edge_count")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.ratio {
-            if !pred.matches(node.metric_f64("ratio")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.cyclomatic_complexity {
-            if !pred.matches(node.metric_f64("cyclomatic_complexity")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.function_length {
-            if !pred.matches(node.metric_f64("function_length")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.cognitive_complexity {
-            if !pred.matches(node.metric_f64("cognitive_complexity")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.comment_to_code_ratio {
-            if !pred.matches(node.metric_f64("comment_to_code_ratio")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.efferent_coupling {
-            if !pred.matches(node.metric_f64("efferent_coupling")) {
-                return false;
-            }
-        }
-        if let Some(ref pred) = self.afferent_coupling {
-            if !pred.matches(node.metric_f64("afferent_coupling")) {
+        // Generic metric predicates — any key produced by compute_metric
+        for (metric_name, pred) in &self.metrics {
+            if !pred.matches(node.metric_f64(metric_name)) {
                 return false;
             }
         }
@@ -790,10 +658,9 @@ mod tests {
 
     #[test]
     fn test_where_clause_not_empty_count() {
-        let wc = WhereClause {
-            count: Some(NumericPredicate { gte: Some(1.0), ..Default::default() }),
-            ..Default::default()
-        };
+        let mut metrics = HashMap::new();
+        metrics.insert("count".to_string(), NumericPredicate { gte: Some(1.0), ..Default::default() });
+        let wc = WhereClause { metrics, ..Default::default() };
         assert!(!wc.is_empty());
     }
 
@@ -820,16 +687,14 @@ mod tests {
     fn test_eval_metrics_count_threshold() {
         let node = make_node(vec![("count", MetricValue::Int(15))]);
 
-        let wc_pass = WhereClause {
-            count: Some(NumericPredicate { gte: Some(10.0), ..Default::default() }),
-            ..Default::default()
-        };
+        let mut m = HashMap::new();
+        m.insert("count".to_string(), NumericPredicate { gte: Some(10.0), ..Default::default() });
+        let wc_pass = WhereClause { metrics: m, ..Default::default() };
         assert!(wc_pass.eval_metrics(&node));
 
-        let wc_fail = WhereClause {
-            count: Some(NumericPredicate { gte: Some(20.0), ..Default::default() }),
-            ..Default::default()
-        };
+        let mut m2 = HashMap::new();
+        m2.insert("count".to_string(), NumericPredicate { gte: Some(20.0), ..Default::default() });
+        let wc_fail = WhereClause { metrics: m2, ..Default::default() };
         assert!(!wc_fail.eval_metrics(&node));
     }
 
@@ -837,16 +702,14 @@ mod tests {
     fn test_eval_metrics_cycle_size() {
         let node = make_node(vec![("cycle_size", MetricValue::Int(3))]);
 
-        let wc = WhereClause {
-            cycle_size: Some(NumericPredicate { gte: Some(3.0), ..Default::default() }),
-            ..Default::default()
-        };
+        let mut m = HashMap::new();
+        m.insert("cycle_size".to_string(), NumericPredicate { gte: Some(3.0), ..Default::default() });
+        let wc = WhereClause { metrics: m, ..Default::default() };
         assert!(wc.eval_metrics(&node));
 
-        let wc_fail = WhereClause {
-            cycle_size: Some(NumericPredicate { gt: Some(3.0), ..Default::default() }),
-            ..Default::default()
-        };
+        let mut m2 = HashMap::new();
+        m2.insert("cycle_size".to_string(), NumericPredicate { gt: Some(3.0), ..Default::default() });
+        let wc_fail = WhereClause { metrics: m2, ..Default::default() };
         assert!(!wc_fail.eval_metrics(&node));
     }
 
@@ -869,16 +732,14 @@ mod tests {
             ("depth", MetricValue::Int(5)),
         ]);
 
+        let mut m1 = HashMap::new();
+        m1.insert("count".to_string(), NumericPredicate { gte: Some(5.0), ..Default::default() });
+        let mut m2 = HashMap::new();
+        m2.insert("depth".to_string(), NumericPredicate { lte: Some(10.0), ..Default::default() });
         let wc = WhereClause {
             and: Some(vec![
-                WhereClause {
-                    count: Some(NumericPredicate { gte: Some(5.0), ..Default::default() }),
-                    ..Default::default()
-                },
-                WhereClause {
-                    depth: Some(NumericPredicate { lte: Some(10.0), ..Default::default() }),
-                    ..Default::default()
-                },
+                WhereClause { metrics: m1, ..Default::default() },
+                WhereClause { metrics: m2, ..Default::default() },
             ]),
             ..Default::default()
         };
@@ -889,16 +750,14 @@ mod tests {
     fn test_eval_metrics_or_operator() {
         let node = make_node(vec![("count", MetricValue::Int(2))]);
 
+        let mut m1 = HashMap::new();
+        m1.insert("count".to_string(), NumericPredicate { gte: Some(100.0), ..Default::default() });
+        let mut m2 = HashMap::new();
+        m2.insert("count".to_string(), NumericPredicate { lte: Some(5.0), ..Default::default() });
         let wc = WhereClause {
             or: Some(vec![
-                WhereClause {
-                    count: Some(NumericPredicate { gte: Some(100.0), ..Default::default() }),
-                    ..Default::default()
-                },
-                WhereClause {
-                    count: Some(NumericPredicate { lte: Some(5.0), ..Default::default() }),
-                    ..Default::default()
-                },
+                WhereClause { metrics: m1, ..Default::default() },
+                WhereClause { metrics: m2, ..Default::default() },
             ]),
             ..Default::default()
         };
@@ -909,11 +768,10 @@ mod tests {
     fn test_eval_metrics_not_operator() {
         let node = make_node(vec![("count", MetricValue::Int(2))]);
 
+        let mut m = HashMap::new();
+        m.insert("count".to_string(), NumericPredicate { gte: Some(100.0), ..Default::default() });
         let wc = WhereClause {
-            not: Some(Box::new(WhereClause {
-                count: Some(NumericPredicate { gte: Some(100.0), ..Default::default() }),
-                ..Default::default()
-            })),
+            not: Some(Box::new(WhereClause { metrics: m, ..Default::default() })),
             ..Default::default()
         };
         // count=2, NOT(count >= 100) => true
@@ -954,23 +812,21 @@ mod tests {
     fn test_resolve_severity_map_first_match_wins() {
         let node = make_node(vec![("count", MetricValue::Int(25))]);
 
+        let mut m1 = HashMap::new();
+        m1.insert("count".to_string(), NumericPredicate { gte: Some(20.0), ..Default::default() });
+        let mut m2 = HashMap::new();
+        m2.insert("count".to_string(), NumericPredicate { gte: Some(10.0), ..Default::default() });
         let flag = FlagConfig {
             pattern: "test".to_string(),
             message: "msg".to_string(),
             severity: Some("info".to_string()),
             severity_map: Some(vec![
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        count: Some(NumericPredicate { gte: Some(20.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m1, ..Default::default() }),
                     severity: "error".to_string(),
                 },
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        count: Some(NumericPredicate { gte: Some(10.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m2, ..Default::default() }),
                     severity: "warning".to_string(),
                 },
             ]),
@@ -984,23 +840,21 @@ mod tests {
     fn test_resolve_severity_map_fallthrough_to_second() {
         let node = make_node(vec![("count", MetricValue::Int(12))]);
 
+        let mut m1 = HashMap::new();
+        m1.insert("count".to_string(), NumericPredicate { gte: Some(20.0), ..Default::default() });
+        let mut m2 = HashMap::new();
+        m2.insert("count".to_string(), NumericPredicate { gte: Some(10.0), ..Default::default() });
         let flag = FlagConfig {
             pattern: "test".to_string(),
             message: "msg".to_string(),
             severity: Some("info".to_string()),
             severity_map: Some(vec![
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        count: Some(NumericPredicate { gte: Some(20.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m1, ..Default::default() }),
                     severity: "error".to_string(),
                 },
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        count: Some(NumericPredicate { gte: Some(10.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m2, ..Default::default() }),
                     severity: "warning".to_string(),
                 },
             ]),
@@ -1014,16 +868,15 @@ mod tests {
     fn test_resolve_severity_map_none_when_is_default() {
         // An entry with when=None acts as catch-all
         let node = make_node(vec![("count", MetricValue::Int(0))]);
+        let mut m = HashMap::new();
+        m.insert("count".to_string(), NumericPredicate { gte: Some(100.0), ..Default::default() });
         let flag = FlagConfig {
             pattern: "test".to_string(),
             message: "msg".to_string(),
             severity: Some("info".to_string()),
             severity_map: Some(vec![
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        count: Some(NumericPredicate { gte: Some(100.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m, ..Default::default() }),
                     severity: "error".to_string(),
                 },
                 SeverityEntry {
@@ -1040,15 +893,14 @@ mod tests {
     #[test]
     fn test_resolve_severity_map_no_match_falls_back_to_severity() {
         let node = make_node(vec![("count", MetricValue::Int(0))]);
+        let mut m = HashMap::new();
+        m.insert("count".to_string(), NumericPredicate { gte: Some(100.0), ..Default::default() });
         let flag = FlagConfig {
             pattern: "test".to_string(),
             message: "msg".to_string(),
             severity: Some("info".to_string()),
             severity_map: Some(vec![SeverityEntry {
-                when: Some(WhereClause {
-                    count: Some(NumericPredicate { gte: Some(100.0), ..Default::default() }),
-                    ..Default::default()
-                }),
+                when: Some(WhereClause { metrics: m, ..Default::default() }),
                 severity: "error".to_string(),
             }]),
             pipeline_name: None,
@@ -1062,23 +914,21 @@ mod tests {
         // severity_map has only conditional entries, none match, no bare severity field
         // -> returns None (suppression)
         let node = make_node(vec![("cyclomatic_complexity", MetricValue::Int(3))]);
+        let mut m1 = HashMap::new();
+        m1.insert("cyclomatic_complexity".to_string(), NumericPredicate { gte: Some(20.0), ..Default::default() });
+        let mut m2 = HashMap::new();
+        m2.insert("cyclomatic_complexity".to_string(), NumericPredicate { gt: Some(10.0), ..Default::default() });
         let flag = FlagConfig {
             pattern: "test".to_string(),
             message: "msg".to_string(),
             severity: None, // NO bare severity field
             severity_map: Some(vec![
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        cyclomatic_complexity: Some(NumericPredicate { gte: Some(20.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m1, ..Default::default() }),
                     severity: "error".to_string(),
                 },
                 SeverityEntry {
-                    when: Some(WhereClause {
-                        cyclomatic_complexity: Some(NumericPredicate { gt: Some(10.0), ..Default::default() }),
-                        ..Default::default()
-                    }),
+                    when: Some(WhereClause { metrics: m2, ..Default::default() }),
                     severity: "warning".to_string(),
                 },
             ]),
@@ -1241,8 +1091,8 @@ mod tests {
                 "pattern": "hub_module",
                 "message": "Hub module {{name}}",
                 "severity_map": [
-                    {"when": {"count": {"gte": 20}}, "severity": "error"},
-                    {"when": {"count": {"gte": 10}}, "severity": "warning"},
+                    {"when": {"metrics": {"count": {"gte": 20}}}, "severity": "error"},
+                    {"when": {"metrics": {"count": {"gte": 10}}}, "severity": "warning"},
                     {"severity": "info"}
                 ]
             }
@@ -1297,9 +1147,9 @@ mod tests {
 
     #[test]
     fn where_clause_metric_predicates_cyclomatic() {
-        let json = r#"{"cyclomatic_complexity": {"gt": 10}}"#;
+        let json = r#"{"metrics": {"cyclomatic_complexity": {"gt": 10}}}"#;
         let wc: WhereClause = serde_json::from_str(json).unwrap();
-        assert!(wc.cyclomatic_complexity.is_some());
+        assert!(wc.metrics.contains_key("cyclomatic_complexity"));
 
         let mut node = PipelineNode {
             node_idx: petgraph::graph::NodeIndex::new(0),
@@ -1318,6 +1168,39 @@ mod tests {
         // CC = 5 <= 10 -- should fail
         node.metrics.insert("cyclomatic_complexity".to_string(), MetricValue::Int(5));
         assert!(!wc.eval_metrics(&node));
+    }
+
+    #[test]
+    fn test_where_clause_generic_metrics_deserialization() {
+        let json = r#"{"metrics": {"cyclomatic_complexity": {"gte": 10}, "function_length": {"gt": 50}}}"#;
+        let wc: WhereClause = serde_json::from_str(json).unwrap();
+        assert!(!wc.metrics.is_empty());
+        assert!(wc.metrics.contains_key("cyclomatic_complexity"));
+        assert!(wc.metrics.contains_key("function_length"));
+    }
+
+    #[test]
+    fn test_where_clause_generic_metrics_eval() {
+        let node_pass = make_node(vec![
+            ("cyclomatic_complexity", MetricValue::Int(15)),
+            ("function_length", MetricValue::Int(60)),
+        ]);
+        let node_fail = make_node(vec![
+            ("cyclomatic_complexity", MetricValue::Int(5)),
+            ("function_length", MetricValue::Int(60)),
+        ]);
+        let json = r#"{"metrics": {"cyclomatic_complexity": {"gte": 10}}}"#;
+        let wc: WhereClause = serde_json::from_str(json).unwrap();
+        assert!(wc.eval_metrics(&node_pass));
+        assert!(!wc.eval_metrics(&node_fail));
+    }
+
+    #[test]
+    fn test_where_clause_generic_metrics_is_not_empty() {
+        let json = r#"{"metrics": {"efferent_coupling": {"gte": 8}}}"#;
+        let wc: WhereClause = serde_json::from_str(json).unwrap();
+        assert!(wc.metrics.contains_key("efferent_coupling"));
+        assert!(!wc.is_empty());
     }
 
     #[test]

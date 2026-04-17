@@ -2,7 +2,9 @@
   "pipeline": "signed_unsigned_mismatch",
   "category": "code-quality",
   "description": "Detects for-loops using signed int counters compared against unsigned size values. Simplified from Rust: flags all for_statement nodes without verifying the loop counter is signed or the condition involves an unsigned-returning function (strlen, sizeof, etc.). Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(for_statement initializer: (_) @for_init condition: (_) @for_cond) @for_stmt"

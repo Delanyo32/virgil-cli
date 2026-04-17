@@ -2,12 +2,17 @@
   "pipeline": "dead_code",
   "category": "code_style",
   "description": "Detects potentially unused symbols in Python: unused private functions, unused imports, and unreachable code. Simplified from Rust: flags all exported symbols as potentially dead. Cannot perform import usage analysis or unreachable code detection without predicate support.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "select": "symbol",
       "where": {
-        "kind": ["function", "method"]
+        "kind": [
+          "function",
+          "method"
+        ]
       },
       "exclude": {
         "is_test_file": true

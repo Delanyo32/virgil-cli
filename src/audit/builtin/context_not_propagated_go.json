@@ -2,7 +2,9 @@
   "pipeline": "context_not_propagated",
   "category": "code-quality",
   "description": "Detects context.Background() and context.TODO() calls in Go non-main/non-init functions, indicating failure to propagate context from callers. Simplified from Rust: flags all selector_expression calls to context package. Cannot filter out main/init/test/constructor functions or check if enclosing function has a context parameter.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @method)) @call"

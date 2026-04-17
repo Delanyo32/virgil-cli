@@ -2,7 +2,12 @@
   "pipeline": "prototype_pollution",
   "category": "security",
   "description": "Detects prototype pollution in JavaScript/TypeScript: for-in loops with subscript assignment without __proto__/constructor guard, Object.assign with JSON.parse. Simplified from Rust: flags for_in_statement nodes unconditionally (cannot check for subscript assignment inside body or guard keywords without #match? predicate support). All for-in loops flagged.",
-  "languages": ["javascript", "jsx", "typescript", "tsx"],
+  "languages": [
+    "javascript",
+    "jsx",
+    "typescript",
+    "tsx"
+  ],
   "graph": [
     {
       "match_pattern": "(for_in_statement) @for_in"

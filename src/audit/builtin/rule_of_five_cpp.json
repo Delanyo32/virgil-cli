@@ -2,7 +2,9 @@
   "pipeline": "rule_of_five",
   "category": "code-quality",
   "description": "Detects classes with destructor but missing copy/move constructors or assignment operators (Rule of Five) in C++. Simplified from Rust: flags all class_specifier and struct_specifier nodes (warning severity) without checking for destructor presence, special member function completeness, defaulted/deleted members, or NOLINT suppression. Higher false-positive rate -- all classes and structs are flagged.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "[(class_specifier) @class_def (struct_specifier) @class_def]"

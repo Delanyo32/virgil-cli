@@ -2,7 +2,9 @@
   "pipeline": "command_injection",
   "category": "security",
   "description": "Detects command injection risks in PHP: shell_exec, exec, system, passthru, popen, proc_open with dynamic arguments. JSON version flags all function_call_expression nodes (cannot filter by function name without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "match_pattern": "(function_call_expression function: (name) @fn_name arguments: (arguments) @args) @call"

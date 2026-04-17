@@ -1578,10 +1578,11 @@ mod tests {
             severity_map: Some(vec![
                 crate::pipeline::dsl::SeverityEntry {
                     when: Some(WhereClause {
-                        count: Some(NumericPredicate {
-                            gte: Some(20.0),
-                            ..Default::default()
-                        }),
+                        metrics: {
+                            let mut m = std::collections::HashMap::new();
+                            m.insert("count".to_string(), NumericPredicate { gte: Some(20.0), ..Default::default() });
+                            m
+                        },
                         ..Default::default()
                     }),
                     severity: "error".to_string(),
@@ -2002,10 +2003,11 @@ fn bar() { println!("ok"); }
                         filter: None,
                     },
                     threshold: Some(WhereClause {
-                        ratio: Some(NumericPredicate {
-                            gte: Some(0.5),
-                            ..Default::default()
-                        }),
+                        metrics: {
+                            let mut m = std::collections::HashMap::new();
+                            m.insert("ratio".to_string(), NumericPredicate { gte: Some(0.5), ..Default::default() });
+                            m
+                        },
                         ..Default::default()
                     }),
                 },

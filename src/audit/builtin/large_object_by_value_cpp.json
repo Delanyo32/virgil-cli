@@ -2,7 +2,9 @@
   "pipeline": "large_object_by_value",
   "category": "code-quality",
   "description": "Detects large objects (string, vector, map, etc.) passed by value in C++ -- pass by const reference instead. Simplified from Rust: flags all parameter_declaration nodes (info severity) without filtering by type name, reference/pointer check, or NOLINT suppression. Higher false-positive rate -- all parameters are flagged, not just large type parameters.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(parameter_declaration) @param_decl"

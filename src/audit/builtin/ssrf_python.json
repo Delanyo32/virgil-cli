@@ -2,34 +2,89 @@
   "pipeline": "ssrf_python",
   "category": "security",
   "description": "Detect SSRF in Python: user input reaching outbound network calls",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "taint": {
         "sources": [
-          {"pattern": "request.form",     "kind": "user_input"},
-          {"pattern": "request.args",     "kind": "user_input"},
-          {"pattern": "request.data",     "kind": "user_input"},
-          {"pattern": "request.json",     "kind": "user_input"},
-          {"pattern": "os.environ.get",   "kind": "env_var"},
-          {"pattern": "input(",           "kind": "user_input"}
+          {
+            "pattern": "request.form",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "request.args",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "request.data",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "request.json",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "os.environ.get",
+            "kind": "env_var"
+          },
+          {
+            "pattern": "input(",
+            "kind": "user_input"
+          }
         ],
         "sinks": [
-          {"pattern": "requests.get",          "vulnerability": "ssrf"},
-          {"pattern": "requests.post",         "vulnerability": "ssrf"},
-          {"pattern": "requests.put",          "vulnerability": "ssrf"},
-          {"pattern": "urllib.request",        "vulnerability": "ssrf"},
-          {"pattern": "urllib.urlopen",        "vulnerability": "ssrf"},
-          {"pattern": "http.client",           "vulnerability": "ssrf"},
-          {"pattern": "aiohttp.ClientSession", "vulnerability": "ssrf"},
-          {"pattern": "httpx.get",             "vulnerability": "ssrf"},
-          {"pattern": "redirect(",             "vulnerability": "ssrf"}
+          {
+            "pattern": "requests.get",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "requests.post",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "requests.put",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "urllib.request",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "urllib.urlopen",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "http.client",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "aiohttp.ClientSession",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "httpx.get",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "redirect(",
+            "vulnerability": "ssrf"
+          }
         ],
         "sanitizers": [
-          {"pattern": "urlparse"},
-          {"pattern": "validate_url"},
-          {"pattern": "is_safe_url"},
-          {"pattern": "allowlist"}
+          {
+            "pattern": "urlparse"
+          },
+          {
+            "pattern": "validate_url"
+          },
+          {
+            "pattern": "is_safe_url"
+          },
+          {
+            "pattern": "allowlist"
+          }
         ]
       }
     },

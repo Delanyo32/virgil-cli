@@ -7,20 +7,46 @@
       "select": "file",
       "exclude": {
         "or": [
-          {"is_test_file": true},
-          {"is_generated": true},
-          {"is_barrel_file": true}
+          {
+            "is_test_file": true
+          },
+          {
+            "is_generated": true
+          },
+          {
+            "is_barrel_file": true
+          }
         ]
       }
     },
-    {"compute_metric": "efferent_coupling"},
+    {
+      "compute_metric": "efferent_coupling"
+    },
     {
       "flag": {
         "pattern": "high_efferent_coupling",
-        "message": "{{file}} imports from {{efferent_coupling}} modules — high fan-out coupling",
+        "message": "{{file}} imports from {{efferent_coupling}} modules \u2014 high fan-out coupling",
         "severity_map": [
-          {"when": {"efferent_coupling": {"gte": 15}}, "severity": "error"},
-          {"when": {"efferent_coupling": {"gte": 8}},  "severity": "warning"}
+          {
+            "when": {
+              "metrics": {
+                "efferent_coupling": {
+                  "gte": 15
+                }
+              }
+            },
+            "severity": "error"
+          },
+          {
+            "when": {
+              "metrics": {
+                "efferent_coupling": {
+                  "gte": 8
+                }
+              }
+            },
+            "severity": "warning"
+          }
         ]
       }
     }

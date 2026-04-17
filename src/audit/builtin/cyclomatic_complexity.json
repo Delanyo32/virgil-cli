@@ -5,17 +5,45 @@
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["function", "method", "arrow_function"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "function",
+          "method",
+          "arrow_function"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
-    {"compute_metric": "cyclomatic_complexity"},
+    {
+      "compute_metric": "cyclomatic_complexity"
+    },
     {
       "flag": {
         "pattern": "high_cyclomatic_complexity",
         "message": "Function `{{name}}` has cyclomatic complexity of {{cyclomatic_complexity}} (threshold: 10)",
         "severity_map": [
-          {"when": {"cyclomatic_complexity": {"gte": 20}}, "severity": "error"},
-          {"when": {"cyclomatic_complexity": {"gt": 10}}, "severity": "warning"}
+          {
+            "when": {
+              "metrics": {
+                "cyclomatic_complexity": {
+                  "gte": 20
+                }
+              }
+            },
+            "severity": "error"
+          },
+          {
+            "when": {
+              "metrics": {
+                "cyclomatic_complexity": {
+                  "gt": 10
+                }
+              }
+            },
+            "severity": "warning"
+          }
         ]
       }
     }

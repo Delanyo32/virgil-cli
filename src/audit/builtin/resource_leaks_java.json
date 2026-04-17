@@ -2,7 +2,9 @@
   "pipeline": "resource_leaks",
   "category": "code-quality",
   "description": "Detects resource creation outside try-with-resources in Java. Simplified from Rust: flags object_creation_expression nodes inside local_variable_declaration. Cannot check the resource type against RESOURCE_TYPES list, verify try-with-resources scoping, detect factory methods, or check @SuppressWarnings(\"resource\").",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "match_pattern": "(local_variable_declaration (variable_declarator value: (object_creation_expression) @creation)) @var_decl"

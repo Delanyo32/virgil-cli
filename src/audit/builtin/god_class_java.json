@@ -2,12 +2,20 @@
   "pipeline": "god_class",
   "category": "code-quality",
   "description": "Detects Java classes with too many symbols, indicating a need to split responsibilities. Simplified from Rust: flags class symbols via select:symbol. Cannot apply the 10-non-accessor method threshold, composite score (methods + fields/2), Lombok annotation skip, framework annotation higher-threshold, or @SuppressWarnings suppression.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["class"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "class"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

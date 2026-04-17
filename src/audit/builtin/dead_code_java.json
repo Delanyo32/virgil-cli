@@ -2,12 +2,21 @@
   "pipeline": "dead_code",
   "category": "code-quality",
   "description": "Detects potentially unused private methods and unused imports in Java. Simplified from Rust: flags method and function symbols as candidates. Cannot detect unused private methods (no cross-file reference counting), unused imports, or unreachable code after return/break/continue/throw.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["method", "function"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "method",
+          "function"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

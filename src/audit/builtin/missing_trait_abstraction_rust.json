@@ -2,12 +2,22 @@
   "pipeline": "missing_trait_abstraction",
   "category": "code-quality",
   "description": "Detects function parameters using concrete infrastructure types instead of trait abstractions in Rust. Simplified from Rust: flags all exported functions as candidates for missing trait abstraction (cannot inspect parameter types in JSON DSL without match_pattern). Uses select:symbol to identify exported functions as indicators.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["function", "method"], "exported": true},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "function",
+          "method"
+        ],
+        "exported": true
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

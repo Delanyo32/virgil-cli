@@ -2,7 +2,9 @@
   "pipeline": "magic_numbers",
   "category": "code-quality",
   "description": "Detects numeric literals not in const/static/enum contexts that should be named constants in Rust. Simplified from Rust: flags all integer and float literals without excluding common values (0, 1, 2), const/static/enum contexts, index expressions, or macro arguments.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "[(integer_literal) (float_literal)] @lit"

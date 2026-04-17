@@ -5,17 +5,45 @@
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["function", "method", "arrow_function"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "function",
+          "method",
+          "arrow_function"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
-    {"compute_metric": "cognitive_complexity"},
+    {
+      "compute_metric": "cognitive_complexity"
+    },
     {
       "flag": {
         "pattern": "high_cognitive_complexity",
         "message": "Function `{{name}}` has cognitive complexity of {{cognitive_complexity}} (threshold: 15)",
         "severity_map": [
-          {"when": {"cognitive_complexity": {"gte": 30}}, "severity": "error"},
-          {"when": {"cognitive_complexity": {"gt": 15}}, "severity": "warning"}
+          {
+            "when": {
+              "metrics": {
+                "cognitive_complexity": {
+                  "gte": 30
+                }
+              }
+            },
+            "severity": "error"
+          },
+          {
+            "when": {
+              "metrics": {
+                "cognitive_complexity": {
+                  "gt": 15
+                }
+              }
+            },
+            "severity": "warning"
+          }
         ]
       }
     }

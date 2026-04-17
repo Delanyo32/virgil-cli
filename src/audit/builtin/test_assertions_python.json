@@ -2,7 +2,9 @@
   "pipeline": "test_assertions",
   "category": "tech_debt",
   "description": "Detects test functions with missing or trivial assertions. Simplified from Rust: flags assert_statement nodes in test files. Cannot distinguish trivial vs meaningful assertions without predicate support.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "select": "file",

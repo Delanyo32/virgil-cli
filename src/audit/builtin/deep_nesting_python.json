@@ -2,7 +2,9 @@
   "pipeline": "deep_nesting",
   "category": "tech_debt",
   "description": "Detects deeply nested control flow in Python (if, for, while, with, try). Simplified from Rust: flags all nesting-kind nodes at any depth. Cannot perform recursive depth counting in the JSON DSL.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(if_statement (block (if_statement (block (if_statement (block (if_statement (block (if_statement) @inner_if)))))))) @outer_if"

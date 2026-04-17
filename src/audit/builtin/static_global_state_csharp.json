@@ -2,7 +2,9 @@
   "pipeline": "static_global_state",
   "category": "code-quality",
   "description": "Detects C# mutable static fields and properties that create hidden global state. Simplified from Rust: flags all field_declaration nodes inside classes. Cannot verify static modifier without readonly/const, check for [ThreadStatic] attribute, or distinguish public vs private for severity graduation. Structural detection only.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(field_declaration) @field_decl"

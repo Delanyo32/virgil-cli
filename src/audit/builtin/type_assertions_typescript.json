@@ -2,7 +2,9 @@
   "pipeline": "type_assertions",
   "category": "code-quality",
   "description": "Detects `as` type assertions which override the type checker. Simplified from Rust: flags all as_expression nodes. Cannot distinguish `as const`, `as unknown` (safe casts), double assertions, or test file context. Language scoped to typescript only.",
-  "languages": ["typescript"],
+  "languages": [
+    "typescript"
+  ],
   "graph": [
     {
       "match_pattern": "(as_expression) @assertion"

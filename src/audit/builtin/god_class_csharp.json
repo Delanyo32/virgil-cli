@@ -2,7 +2,9 @@
   "pipeline": "god_class",
   "category": "code-quality",
   "description": "Detects C# classes with too many methods, properties, or fields (god class anti-pattern). Simplified from Rust: flags all class_declaration nodes. Cannot apply method/field count thresholds (>10 methods or >15 fields), exclude controllers or partial classes, or graduate severity by excess. Structural detection only.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(class_declaration name: (identifier) @class_name) @class_decl"

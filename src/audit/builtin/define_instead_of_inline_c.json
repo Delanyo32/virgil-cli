@@ -2,7 +2,9 @@
   "pipeline": "define_instead_of_inline",
   "category": "code-quality",
   "description": "Detects function-like #define macros that could be inline functions for better type safety. Simplified from Rust: flags all preproc_function_def nodes without checking for token pasting (##), stringification (#), variadic (__VA_ARGS__), do-while wrappers, or control flow (return/break/continue/goto). Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(preproc_function_def name: (identifier) @macro_name) @macro_def"

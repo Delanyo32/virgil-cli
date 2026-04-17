@@ -2,7 +2,9 @@
   "pipeline": "ignored_return_values",
   "category": "code-quality",
   "description": "Detects discarded return values from functions whose return value indicates success/failure. Simplified from Rust: flags all call_expression nodes appearing as expression_statement without filtering by dangerous function name or severity graduation. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(expression_statement (call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call)"

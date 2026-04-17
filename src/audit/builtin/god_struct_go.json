@@ -2,12 +2,20 @@
   "pipeline": "god_struct",
   "category": "code-quality",
   "description": "Detects structs with too many fields or methods (god struct anti-pattern) in Go. Simplified from Rust: flags all struct type declarations as candidates. Cannot count fields, apply Config/Options/DTO tag exemptions, or count methods across files.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["struct"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "struct"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
     {
       "flag": {

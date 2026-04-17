@@ -2,7 +2,9 @@
   "pipeline": "c_integer_overflow",
   "category": "security",
   "description": "Detects integer overflow risks in C: unchecked multiplication in malloc size arguments, signed integer passed as size to memcpy. Simplified from Rust: flags all binary_expression nodes (cannot filter to arithmetic operators or check operand types without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(binary_expression left: (_) @left right: (_) @right) @expr"

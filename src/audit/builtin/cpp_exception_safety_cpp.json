@@ -2,7 +2,9 @@
   "pipeline": "cpp_exception_safety",
   "category": "security",
   "description": "Detects exception safety issues in C++: raw new without smart pointer wrapper, mutex.lock() without lock_guard, FILE* from fopen() without RAII. Simplified from Rust per D-07: matches new_expression nodes broadly (cannot verify try/catch presence, noexcept specifier, or smart pointer context without parent-chain analysis).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(new_expression) @new_expr"

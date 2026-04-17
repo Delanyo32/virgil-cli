@@ -2,29 +2,70 @@
   "pipeline": "ssrf_java",
   "category": "security",
   "description": "Detect SSRF in Java",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "taint": {
         "sources": [
-          {"pattern": "getParameter",     "kind": "user_input"},
-          {"pattern": "getHeader",        "kind": "user_input"},
-          {"pattern": "getInputStream",   "kind": "user_input"},
-          {"pattern": "System.getenv",    "kind": "env_var"},
-          {"pattern": "args[",            "kind": "user_input"}
+          {
+            "pattern": "getParameter",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "getHeader",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "getInputStream",
+            "kind": "user_input"
+          },
+          {
+            "pattern": "System.getenv",
+            "kind": "env_var"
+          },
+          {
+            "pattern": "args[",
+            "kind": "user_input"
+          }
         ],
         "sinks": [
-          {"pattern": "new URL(",          "vulnerability": "ssrf"},
-          {"pattern": "HttpURLConnection", "vulnerability": "ssrf"},
-          {"pattern": "HttpClient.send",   "vulnerability": "ssrf"},
-          {"pattern": "RestTemplate",      "vulnerability": "ssrf"},
-          {"pattern": "WebClient",         "vulnerability": "ssrf"},
-          {"pattern": "response.sendRedirect", "vulnerability": "ssrf"}
+          {
+            "pattern": "new URL(",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "HttpURLConnection",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "HttpClient.send",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "RestTemplate",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "WebClient",
+            "vulnerability": "ssrf"
+          },
+          {
+            "pattern": "response.sendRedirect",
+            "vulnerability": "ssrf"
+          }
         ],
         "sanitizers": [
-          {"pattern": "URI.create"},
-          {"pattern": "allowlist"},
-          {"pattern": "isAllowed"}
+          {
+            "pattern": "URI.create"
+          },
+          {
+            "pattern": "allowlist"
+          },
+          {
+            "pattern": "isAllowed"
+          }
         ]
       }
     },

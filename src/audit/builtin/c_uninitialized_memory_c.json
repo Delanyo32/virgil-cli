@@ -2,7 +2,9 @@
   "pipeline": "c_uninitialized_memory",
   "category": "security",
   "description": "Detects uninitialized memory disclosure in C: buffers declared without initialization then passed to send(), write(), fwrite(), sendto(). Simplified from Rust: flags all call_expression nodes (cannot track uninitialized arrays across statements without cross-statement analysis). Simplified per D-07: match malloc() calls broadly.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"

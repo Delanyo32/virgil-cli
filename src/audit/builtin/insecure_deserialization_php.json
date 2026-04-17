@@ -2,7 +2,9 @@
   "pipeline": "insecure_deserialization",
   "category": "security",
   "description": "Detects insecure deserialization in PHP: unserialize() calls with user input or without allowed_classes restriction. JSON version flags all function_call_expression nodes (cannot filter to only unserialize() calls or check argument type without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["php"],
+  "languages": [
+    "php"
+  ],
   "graph": [
     {
       "match_pattern": "(function_call_expression function: (name) @fn_name arguments: (arguments) @args) @call"

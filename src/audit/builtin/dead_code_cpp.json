@@ -2,12 +2,16 @@
   "pipeline": "dead_code",
   "category": "code-quality",
   "description": "Detects unused static functions and unreachable code in C++. Simplified from Rust: uses select:symbol to flag unexported (file-scope) functions as potentially unused, without rolling-hash cross-reference counting or unreachable-after-return detection. Precision reduced -- static functions that are called are also flagged (no reference counting in JSON DSL).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "select": "symbol",
       "where": {
-        "kind": ["function"],
+        "kind": [
+          "function"
+        ],
         "exported": false
       }
     },

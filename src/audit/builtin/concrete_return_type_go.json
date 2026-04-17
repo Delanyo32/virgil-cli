@@ -2,7 +2,9 @@
   "pipeline": "concrete_return_type",
   "category": "code-quality",
   "description": "Detects exported Go functions returning *ConcreteType instead of an interface, reducing flexibility. Simplified from Rust: flags all function_declaration nodes with a pointer_type result. Cannot filter exported-only, skip factory functions (New*/Create*/Build*), or detect tuple returns ((*T, error)).",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(function_declaration result: (pointer_type) @ret) @fn"

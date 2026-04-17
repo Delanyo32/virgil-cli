@@ -2,7 +2,9 @@
   "pipeline": "cpp_race_conditions",
   "category": "security",
   "description": "Detects race condition risks in C++: class methods that modify shared state without mutex lock_guard, unsynchronized containers accessed from multiple threads. Simplified from Rust per D-07: matches field_declaration nodes in class bodies broadly (cannot verify mutex presence, method body mutation, or thread context without cross-node analysis).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(class_specifier body: (field_declaration_list (field_declaration) @field)) @class"

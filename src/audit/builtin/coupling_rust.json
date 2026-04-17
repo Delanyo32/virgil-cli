@@ -2,7 +2,9 @@
   "pipeline": "coupling",
   "category": "code-quality",
   "description": "Detects excessive imports, parameter overload, and low-cohesion methods in Rust. Simplified from Rust: counts use declarations per file as a coupling proxy. Does not compute cross-file dependency fan-out, parameter overload per function, or low-cohesion method detection.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(use_declaration) @import"

@@ -2,7 +2,9 @@
   "pipeline": "unchecked_malloc",
   "category": "code-quality",
   "description": "Detects malloc/calloc/realloc calls without null-check on the returned pointer. Simplified from Rust: flags all allocation call_expression nodes without verifying null check follows. Languages scoped to c only.",
-  "languages": ["c"],
+  "languages": [
+    "c"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (identifier) @fn_name arguments: (argument_list) @args) @call"

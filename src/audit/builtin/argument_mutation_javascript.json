@@ -2,7 +2,9 @@
   "pipeline": "argument_mutation",
   "category": "code-quality",
   "description": "Detects mutation of function parameters in JavaScript -- creates hidden side effects for callers. Simplified from Rust: flags all assignment_expression nodes inside function bodies without checking if the left-hand side refers to a parameter identifier (no scope analysis), without Object.assign detection, and without NOLINT support.",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "[(assignment_expression left: (member_expression) @lhs) (augmented_assignment_expression left: (member_expression) @lhs)] @assign"

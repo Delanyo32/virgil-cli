@@ -2,7 +2,9 @@
   "pipeline": "resource_exhaustion",
   "category": "security",
   "description": "Detects ReDoS risks in Python: re.compile, re.search, re.match, re.findall, re.finditer, re.sub, re.fullmatch with nested quantifiers. Simplified from Rust: flags all attribute calls on the `re` module object. Cannot verify nested quantifier presence in match_pattern (has_nested_quantifier is a string analysis function not expressible in tree-sitter). All re module calls flagged.",
-  "languages": ["python"],
+  "languages": [
+    "python"
+  ],
   "graph": [
     {
       "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"

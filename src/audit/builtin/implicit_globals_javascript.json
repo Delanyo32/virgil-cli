@@ -2,7 +2,9 @@
   "pipeline": "implicit_globals",
   "category": "code-quality",
   "description": "Detects assignments to undeclared variables that create implicit globals in JavaScript. Simplified from Rust: flags all assignment_expression nodes where the left-hand side is a bare identifier, without scope analysis to check for prior declarations or filtering out known globals.",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "(assignment_expression left: (identifier) @var) @assign"

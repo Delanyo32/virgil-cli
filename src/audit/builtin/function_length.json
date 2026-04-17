@@ -5,17 +5,45 @@
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["function", "method", "arrow_function"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "function",
+          "method",
+          "arrow_function"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
-    {"compute_metric": "function_length"},
+    {
+      "compute_metric": "function_length"
+    },
     {
       "flag": {
         "pattern": "function_too_long",
         "message": "Function `{{name}}` is {{function_length}} lines long (threshold: 50)",
         "severity_map": [
-          {"when": {"function_length": {"gte": 100}}, "severity": "error"},
-          {"when": {"function_length": {"gt": 50}}, "severity": "warning"}
+          {
+            "when": {
+              "metrics": {
+                "function_length": {
+                  "gte": 100
+                }
+              }
+            },
+            "severity": "error"
+          },
+          {
+            "when": {
+              "metrics": {
+                "function_length": {
+                  "gt": 50
+                }
+              }
+            },
+            "severity": "warning"
+          }
         ]
       }
     }

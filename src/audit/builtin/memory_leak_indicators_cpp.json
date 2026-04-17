@@ -2,7 +2,9 @@
   "pipeline": "memory_leak_indicators",
   "category": "scalability",
   "description": "Detects memory leak indicators in C++: raw new without matching delete or smart pointer, unbounded container growth in loops, missing virtual destructors. Simplified from Rust per D-09: matches new_expression in loop bodies broadly (cannot verify smart pointer wrapping, matching delete, or virtual destructor presence without cross-statement analysis). Languages field scoped to cpp only to avoid conflict with other language-specific memory_leak_indicators pipelines sharing the same pipeline name.",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(new_expression) @new_expr"

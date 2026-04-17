@@ -2,7 +2,9 @@
   "pipeline": "java_path_traversal",
   "category": "security",
   "description": "Detects path traversal risks in Java: new File() with concatenated paths, Paths.get() with dynamic arguments. JSON version matches all object_creation_expression nodes (cannot filter by type name or argument content without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "match_pattern": "(object_creation_expression type: (type_identifier) @type arguments: (argument_list) @args) @creation"

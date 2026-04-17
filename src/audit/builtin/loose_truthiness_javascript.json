@@ -2,7 +2,9 @@
   "pipeline": "loose_truthiness",
   "category": "code-quality",
   "description": "Detects implicit truthiness checks on `.length` in JavaScript conditions (e.g., `if (arr.length)` instead of `if (arr.length > 0)`). Simplified from Rust: flags all member_expression nodes with `length` property regardless of whether they appear in a condition context (if/while/ternary).",
-  "languages": ["javascript"],
+  "languages": [
+    "javascript"
+  ],
   "graph": [
     {
       "match_pattern": "(member_expression property: (property_identifier) @prop) @expr"

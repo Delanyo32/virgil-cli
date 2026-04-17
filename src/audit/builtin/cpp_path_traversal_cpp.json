@@ -2,7 +2,9 @@
   "pipeline": "cpp_path_traversal",
   "category": "security",
   "description": "Detects path traversal risks in C++: ifstream/ofstream opened with dynamic paths from parameters, filesystem::path concatenation without canonical() sanitization. Simplified from Rust per D-07: flags all call_expression nodes (cannot verify path argument origin or canonical() presence without cross-statement data-flow analysis).",
-  "languages": ["cpp"],
+  "languages": [
+    "cpp"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (_) @fn_name arguments: (argument_list) @args) @call"

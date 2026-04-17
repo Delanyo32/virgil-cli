@@ -2,7 +2,9 @@
   "pipeline": "clone_detection",
   "category": "code-quality",
   "description": "Detects overuse of .clone(), .to_owned(), and .to_string() that may indicate unnecessary allocations. Simplified from Rust: flags all .clone()/.to_owned()/.to_string() method calls regardless of context (does not distinguish calls in loops from calls outside loops, or suppress numeric .to_string()).",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method))"

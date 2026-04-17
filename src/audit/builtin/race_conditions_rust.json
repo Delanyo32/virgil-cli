@@ -2,7 +2,9 @@
   "pipeline": "race_conditions",
   "category": "security",
   "description": "Detects race condition risks in Rust: static mut variable declarations create data race potential. Pure tree-sitter detection of static_item with mutable_specifier. Languages field scoped to rust only to avoid conflict with Go race_conditions pipeline (same pipeline name).",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "match_pattern": "(static_item (mutable_specifier) @mut_spec) @static_mut_item"

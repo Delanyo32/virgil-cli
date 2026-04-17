@@ -2,15 +2,32 @@
   "pipeline": "god_object_detection",
   "category": "code-quality",
   "description": "Detects impl blocks with too many methods (god objects) in Rust. Simplified from Rust: uses symbol count per file as a proxy for large types (struct field count and impl method count not individually aggregatable in JSON DSL). Does not detect large_struct pattern separately.",
-  "languages": ["rust"],
+  "languages": [
+    "rust"
+  ],
   "graph": [
     {
       "select": "symbol",
-      "where": {"kind": ["method", "function"]},
-      "exclude": {"is_test_file": true}
+      "where": {
+        "kind": [
+          "method",
+          "function"
+        ]
+      },
+      "exclude": {
+        "is_test_file": true
+      }
     },
-    {"group_by": "file"},
-    {"count": {"threshold": {"gte": 10}}},
+    {
+      "group_by": "file"
+    },
+    {
+      "count": {
+        "threshold": {
+          "gte": 10
+        }
+      }
+    },
     {
       "flag": {
         "pattern": "god_object",

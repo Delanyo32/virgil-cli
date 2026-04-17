@@ -2,7 +2,9 @@
   "pipeline": "enum_usage",
   "category": "code-quality",
   "description": "Detects TypeScript enum declarations -- union types or `as const` are often better alternatives. Simplified from Rust: flags all enum_declaration nodes without distinguishing const enums, bitflag enums, or string enums. Language scoped to typescript only.",
-  "languages": ["typescript"],
+  "languages": [
+    "typescript"
+  ],
   "graph": [
     {
       "match_pattern": "(enum_declaration name: (identifier) @name) @decl"

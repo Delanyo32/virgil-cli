@@ -2,7 +2,9 @@
   "pipeline": "raw_types",
   "category": "code-quality",
   "description": "Detects raw generic type usage in Java (List, Map, Set, etc. without type parameters). Simplified from Rust: flags local_variable_declaration nodes. Cannot cross-reference against the known-generics list, check @SuppressWarnings(\"rawtypes\"), detect raw return types, or suggest type parameters from RHS initialization.",
-  "languages": ["java"],
+  "languages": [
+    "java"
+  ],
   "graph": [
     {
       "match_pattern": "(local_variable_declaration) @var_decl"

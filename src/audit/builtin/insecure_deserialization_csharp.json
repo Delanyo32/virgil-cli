@@ -2,7 +2,9 @@
   "pipeline": "insecure_deserialization",
   "category": "security",
   "description": "Detects insecure deserialization in C#: new BinaryFormatter(), new SoapFormatter(), new NetDataContractSerializer(), and other dangerous serializer instantiations. JSON version matches all object creation expressions (cannot filter by type name without #match? predicate support). Precision reduced per D-07.",
-  "languages": ["csharp"],
+  "languages": [
+    "csharp"
+  ],
   "graph": [
     {
       "match_pattern": "(object_creation_expression type: (_) @type_name arguments: (argument_list) @args) @creation"

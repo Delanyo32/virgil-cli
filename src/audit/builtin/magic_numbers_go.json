@@ -2,7 +2,9 @@
   "pipeline": "magic_numbers",
   "category": "code-quality",
   "description": "Detects numeric literals in Go that should be named constants. Simplified from Rust: flags all int_literal nodes without excluding common values (0, 1, 2), const contexts, index expressions, call arguments, or well-named variable assignments.",
-  "languages": ["go"],
+  "languages": [
+    "go"
+  ],
   "graph": [
     {
       "match_pattern": "(int_literal) @lit"
