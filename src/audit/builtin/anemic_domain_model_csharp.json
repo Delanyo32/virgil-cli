@@ -1,18 +1,16 @@
 {
   "pipeline": "anemic_domain_model",
-  "category": "code-quality",
-  "description": "Detects C# classes with only properties and no methods (anemic domain model anti-pattern). Simplified from Rust: flags all class_declaration nodes. Cannot filter by property vs method count, DTO suffix exclusion, or ORM attribute checks. Higher false positive rate -- all classes flagged.",
-  "languages": [
-    "csharp"
-  ],
+  "category": "code_style",
+  "description": "Detects C# classes that look like domain objects but contain only properties (anemic domain model). Excludes infrastructure classes: Controller, Repository, Middleware, Handler, Service, Factory, Validator, Filter, Converter, Builder, Provider, Manager, Context, Config, Options.",
+  "languages": ["csharp"],
   "graph": [
     {
-      "match_pattern": "(class_declaration name: (identifier) @class_name) @class_decl"
+      "match_pattern": "(class_declaration name: (identifier) @class_name (#not-match? @class_name \"(?i)(Controller|Repository|Middleware|Handler|Service|Factory|Validator|Filter|Converter|Builder|Provider|Manager|Context|Config|Options)$\"))"
     },
     {
       "flag": {
         "pattern": "anemic_class",
-        "message": "Class detected -- verify it has sufficient behavior (not just properties). Consider adding domain methods or using a record/DTO.",
+        "message": "Class `{{name}}` may be anemic -- verify it has domain behavior, not just properties",
         "severity": "info"
       }
     }
