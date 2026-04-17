@@ -7,100 +7,102 @@
   ],
   "graph": [
     {
-      "taint": {
-        "sources": [
-          {
-            "pattern": "$_GET",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "$_POST",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "$_REQUEST",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "$_COOKIE",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "$_SERVER",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "getenv(",
-            "kind": "env_var"
-          },
-          {
-            "pattern": "file_get_contents",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "fgets",
-            "kind": "user_input"
-          }
-        ],
-        "sinks": [
-          {
-            "pattern": "mysqli_query",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "pg_query",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "mysql_query",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "->query(",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "->exec(",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "PDO::query",
-            "vulnerability": "sql_injection"
-          }
-        ],
-        "sanitizers": [
-          {
-            "pattern": "mysqli_real_escape_string"
-          },
-          {
-            "pattern": "pg_escape_string"
-          },
-          {
-            "pattern": "addslashes"
-          },
-          {
-            "pattern": "prepare("
-          },
-          {
-            "pattern": "bindParam"
-          },
-          {
-            "pattern": "bindValue"
-          },
-          {
-            "pattern": "filter_var"
-          },
-          {
-            "pattern": "filter_input"
-          },
-          {
-            "pattern": "intval"
-          },
-          {
-            "pattern": "htmlspecialchars"
-          }
-        ]
-      }
+      "taint_sources": [
+        {
+          "pattern": "$_GET",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "$_POST",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "$_REQUEST",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "$_COOKIE",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "$_SERVER",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "getenv(",
+          "kind": "env_var"
+        },
+        {
+          "pattern": "file_get_contents",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "fgets",
+          "kind": "user_input"
+        }
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {
+          "pattern": "mysqli_real_escape_string"
+        },
+        {
+          "pattern": "pg_escape_string"
+        },
+        {
+          "pattern": "addslashes"
+        },
+        {
+          "pattern": "prepare("
+        },
+        {
+          "pattern": "bindParam"
+        },
+        {
+          "pattern": "bindValue"
+        },
+        {
+          "pattern": "filter_var"
+        },
+        {
+          "pattern": "filter_input"
+        },
+        {
+          "pattern": "intval"
+        },
+        {
+          "pattern": "htmlspecialchars"
+        }
+      ]
+    },
+    {
+      "taint_sinks": [
+        {
+          "pattern": "mysqli_query",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "pg_query",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "mysql_query",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "->query(",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "->exec(",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "PDO::query",
+          "vulnerability": "sql_injection"
+        }
+      ]
     },
     {
       "flag": {

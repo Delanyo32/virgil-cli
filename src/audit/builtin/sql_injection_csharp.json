@@ -7,84 +7,86 @@
   ],
   "graph": [
     {
-      "taint": {
-        "sources": [
-          {
-            "pattern": "Request.Query",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Request.Form",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Request.Headers",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Request.Body",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Environment.GetEnvironmentVariable",
-            "kind": "env_var"
-          },
-          {
-            "pattern": "Console.ReadLine",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "args[",
-            "kind": "user_input"
-          }
-        ],
-        "sinks": [
-          {
-            "pattern": "ExecuteNonQuery",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "ExecuteScalar",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "ExecuteReader",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "FromSqlRaw",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "ExecuteSqlRaw",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "SqlCommand(",
-            "vulnerability": "sql_injection"
-          }
-        ],
-        "sanitizers": [
-          {
-            "pattern": "SqlParameter"
-          },
-          {
-            "pattern": "AddWithValue"
-          },
-          {
-            "pattern": "Parameters.Add"
-          },
-          {
-            "pattern": "HtmlEncode"
-          },
-          {
-            "pattern": "AntiXss"
-          },
-          {
-            "pattern": "parameterize"
-          }
-        ]
-      }
+      "taint_sources": [
+        {
+          "pattern": "Request.Query",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Request.Form",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Request.Headers",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Request.Body",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Environment.GetEnvironmentVariable",
+          "kind": "env_var"
+        },
+        {
+          "pattern": "Console.ReadLine",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "args[",
+          "kind": "user_input"
+        }
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {
+          "pattern": "SqlParameter"
+        },
+        {
+          "pattern": "AddWithValue"
+        },
+        {
+          "pattern": "Parameters.Add"
+        },
+        {
+          "pattern": "HtmlEncode"
+        },
+        {
+          "pattern": "AntiXss"
+        },
+        {
+          "pattern": "parameterize"
+        }
+      ]
+    },
+    {
+      "taint_sinks": [
+        {
+          "pattern": "ExecuteNonQuery",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "ExecuteScalar",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "ExecuteReader",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "FromSqlRaw",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "ExecuteSqlRaw",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "SqlCommand(",
+          "vulnerability": "sql_injection"
+        }
+      ]
     },
     {
       "flag": {

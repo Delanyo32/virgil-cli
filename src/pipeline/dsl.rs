@@ -516,6 +516,15 @@ pub enum GraphStage {
     Taint {
         taint: TaintStage,
     },
+    TaintSources {
+        taint_sources: Vec<TaintSourcePattern>,
+    },
+    TaintSanitizers {
+        taint_sanitizers: Vec<TaintSanitizerPattern>,
+    },
+    TaintSinks {
+        taint_sinks: Vec<TaintSinkPattern>,
+    },
     FindDuplicates {
         find_duplicates: FindDuplicatesStage,
     },
@@ -1201,6 +1210,57 @@ mod tests {
         let wc: WhereClause = serde_json::from_str(json).unwrap();
         assert!(wc.metrics.contains_key("efferent_coupling"));
         assert!(!wc.is_empty());
+    }
+
+    #[test]
+    fn test_taint_sources_stage_deserializes() {
+        let json = r#"{"taint_sources": [{"pattern": "request.form", "kind": "user_input"}]}"#;
+        let stage: GraphStage = serde_json::from_str(json).unwrap();
+        match stage {
+            GraphStage::TaintSources { taint_sources } => {
+                assert_eq!(taint_sources.len(), 1);
+                assert_eq!(taint_sources[0].pattern, "request.form");
+                assert_eq!(taint_sources[0].kind, "user_input");
+            }
+            _ => panic!("expected TaintSources stage"),
+        }
+    }
+
+    #[test]
+    fn test_taint_sanitizers_stage_deserializes() {
+        let json = r#"{"taint_sanitizers": [{"pattern": "escape"}, {"pattern": "quote"}]}"#;
+        let stage: GraphStage = serde_json::from_str(json).unwrap();
+        match stage {
+            GraphStage::TaintSanitizers { taint_sanitizers } => {
+                assert_eq!(taint_sanitizers.len(), 2);
+            }
+            _ => panic!("expected TaintSanitizers stage"),
+        }
+    }
+
+    #[test]
+    fn test_taint_sinks_stage_deserializes() {
+        let json = r#"{"taint_sinks": [{"pattern": "cursor.execute", "vulnerability": "sql_injection"}]}"#;
+        let stage: GraphStage = serde_json::from_str(json).unwrap();
+        match stage {
+            GraphStage::TaintSinks { taint_sinks } => {
+                assert_eq!(taint_sinks.len(), 1);
+                assert_eq!(taint_sinks[0].vulnerability, "sql_injection");
+            }
+            _ => panic!("expected TaintSinks stage"),
+        }
+    }
+
+    #[test]
+    fn test_decomposed_taint_pipeline_deserializes() {
+        let json = r#"[
+            {"taint_sources": [{"pattern": "request.form", "kind": "user_input"}]},
+            {"taint_sanitizers": [{"pattern": "escape"}]},
+            {"taint_sinks": [{"pattern": "cursor.execute", "vulnerability": "sql_injection"}]},
+            {"flag": {"pattern": "sql_injection", "message": "found at {{file}}:{{line}}", "severity": "error"}}
+        ]"#;
+        let stages: Vec<GraphStage> = serde_json::from_str(json).unwrap();
+        assert_eq!(stages.len(), 4);
     }
 
     #[test]

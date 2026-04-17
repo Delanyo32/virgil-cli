@@ -7,63 +7,65 @@
   ],
   "graph": [
     {
-      "taint": {
-        "sources": [
-          {
-            "pattern": "Request.Query",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Request.Form",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Request.Headers",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "Environment.GetEnvironmentVariable",
-            "kind": "env_var"
-          },
-          {
-            "pattern": "Console.ReadLine",
-            "kind": "user_input"
-          }
-        ],
-        "sinks": [
-          {
-            "pattern": "HttpClient.GetAsync",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "HttpClient.PostAsync",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "new HttpRequestMessage",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "WebClient.DownloadString",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "Response.Redirect",
-            "vulnerability": "ssrf"
-          }
-        ],
-        "sanitizers": [
-          {
-            "pattern": "Uri.IsWellFormedUriString"
-          },
-          {
-            "pattern": "allowlist"
-          },
-          {
-            "pattern": "isAllowed"
-          }
-        ]
-      }
+      "taint_sources": [
+        {
+          "pattern": "Request.Query",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Request.Form",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Request.Headers",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "Environment.GetEnvironmentVariable",
+          "kind": "env_var"
+        },
+        {
+          "pattern": "Console.ReadLine",
+          "kind": "user_input"
+        }
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {
+          "pattern": "Uri.IsWellFormedUriString"
+        },
+        {
+          "pattern": "allowlist"
+        },
+        {
+          "pattern": "isAllowed"
+        }
+      ]
+    },
+    {
+      "taint_sinks": [
+        {
+          "pattern": "HttpClient.GetAsync",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "HttpClient.PostAsync",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "new HttpRequestMessage",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "WebClient.DownloadString",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "Response.Redirect",
+          "vulnerability": "ssrf"
+        }
+      ]
     },
     {
       "flag": {

@@ -32,6 +32,14 @@ pub enum PipelineOutput {
     Results(Vec<QueryResult>),
 }
 
+/// Accumulated taint sources and sanitizers built up across `TaintSources` and
+/// `TaintSanitizers` stages. Consumed when a `TaintSinks` stage runs.
+#[derive(Default)]
+struct TaintContext {
+    sources: Vec<crate::pipeline::dsl::TaintSourcePattern>,
+    sanitizers: Vec<crate::pipeline::dsl::TaintSanitizerPattern>,
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -84,6 +92,8 @@ pub fn run_pipeline(
         None => Vec::new(),
     };
 
+    let mut taint_ctx = TaintContext::default();
+
     // Execute all non-Flag stages
     for stage in pipeline_stages {
         nodes = execute_stage(
@@ -96,6 +106,7 @@ pub fn run_pipeline(
             &is_test_fn,
             &is_generated_fn,
             &is_barrel_fn,
+            &mut taint_ctx,
         )?;
     }
 
@@ -143,6 +154,7 @@ fn execute_stage(
     is_test_fn: &impl Fn(&str) -> bool,
     is_generated_fn: &impl Fn(&str) -> bool,
     is_barrel_fn: &impl Fn(&str) -> bool,
+    taint_ctx: &mut TaintContext,
 ) -> anyhow::Result<Vec<PipelineNode>> {
     match stage {
         GraphStage::Select { select, filter, exclude } => {
@@ -185,7 +197,28 @@ fn execute_stage(
             }
         }
         GraphStage::Taint { taint } => {
-            execute_taint(taint, graph)
+            let config = crate::graph::taint::TaintConfig {
+                sources: taint.sources.clone(),
+                sinks: taint.sinks.clone(),
+                sanitizers: taint.sanitizers.clone(),
+            };
+            execute_taint_with_config(&config, graph, &taint.sinks)
+        }
+        GraphStage::TaintSources { taint_sources } => {
+            taint_ctx.sources.extend(taint_sources.iter().cloned());
+            Ok(nodes)
+        }
+        GraphStage::TaintSanitizers { taint_sanitizers } => {
+            taint_ctx.sanitizers.extend(taint_sanitizers.iter().cloned());
+            Ok(nodes)
+        }
+        GraphStage::TaintSinks { taint_sinks } => {
+            let config = crate::graph::taint::TaintConfig {
+                sources: taint_ctx.sources.clone(),
+                sinks: taint_sinks.clone(),
+                sanitizers: taint_ctx.sanitizers.clone(),
+            };
+            execute_taint_with_config(&config, graph, taint_sinks)
         }
         GraphStage::FindDuplicates { find_duplicates } => {
             Ok(execute_find_duplicates(find_duplicates, nodes))
@@ -956,19 +989,14 @@ fn execute_compute_metric(
 // Taint stage
 // ---------------------------------------------------------------------------
 
-fn execute_taint(
-    stage: &crate::pipeline::dsl::TaintStage,
+fn execute_taint_with_config(
+    config: &crate::graph::taint::TaintConfig,
     graph: &CodeGraph,
+    sinks: &[crate::pipeline::dsl::TaintSinkPattern],
 ) -> anyhow::Result<Vec<PipelineNode>> {
-    use crate::graph::taint::{TaintConfig, TaintEngine};
+    use crate::graph::taint::TaintEngine;
 
-    let config = TaintConfig {
-        sources: stage.sources.clone(),
-        sinks: stage.sinks.clone(),
-        sanitizers: stage.sanitizers.clone(),
-    };
-
-    let findings = TaintEngine::analyze_all(graph, &config);
+    let findings = TaintEngine::analyze_all(graph, config);
 
     let nodes = findings
         .into_iter()
@@ -976,8 +1004,7 @@ fn execute_taint(
             let mut metrics = HashMap::new();
             metrics.insert("sink".to_string(), MetricValue::Text(f.sink_name.clone()));
             // derive vulnerability from first matching sink pattern
-            let vulnerability = stage
-                .sinks
+            let vulnerability = sinks
                 .iter()
                 .find(|s| f.sink_name.contains(s.pattern.as_str()))
                 .map(|s| s.vulnerability.clone())
@@ -1358,6 +1385,7 @@ mod tests {
             filter: None,
             exclude: None,
         };
+        let mut taint_ctx = TaintContext::default();
         let nodes = execute_stage(
             &select_stage,
             Vec::new(),
@@ -1368,6 +1396,7 @@ mod tests {
             &is_test_fn,
             &is_generated_fn,
             &is_barrel_fn,
+            &mut taint_ctx,
         ).unwrap();
 
         let cycle_stage = GraphStage::FindCycles {
@@ -1383,6 +1412,7 @@ mod tests {
             &is_test_fn,
             &is_generated_fn,
             &is_barrel_fn,
+            &mut taint_ctx,
         ).unwrap();
 
         assert_eq!(cycle_nodes.len(), 1);
@@ -1498,6 +1528,7 @@ mod tests {
             filter: None,
             exclude: None,
         };
+        let mut taint_ctx = TaintContext::default();
         let nodes = execute_stage(
             &select_stage,
             Vec::new(),
@@ -1508,6 +1539,7 @@ mod tests {
             &is_test_fn,
             &is_generated_fn,
             &is_barrel_fn,
+            &mut taint_ctx,
         ).unwrap();
 
         // Run max_depth with threshold >= 2 (should match c.rs only)
@@ -1531,6 +1563,7 @@ mod tests {
             &is_test_fn,
             &is_generated_fn,
             &is_barrel_fn,
+            &mut taint_ctx,
         ).unwrap();
 
         assert_eq!(result.len(), 1, "only c.rs should have depth >= 2");
@@ -1554,6 +1587,7 @@ mod tests {
             filter: None,
             exclude: None,
         };
+        let mut taint_ctx = TaintContext::default();
         let mut nodes = execute_stage(
             &select_stage,
             Vec::new(),
@@ -1564,6 +1598,7 @@ mod tests {
             &is_test_fn,
             &is_generated_fn,
             &is_barrel_fn,
+            &mut taint_ctx,
         ).unwrap();
 
         // Inject a count metric manually

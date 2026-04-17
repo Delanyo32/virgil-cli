@@ -7,81 +7,83 @@
   ],
   "graph": [
     {
-      "taint": {
-        "sources": [
-          {
-            "pattern": "req.body",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "req.query",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "req.params",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "req.headers",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "process.env",
-            "kind": "env_var"
-          }
-        ],
-        "sinks": [
-          {
-            "pattern": "fetch(",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "axios.get",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "axios.post",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "http.get(",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "http.request(",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "got(",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "request(",
-            "vulnerability": "ssrf"
-          },
-          {
-            "pattern": "res.redirect",
-            "vulnerability": "ssrf"
-          }
-        ],
-        "sanitizers": [
-          {
-            "pattern": "new URL("
-          },
-          {
-            "pattern": "urlparse"
-          },
-          {
-            "pattern": "allowlist"
-          },
-          {
-            "pattern": "isAllowed"
-          },
-          {
-            "pattern": "validateUrl"
-          }
-        ]
-      }
+      "taint_sources": [
+        {
+          "pattern": "req.body",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "req.query",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "req.params",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "req.headers",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "process.env",
+          "kind": "env_var"
+        }
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {
+          "pattern": "new URL("
+        },
+        {
+          "pattern": "urlparse"
+        },
+        {
+          "pattern": "allowlist"
+        },
+        {
+          "pattern": "isAllowed"
+        },
+        {
+          "pattern": "validateUrl"
+        }
+      ]
+    },
+    {
+      "taint_sinks": [
+        {
+          "pattern": "fetch(",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "axios.get",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "axios.post",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "http.get(",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "http.request(",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "got(",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "request(",
+          "vulnerability": "ssrf"
+        },
+        {
+          "pattern": "res.redirect",
+          "vulnerability": "ssrf"
+        }
+      ]
     },
     {
       "flag": {

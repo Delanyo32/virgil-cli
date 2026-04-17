@@ -7,100 +7,102 @@
   ],
   "graph": [
     {
-      "taint": {
-        "sources": [
-          {
-            "pattern": "request.form",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "request.args",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "request.data",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "request.json",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "request.values",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "os.environ",
-            "kind": "env_var"
-          },
-          {
-            "pattern": "os.environ.get",
-            "kind": "env_var"
-          },
-          {
-            "pattern": "input(",
-            "kind": "user_input"
-          },
-          {
-            "pattern": "sys.argv",
-            "kind": "user_input"
-          }
-        ],
-        "sinks": [
-          {
-            "pattern": "cursor.execute",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "cursor.executemany",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "db.execute",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "connection.execute",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "session.execute",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "engine.execute",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "raw(",
-            "vulnerability": "sql_injection"
-          },
-          {
-            "pattern": "text(",
-            "vulnerability": "sql_injection"
-          }
-        ],
-        "sanitizers": [
-          {
-            "pattern": "escape"
-          },
-          {
-            "pattern": "quote"
-          },
-          {
-            "pattern": "prepare"
-          },
-          {
-            "pattern": "parameterize"
-          },
-          {
-            "pattern": "bind_param"
-          },
-          {
-            "pattern": "placeholder"
-          }
-        ]
-      }
+      "taint_sources": [
+        {
+          "pattern": "request.form",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "request.args",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "request.data",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "request.json",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "request.values",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "os.environ",
+          "kind": "env_var"
+        },
+        {
+          "pattern": "os.environ.get",
+          "kind": "env_var"
+        },
+        {
+          "pattern": "input(",
+          "kind": "user_input"
+        },
+        {
+          "pattern": "sys.argv",
+          "kind": "user_input"
+        }
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {
+          "pattern": "escape"
+        },
+        {
+          "pattern": "quote"
+        },
+        {
+          "pattern": "prepare"
+        },
+        {
+          "pattern": "parameterize"
+        },
+        {
+          "pattern": "bind_param"
+        },
+        {
+          "pattern": "placeholder"
+        }
+      ]
+    },
+    {
+      "taint_sinks": [
+        {
+          "pattern": "cursor.execute",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "cursor.executemany",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "db.execute",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "connection.execute",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "session.execute",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "engine.execute",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "raw(",
+          "vulnerability": "sql_injection"
+        },
+        {
+          "pattern": "text(",
+          "vulnerability": "sql_injection"
+        }
+      ]
     },
     {
       "flag": {
