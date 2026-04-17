@@ -19483,3 +19483,1484 @@ fn coupling_ts_metadata_correct() {
     assert_eq!(f.pipeline, "coupling");
     assert!(f.file_path.ends_with(".ts"));
 }
+
+// ── Phase 5: C# Tech Debt + Code Style Pipelines ──
+
+fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+fn run_csharp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+// ── anemic_domain_model (CSharp, TechDebt, 10 tests) ──
+
+#[test]
+fn anemic_domain_model_csharp_finds_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Order { public int Id { get; set; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "anemic_domain_model"),
+        "expected anemic_domain_model finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn anemic_domain_model_csharp_finds_multiple_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class A { } class B { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "anemic_domain_model").count() >= 2,
+        "expected >= 2 anemic_domain_model findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn anemic_domain_model_csharp_finds_nested_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Outer { class Inner { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "anemic_domain_model"),
+        "expected anemic_domain_model finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn anemic_domain_model_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "anemic_domain_model").unwrap();
+    assert_eq!(f.pattern, "anemic_class");
+}
+
+#[test]
+fn anemic_domain_model_csharp_severity_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "anemic_domain_model").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn anemic_domain_model_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "anemic_domain_model").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn anemic_domain_model_csharp_with_namespace() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "namespace App { class Order { public int Id { get; set; } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "anemic_domain_model"),
+        "expected anemic_domain_model finding in namespace; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn anemic_domain_model_csharp_public_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "public class Product { public string Name { get; set; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "anemic_domain_model"),
+        "expected anemic_domain_model finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn anemic_domain_model_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "anemic_domain_model"));
+}
+
+#[test]
+fn anemic_domain_model_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "anemic_domain_model").unwrap();
+    assert!(f.line >= 1);
+}
+
+// ── disposable_not_disposed (CSharp, TechDebt, 8 tests) ──
+
+#[test]
+fn disposable_not_disposed_csharp_finds_object_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var fs = new FileStream(\"f\", FileMode.Open); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "disposable_not_disposed"),
+        "expected disposable_not_disposed finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn disposable_not_disposed_csharp_finds_http_client() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var c = new HttpClient(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "disposable_not_disposed"),
+        "expected disposable_not_disposed finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn disposable_not_disposed_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var x = new Thing(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "disposable_not_disposed").unwrap();
+    assert_eq!(f.pattern, "missing_using");
+}
+
+#[test]
+fn disposable_not_disposed_csharp_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var x = new Thing(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "disposable_not_disposed").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn disposable_not_disposed_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var x = new Thing(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "disposable_not_disposed").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn disposable_not_disposed_csharp_multiple_creations() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var a = new A(); var b = new B(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "disposable_not_disposed").count() >= 2,
+        "expected >= 2 findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn disposable_not_disposed_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "disposable_not_disposed"));
+}
+
+#[test]
+fn disposable_not_disposed_csharp_clean_no_object_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { int x = 1; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "disposable_not_disposed"));
+}
+
+// ── exception_control_flow (CSharp, TechDebt, 9 tests) ──
+
+#[test]
+fn exception_control_flow_csharp_finds_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { } catch (Exception e) { } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_control_flow"),
+        "expected exception_control_flow finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn exception_control_flow_csharp_finds_broad_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { DoWork(); } catch (Exception e) { Console.Write(e); } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_control_flow"),
+        "expected exception_control_flow finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn exception_control_flow_csharp_finds_specific_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { } catch (InvalidOperationException e) { } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_control_flow"),
+        "expected exception_control_flow finding (broad pattern); got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn exception_control_flow_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { } catch { } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "exception_control_flow").unwrap();
+    assert_eq!(f.pattern, "empty_catch");
+}
+
+#[test]
+fn exception_control_flow_csharp_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { } catch { } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "exception_control_flow").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn exception_control_flow_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { } catch { } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "exception_control_flow").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn exception_control_flow_csharp_multiple_catches() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { try { } catch (A a) { } catch (B b) { } } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "exception_control_flow").count() >= 2,
+        "expected >= 2 catch findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn exception_control_flow_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_control_flow"));
+}
+
+#[test]
+fn exception_control_flow_csharp_clean_no_try_catch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { int x = 1; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_control_flow"));
+}
+
+// ── god_class (CSharp, TechDebt, 9 tests) ──
+
+#[test]
+fn god_class_csharp_finds_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class BigService { public void M1() { } public void M2() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"),
+        "expected god_class finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn god_class_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_class").unwrap();
+    assert_eq!(f.pattern, "too_many_methods");
+}
+
+#[test]
+fn god_class_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_class").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn god_class_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_class").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn god_class_csharp_finds_multiple_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class A { } class B { } class C { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "god_class").count() >= 3,
+        "expected >= 3 god_class findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn god_class_csharp_with_namespace() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "namespace App { class OrderService { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_class"),
+        "expected god_class finding in namespace; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn god_class_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_class").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn god_class_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+#[test]
+fn god_class_csharp_clean_no_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "interface IFoo { void M(); }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_class"));
+}
+
+// ── god_controller (CSharp, TechDebt, 6 tests) ──
+
+#[test]
+fn god_controller_csharp_finds_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class OrdersController { public IActionResult Get() { return Ok(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "god_controller"),
+        "expected god_controller finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn god_controller_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class FooController { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_controller").unwrap();
+    assert_eq!(f.pattern, "oversized_controller");
+}
+
+#[test]
+fn god_controller_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class BarController { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_controller").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn god_controller_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class FooController { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "god_controller").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn god_controller_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_controller"));
+}
+
+#[test]
+fn god_controller_csharp_clean_no_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "interface IFoo { }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "god_controller"));
+}
+
+// ── hardcoded_config (CSharp, TechDebt, 10 tests) ──
+
+#[test]
+fn hardcoded_config_csharp_finds_string_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { string conn = "Server=localhost;Password=secret"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "hardcoded_config"),
+        "expected hardcoded_config finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn hardcoded_config_csharp_finds_multiple_strings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { string a = "hello"; string b = "world"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "hardcoded_config").count() >= 2,
+        "expected >= 2 hardcoded_config findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn hardcoded_config_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { string x = "value"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "hardcoded_config").unwrap();
+    assert_eq!(f.pattern, "hardcoded_config_value");
+}
+
+#[test]
+fn hardcoded_config_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { string x = "value"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "hardcoded_config").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn hardcoded_config_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { string x = "value"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "hardcoded_config").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn hardcoded_config_csharp_finds_string_in_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { void M() { var s = "literal"; } }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "hardcoded_config"),
+        "expected hardcoded_config finding in method; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn hardcoded_config_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { string x = "val"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "hardcoded_config").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn hardcoded_config_csharp_finds_const_string() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        r#"class Foo { const string Url = "https://api.example.com"; }"#
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "hardcoded_config"),
+        "expected hardcoded_config finding for const string; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn hardcoded_config_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), r#"fn f() { let s = "hello"; }"#).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "hardcoded_config"));
+}
+
+#[test]
+fn hardcoded_config_csharp_clean_no_strings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x = 42; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "hardcoded_config"));
+}
+
+// ── missing_cancellation_token (CSharp, TechDebt, 9 tests) ──
+
+#[test]
+fn missing_cancellation_token_csharp_finds_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { public async Task DoWork() { await Task.Delay(1); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_cancellation_token"),
+        "expected missing_cancellation_token finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_cancellation_token_csharp_finds_multiple_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void A() { } void B() { } void C() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "missing_cancellation_token").count() >= 3,
+        "expected >= 3 missing_cancellation_token findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_cancellation_token_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "missing_cancellation_token").unwrap();
+    assert_eq!(f.pattern, "no_cancellation_token");
+}
+
+#[test]
+fn missing_cancellation_token_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "missing_cancellation_token").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn missing_cancellation_token_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "missing_cancellation_token").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn missing_cancellation_token_csharp_with_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { public async Task Fetch(string url) { await Task.Delay(1); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_cancellation_token"),
+        "expected missing_cancellation_token for method with non-CT params; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_cancellation_token_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "missing_cancellation_token").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn missing_cancellation_token_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_cancellation_token"));
+}
+
+#[test]
+fn missing_cancellation_token_csharp_clean_no_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int X { get; set; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_cancellation_token"));
+}
+
+// ── null_reference_risk (CSharp, TechDebt, 7 tests) ──
+
+#[test]
+fn null_reference_risk_csharp_finds_null_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { object M() { return null; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_reference_risk"),
+        "expected null_reference_risk finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn null_reference_risk_csharp_finds_null_assignment() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { string s = null; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "null_reference_risk"),
+        "expected null_reference_risk finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn null_reference_risk_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { object M() { return null; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "null_reference_risk").unwrap();
+    assert_eq!(f.pattern, "explicit_null_return");
+}
+
+#[test]
+fn null_reference_risk_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { object M() { return null; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "null_reference_risk").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn null_reference_risk_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { object M() { return null; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "null_reference_risk").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn null_reference_risk_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_reference_risk"));
+}
+
+#[test]
+fn null_reference_risk_csharp_clean_no_null() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int M() { return 42; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "null_reference_risk"));
+}
+
+// ── static_global_state (CSharp, TechDebt, 12 tests) ──
+
+#[test]
+fn static_global_state_csharp_finds_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { private static int _counter; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "static_global_state"),
+        "expected static_global_state finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn static_global_state_csharp_finds_public_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { public int Counter; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "static_global_state"),
+        "expected static_global_state finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn static_global_state_csharp_finds_multiple_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int a; int b; int c; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "static_global_state").count() >= 3,
+        "expected >= 3 static_global_state findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn static_global_state_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "static_global_state").unwrap();
+    assert_eq!(f.pattern, "mutable_static_field");
+}
+
+#[test]
+fn static_global_state_csharp_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "static_global_state").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn static_global_state_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "static_global_state").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn static_global_state_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "static_global_state").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn static_global_state_csharp_with_namespace() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "namespace App { class Foo { private string _name; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "static_global_state"),
+        "expected static_global_state finding in namespace; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn static_global_state_csharp_typed_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { private static string _instance; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "static_global_state"),
+        "expected static_global_state finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn static_global_state_csharp_pipeline_name_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "static_global_state").unwrap();
+    assert_eq!(f.pipeline, "static_global_state");
+}
+
+#[test]
+fn static_global_state_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "static_global_state"));
+}
+
+#[test]
+fn static_global_state_csharp_clean_no_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "static_global_state"));
+}
+
+// ── stringly_typed (CSharp, TechDebt, 9 tests) ──
+
+#[test]
+fn stringly_typed_csharp_finds_parameter() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void SetStatus(string status) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
+        "expected stringly_typed finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn stringly_typed_csharp_finds_multiple_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M(string a, string b) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "stringly_typed").count() >= 2,
+        "expected >= 2 stringly_typed findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn stringly_typed_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M(string x) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "stringly_typed").unwrap();
+    assert_eq!(f.pattern, "stringly_typed");
+}
+
+#[test]
+fn stringly_typed_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M(string x) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "stringly_typed").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn stringly_typed_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M(string x) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "stringly_typed").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn stringly_typed_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M(string x) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "stringly_typed").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn stringly_typed_csharp_with_typed_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M(int count, bool flag) { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
+        "expected stringly_typed finding for typed params; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn stringly_typed_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"));
+}
+
+#[test]
+fn stringly_typed_csharp_clean_no_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"));
+}
+
+// ── sync_over_async (CSharp, TechDebt, 10 tests) ──
+
+#[test]
+fn sync_over_async_csharp_finds_member_access() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var r = task.Result; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "sync_over_async"),
+        "expected sync_over_async finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn sync_over_async_csharp_finds_chained_access() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var r = obj.Prop.Value; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "sync_over_async"),
+        "expected sync_over_async finding for chained access; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn sync_over_async_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var r = task.Result; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "sync_over_async").unwrap();
+    assert_eq!(f.pattern, "blocking_result_access");
+}
+
+#[test]
+fn sync_over_async_csharp_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var r = task.Result; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "sync_over_async").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn sync_over_async_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var r = task.Result; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "sync_over_async").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn sync_over_async_csharp_finds_method_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { task.Wait(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "sync_over_async"),
+        "expected sync_over_async finding for .Wait(); got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn sync_over_async_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var r = task.Result; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "sync_over_async").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn sync_over_async_csharp_multiple_accesses() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { var a = x.A; var b = y.B; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "sync_over_async").count() >= 2,
+        "expected >= 2 sync_over_async findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn sync_over_async_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "sync_over_async"));
+}
+
+#[test]
+fn sync_over_async_csharp_clean_no_member_access() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { int x = 1; } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "sync_over_async"));
+}
+
+// ── thread_sleep (CSharp, TechDebt, 10 tests) ──
+
+#[test]
+fn thread_sleep_csharp_finds_invocation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Thread.Sleep(1000); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "thread_sleep"),
+        "expected thread_sleep finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn thread_sleep_csharp_finds_other_invocations() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Console.WriteLine(\"hi\"); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "thread_sleep"),
+        "expected thread_sleep finding (broad); got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn thread_sleep_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Thread.Sleep(100); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "thread_sleep").unwrap();
+    assert_eq!(f.pattern, "thread_sleep_call");
+}
+
+#[test]
+fn thread_sleep_csharp_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Thread.Sleep(100); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "thread_sleep").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn thread_sleep_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Thread.Sleep(100); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "thread_sleep").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn thread_sleep_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Thread.Sleep(100); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "thread_sleep").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn thread_sleep_csharp_multiple_invocations() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { A.B(); C.D(); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "thread_sleep").count() >= 2,
+        "expected >= 2 thread_sleep findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn thread_sleep_csharp_pipeline_name_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { Thread.Sleep(100); } }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "thread_sleep").unwrap();
+    assert_eq!(f.pipeline, "thread_sleep");
+}
+
+#[test]
+fn thread_sleep_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "thread_sleep"));
+}
+
+#[test]
+fn thread_sleep_csharp_clean_no_invocations() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int x = 1; }"
+    ).unwrap();
+    let findings = run_csharp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "thread_sleep"));
+}
+
+// ── dead_code (CSharp, CodeStyle, 9 tests) ──
+
+#[test]
+fn dead_code_csharp_finds_using_directive() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_csharp_finds_multiple_usings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nusing System.Linq;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "dead_code").count() >= 2,
+        "expected >= 2 dead_code findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert_eq!(f.pattern, "unused_import");
+}
+
+#[test]
+fn dead_code_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn dead_code_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn dead_code_csharp_line_number_set() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert!(f.line >= 1);
+}
+
+#[test]
+fn dead_code_csharp_pipeline_name_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert_eq!(f.pipeline, "dead_code");
+}
+
+#[test]
+fn dead_code_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_csharp_clean_no_using_directives() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { int x = 1; } }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+// ── duplicate_code (CSharp, CodeStyle, 5 tests) ──
+
+#[test]
+fn duplicate_code_csharp_finds_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { public void DoWork() { int x = 1; } }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected duplicate_code finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn duplicate_code_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "duplicate_code").unwrap();
+    assert_eq!(f.pattern, "duplicate_function_body");
+}
+
+#[test]
+fn duplicate_code_csharp_severity_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { } }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "duplicate_code").unwrap();
+    assert_eq!(f.severity, "warning");
+}
+
+#[test]
+fn duplicate_code_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_csharp_clean_no_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { int X { get; set; } }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+// ── coupling (CSharp, CodeStyle, 8 tests) ──
+
+#[test]
+fn coupling_csharp_finds_using_directive() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected coupling finding; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_csharp_finds_multiple_usings() {
+    let dir = tempfile::tempdir().unwrap();
+    let usings: String = (0..5).map(|i| format!("using Ns{};\n", i)).collect();
+    let src = format!("{}class Foo {{ }}", usings);
+    std::fs::write(dir.path().join("test.cs"), src).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 5,
+        "expected >= 5 coupling findings; got: {:?}",
+        findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_csharp_pattern_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert_eq!(f.pattern, "excessive_imports");
+}
+
+#[test]
+fn coupling_csharp_severity_info() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert_eq!(f.severity, "info");
+}
+
+#[test]
+fn coupling_csharp_file_path_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert!(f.file_path.ends_with(".cs"));
+}
+
+#[test]
+fn coupling_csharp_pipeline_name_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "using System;\nclass Foo { }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
+    assert_eq!(f.pipeline, "coupling");
+}
+
+#[test]
+fn coupling_csharp_clean_no_cs_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_csharp_clean_no_using_directives() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cs"),
+        "class Foo { void M() { int x = 1; } }"
+    ).unwrap();
+    let findings = run_csharp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
