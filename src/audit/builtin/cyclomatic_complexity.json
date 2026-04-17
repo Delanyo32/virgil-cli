@@ -21,7 +21,7 @@
     },
     {
       "flag": {
-        "pattern": "high_cyclomatic_complexity",
+        "pattern": "cyclomatic_complexity",
         "message": "Function `{{name}}` has cyclomatic complexity of {{cyclomatic_complexity}} (threshold: 10)",
         "severity_map": [
           {

@@ -291,8 +291,8 @@ fn cyclomatic_complexity_ts_finds_complex_function() {
         .unwrap();
 
     assert!(
-        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
-        "expected high_cyclomatic_complexity finding; got: {:?}",
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "cyclomatic_complexity"),
+        "expected cyclomatic_complexity finding; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -312,8 +312,8 @@ fn cyclomatic_complexity_ts_clean_function() {
         .unwrap();
 
     assert!(
-        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
-        "expected no high_cyclomatic_complexity finding for simple function; got: {:?}",
+        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "cyclomatic_complexity"),
+        "expected no cyclomatic_complexity finding for simple function; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -1020,8 +1020,8 @@ fn cyclomatic_complexity_rust_finds_complex_function() {
         .unwrap();
 
     assert!(
-        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
-        "expected high_cyclomatic_complexity finding for Rust; got: {:?}",
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "cyclomatic_complexity"),
+        "expected cyclomatic_complexity finding for Rust; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -1041,8 +1041,8 @@ fn cyclomatic_complexity_rust_clean_function() {
         .unwrap();
 
     assert!(
-        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
-        "expected no high_cyclomatic_complexity finding for simple Rust function; got: {:?}",
+        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "cyclomatic_complexity"),
+        "expected no cyclomatic_complexity finding for simple Rust function; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -1066,8 +1066,8 @@ fn cyclomatic_complexity_python_finds_complex_function() {
         .unwrap();
 
     assert!(
-        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
-        "expected high_cyclomatic_complexity finding for Python; got: {:?}",
+        findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "cyclomatic_complexity"),
+        "expected cyclomatic_complexity finding for Python; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -1087,8 +1087,8 @@ fn cyclomatic_complexity_python_clean_function() {
         .unwrap();
 
     assert!(
-        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "high_cyclomatic_complexity"),
-        "expected no high_cyclomatic_complexity finding for simple Python function; got: {:?}",
+        !findings.iter().any(|f| f.pipeline == "cyclomatic_complexity" && f.pattern == "cyclomatic_complexity"),
+        "expected no cyclomatic_complexity finding for simple Python function; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -20788,8 +20788,8 @@ fn cyclomatic_complexity_rust_complexity_category_finds() {
         .unwrap();
 
     assert!(
-        findings.iter().any(|f| f.pattern == "high_cyclomatic_complexity"),
-        "expected high_cyclomatic_complexity finding; got: {:?}",
+        findings.iter().any(|f| f.pattern == "cyclomatic_complexity"),
+        "expected cyclomatic_complexity finding; got: {:?}",
         findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
     );
 }
@@ -20810,8 +20810,8 @@ fn cyclomatic_complexity_rust_complexity_category_clean() {
         .unwrap();
 
     assert!(
-        !findings.iter().any(|f| f.pattern == "high_cyclomatic_complexity"),
-        "expected no high_cyclomatic_complexity finding"
+        !findings.iter().any(|f| f.pattern == "cyclomatic_complexity"),
+        "expected no cyclomatic_complexity finding"
     );
 }
 
