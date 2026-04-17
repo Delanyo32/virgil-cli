@@ -467,7 +467,7 @@ impl FlagConfig {
             // severity_map existed but no entry matched.
             // If there's a bare severity field, use it as fallback.
             // If not, suppress the finding (return None).
-            self.severity.clone().map(Some).unwrap_or(None)
+            self.severity.clone()
         } else {
             // No severity_map at all -- use severity field or default "warning"
             Some(self.severity.clone().unwrap_or_else(|| "warning".to_string()))
