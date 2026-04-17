@@ -1,18 +1,42 @@
 {
   "pipeline": "command_injection",
   "category": "security",
-  "description": "Detects command injection risks in PHP: shell_exec, exec, system, passthru, popen, proc_open with dynamic arguments. JSON version flags all function_call_expression nodes (cannot filter by function name without #match? predicate support). Precision reduced per D-07.",
-  "languages": [
-    "php"
-  ],
+  "description": "Detect command injection in PHP via taint analysis: user-controlled data reaching shell execution functions",
+  "languages": ["php"],
   "graph": [
     {
-      "match_pattern": "(function_call_expression function: (name) @fn_name arguments: (arguments) @args) @call"
+      "taint_sources": [
+        {"pattern": "$_GET", "kind": "user_input"},
+        {"pattern": "$_POST", "kind": "user_input"},
+        {"pattern": "$_REQUEST", "kind": "user_input"},
+        {"pattern": "$_SERVER", "kind": "user_input"},
+        {"pattern": "$_COOKIE", "kind": "user_input"},
+        {"pattern": "getenv", "kind": "env_var"}
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {"pattern": "escapeshellarg"},
+        {"pattern": "escapeshellcmd"},
+        {"pattern": "filter_input"},
+        {"pattern": "filter_var"}
+      ]
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "shell_exec", "vulnerability": "command_injection"},
+        {"pattern": "exec", "vulnerability": "command_injection"},
+        {"pattern": "system", "vulnerability": "command_injection"},
+        {"pattern": "passthru", "vulnerability": "command_injection"},
+        {"pattern": "popen", "vulnerability": "command_injection"},
+        {"pattern": "proc_open", "vulnerability": "command_injection"},
+        {"pattern": "pcntl_exec", "vulnerability": "command_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "command_injection_call",
-        "message": "Function call detected -- verify this is not shell_exec(), exec(), system(), passthru(), popen(), or proc_open() with dynamic user input enabling command injection; use escapeshellarg() if shell commands are necessary",
+        "message": "Command injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

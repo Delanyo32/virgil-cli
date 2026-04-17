@@ -4042,11 +4042,11 @@ fn memory_leak_indicators_csharp_clean() {
 #[test]
 fn command_injection_php_finds_function_call() {
     let dir = tempfile::tempdir().unwrap();
+    // 'data' parameter is auto-tainted; system() is the sink.
     std::fs::write(
         dir.path().join("test.php"),
-        "<?php\nfunction f($cmd) { system($cmd); }\n",
-    )
-    .unwrap();
+        "<?php\nfunction f($data) {\n    system($data);\n}\n",
+    ).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
@@ -4081,6 +4081,28 @@ fn command_injection_php_clean() {
         !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".php")),
         "expected no command_injection finding for clean PHP; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_php_no_fp_strlen() {
+    let dir = tempfile::tempdir().unwrap();
+    // strlen() is not a shell execution sink. Must NOT fire after fix.
+    std::fs::write(
+        dir.path().join("test.php"),
+        "<?php\nfunction f($s) {\n    return strlen($s);\n}\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Php], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Php])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".php")),
+        "expected no command_injection finding for strlen; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }
 

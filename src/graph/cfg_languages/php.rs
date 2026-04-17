@@ -12,6 +12,28 @@ pub struct PhpCfgBuilder;
 impl CfgBuilder for PhpCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut cfg = FunctionCfg::new();
+
+        // Extract parameter names from the function signature.
+        // PHP formal_parameters contains simple_parameter (or variadic_parameter) nodes,
+        // each of which has a "name" child that is a variable_name node (e.g. "$data").
+        // We strip the leading "$" so "data" matches PARAM_PATTERNS in the taint engine.
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                // Both simple_parameter and variadic_parameter have a "name" field.
+                if let Some(name_node) = child.child_by_field_name("name") {
+                    let name = name_node
+                        .utf8_text(source)
+                        .unwrap_or("")
+                        .trim_start_matches('$')
+                        .to_string();
+                    if !name.is_empty() {
+                        cfg.param_names.push(name);
+                    }
+                }
+            }
+        }
+
         let body = find_compound_statement(function_node);
         let body = match body {
             Some(b) => b,
