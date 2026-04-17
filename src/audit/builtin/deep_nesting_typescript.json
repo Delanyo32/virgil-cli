@@ -1,12 +1,12 @@
 {
-  "pipeline": "deep_nesting_python",
+  "pipeline": "deep_nesting_typescript",
   "category": "complexity",
-  "description": "Detects Python functions with excessive control flow nesting depth (if, for, while, with, try). Threshold: warning >= 4, error >= 6.",
-  "languages": ["python"],
+  "description": "Detects typescript functions with excessive control flow nesting depth. Threshold: warning >= 4, error >= 6.",
+  "languages": ["typescript"],
   "graph": [
     {
       "select": "symbol",
-      "where": { "kind": ["function", "method"] },
+      "where": { "kind": ["function", "method", "arrow_function"] },
       "exclude": { "is_test_file": true }
     },
     { "compute_metric": "nesting_depth" },

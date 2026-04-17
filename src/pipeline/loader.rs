@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn test_builtin_audits_returns_four() {
         let audits = builtin_audits();
-        assert!(audits.len() >= 36, "Expected at least 36 built-in audits, got {}", audits.len());
+        assert!(audits.len() >= 44, "Expected at least 44 built-in audits, got {}", audits.len());
         for audit in &audits {
             assert!(
                 !audit.graph.is_empty(),
@@ -170,7 +170,7 @@ mod tests {
     fn test_builtin_audit_pipeline_names() {
         let audits = builtin_audits();
         let names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
-        // Per-language pipeline names (representative samples from the 36 built-ins)
+        // Per-language pipeline names (representative samples from the 44 built-ins)
         assert!(names.contains(&"circular_dependencies_rust"), "missing circular_dependencies_rust in {:?}", names);
         assert!(names.contains(&"dependency_graph_depth_javascript"), "missing dependency_graph_depth_javascript in {:?}", names);
         assert!(names.contains(&"api_surface_area_python"), "missing api_surface_area_python in {:?}", names);

@@ -1,12 +1,12 @@
 {
-  "pipeline": "deep_nesting_python",
+  "pipeline": "deep_nesting_c",
   "category": "complexity",
-  "description": "Detects Python functions with excessive control flow nesting depth (if, for, while, with, try). Threshold: warning >= 4, error >= 6.",
-  "languages": ["python"],
+  "description": "Detects c functions with excessive control flow nesting depth. Threshold: warning >= 4, error >= 6.",
+  "languages": ["c"],
   "graph": [
     {
       "select": "symbol",
-      "where": { "kind": ["function", "method"] },
+      "where": { "kind": ["function"] },
       "exclude": { "is_test_file": true }
     },
     { "compute_metric": "nesting_depth" },

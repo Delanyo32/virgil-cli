@@ -1,8 +1,8 @@
 {
-  "pipeline": "deep_nesting_python",
+  "pipeline": "deep_nesting_go",
   "category": "complexity",
-  "description": "Detects Python functions with excessive control flow nesting depth (if, for, while, with, try). Threshold: warning >= 4, error >= 6.",
-  "languages": ["python"],
+  "description": "Detects go functions with excessive control flow nesting depth. Threshold: warning >= 4, error >= 6.",
+  "languages": ["go"],
   "graph": [
     {
       "select": "symbol",

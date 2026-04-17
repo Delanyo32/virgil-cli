@@ -8061,8 +8061,8 @@ fn deep_nesting_python_finds_five_nested_ifs() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting"),
-        "expected deep_nesting finding; got: {:?}",
+    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting_python"),
+        "expected deep_nesting_python finding; got: {:?}",
         findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
 }
 
@@ -8078,8 +8078,8 @@ fn deep_nesting_python_finds_mixed_control_flow() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting"),
-        "expected deep_nesting for 5 nested ifs");
+    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting_python"),
+        "expected deep_nesting_python for 5 nested ifs");
 }
 
 #[test]
@@ -8093,7 +8093,7 @@ fn deep_nesting_python_finding_has_correct_pattern() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting" && f.pattern == "excessive_nesting_depth"),
+    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting_python" && f.pattern == "excessive_nesting_depth"),
         "expected excessive_nesting_depth pattern");
 }
 
@@ -8108,7 +8108,7 @@ fn deep_nesting_python_finding_severity_is_warning() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting" && f.severity == "warning"),
+    assert!(findings.iter().any(|f| f.pipeline == "deep_nesting_python" && f.severity == "warning"),
         "expected warning severity for deep nesting");
 }
 
@@ -8123,8 +8123,8 @@ fn deep_nesting_python_no_findings_shallow() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting"),
-        "expected no deep_nesting for shallow nesting");
+    assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting_python"),
+        "expected no deep_nesting_python for shallow nesting");
 }
 
 #[test]
@@ -8138,8 +8138,8 @@ fn deep_nesting_python_no_findings_flat_function() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting"),
-        "expected no deep_nesting for flat function");
+    assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting_python"),
+        "expected no deep_nesting_python for flat function");
 }
 
 #[test]
@@ -8152,8 +8152,8 @@ fn deep_nesting_python_no_findings_no_python_files() {
         .languages(vec![Language::Python])
         .run(&workspace, Some(&graph))
         .unwrap();
-    assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting"),
-        "expected no deep_nesting for non-Python files");
+    assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting_python"),
+        "expected no deep_nesting_python for non-Python files");
 }
 
 // ── duplicate_logic (6 tests) ──
@@ -20554,5 +20554,65 @@ fn cyclomatic_complexity_rust_complexity_category_clean() {
     assert!(
         !findings.iter().any(|f| f.pattern == "high_cyclomatic_complexity"),
         "expected no high_cyclomatic_complexity finding"
+    );
+}
+
+// ── deep_nesting (Rust) ──
+
+#[test]
+fn deep_nesting_rust_finds_deeply_nested_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // 4 levels: for > if > for > if — hits the gte:4 warning threshold
+    let content = r#"fn deeply_nested(items: &[i32]) -> i32 {
+    let mut sum = 0;
+    for item in items {
+        if *item > 0 {
+            for _ in 0..*item {
+                if *item > 5 {
+                    sum += 1;
+                }
+            }
+        }
+    }
+    sum
+}
+"#;
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .categories(vec!["complexity".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pattern == "excessive_nesting_depth"),
+        "expected excessive_nesting_depth finding; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn deep_nesting_rust_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // Only 1 level of nesting — under the threshold
+    let content = "fn shallow(items: &[i32]) -> i32 {\n    let mut s = 0;\n    for i in items { s += i; }\n    s\n}\n";
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .categories(vec!["complexity".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "excessive_nesting_depth"),
+        "expected no excessive_nesting_depth finding"
     );
 }
