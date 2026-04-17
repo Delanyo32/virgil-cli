@@ -155,6 +155,18 @@ pub struct WhereClause {
     pub cognitive_complexity: Option<NumericPredicate>,
     #[serde(default)]
     pub comment_to_code_ratio: Option<NumericPredicate>,
+
+    // Coupling predicates (populated after compute_metric: efferent/afferent_coupling)
+    #[serde(default)]
+    pub efferent_coupling: Option<NumericPredicate>,
+    #[serde(default)]
+    pub afferent_coupling: Option<NumericPredicate>,
+
+    // Dead-export predicates
+    #[serde(default)]
+    pub unreferenced: Option<bool>,
+    #[serde(default)]
+    pub is_entry_point: Option<bool>,
 }
 
 impl WhereClause {
@@ -178,6 +190,10 @@ impl WhereClause {
             && self.function_length.is_none()
             && self.cognitive_complexity.is_none()
             && self.comment_to_code_ratio.is_none()
+            && self.efferent_coupling.is_none()
+            && self.afferent_coupling.is_none()
+            && self.unreferenced.is_none()
+            && self.is_entry_point.is_none()
     }
 
     /// Evaluate predicate against a node's metrics only (no file system access).
@@ -251,6 +267,17 @@ impl WhereClause {
                 return false;
             }
         }
+        if let Some(ref pred) = self.efferent_coupling {
+            if !pred.matches(node.metric_f64("efferent_coupling")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.afferent_coupling {
+            if !pred.matches(node.metric_f64("afferent_coupling")) {
+                return false;
+            }
+        }
+        // unreferenced and is_entry_point require graph access; skip in metrics-only eval
         // Semantic built-ins not evaluatable from metrics alone — skip here
         // (they are evaluated in executor using file path helpers)
         true
@@ -358,6 +385,28 @@ impl WhereClause {
         }
         if let Some(ref pred) = self.comment_to_code_ratio {
             if !pred.matches(node.metric_f64("comment_to_code_ratio")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.efferent_coupling {
+            if !pred.matches(node.metric_f64("efferent_coupling")) {
+                return false;
+            }
+        }
+        if let Some(ref pred) = self.afferent_coupling {
+            if !pred.matches(node.metric_f64("afferent_coupling")) {
+                return false;
+            }
+        }
+        if let Some(exp) = self.unreferenced {
+            let val = node.metric_f64("unreferenced") > 0.0;
+            if val != exp {
+                return false;
+            }
+        }
+        if let Some(exp) = self.is_entry_point {
+            let val = node.metric_f64("is_entry_point") > 0.0;
+            if val != exp {
                 return false;
             }
         }
@@ -475,6 +524,39 @@ pub struct RatioConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintSourcePattern {
+    pub pattern: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintSinkPattern {
+    pub pattern: String,
+    pub vulnerability: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintSanitizerPattern {
+    pub pattern: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintStage {
+    pub sources: Vec<TaintSourcePattern>,
+    pub sinks: Vec<TaintSinkPattern>,
+    pub sanitizers: Vec<TaintSanitizerPattern>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindDuplicatesStage {
+    pub by: String,
+    #[serde(default = "default_min_count")]
+    pub min_count: usize,
+}
+
+fn default_min_count() -> usize { 2 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlagConfig {
     pub pattern: String,
     pub message: String,
@@ -555,6 +637,12 @@ pub enum GraphStage {
     },
     Flag {
         flag: FlagConfig,
+    },
+    Taint {
+        taint: TaintStage,
+    },
+    FindDuplicates {
+        find_duplicates: FindDuplicatesStage,
     },
 }
 
