@@ -1,0 +1,28 @@
+{
+  "pipeline": "coupling",
+  "category": "code_style",
+  "description": "Detect files with excessive outgoing imports (high efferent coupling / fan-out). Barrel files excluded.",
+  "graph": [
+    {
+      "select": "file",
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true},
+          {"is_barrel_file": true}
+        ]
+      }
+    },
+    {"compute_metric": "efferent_coupling"},
+    {
+      "flag": {
+        "pattern": "high_efferent_coupling",
+        "message": "{{file}} imports from {{efferent_coupling}} modules — high fan-out coupling",
+        "severity_map": [
+          {"when": {"efferent_coupling": {"gte": 15}}, "severity": "error"},
+          {"when": {"efferent_coupling": {"gte": 8}},  "severity": "warning"}
+        ]
+      }
+    }
+  ]
+}

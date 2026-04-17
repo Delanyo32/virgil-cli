@@ -1,0 +1,25 @@
+{
+  "pipeline": "duplicate_symbols",
+  "category": "code_style",
+  "description": "Detect exported symbols with the same name defined across multiple files — potential naming collisions.",
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {"exported": true},
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true}
+        ]
+      }
+    },
+    {"find_duplicates": {"by": "name", "min_count": 2}},
+    {
+      "flag": {
+        "pattern": "duplicate_symbol",
+        "message": "{{name}} is defined in {{count}} files: {{files}}",
+        "severity": "info"
+      }
+    }
+  ]
+}

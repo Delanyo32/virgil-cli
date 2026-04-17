@@ -1,0 +1,30 @@
+{
+  "pipeline": "dead_exports",
+  "category": "code_style",
+  "description": "Detect exported symbols that are never referenced from outside their defining file. Entry-point files and test files excluded.",
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {
+        "and": [
+          {"exported": true},
+          {"is_entry_point": false},
+          {"unreferenced": true}
+        ]
+      },
+      "exclude": {
+        "or": [
+          {"is_test_file": true},
+          {"is_generated": true}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "dead_export",
+        "message": "{{name}} ({{kind}}) in {{file}}:{{line}} is exported but never referenced",
+        "severity": "warning"
+      }
+    }
+  ]
+}
