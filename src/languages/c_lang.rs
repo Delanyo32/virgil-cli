@@ -130,9 +130,9 @@ pub fn extract_symbols(
             name,
             kind,
             file_path: file_path.to_string(),
-            start_line: def_node.start_position().row as u32,
+            start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
-            end_line: def_node.end_position().row as u32,
+            end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
         };
@@ -231,7 +231,7 @@ pub fn extract_imports(
             local_name: "*".to_string(),
             kind: "include".to_string(),
             is_type_only: false,
-            line: include_node.start_position().row as u32,
+            line: include_node.start_position().row as u32 + 1,
             is_external: is_system,
         });
     }
@@ -282,9 +282,9 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
-            start_line: node.start_position().row as u32,
+            start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
-            end_line: node.end_position().row as u32,
+            end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
             associated_symbol_kind,
