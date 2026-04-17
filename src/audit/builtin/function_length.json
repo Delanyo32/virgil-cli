@@ -21,7 +21,7 @@
     },
     {
       "flag": {
-        "pattern": "function_too_long",
+        "pattern": "function_length",
         "message": "Function `{{name}}` is {{function_length}} lines long (threshold: 50)",
         "severity_map": [
           {

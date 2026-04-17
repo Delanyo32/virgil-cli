@@ -337,8 +337,8 @@ fn function_length_ts_finds_long_function() {
         .unwrap();
 
     assert!(
-        findings.iter().any(|f| f.pipeline == "function_length" && f.pattern == "function_too_long"),
-        "expected function_too_long finding; got: {:?}",
+        findings.iter().any(|f| f.pipeline == "function_length" && f.pattern == "function_length"),
+        "expected function_length finding; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -358,8 +358,8 @@ fn function_length_ts_clean_function() {
         .unwrap();
 
     assert!(
-        !findings.iter().any(|f| f.pipeline == "function_length" && f.pattern == "function_too_long"),
-        "expected no function_too_long finding; got: {:?}",
+        !findings.iter().any(|f| f.pipeline == "function_length" && f.pattern == "function_length"),
+        "expected no function_length finding; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -20710,8 +20710,8 @@ fn function_length_rust_finds_long_function() {
         .unwrap();
 
     assert!(
-        findings.iter().any(|f| f.pattern == "function_too_long"),
-        "expected function_too_long finding; got: {:?}",
+        findings.iter().any(|f| f.pattern == "function_length"),
+        "expected function_length finding; got: {:?}",
         findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
     );
 }
@@ -20732,8 +20732,8 @@ fn function_length_rust_clean_function() {
         .unwrap();
 
     assert!(
-        !findings.iter().any(|f| f.pattern == "function_too_long"),
-        "expected no function_too_long finding; got: {:?}",
+        !findings.iter().any(|f| f.pattern == "function_length"),
+        "expected no function_length finding; got: {:?}",
         findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
     );
 }
