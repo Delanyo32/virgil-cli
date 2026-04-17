@@ -19,6 +19,25 @@ cargo run -- audit --s3 s3://bucket/prefix [--language rs]
 cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
 ```
 
+## Module Layout
+
+- `src/pipeline/` — JSON pipeline layer (single owner of the DSL, executor, and file loading)
+  - `dsl.rs` — `GraphStage`, `WhereClause`, `PipelineNode` and all DSL types
+  - `executor.rs` — `run_pipeline` execution engine
+  - `loader.rs` — `discover_json_audits` (project-local → user-global → built-ins)
+  - `helpers.rs` — `is_test_file`, `is_barrel_file`, `is_excluded_for_arch_analysis`
+- `src/audit/` — orchestration and output only
+  - `engine.rs` — `AuditEngine` (discovers + runs JSON pipelines, collects findings)
+  - `format.rs` — finding output formatting (table/json/csv)
+  - `models.rs` — `AuditFinding`, `AuditSummary`
+  - `project_index.rs` — `ProjectIndex` (used by `graph/mod.rs` compat methods)
+- `src/graph/` — graph data structures and builder
+  - `mod.rs` — `CodeGraph`, `NodeWeight`, `EdgeWeight`
+  - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`)
+  - `taint.rs` — `TaintEngine`, `TaintConfig` (internal engine used by `pipeline/executor.rs`)
+  - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.)
+  - `cfg.rs` / `cfg_languages/` — control flow graph construction
+
 ## JSON Query Language
 
 Queries are JSON objects. All fields are optional and composable:
@@ -76,7 +95,9 @@ Critical gotchas and design decisions that are not obvious from reading the code
 - `decorated_definition` nodes: unwrap to inner function/class; skip the bare `function_definition`/`class_definition` if its parent is a `decorated_definition`. This deduplication prevents double-reporting decorated symbols.
 
 **Audit pipelines**
-- `PipelineContext` wraps tree + source + graph reference, passed to `Pipeline::check_with_context()`. Default impl delegates to `check_with_ids()` for backward compatibility. Pipelines that need cross-file graph data may use `GraphPipelineContext` (graph field is required, not `Option`).
+- `PipelineContext` and `GraphPipelineContext` are deleted — all analysis goes through `src/pipeline/executor.rs` via `run_pipeline`. The executor handles `select`, `compute_metric`, `taint_sources`/`taint_sanitizers`/`taint_sinks`, `flag`, and other stages directly.
+- `WhereClause.metrics` is a `HashMap<String, NumericPredicate>` — metric predicates use `{"metrics": {"name": {...}}}` nesting, not flat named fields.
+- `taint_sources` / `taint_sanitizers` / `taint_sinks` accumulate into a `TaintContext` per pipeline run. The old `taint` combined form desugars automatically.
 - Architecture audit thresholds (not in JSON files): oversized_module ≥ 30 symbols OR ≥ 1000 lines; monolithic_export_surface ≥ 20 exports; barrel_file_reexport ≥ 5 re-exports; hub_module_bidirectional ≥ 5 intra-project imports; deep_import_chain ≥ 4 path depth; excessive_public_api ≥ 10 symbols AND >80% exported.
 
 **Call graph**
@@ -88,12 +109,21 @@ Name-based resolution via `symbols_by_name` lookup — heuristic only, no type i
 - Server mode (`serve`) is S3-only — no `--path` flag. Used by Virgil Live (cloud service).
 
 **Audit pipeline model (JSON-first)**
-All audit logic is JSON-driven. The `taint` GraphStage (`src/graph/executor.rs`) handles
-security analysis — sources/sinks/sanitizers are declared in JSON builtin files
-(`src/audit/builtin/sql_injection_*.json`, `ssrf_*.json`, etc.). The `find_duplicates`
-stage and `efferent_coupling`/`afferent_coupling` compute metrics handle cross-file
-analysis. Use `AuditEngine::categories(vec!["security".to_string()])` to filter by
-category — no `PipelineSelector` exists.
+All audit logic is JSON-driven. `src/pipeline/` owns the DSL, executor, and builtin file loading.
+`AuditEngine` in `src/audit/engine.rs` discovers JSON files and calls `run_pipeline`.
+No Rust pipeline code exists — `audit/pipeline.rs`, `audit/pipelines/`, and the legacy trait
+hierarchy (`Pipeline`, `NodePipeline`, `GraphPipeline`) have been deleted.
+
+**DSL composability**
+`WhereClause` uses a generic `metrics: HashMap<String, NumericPredicate>` field — any metric
+computed by a `compute_metric` stage is filterable without changing the Rust schema:
+```json
+{"when": {"metrics": {"cyclomatic_complexity": {"gte": 15}}}}
+```
+The `taint` stage is decomposed into `taint_sources` + `taint_sanitizers` + `taint_sinks`
+stages that accumulate into a shared context. The old combined `taint` form continues to work
+(desugared by the executor) for backward compatibility with external pipeline files.
+Use `AuditEngine::categories(vec!["security".to_string()])` to filter by category.
 
 **Audit CLI**
 `virgil audit [--dir|--s3] [--language] [--category] [--pipeline] [--format] [--per-page] [--page]`
