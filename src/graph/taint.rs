@@ -4,437 +4,19 @@ use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
+use crate::graph::pipeline::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
 use super::cfg::{CfgStatementKind, FunctionCfg};
-use super::{CodeGraph, EdgeWeight, NodeWeight, SourceKind};
+use super::{CodeGraph, NodeWeight};
 
 // ---------------------------------------------------------------------------
-// Source / sink / sanitizer tables
+// TaintConfig — dynamic pattern tables loaded from JSON pipeline files
 // ---------------------------------------------------------------------------
 
-/// Taint source patterns — user inputs, env vars, network reads, etc.
-/// Each entry is matched via `contains` against variable names, call targets,
-/// or parameter names encountered in the CFG.
-const SOURCES: &[TaintPattern] = &[
-    // -- JavaScript / TypeScript --
-    TaintPattern {
-        text: "request.body",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "request.params",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "request.query",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "request.args",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "req.body",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "req.params",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "req.query",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "req.headers",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "process.env",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "document.cookie",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "location.href",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "location.search",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "window.location",
-        kind: SourceKind::UserInput,
-    },
-    // -- Python --
-    TaintPattern {
-        text: "request.form",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "request.data",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "request.json",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "request.args",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "os.environ",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "sys.argv",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "sys.stdin",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "input(",
-        kind: SourceKind::UserInput,
-    },
-    // -- Rust --
-    TaintPattern {
-        text: "env::var",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "env::args",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "stdin",
-        kind: SourceKind::UserInput,
-    },
-    // -- Go --
-    TaintPattern {
-        text: "os.Getenv",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "os.Args",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "r.FormValue",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "r.URL.Query",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "r.Header",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "r.Body",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "os.Stdin",
-        kind: SourceKind::UserInput,
-    },
-    // -- PHP --
-    TaintPattern {
-        text: "$_GET",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "$_POST",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "$_REQUEST",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "$_COOKIE",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "$_SERVER",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "$_FILES",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "getenv",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "php://input",
-        kind: SourceKind::UserInput,
-    },
-    // -- C / C++ --
-    TaintPattern {
-        text: "getenv",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "argv",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "fgets",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "scanf",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "gets",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "fread",
-        kind: SourceKind::FileRead,
-    },
-    TaintPattern {
-        text: "recv",
-        kind: SourceKind::NetworkRead,
-    },
-    TaintPattern {
-        text: "recvfrom",
-        kind: SourceKind::NetworkRead,
-    },
-    // -- Java --
-    TaintPattern {
-        text: "getParameter",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "getHeader",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "getInputStream",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "getReader",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "System.getenv",
-        kind: SourceKind::EnvironmentVar,
-    },
-    TaintPattern {
-        text: "System.getProperty",
-        kind: SourceKind::EnvironmentVar,
-    },
-    // -- C# --
-    TaintPattern {
-        text: "Request.Query",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "Request.Form",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "Request.Headers",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "Request.Body",
-        kind: SourceKind::UserInput,
-    },
-    TaintPattern {
-        text: "Environment.GetEnvironmentVariable",
-        kind: SourceKind::EnvironmentVar,
-    },
-    // -- Deserialization --
-    TaintPattern {
-        text: "JSON.parse",
-        kind: SourceKind::Deserialization,
-    },
-    TaintPattern {
-        text: "json.loads",
-        kind: SourceKind::Deserialization,
-    },
-    TaintPattern {
-        text: "json_decode",
-        kind: SourceKind::Deserialization,
-    },
-    TaintPattern {
-        text: "serde_json::from",
-        kind: SourceKind::Deserialization,
-    },
-    TaintPattern {
-        text: "ObjectMapper.readValue",
-        kind: SourceKind::Deserialization,
-    },
-    // -- Database reads --
-    TaintPattern {
-        text: "ResultSet.getString",
-        kind: SourceKind::DatabaseRead,
-    },
-    TaintPattern {
-        text: "fetchone",
-        kind: SourceKind::DatabaseRead,
-    },
-    TaintPattern {
-        text: "fetchall",
-        kind: SourceKind::DatabaseRead,
-    },
-    TaintPattern {
-        text: "rows.Scan",
-        kind: SourceKind::DatabaseRead,
-    },
-];
-
-/// Sink patterns — dangerous operations that should not receive unsanitized input.
-const SINKS: &[&str] = &[
-    // SQL injection
-    "execute",
-    "query",
-    "raw_query",
-    "cursor.execute",
-    "db.query",
-    "prepare",
-    "exec",
-    "raw",
-    // Command injection
-    "system",
-    "exec.Command",
-    "subprocess.call",
-    "subprocess.run",
-    "subprocess.Popen",
-    "Runtime.exec",
-    "shell_exec",
-    "popen",
-    "execvp",
-    "execve",
-    "ProcessBuilder",
-    "os.system",
-    "os.popen",
-    "os.exec",
-    "child_process.exec",
-    "child_process.spawn",
-    "Command::new",
-    // Code injection
-    "eval",
-    "Function(",
-    "compile",
-    // XSS / DOM
-    "innerHTML",
-    "outerHTML",
-    "document.write",
-    "dangerouslySetInnerHTML",
-    // Path traversal
-    "readFile",
-    "writeFile",
-    "open",
-    "readFileSync",
-    "writeFileSync",
-    // PHP specific
-    "mysqli_query",
-    "pg_query",
-    "preg_replace",
-    "include",
-    "require",
-    "include_once",
-    "require_once",
-    // LDAP
-    "ldap_search",
-    "ldap_bind",
-    // Deserialization sinks
-    "unserialize",
-    "pickle.loads",
-    "yaml.load",
-    "ObjectInputStream",
-    // Network sinks
-    "fetch",
-    "XMLHttpRequest",
-    "http.Get",
-    "http.Post",
-    "redirect",
-    "header(",
-];
-
-/// Sanitizer patterns — functions that neutralize taint.
-const SANITIZERS: &[&str] = &[
-    // Generic
-    "escape",
-    "sanitize",
-    "validate",
-    "encode",
-    "clean",
-    "purify",
-    "strip",
-    "filter",
-    // JS / TS
-    "parseInt",
-    "parseFloat",
-    "Number(",
-    "encodeURIComponent",
-    "encodeURI",
-    "DOMPurify.sanitize",
-    "xss(",
-    // Python
-    "bleach.clean",
-    "markupsafe.escape",
-    "shlex.quote",
-    "quote",
-    // Go
-    "filepath.Clean",
-    "html.EscapeString",
-    "url.QueryEscape",
-    "template.HTMLEscapeString",
-    "strconv.Atoi",
-    "strconv.ParseInt",
-    // PHP
-    "htmlspecialchars",
-    "htmlentities",
-    "addslashes",
-    "mysqli_real_escape_string",
-    "pg_escape_string",
-    "filter_var",
-    "filter_input",
-    // Java
-    "PreparedStatement",
-    "parameterize",
-    "StringEscapeUtils.escapeHtml",
-    "StringEscapeUtils.escapeSql",
-    "Encoder.encodeForHTML",
-    "ESAPI.encoder",
-    // C / C++
-    "snprintf",
-    "strlcpy",
-    // Rust
-    "html_escape",
-    "ammonia::clean",
-    // C#
-    "HtmlEncode",
-    "UrlEncode",
-    "AntiXss",
-    "SqlParameter",
-    "AddWithValue",
-    // General ORM / prepared statements
-    "parameterized",
-    "bind_param",
-    "bindValue",
-    "bindParam",
-    "placeholder",
-    "prepare(",
-];
-
-/// A taint source pattern with its classification.
-struct TaintPattern {
-    text: &'static str,
-    kind: SourceKind,
+/// Dynamic taint configuration — sources, sinks, and sanitizers come from JSON pipeline files.
+pub struct TaintConfig {
+    pub sources: Vec<TaintSourcePattern>,
+    pub sinks: Vec<TaintSinkPattern>,
+    pub sanitizers: Vec<TaintSanitizerPattern>,
 }
 
 // ---------------------------------------------------------------------------
@@ -521,10 +103,9 @@ pub struct TaintEngine;
 
 impl TaintEngine {
     /// Run taint analysis on all functions that have CFGs in the graph.
-    /// Adds FlowsTo and SanitizedBy edges, and returns all findings.
-    pub fn analyze_all(graph: &mut CodeGraph) -> Vec<TaintFinding> {
-        // Collect the function nodes to analyze (we need to avoid borrowing
-        // graph mutably while iterating).
+    /// Returns all findings. Does not mutate the graph.
+    pub fn analyze_all(graph: &CodeGraph, config: &TaintConfig) -> Vec<TaintFinding> {
+        // Collect the function nodes to analyze.
         let func_nodes: Vec<(NodeIndex, String, String)> = graph
             .function_cfgs
             .keys()
@@ -548,47 +129,11 @@ impl TaintEngine {
             // Collect parameter nodes for this function.
             let param_names = collect_parameter_names(graph, *func_idx);
 
-            let (findings, edges) =
-                Self::analyze_function(*func_idx, func_name, file_path, &cfg, &param_names);
+            let findings =
+                Self::analyze_function(*func_idx, func_name, file_path, &cfg, &param_names, config);
 
             all_findings.extend(findings);
-
-            // Apply edges to the graph.
-            for edge_action in edges {
-                match edge_action {
-                    GraphEdgeAction::FlowsTo { from, to } => {
-                        graph.graph.add_edge(from, to, EdgeWeight::FlowsTo);
-                    }
-                    GraphEdgeAction::SanitizedBy {
-                        node,
-                        target,
-                        sanitizer,
-                    } => {
-                        graph
-                            .graph
-                            .add_edge(node, target, EdgeWeight::SanitizedBy { sanitizer });
-                    }
-                    GraphEdgeAction::AddExternalSource {
-                        kind,
-                        file_path,
-                        line,
-                        target_node,
-                    } => {
-                        let src_idx = graph.graph.add_node(NodeWeight::ExternalSource {
-                            kind,
-                            file_path,
-                            line,
-                        });
-                        graph
-                            .graph
-                            .add_edge(src_idx, target_node, EdgeWeight::FlowsTo);
-                    }
-                }
-            }
         }
-
-        // Mark parameter nodes as taint sources where applicable.
-        mark_parameter_taint_sources(graph);
 
         all_findings
     }
@@ -600,9 +145,9 @@ impl TaintEngine {
         file_path: &str,
         cfg: &FunctionCfg,
         param_names: &[String],
-    ) -> (Vec<TaintFinding>, Vec<GraphEdgeAction>) {
+        config: &TaintConfig,
+    ) -> Vec<TaintFinding> {
         let mut findings = Vec::new();
-        let mut edges = Vec::new();
 
         // Compute a topological order of the CFG blocks. If the CFG has cycles
         // (loops), fall back to BFS from entry with a fixed-point iteration.
@@ -614,7 +159,7 @@ impl TaintEngine {
         // Initialize the entry block state with tainted parameters.
         let mut entry_state = TaintState::default();
         for param in param_names {
-            if is_source_param(param) {
+            if is_source_param(param, config) {
                 entry_state.mark_tainted(
                     param,
                     TaintOrigin {
@@ -636,11 +181,10 @@ impl TaintEngine {
             changed = false;
             iterations += 1;
 
-            // Clear findings and edges each iteration — only the final
-            // (converged) pass's results are kept.  Without this, earlier
-            // iterations would duplicate sink findings.
+            // Clear findings each iteration — only the final (converged) pass's
+            // results are kept. Without this, earlier iterations would duplicate
+            // sink findings.
             findings.clear();
-            edges.clear();
 
             for &block_idx in &block_order {
                 // Merge incoming states from predecessors.
@@ -679,7 +223,7 @@ impl TaintEngine {
                             }
                             // Check if any source_var is itself a source expression.
                             for sv in source_vars {
-                                if let Some(src_kind) = matches_source(sv) {
+                                if is_source_pattern(sv, config) {
                                     state.mark_tainted(
                                         target,
                                         TaintOrigin {
@@ -689,19 +233,13 @@ impl TaintEngine {
                                             line: Some(stmt.line),
                                         },
                                     );
-                                    edges.push(GraphEdgeAction::AddExternalSource {
-                                        kind: src_kind,
-                                        file_path: file_path.to_string(),
-                                        line: stmt.line,
-                                        target_node: func_idx,
-                                    });
                                 }
                             }
                         }
 
                         CfgStatementKind::Call { name, args } => {
                             // 1) Check if this call is a source.
-                            if let Some(src_kind) = matches_source(name) {
+                            if is_source_pattern(name, config) {
                                 // If the call result is captured, it would show up as
                                 // an Assignment. Mark all args as potentially tainted
                                 // for downstream propagation.
@@ -716,49 +254,31 @@ impl TaintEngine {
                                         },
                                     );
                                 }
-                                edges.push(GraphEdgeAction::AddExternalSource {
-                                    kind: src_kind,
-                                    file_path: file_path.to_string(),
-                                    line: stmt.line,
-                                    target_node: func_idx,
-                                });
                             }
 
                             // 2) Check if this call is a sanitizer.
-                            if matches_sanitizer(name) {
+                            if is_sanitizer_pattern(name, config) {
                                 for arg in args {
                                     if state.is_tainted(arg) {
                                         state.remove_taint(arg);
-                                        edges.push(GraphEdgeAction::SanitizedBy {
-                                            node: func_idx,
-                                            target: func_idx,
-                                            sanitizer: name.clone(),
-                                        });
                                     }
                                 }
                             }
 
                             // 3) Check if this call is a sink with tainted args.
-                            if matches_sink(name)
-                                && let Some((tainted_var, origin)) = state.any_tainted(args)
-                            {
-                                findings.push(TaintFinding {
-                                    function_node: func_idx,
-                                    function_name: func_name.to_string(),
-                                    file_path: file_path.to_string(),
-                                    tainted_var: tainted_var.to_string(),
-                                    sink_name: name.clone(),
-                                    sink_line: stmt.line,
-                                    source_description: origin.description.clone(),
-                                    source_line: origin.line,
-                                });
-
-                                // Add a FlowsTo edge from function to itself
-                                // to mark that taint reaches a sink here.
-                                edges.push(GraphEdgeAction::FlowsTo {
-                                    from: func_idx,
-                                    to: func_idx,
-                                });
+                            if is_sink_pattern(name, config) {
+                                if let Some((tainted_var, origin)) = state.any_tainted(args) {
+                                    findings.push(TaintFinding {
+                                        function_node: func_idx,
+                                        function_name: func_name.to_string(),
+                                        file_path: file_path.to_string(),
+                                        tainted_var: tainted_var.to_string(),
+                                        sink_name: name.clone(),
+                                        sink_line: stmt.line,
+                                        source_description: origin.description.clone(),
+                                        source_line: origin.line,
+                                    });
+                                }
                             }
 
                             // 4) Taint propagation through unknown calls:
@@ -768,15 +288,9 @@ impl TaintEngine {
                             //    the result capture is handled by Assignment.
                         }
 
-                        CfgStatementKind::Return { value_vars } => {
-                            // If returning tainted data, note it (useful for
-                            // future inter-procedural analysis).
-                            if state.any_tainted(value_vars).is_some() {
-                                edges.push(GraphEdgeAction::FlowsTo {
-                                    from: func_idx,
-                                    to: func_idx,
-                                });
-                            }
+                        CfgStatementKind::Return { value_vars: _ } => {
+                            // Returning tainted data — useful for future inter-procedural
+                            // analysis. No action needed in current intra-procedural design.
                         }
 
                         CfgStatementKind::Guard { condition_vars: _ } => {
@@ -787,9 +301,8 @@ impl TaintEngine {
                             target,
                             resource_type,
                         } => {
-                            // If the resource type looks like a source, taint
-                            // the target variable.
-                            if let Some(src_kind) = matches_source(resource_type) {
+                            // If the resource type looks like a source, taint the target.
+                            if is_source_pattern(resource_type, config) {
                                 state.mark_tainted(
                                     target,
                                     TaintOrigin {
@@ -799,12 +312,6 @@ impl TaintEngine {
                                         line: Some(stmt.line),
                                     },
                                 );
-                                edges.push(GraphEdgeAction::AddExternalSource {
-                                    kind: src_kind,
-                                    file_path: file_path.to_string(),
-                                    line: stmt.line,
-                                    target_node: func_idx,
-                                });
                             }
                         }
 
@@ -850,30 +357,8 @@ impl TaintEngine {
             }
         }
 
-        (findings, edges)
+        findings
     }
-}
-
-// ---------------------------------------------------------------------------
-// Graph edge actions — deferred mutations to avoid borrow conflicts
-// ---------------------------------------------------------------------------
-
-enum GraphEdgeAction {
-    FlowsTo {
-        from: NodeIndex,
-        to: NodeIndex,
-    },
-    SanitizedBy {
-        node: NodeIndex,
-        target: NodeIndex,
-        sanitizer: String,
-    },
-    AddExternalSource {
-        kind: SourceKind,
-        file_path: String,
-        line: u32,
-        target_node: NodeIndex,
-    },
 }
 
 // ---------------------------------------------------------------------------
@@ -896,46 +381,24 @@ fn collect_parameter_names(graph: &CodeGraph, func_idx: NodeIndex) -> Vec<String
     params
 }
 
-/// After analysis, mark Parameter nodes as taint sources based on the tables.
-fn mark_parameter_taint_sources(graph: &mut CodeGraph) {
-    let param_indices: Vec<NodeIndex> = graph
-        .graph
-        .node_indices()
-        .filter(|&idx| matches!(graph.graph[idx], NodeWeight::Parameter { .. }))
-        .collect();
-
-    for idx in param_indices {
-        if let NodeWeight::Parameter {
-            ref name,
-            ref mut is_taint_source,
-            ..
-        } = graph.graph[idx]
-        {
-            *is_taint_source = is_source_param(name);
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Pattern matching helpers
 // ---------------------------------------------------------------------------
 
-/// Check if a string matches any taint source pattern. Returns the SourceKind.
-fn matches_source(text: &str) -> Option<SourceKind> {
+/// Check if a string matches any taint source pattern.
+fn is_source_pattern(text: &str, config: &TaintConfig) -> bool {
     let lower = text.to_lowercase();
-    for pat in SOURCES {
-        if lower.contains(&pat.text.to_lowercase()) {
-            return Some(pat.kind.clone());
-        }
-    }
-    None
+    config
+        .sources
+        .iter()
+        .any(|s| lower.contains(&s.pattern.to_lowercase()))
 }
 
 /// Check if a call name matches any sink pattern.
-fn matches_sink(name: &str) -> bool {
+fn is_sink_pattern(name: &str, config: &TaintConfig) -> bool {
     let lower = name.to_lowercase();
-    for &sink in SINKS {
-        let sink_lower = sink.to_lowercase();
+    for sink in &config.sinks {
+        let sink_lower = sink.pattern.to_lowercase();
         // Match if the call name contains the sink pattern, or if the
         // last segment (after `.` or `::`) matches.
         if lower.contains(&sink_lower) {
@@ -955,10 +418,10 @@ fn matches_sink(name: &str) -> bool {
 }
 
 /// Check if a call name matches any sanitizer pattern.
-fn matches_sanitizer(name: &str) -> bool {
+fn is_sanitizer_pattern(name: &str, config: &TaintConfig) -> bool {
     let lower = name.to_lowercase();
-    for &san in SANITIZERS {
-        let san_lower = san.to_lowercase();
+    for san in &config.sanitizers {
+        let san_lower = san.pattern.to_lowercase();
         if lower.contains(&san_lower) {
             return true;
         }
@@ -975,7 +438,7 @@ fn matches_sanitizer(name: &str) -> bool {
 }
 
 /// Check if a parameter name suggests it carries user-controlled data.
-fn is_source_param(name: &str) -> bool {
+fn is_source_param(name: &str, config: &TaintConfig) -> bool {
     let lower = name.to_lowercase();
     // Common parameter names that typically carry user input.
     const PARAM_PATTERNS: &[&str] = &[
@@ -1002,9 +465,9 @@ fn is_source_param(name: &str) -> bool {
             return true;
         }
     }
-    // Also check against the full source table (for compound names like
+    // Also check against the config source table (for compound names like
     // "request_body").
-    matches_source(name).is_some()
+    is_source_pattern(name, config)
 }
 
 // ---------------------------------------------------------------------------
@@ -1102,10 +565,70 @@ fn topo_order_or_bfs(cfg: &FunctionCfg) -> Vec<NodeIndex> {
 mod tests {
     use super::*;
     use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
-    use crate::graph::{CodeGraph, NodeWeight};
+    use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
     use crate::language::Language;
     use crate::models::SymbolKind;
     use petgraph::graph::DiGraph;
+
+    /// Build a TaintConfig with common patterns for testing.
+    fn test_config() -> TaintConfig {
+        TaintConfig {
+            sources: vec![
+                TaintSourcePattern {
+                    pattern: "request.body".to_string(),
+                    kind: "user_input".to_string(),
+                },
+                TaintSourcePattern {
+                    pattern: "req.query".to_string(),
+                    kind: "user_input".to_string(),
+                },
+                TaintSourcePattern {
+                    pattern: "os.environ".to_string(),
+                    kind: "env_var".to_string(),
+                },
+                TaintSourcePattern {
+                    pattern: "env::var".to_string(),
+                    kind: "env_var".to_string(),
+                },
+                TaintSourcePattern {
+                    pattern: "$_GET".to_string(),
+                    kind: "user_input".to_string(),
+                },
+            ],
+            sinks: vec![
+                TaintSinkPattern {
+                    pattern: "execute".to_string(),
+                    vulnerability: "sql_injection".to_string(),
+                },
+                TaintSinkPattern {
+                    pattern: "query".to_string(),
+                    vulnerability: "sql_injection".to_string(),
+                },
+                TaintSinkPattern {
+                    pattern: "eval".to_string(),
+                    vulnerability: "code_injection".to_string(),
+                },
+                TaintSinkPattern {
+                    pattern: "innerHTML".to_string(),
+                    vulnerability: "xss".to_string(),
+                },
+            ],
+            sanitizers: vec![
+                TaintSanitizerPattern {
+                    pattern: "escape".to_string(),
+                },
+                TaintSanitizerPattern {
+                    pattern: "htmlspecialchars".to_string(),
+                },
+                TaintSanitizerPattern {
+                    pattern: "parseInt".to_string(),
+                },
+                TaintSanitizerPattern {
+                    pattern: "DOMPurify.sanitize".to_string(),
+                },
+            ],
+        }
+    }
 
     /// Helper to build a minimal CodeGraph with one function and its CFG.
     fn make_graph_with_cfg(func_name: &str, stmts: Vec<CfgStatement>) -> (CodeGraph, NodeIndex) {
@@ -1153,31 +676,34 @@ mod tests {
 
     #[test]
     fn test_source_matching() {
-        assert!(matches_source("request.body").is_some());
-        assert!(matches_source("req.query").is_some());
-        assert!(matches_source("os.environ").is_some());
-        assert!(matches_source("env::var").is_some());
-        assert!(matches_source("$_GET").is_some());
-        assert!(matches_source("safe_value").is_none());
+        let config = test_config();
+        assert!(is_source_pattern("request.body", &config));
+        assert!(is_source_pattern("req.query", &config));
+        assert!(is_source_pattern("os.environ", &config));
+        assert!(is_source_pattern("env::var", &config));
+        assert!(is_source_pattern("$_GET", &config));
+        assert!(!is_source_pattern("safe_value", &config));
     }
 
     #[test]
     fn test_sink_matching() {
-        assert!(matches_sink("execute"));
-        assert!(matches_sink("cursor.execute"));
-        assert!(matches_sink("db.query"));
-        assert!(matches_sink("eval"));
-        assert!(matches_sink("innerHTML"));
-        assert!(!matches_sink("safeMethod"));
+        let config = test_config();
+        assert!(is_sink_pattern("execute", &config));
+        assert!(is_sink_pattern("cursor.execute", &config));
+        assert!(is_sink_pattern("db.query", &config));
+        assert!(is_sink_pattern("eval", &config));
+        assert!(is_sink_pattern("innerHTML", &config));
+        assert!(!is_sink_pattern("safeMethod", &config));
     }
 
     #[test]
     fn test_sanitizer_matching() {
-        assert!(matches_sanitizer("escape"));
-        assert!(matches_sanitizer("htmlspecialchars"));
-        assert!(matches_sanitizer("parseInt"));
-        assert!(matches_sanitizer("DOMPurify.sanitize"));
-        assert!(!matches_sanitizer("processData"));
+        let config = test_config();
+        assert!(is_sanitizer_pattern("escape", &config));
+        assert!(is_sanitizer_pattern("htmlspecialchars", &config));
+        assert!(is_sanitizer_pattern("parseInt", &config));
+        assert!(is_sanitizer_pattern("DOMPurify.sanitize", &config));
+        assert!(!is_sanitizer_pattern("processData", &config));
     }
 
     #[test]
@@ -1201,8 +727,9 @@ mod tests {
             },
         ];
 
-        let (mut graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let (graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].sink_name, "execute");
@@ -1239,8 +766,9 @@ mod tests {
             },
         ];
 
-        let (mut graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let (graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         assert!(
             findings.is_empty(),
@@ -1285,8 +813,9 @@ mod tests {
             },
         ];
 
-        let (mut graph, _func_idx) = make_graph_with_cfg("process", stmts);
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let (graph, _func_idx) = make_graph_with_cfg("process", stmts);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].tainted_var, "c");
@@ -1314,8 +843,9 @@ mod tests {
             },
         ];
 
-        let (mut graph, _func_idx) = make_graph_with_cfg("safe_handler", stmts);
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let (graph, _func_idx) = make_graph_with_cfg("safe_handler", stmts);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         assert!(findings.is_empty());
     }
@@ -1353,20 +883,11 @@ mod tests {
             .graph
             .add_edge(param_idx, func_idx, EdgeWeight::FlowsTo);
 
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].sink_name, "eval");
-
-        // Verify the parameter was marked as a taint source.
-        if let NodeWeight::Parameter {
-            is_taint_source, ..
-        } = &graph.graph[param_idx]
-        {
-            assert!(*is_taint_source);
-        } else {
-            panic!("expected Parameter node");
-        }
     }
 
     #[test]
@@ -1445,7 +966,8 @@ mod tests {
         });
         graph.function_cfgs.insert(func_idx, cfg);
 
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         // b is tainted on the true branch, so after merge it should still
         // be considered tainted (union semantics).
@@ -1491,8 +1013,9 @@ mod tests {
             },
         ];
 
-        let (mut graph, _) = make_graph_with_cfg("phi_test", stmts);
-        let findings = TaintEngine::analyze_all(&mut graph);
+        let (graph, _) = make_graph_with_cfg("phi_test", stmts);
+        let config = test_config();
+        let findings = TaintEngine::analyze_all(&graph, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].tainted_var, "c");
@@ -1500,13 +1023,14 @@ mod tests {
 
     #[test]
     fn test_is_source_param() {
-        assert!(is_source_param("request"));
-        assert!(is_source_param("req"));
-        assert!(is_source_param("input"));
-        assert!(is_source_param("user_input"));
-        assert!(is_source_param("query"));
-        assert!(!is_source_param("count"));
-        assert!(!is_source_param("result"));
+        let config = test_config();
+        assert!(is_source_param("request", &config));
+        assert!(is_source_param("req", &config));
+        assert!(is_source_param("input", &config));
+        assert!(is_source_param("user_input", &config));
+        assert!(is_source_param("query", &config));
+        assert!(!is_source_param("count", &config));
+        assert!(!is_source_param("result", &config));
     }
 
     #[test]

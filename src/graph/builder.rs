@@ -239,10 +239,10 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        // Step 6: Taint analysis — compute FlowsTo/SanitizedBy edges
-        super::taint::TaintEngine::analyze_all(&mut graph);
-
-        // Step 7: Resource lifecycle analysis — compute Acquires/ReleasedBy edges
+        // Step 6: Resource lifecycle analysis — compute Acquires/ReleasedBy edges
+        // Note: taint analysis is no longer run at build time. It is invoked by the
+        // executor when processing a GraphStage::Taint pipeline stage, using patterns
+        // supplied by the JSON pipeline file (TaintConfig).
         super::resource::ResourceAnalyzer::analyze_all(&mut graph);
 
         Ok(graph)
