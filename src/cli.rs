@@ -44,33 +44,42 @@ pub enum Command {
     },
 
     /// Static analysis and tech debt detection
-    #[command(
-        args_conflicts_with_subcommands = true,
-        subcommand_precedence_over_arg = true
-    )]
     Audit {
-        /// Root directory to analyze (runs all audits)
+        /// Root directory to analyze
+        #[arg(conflicts_with = "s3")]
         dir: Option<PathBuf>,
 
         /// S3 URI — reads codebase directly from S3
         #[arg(long, conflicts_with = "dir")]
         s3: Option<String>,
 
-        /// Comma-separated language filter
+        /// Comma-separated language filter (rs,go,py,ts,js,java,php,cs,c,cpp)
         #[arg(short, long)]
         language: Option<String>,
+
+        /// Filter by category: security, architecture, code_style, tech_debt, complexity, scalability
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Comma-separated pipeline name filter
+        #[arg(long)]
+        pipeline: Option<String>,
 
         /// Output format
         #[arg(long, default_value = "table")]
         format: OutputFormat,
 
-        /// Run a specific JSON audit file instead of (or in addition to) built-ins.
-        /// Example: --file ./my_audit.json
+        /// Run a specific JSON audit file instead of (or in addition to) built-ins
         #[arg(long, value_name = "FILE")]
         file: Option<PathBuf>,
 
-        #[command(subcommand)]
-        command: Option<AuditCommand>,
+        /// Findings per page
+        #[arg(long, default_value = "20")]
+        per_page: usize,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
     },
 }
 
@@ -214,213 +223,3 @@ pub enum OutputFormat {
     Csv,
 }
 
-#[derive(Subcommand, Debug)]
-pub enum AuditCommand {
-    /// Code quality analysis (tech debt, complexity, security)
-    #[command(
-        args_conflicts_with_subcommands = true,
-        subcommand_precedence_over_arg = true
-    )]
-    CodeQuality {
-        /// Root directory to analyze (runs all code quality checks)
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        #[command(subcommand)]
-        command: Option<CodeQualityCommand>,
-    },
-
-    /// Security vulnerability detection (unsafe memory, injection, race conditions)
-    Security {
-        /// Root directory to analyze
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter (currently: rs, go)
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Comma-separated pipeline filter
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Findings per page
-        #[arg(long, default_value = "20", alias = "limit")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-    },
-
-    /// Scalability analysis (N+1 queries, sync blocking in async, memory leaks)
-    Scalability {
-        /// Root directory to analyze
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Comma-separated pipeline filter (n_plus_one_queries,sync_blocking_in_async,memory_leak_indicators)
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Findings per page
-        #[arg(long, default_value = "20", alias = "limit")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-    },
-
-    /// Architecture analysis (module size, circular deps, dependency depth, API surface)
-    Architecture {
-        /// Root directory to analyze
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Comma-separated pipeline filter (module_size_distribution,circular_dependencies,dependency_graph_depth,api_surface_area)
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Findings per page
-        #[arg(long, default_value = "20", alias = "limit")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum CodeQualityCommand {
-    /// Detect tech debt patterns in source code
-    TechDebt {
-        /// Root directory to analyze
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter (currently: rs, go, py)
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Comma-separated pipeline filter (e.g., panic_detection)
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Findings per page
-        #[arg(long, default_value = "20", alias = "limit")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-    },
-
-    /// Measure code complexity metrics (cyclomatic, cognitive, function length, comment ratio)
-    Complexity {
-        /// Root directory to analyze
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Comma-separated pipeline filter (cyclomatic_complexity,function_length,cognitive_complexity,comment_to_code_ratio)
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Findings per page
-        #[arg(long, default_value = "20", alias = "limit")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-    },
-
-    /// Detect code style issues (dead code, duplication, coupling)
-    CodeStyle {
-        /// Root directory to analyze
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Comma-separated pipeline filter (dead_code,duplicate_code,coupling)
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Findings per page
-        #[arg(long, default_value = "20", alias = "limit")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-    },
-}

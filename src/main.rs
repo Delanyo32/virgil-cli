@@ -5,9 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use virgil_cli::audit;
-use virgil_cli::cli::{
-    AuditCommand, Cli, CodeQualityCommand, Command, OutputFormat, ProjectCommand,
-};
+use virgil_cli::cli::{Cli, Command, OutputFormat, ProjectCommand};
 use virgil_cli::language::{self, Language};
 use virgil_cli::registry;
 use virgil_cli::s3::S3Location;
@@ -191,185 +189,62 @@ fn main() -> Result<()> {
             dir,
             s3,
             language,
+            category,
+            pipeline,
             format,
             file,
-            command,
-        } => match command {
-            Some(AuditCommand::CodeQuality {
-                dir,
-                s3,
-                language,
-                format,
-                command,
-            }) => match command {
-                Some(CodeQualityCommand::TechDebt {
-                    dir,
-                    s3,
-                    language: lang_filter,
-                    pipeline: pipeline_filter,
-                    format,
-                    per_page,
-                    page,
-                }) => {
-                    let ws = resolve_audit_workspace(
-                        dir.as_deref(),
-                        s3.as_deref(),
-                        lang_filter.as_deref(),
-                        "virgil audit code-quality tech-debt <DIR>",
-                    )?;
-                    run_tech_debt_ws(
-                        &ws,
-                        lang_filter.as_deref(),
-                        pipeline_filter.as_deref(),
-                        &format,
-                        page,
-                        per_page,
-                    )
-                }
-                Some(CodeQualityCommand::Complexity {
-                    dir,
-                    s3,
-                    language: lang_filter,
-                    pipeline: pipeline_filter,
-                    format,
-                    per_page,
-                    page,
-                }) => {
-                    let ws = resolve_audit_workspace(
-                        dir.as_deref(),
-                        s3.as_deref(),
-                        lang_filter.as_deref(),
-                        "virgil audit code-quality complexity <DIR>",
-                    )?;
-                    run_complexity_ws(
-                        &ws,
-                        lang_filter.as_deref(),
-                        pipeline_filter.as_deref(),
-                        &format,
-                        page,
-                        per_page,
-                    )
-                }
-                Some(CodeQualityCommand::CodeStyle {
-                    dir,
-                    s3,
-                    language: lang_filter,
-                    pipeline: pipeline_filter,
-                    format,
-                    per_page,
-                    page,
-                }) => {
-                    let ws = resolve_audit_workspace(
-                        dir.as_deref(),
-                        s3.as_deref(),
-                        lang_filter.as_deref(),
-                        "virgil audit code-quality code-style <DIR>",
-                    )?;
-                    run_code_style_ws(
-                        &ws,
-                        lang_filter.as_deref(),
-                        pipeline_filter.as_deref(),
-                        &format,
-                        page,
-                        per_page,
-                    )
-                }
-                None => {
-                    let ws = resolve_audit_workspace(
-                        dir.as_deref(),
-                        s3.as_deref(),
-                        language.as_deref(),
-                        "virgil audit code-quality <DIR>",
-                    )?;
-                    run_code_quality_summary_ws(&ws, language.as_deref(), &format)
-                }
-            },
-            Some(AuditCommand::Security {
-                dir,
-                s3,
-                language: lang_filter,
-                pipeline: pipeline_filter,
-                format,
-                per_page,
-                page,
-            }) => {
-                let ws = resolve_audit_workspace(
-                    dir.as_deref(),
-                    s3.as_deref(),
-                    lang_filter.as_deref(),
-                    "virgil audit security <DIR>",
-                )?;
-                run_security_ws(
-                    &ws,
-                    lang_filter.as_deref(),
-                    pipeline_filter.as_deref(),
-                    &format,
-                    page,
-                    per_page,
-                )
-            }
-            Some(AuditCommand::Scalability {
-                dir,
-                s3,
-                language: lang_filter,
-                pipeline: pipeline_filter,
-                format,
-                per_page,
-                page,
-            }) => {
-                let ws = resolve_audit_workspace(
-                    dir.as_deref(),
-                    s3.as_deref(),
-                    lang_filter.as_deref(),
-                    "virgil audit scalability <DIR>",
-                )?;
-                run_scalability_ws(
-                    &ws,
-                    lang_filter.as_deref(),
-                    pipeline_filter.as_deref(),
-                    &format,
-                    page,
-                    per_page,
-                )
-            }
-            Some(AuditCommand::Architecture {
-                dir,
-                s3,
-                language: lang_filter,
-                pipeline: pipeline_filter,
-                format,
-                per_page,
-                page,
-            }) => {
-                let ws = resolve_audit_workspace(
-                    dir.as_deref(),
-                    s3.as_deref(),
-                    lang_filter.as_deref(),
-                    "virgil audit architecture <DIR>",
-                )?;
-                run_architecture_ws(
-                    &ws,
-                    lang_filter.as_deref(),
-                    pipeline_filter.as_deref(),
-                    &format,
-                    page,
-                    per_page,
-                )
-            }
-            None => {
-                let ws = resolve_audit_workspace(
-                    dir.as_deref(),
-                    s3.as_deref(),
-                    language.as_deref(),
-                    "virgil audit <DIR>",
-                )?;
-                if let Some(audit_file_path) = file {
-                    run_json_audit_file_ws(&ws, language.as_deref(), &audit_file_path, &format)
+            per_page,
+            page,
+        } => {
+            let ws = resolve_audit_workspace(
+                dir.as_deref(),
+                s3.as_deref(),
+                language.as_deref(),
+                "virgil audit <DIR>",
+            )?;
+
+            if let Some(audit_file_path) = file {
+                run_json_audit_file_ws(&ws, language.as_deref(), &audit_file_path, &format)
+            } else {
+                let languages: Vec<Language> = if let Some(ref filter) = language {
+                    language::parse_language_filter(filter)
                 } else {
-                    run_full_audit_ws(&ws, language.as_deref(), &format)
+                    Language::all().to_vec()
+                };
+
+                let start = Instant::now();
+                let index =
+                    virgil_cli::graph::builder::GraphBuilder::new(&ws, &languages).build()?;
+
+                let pb = create_audit_progress_bar();
+                let mut engine = audit::engine::AuditEngine::new()
+                    .languages(languages)
+                    .progress_bar(pb);
+
+                if let Some(ref cats) = category {
+                    let cat_list: Vec<String> =
+                        cats.split(',').map(|s| s.trim().to_string()).collect();
+                    engine = engine.categories(cat_list);
                 }
+
+                if let Some(ref pipes) = pipeline {
+                    let pipe_list: Vec<String> =
+                        pipes.split(',').map(|s| s.trim().to_string()).collect();
+                    engine = engine.pipelines(pipe_list);
+                }
+
+                let (findings, summary) = engine.run(&ws, Some(&index))?;
+
+                let output =
+                    audit::format::format_findings(&findings, &summary, &format, page, per_page)?;
+                print!("{output}");
+
+                let elapsed = start.elapsed();
+                eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
+
+                Ok(())
             }
-        },
+        }
     }
 }
 
@@ -411,323 +286,6 @@ fn create_audit_progress_bar() -> indicatif::ProgressBar {
     );
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
     pb
-}
-
-fn run_tech_debt_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    pipeline_filter: Option<&str>,
-    format: &OutputFormat,
-    page: usize,
-    per_page: usize,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        audit::pipeline::supported_audit_languages()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mut engine = audit::engine::AuditEngine::new().languages(languages);
-
-    if let Some(filter) = pipeline_filter {
-        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
-        engine = engine.pipelines(names);
-    }
-
-    let pb = create_audit_progress_bar();
-    engine = engine.progress_bar(pb);
-
-    let (findings, summary) = engine.run(workspace, Some(&index))?;
-
-    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
-
-fn run_complexity_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    pipeline_filter: Option<&str>,
-    format: &OutputFormat,
-    page: usize,
-    per_page: usize,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        audit::pipeline::supported_complexity_languages()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mut engine = audit::engine::AuditEngine::new()
-        .languages(languages)
-        .categories(vec!["complexity".to_string()]);
-
-    if let Some(filter) = pipeline_filter {
-        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
-        engine = engine.pipelines(names);
-    }
-
-    let pb = create_audit_progress_bar();
-    engine = engine.progress_bar(pb);
-
-    let (findings, summary) = engine.run(workspace, Some(&index))?;
-
-    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
-
-fn run_code_style_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    pipeline_filter: Option<&str>,
-    format: &OutputFormat,
-    page: usize,
-    per_page: usize,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        audit::pipeline::supported_code_style_languages()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mut engine = audit::engine::AuditEngine::new()
-        .languages(languages)
-        .categories(vec!["code_style".to_string()]);
-
-    if let Some(filter) = pipeline_filter {
-        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
-        engine = engine.pipelines(names);
-    }
-
-    let pb = create_audit_progress_bar();
-    engine = engine.progress_bar(pb);
-
-    let (findings, summary) = engine.run(workspace, Some(&index))?;
-
-    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
-
-fn run_security_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    pipeline_filter: Option<&str>,
-    format: &OutputFormat,
-    page: usize,
-    per_page: usize,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        audit::pipeline::supported_security_languages()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mut engine = audit::engine::AuditEngine::new()
-        .languages(languages)
-        .categories(vec!["security".to_string()]);
-
-    if let Some(filter) = pipeline_filter {
-        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
-        engine = engine.pipelines(names);
-    }
-
-    let pb = create_audit_progress_bar();
-    engine = engine.progress_bar(pb);
-
-    let (findings, summary) = engine.run(workspace, Some(&index))?;
-
-    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
-
-fn run_scalability_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    pipeline_filter: Option<&str>,
-    format: &OutputFormat,
-    page: usize,
-    per_page: usize,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        audit::pipeline::supported_scalability_languages()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mut engine = audit::engine::AuditEngine::new()
-        .languages(languages)
-        .categories(vec!["scalability".to_string()]);
-
-    if let Some(filter) = pipeline_filter {
-        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
-        engine = engine.pipelines(names);
-    }
-
-    let pb = create_audit_progress_bar();
-    engine = engine.progress_bar(pb);
-
-    let (findings, summary) = engine.run(workspace, Some(&index))?;
-
-    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
-
-fn run_architecture_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    pipeline_filter: Option<&str>,
-    format: &OutputFormat,
-    page: usize,
-    per_page: usize,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        Language::all().to_vec()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mut engine = audit::engine::AuditEngine::new()
-        .languages(languages)
-        .categories(vec!["architecture".to_string()]);
-
-    if let Some(filter) = pipeline_filter {
-        let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
-        engine = engine.pipelines(names);
-    }
-
-    let pb = create_audit_progress_bar();
-    engine = engine.progress_bar(pb);
-
-    let (findings, summary) = engine.run(workspace, Some(&index))?;
-
-    let output = audit::format::format_findings(&findings, &summary, format, page, per_page)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
-
-fn run_code_quality_summary_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    format: &OutputFormat,
-) -> Result<()> {
-    let languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        audit::pipeline::supported_audit_languages()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
-
-    let mp = indicatif::MultiProgress::new();
-    let category_style =
-        indicatif::ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
-            .unwrap();
-    let overall = mp.add(indicatif::ProgressBar::new(3));
-    overall.set_style(category_style);
-
-    overall.set_message("Auditing: Tech Debt");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let td_engine = audit::engine::AuditEngine::new()
-        .languages(languages.clone())
-        .progress_bar(file_pb);
-    let (_td_findings, td_summary) = td_engine.run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    overall.set_message("Auditing: Complexity");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let cx_languages: Vec<Language> = languages
-        .clone()
-        .into_iter()
-        .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
-        .collect();
-    let cx_engine = audit::engine::AuditEngine::new()
-        .languages(cx_languages)
-        .categories(vec!["complexity".to_string()])
-        .progress_bar(file_pb);
-    let (_cx_findings, cx_summary) = cx_engine.run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    overall.set_message("Auditing: Code Style");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let cs_languages: Vec<Language> = languages
-        .into_iter()
-        .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
-        .collect();
-    let cs_engine = audit::engine::AuditEngine::new()
-        .languages(cs_languages)
-        .categories(vec!["code_style".to_string()])
-        .progress_bar(file_pb);
-    let (_cs_findings, cs_summary) = cs_engine.run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    overall.finish_and_clear();
-
-    let summaries = vec![
-        ("Tech Debt", &td_summary),
-        ("Complexity", &cx_summary),
-        ("Code Style", &cs_summary),
-    ];
-    let output = audit::format::format_code_quality_summary(&summaries, format, None)?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
 }
 
 fn run_json_audit_file_ws(
@@ -810,129 +368,3 @@ fn run_json_audit_file_ws(
     Ok(())
 }
 
-fn run_full_audit_ws(
-    workspace: &Workspace,
-    lang_filter: Option<&str>,
-    format: &OutputFormat,
-) -> Result<()> {
-    let all_languages: Vec<Language> = if let Some(filter) = lang_filter {
-        language::parse_language_filter(filter)
-    } else {
-        Language::all().to_vec()
-    };
-
-    let start = Instant::now();
-
-    let index = virgil_cli::graph::builder::GraphBuilder::new(workspace, &all_languages).build()?;
-
-    let mp = indicatif::MultiProgress::new();
-    let category_style =
-        indicatif::ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
-            .unwrap();
-    let overall = mp.add(indicatif::ProgressBar::new(6));
-    overall.set_style(category_style);
-
-    // Tech Debt
-    overall.set_message("Auditing: Tech Debt");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let td_languages: Vec<Language> = all_languages
-        .iter()
-        .copied()
-        .filter(|l| audit::pipeline::supported_audit_languages().contains(l))
-        .collect();
-    let (_, td_summary) = audit::engine::AuditEngine::new()
-        .languages(td_languages)
-        .progress_bar(file_pb)
-        .run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    // Complexity
-    overall.set_message("Auditing: Complexity");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let cx_languages: Vec<Language> = all_languages
-        .iter()
-        .copied()
-        .filter(|l| audit::pipeline::supported_complexity_languages().contains(l))
-        .collect();
-    let (_, cx_summary) = audit::engine::AuditEngine::new()
-        .languages(cx_languages)
-        .categories(vec!["complexity".to_string()])
-        .progress_bar(file_pb)
-        .run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    // Code Style
-    overall.set_message("Auditing: Code Style");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let cs_languages: Vec<Language> = all_languages
-        .iter()
-        .copied()
-        .filter(|l| audit::pipeline::supported_code_style_languages().contains(l))
-        .collect();
-    let (_, cs_summary) = audit::engine::AuditEngine::new()
-        .languages(cs_languages)
-        .categories(vec!["code_style".to_string()])
-        .progress_bar(file_pb)
-        .run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    // Security
-    overall.set_message("Auditing: Security");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let sec_languages: Vec<Language> = all_languages
-        .iter()
-        .copied()
-        .filter(|l| audit::pipeline::supported_security_languages().contains(l))
-        .collect();
-    let (_, sec_summary) = audit::engine::AuditEngine::new()
-        .languages(sec_languages)
-        .categories(vec!["security".to_string()])
-        .progress_bar(file_pb)
-        .run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    // Scalability
-    overall.set_message("Auditing: Scalability");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let scl_languages: Vec<Language> = all_languages
-        .iter()
-        .copied()
-        .filter(|l| audit::pipeline::supported_scalability_languages().contains(l))
-        .collect();
-    let (_, scl_summary) = audit::engine::AuditEngine::new()
-        .languages(scl_languages)
-        .categories(vec!["scalability".to_string()])
-        .progress_bar(file_pb)
-        .run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    // Architecture
-    overall.set_message("Auditing: Architecture");
-    let file_pb = mp.add(create_audit_progress_bar());
-    let arch_languages: Vec<Language> = all_languages.clone();
-    let (_, arch_summary) = audit::engine::AuditEngine::new()
-        .languages(arch_languages)
-        .categories(vec!["architecture".to_string()])
-        .progress_bar(file_pb)
-        .run(workspace, Some(&index))?;
-    overall.inc(1);
-
-    overall.finish_and_clear();
-
-    let summaries = vec![
-        ("Tech Debt", &td_summary),
-        ("Complexity", &cx_summary),
-        ("Code Style", &cs_summary),
-        ("Security", &sec_summary),
-        ("Scalability", &scl_summary),
-        ("Architecture", &arch_summary),
-    ];
-    let output =
-        audit::format::format_code_quality_summary(&summaries, format, Some("Audit Report"))?;
-    print!("{output}");
-
-    let elapsed = start.elapsed();
-    eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
-
-    Ok(())
-}
