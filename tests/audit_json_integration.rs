@@ -4777,6 +4777,20 @@ fn clone_detection_rust_has_line_info() {
     assert!(f.line >= 1);
 }
 
+#[test]
+fn clone_detection_rust_ignores_iter_push() {
+    let dir = tempfile::tempdir().unwrap();
+    // .iter() and .push() are not .clone()/.to_owned()/.to_string() — must NOT fire after fix.
+    std::fs::write(dir.path().join("test.rs"),
+        r#"fn f() { let mut v: Vec<i32> = Vec::new(); v.push(1); let _ = v.iter(); }"#).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+    let (findings, _) = AuditEngine::new().languages(vec![Language::Rust]).run(&workspace, Some(&graph)).unwrap();
+    assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"),
+        "expected no clone_detection finding for iter/push; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>());
+}
+
 // ── god_object_detection (14 tests) ──
 
 #[test]

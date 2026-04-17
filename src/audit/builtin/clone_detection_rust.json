@@ -1,18 +1,16 @@
 {
   "pipeline": "clone_detection",
-  "category": "code-quality",
-  "description": "Detects overuse of .clone(), .to_owned(), and .to_string() that may indicate unnecessary allocations. Simplified from Rust: flags all .clone()/.to_owned()/.to_string() method calls regardless of context (does not distinguish calls in loops from calls outside loops, or suppress numeric .to_string()).",
-  "languages": [
-    "rust"
-  ],
+  "category": "tech_debt",
+  "description": "Detect overuse of .clone(), .to_owned(), and .to_string() that may indicate unnecessary allocations",
+  "languages": ["rust"],
   "graph": [
     {
-      "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method))"
+      "match_pattern": "(call_expression function: (field_expression field: (field_identifier) @method (#match? @method \"^(clone|to_owned|to_string)$\")))"
     },
     {
       "flag": {
         "pattern": "unnecessary_clone",
-        "message": ".clone()/.to_owned()/.to_string() call detected -- consider borrowing or taking ownership instead",
+        "message": ".{{method}}() call detected — consider borrowing or taking ownership instead",
         "severity": "info"
       }
     }
