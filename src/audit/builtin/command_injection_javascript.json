@@ -1,21 +1,41 @@
 {
   "pipeline": "command_injection",
   "category": "security",
-  "description": "Detects command injection in JavaScript/TypeScript: exec/execSync/execFileSync method calls, spawn with shell:true. Simplified from Rust: flags all member expression call_expressions (cannot filter to only exec/execSync/execFileSync without #match? predicate support, and cannot check if first arg is non-literal). All method calls flagged -- higher false positive rate than Rust version.",
-  "languages": [
-    "javascript",
-    "jsx",
-    "typescript",
-    "tsx"
-  ],
+  "description": "Detect command injection in JavaScript/TypeScript via taint analysis: user-controlled data reaching exec(), spawn(), or related child_process sinks",
+  "languages": ["javascript", "jsx", "typescript", "tsx"],
   "graph": [
     {
-      "match_pattern": "(call_expression function: (member_expression property: (property_identifier) @method))"
+      "taint_sources": [
+        {"pattern": "req.body", "kind": "user_input"},
+        {"pattern": "req.query", "kind": "user_input"},
+        {"pattern": "req.params", "kind": "user_input"},
+        {"pattern": "req.headers", "kind": "user_input"},
+        {"pattern": "request.body", "kind": "user_input"},
+        {"pattern": "request.query", "kind": "user_input"},
+        {"pattern": "process.env", "kind": "env_var"},
+        {"pattern": "process.argv", "kind": "user_input"}
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {"pattern": "escape"},
+        {"pattern": "sanitize"}
+      ]
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "exec", "vulnerability": "command_injection"},
+        {"pattern": "execSync", "vulnerability": "command_injection"},
+        {"pattern": "execFileSync", "vulnerability": "command_injection"},
+        {"pattern": "spawn", "vulnerability": "command_injection"},
+        {"pattern": "spawnSync", "vulnerability": "command_injection"},
+        {"pattern": "execFile", "vulnerability": "command_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "exec_command_injection",
-        "message": "Member expression call detected -- verify this is not exec(), execSync(), or execFileSync() with a dynamic argument",
+        "message": "Command injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

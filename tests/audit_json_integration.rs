@@ -1100,25 +1100,21 @@ fn cyclomatic_complexity_python_clean_function() {
 #[test]
 fn command_injection_javascript_finds_exec_call() {
     let dir = tempfile::tempdir().unwrap();
-    // exec() method call on child_process object -- triggers exec_command_injection pattern
+    // 'req' is auto-tainted; cp.exec() is the sink (exec matches via substring).
     std::fs::write(
         dir.path().join("test.js"),
-        "const cp = require('child_process');\ncp.exec(userInput, (err, out) => { console.log(out); });\n",
-    )
-    .unwrap();
-
+        "const cp = require('child_process');\nfunction run(req, res) {\n  const cmd = req.query.cmd;\n  cp.exec(cmd, (err, out) => { res.send(out); });\n}\n",
+    ).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
-
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
         .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
-
     assert!(
         findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "exec_command_injection"),
-        "expected command_injection/exec_command_injection finding; got: {:?}",
+        "expected command_injection/exec_command_injection finding for JavaScript; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -1145,6 +1141,28 @@ fn command_injection_javascript_clean() {
     assert!(
         !findings.iter().any(|f| f.pipeline == "command_injection"),
         "expected no command_injection finding; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_javascript_no_fp_map_call() {
+    let dir = tempfile::tempdir().unwrap();
+    // .map() and .filter() are idiomatic array ops — not command injection sinks.
+    std::fs::write(
+        dir.path().join("test.js"),
+        "function process(data) {\n  const doubled = data.map(x => x * 2);\n  return doubled.filter(x => x > 3);\n}\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::JavaScript])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection"),
+        "expected no command_injection finding for map/filter; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
