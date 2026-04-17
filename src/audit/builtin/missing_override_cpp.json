@@ -1,0 +1,18 @@
+{
+  "pipeline": "missing_override",
+  "category": "code-quality",
+  "description": "Detects virtual methods in derived classes without the override specifier in C++. Simplified from Rust: flags all function_definition nodes inside class_specifier bodies that have a base_class_clause parent (info severity), without filtering by virtual keyword, destructor, pure virtual, or NOLINT suppression. Higher false-positive rate -- all class methods are flagged.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(class_specifier body: (field_declaration_list (function_definition) @method)) @class_def"
+    },
+    {
+      "flag": {
+        "pattern": "missing_override",
+        "message": "Method in class body detected -- verify virtual methods in derived classes have the 'override' specifier",
+        "severity": "info"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "pipeline": "raw_memory_management",
+  "category": "code-quality",
+  "description": "Detects raw new/delete and C-style malloc/free in C++ -- prefer smart pointers and std::make_unique/std::make_shared. Simplified from Rust: flags all new_expression and delete_expression nodes (warning severity) without filtering smart-pointer constructors, NOLINT suppression, destructor context detection, or C-style malloc/calloc/realloc/free detection. Precision reduced compared to Rust.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "[(new_expression) @raw_alloc (delete_expression) @raw_alloc]"
+    },
+    {
+      "flag": {
+        "pattern": "raw_new_delete",
+        "message": "Raw new/delete detected -- use std::make_unique or std::make_shared instead; smart pointers handle deallocation automatically",
+        "severity": "warning"
+      }
+    }
+  ]
+}

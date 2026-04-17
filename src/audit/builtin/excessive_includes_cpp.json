@@ -1,0 +1,18 @@
+{
+  "pipeline": "excessive_includes",
+  "category": "code-quality",
+  "description": "Detects files with too many #include directives in C++ -- consider forward declarations or splitting. Simplified from Rust: flags every preproc_include node (info severity) without threshold counting, file-size scaling, or system vs project include distinction. Higher false-positive rate -- every include in every file is flagged. NOLINT suppression is not supported in the JSON DSL.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(preproc_include) @include_dir"
+    },
+    {
+      "flag": {
+        "pattern": "excessive_includes",
+        "message": "#include directive detected -- review if all dependencies are necessary; consider forward declarations to reduce coupling",
+        "severity": "info"
+      }
+    }
+  ]
+}

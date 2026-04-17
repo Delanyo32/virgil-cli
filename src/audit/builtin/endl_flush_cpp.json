@@ -1,0 +1,18 @@
+{
+  "pipeline": "endl_flush",
+  "category": "code-quality",
+  "description": "Detects std::endl usage in C++ -- prefer '\\n' to avoid unnecessary stream flushing. Simplified from Rust: flags all qualified_identifier nodes equal to std::endl or std::flush (info severity). NOLINT suppression, loop-context severity escalation (warning inside loops), and bare endl/flush after 'using namespace std' are not supported in the JSON DSL.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(qualified_identifier) @qualified_id"
+    },
+    {
+      "flag": {
+        "pattern": "endl_flush",
+        "message": "std::endl/std::flush detected -- prefer '\\n' to avoid unnecessary stream buffer flushing",
+        "severity": "info"
+      }
+    }
+  ]
+}

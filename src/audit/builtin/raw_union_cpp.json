@@ -1,0 +1,18 @@
+{
+  "pipeline": "raw_union",
+  "category": "code-quality",
+  "description": "Detects raw union usage in C++ -- prefer std::variant for type-safe tagged unions. Simplified from Rust: flags all union_specifier nodes (info severity) without filtering anonymous unions inside struct/class (idiomatic C++ pattern), extern C unions (C interop), or non-trivial member severity graduation. NOLINT suppression is not supported in the JSON DSL.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(union_specifier) @union_def"
+    },
+    {
+      "flag": {
+        "pattern": "raw_union",
+        "message": "Raw union detected -- consider using std::variant for type-safe alternatives; unions with non-trivial types (string, vector) cause undefined behavior",
+        "severity": "info"
+      }
+    }
+  ]
+}

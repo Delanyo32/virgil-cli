@@ -1,0 +1,18 @@
+{
+  "pipeline": "exception_across_boundary",
+  "category": "code-quality",
+  "description": "Detects throw statements inside extern \"C\" blocks -- exceptions cannot cross C linkage boundaries. Simplified from Rust: flags all throw_statement nodes (error severity) without checking for enclosing extern C context. Higher false-positive rate -- all throws are flagged, not just those in extern \"C\" blocks. NOLINT suppression and try-catch severity downgrade are not supported in the JSON DSL.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(throw_statement) @throw_stmt"
+    },
+    {
+      "flag": {
+        "pattern": "exception_across_boundary",
+        "message": "throw statement detected -- verify this is not inside an extern \"C\" block (exceptions cannot propagate across C linkage boundaries)",
+        "severity": "warning"
+      }
+    }
+  ]
+}

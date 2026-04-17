@@ -1,0 +1,21 @@
+{
+  "pipeline": "duplicate_code",
+  "category": "code-quality",
+  "description": "Detects duplicate function bodies and duplicate switch case arms in C++. Simplified from Rust: uses select:symbol to flag all functions, without rolling-hash body comparison or switch-case duplicate detection. No cross-function similarity detection in JSON DSL. Precision reduced -- all functions are flagged regardless of body similarity.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "select": "symbol",
+      "where": {
+        "kind": ["function", "method"]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "duplicate_function_body",
+        "message": "Function/method detected -- review for duplicate implementations; identical or near-identical function bodies should be refactored into shared utilities",
+        "severity": "info"
+      }
+    }
+  ]
+}

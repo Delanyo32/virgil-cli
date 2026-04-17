@@ -1,0 +1,18 @@
+{
+  "pipeline": "shared_ptr_cycle_risk",
+  "category": "code-quality",
+  "description": "Detects shared_ptr class members that risk reference cycles in C++ -- consider weak_ptr for back-references. Simplified from Rust: flags all field_declaration nodes inside class/struct bodies (info severity) without filtering by shared_ptr type, primitive template arguments, or self-referential severity graduation. Higher false-positive rate -- all class fields are flagged. NOLINT suppression is not supported in the JSON DSL.",
+  "languages": ["cpp"],
+  "graph": [
+    {
+      "match_pattern": "(field_declaration) @field_decl"
+    },
+    {
+      "flag": {
+        "pattern": "shared_ptr_cycle_risk",
+        "message": "Class field detected -- verify that shared_ptr members do not create reference cycles; use std::weak_ptr for back-references",
+        "severity": "info"
+      }
+    }
+  ]
+}
