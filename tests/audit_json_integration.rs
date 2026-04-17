@@ -3690,9 +3690,10 @@ fn cpp_integer_overflow_cpp_clean() {
 #[test]
 fn command_injection_csharp_finds_invocation() {
     let dir = tempfile::tempdir().unwrap();
+    // 'args' is auto-tainted; Process.Start() is the sink.
     std::fs::write(
         dir.path().join("test.cs"),
-        "using System.Diagnostics;\nclass A { void F(string cmd) { Process.Start(\"cmd.exe\", cmd); } }\n",
+        "using System.Diagnostics;\nclass A {\n    void F(string args) {\n        Process.Start(\"cmd.exe\", args);\n    }\n}\n",
     )
     .unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
@@ -3729,6 +3730,28 @@ fn command_injection_csharp_clean() {
         !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".cs")),
         "expected no command_injection finding for clean C#; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_csharp_no_fp_console_writeline() {
+    let dir = tempfile::tempdir().unwrap();
+    // Console.WriteLine — not Process.Start. Must NOT fire after fix.
+    std::fs::write(
+        dir.path().join("test.cs"),
+        "class A {\n    void F(string s) {\n        Console.WriteLine(s);\n    }\n}\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::CSharp])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".cs")),
+        "expected no command_injection finding for Console.WriteLine; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }
 

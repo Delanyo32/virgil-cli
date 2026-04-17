@@ -1,18 +1,32 @@
 {
   "pipeline": "command_injection",
   "category": "security",
-  "description": "Detects command injection risks in C#: Process.Start(), ProcessStartInfo with dynamic arguments, cmd.exe/powershell calls. JSON version matches all invocation expressions (cannot filter by method name or argument content without #match? predicate support). Precision reduced per D-07.",
-  "languages": [
-    "csharp"
-  ],
+  "description": "Detect command injection in C# via taint analysis: user-controlled data reaching Process.Start or ProcessStartInfo",
+  "languages": ["csharp"],
   "graph": [
     {
-      "match_pattern": "(invocation_expression function: (_) @fn_expr arguments: (argument_list) @args) @call"
+      "taint_sources": [
+        {"pattern": "Request.Form", "kind": "user_input"},
+        {"pattern": "Request.Query", "kind": "user_input"},
+        {"pattern": "Request.Headers", "kind": "user_input"},
+        {"pattern": "Request.Body", "kind": "user_input"},
+        {"pattern": "Environment.GetEnvironmentVariable", "kind": "env_var"},
+        {"pattern": "Console.ReadLine", "kind": "user_input"}
+      ]
+    },
+    {
+      "taint_sanitizers": []
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "Process.Start", "vulnerability": "command_injection"},
+        {"pattern": "ProcessStartInfo", "vulnerability": "command_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "command_injection_call",
-        "message": "Method invocation detected -- verify this is not Process.Start() or ProcessStartInfo with dynamic user input enabling command injection",
+        "message": "Command injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

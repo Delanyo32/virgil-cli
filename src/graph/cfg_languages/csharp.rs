@@ -12,6 +12,24 @@ pub struct CSharpCfgBuilder;
 impl CfgBuilder for CSharpCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut cfg = FunctionCfg::new();
+
+        // Extract parameter names from the parameter_list.
+        // C#: method/constructor declarations have a "parameters" field containing
+        // a parameter_list; each parameter child has a "name" field (identifier).
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                if child.kind() == "parameter" {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        let name = name_node.utf8_text(source).unwrap_or("").to_string();
+                        if !name.is_empty() {
+                            cfg.param_names.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
         let body = find_block(function_node);
         let body = match body {
             Some(b) => b,
