@@ -13,6 +13,7 @@ cargo run -- projects query myapp --q '{"find": "function", "name": "handle*"}' 
 cargo run -- projects query myapp --file query.json
 # S3/R2 (no registration needed)
 cargo run -- projects query --s3 s3://bucket/prefix --q '{"find": "function"}' [--lang rs]
+cargo run -- audit --dir ./src [--language rs] [--category security] [--pipeline sql_injection_rust]
 cargo run -- audit --s3 s3://bucket/prefix [--language rs]
 # Serve mode
 cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
@@ -75,7 +76,7 @@ Critical gotchas and design decisions that are not obvious from reading the code
 - `decorated_definition` nodes: unwrap to inner function/class; skip the bare `function_definition`/`class_definition` if its parent is a `decorated_definition`. This deduplication prevents double-reporting decorated symbols.
 
 **Audit pipelines**
-- `PipelineContext` wraps tree + source + graph reference, passed to `Pipeline::check_with_context()`. Default impl delegates to `check_with_ids()` for backward compatibility. Pipelines that need graph-based taint paths must override `check_with_context()`.
+- `PipelineContext` wraps tree + source + graph reference, passed to `Pipeline::check_with_context()`. Default impl delegates to `check_with_ids()` for backward compatibility. Pipelines that need cross-file graph data may use `GraphPipelineContext` (graph field is required, not `Option`).
 - Architecture audit thresholds (not in JSON files): oversized_module ≥ 30 symbols OR ≥ 1000 lines; monolithic_export_surface ≥ 20 exports; barrel_file_reexport ≥ 5 re-exports; hub_module_bidirectional ≥ 5 intra-project imports; deep_import_chain ≥ 4 path depth; excessive_public_api ≥ 10 symbols AND >80% exported.
 
 **Call graph**
@@ -85,6 +86,19 @@ Name-based resolution via `symbols_by_name` lookup — heuristic only, no type i
 - S3 workspace root is a synthetic `s3://bucket/prefix` path. `execute_read()` disk fallback is guarded by `root.exists()` to prevent filesystem access on S3 workspaces.
 - `--s3` flag conflicts with positional `name`/`dir` args via `#[arg(conflicts_with)]`
 - Server mode (`serve`) is S3-only — no `--path` flag. Used by Virgil Live (cloud service).
+
+**Audit pipeline model (JSON-first)**
+All audit logic is JSON-driven. The `taint` GraphStage (`src/graph/executor.rs`) handles
+security analysis — sources/sinks/sanitizers are declared in JSON builtin files
+(`src/audit/builtin/sql_injection_*.json`, `ssrf_*.json`, etc.). The `find_duplicates`
+stage and `efferent_coupling`/`afferent_coupling` compute metrics handle cross-file
+analysis. Use `AuditEngine::categories(vec!["security".to_string()])` to filter by
+category — no `PipelineSelector` exists.
+
+**Audit CLI**
+`virgil audit [--dir|--s3] [--language] [--category] [--pipeline] [--format] [--per-page] [--page]`
+No nested subcommands. Category values match the `category` field in JSON pipeline files:
+`security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability`.
 
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills
