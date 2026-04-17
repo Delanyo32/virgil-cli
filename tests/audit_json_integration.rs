@@ -1408,10 +1408,10 @@ fn memory_leak_indicators_javascript_clean() {
 #[test]
 fn command_injection_go_finds_selector_call() {
     let dir = tempfile::tempdir().unwrap();
-    // exec.Command selector call -- triggers exec_command_injection pattern
+    // 'args' is auto-tainted (PARAM_PATTERNS); exec.Command is the sink.
     std::fs::write(
         dir.path().join("test.go"),
-        "package main\nimport \"os/exec\"\nfunc f(cmd string) { exec.Command(cmd) }\n",
+        "package main\nimport \"os/exec\"\nfunc f(args string) { exec.Command(args) }\n",
     )
     .unwrap();
 
@@ -1428,6 +1428,28 @@ fn command_injection_go_finds_selector_call() {
         findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "exec_command_injection"),
         "expected command_injection/exec_command_injection finding for Go; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_go_no_fp_fmt_println() {
+    let dir = tempfile::tempdir().unwrap();
+    // fmt.Println — a selector call that is not exec.Command. Must NOT fire after fix.
+    std::fs::write(
+        dir.path().join("test.go"),
+        "package main\nimport \"fmt\"\nfunc f(s string) { fmt.Println(s) }\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Go], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Go])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".go")),
+        "expected no command_injection finding for fmt.Println; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }
 

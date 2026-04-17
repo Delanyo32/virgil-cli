@@ -1,18 +1,32 @@
 {
   "pipeline": "command_injection",
   "category": "security",
-  "description": "Detects command injection risks in Go: exec.Command and os/exec selector calls. JSON version matches all selector_expression calls (cannot filter by package/method name without #match? predicate support). Precision reduced per D-07.",
-  "languages": [
-    "go"
-  ],
+  "description": "Detect command injection in Go via taint analysis: user-controlled data reaching exec.Command or exec.CommandContext",
+  "languages": ["go"],
   "graph": [
     {
-      "match_pattern": "(call_expression function: (selector_expression operand: (identifier) @pkg field: (field_identifier) @method)) @call"
+      "taint_sources": [
+        {"pattern": "r.URL.Query", "kind": "user_input"},
+        {"pattern": "r.FormValue", "kind": "user_input"},
+        {"pattern": "r.PostFormValue", "kind": "user_input"},
+        {"pattern": "r.Header", "kind": "user_input"},
+        {"pattern": "os.Getenv", "kind": "env_var"},
+        {"pattern": "os.Args", "kind": "user_input"}
+      ]
+    },
+    {
+      "taint_sanitizers": []
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "exec.Command", "vulnerability": "command_injection"},
+        {"pattern": "exec.CommandContext", "vulnerability": "command_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "exec_command_injection",
-        "message": "Selector call expression detected -- verify this is not an exec.Command or shell invocation with dynamic arguments",
+        "message": "Command injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

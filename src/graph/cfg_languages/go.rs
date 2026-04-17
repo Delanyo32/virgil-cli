@@ -11,6 +11,47 @@ impl CfgBuilder for GoCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut builder = GoFunctionBuilder::new(source);
 
+        // Extract parameter names from the function signature.
+        // Go uses a "parameters" field on function_declaration/method_declaration.
+        // Each child is a parameter_declaration (name + type) or
+        // variadic_parameter_declaration.
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                match child.kind() {
+                    "parameter_declaration" | "variadic_parameter_declaration" => {
+                        // The "name" field may be a single identifier or an
+                        // identifier_list for multi-name params (a, b int).
+                        if let Some(name_node) = child.child_by_field_name("name") {
+                            match name_node.kind() {
+                                "identifier" => {
+                                    let name =
+                                        name_node.utf8_text(source).unwrap_or("").to_string();
+                                    if !name.is_empty() && name != "_" {
+                                        builder.cfg.param_names.push(name);
+                                    }
+                                }
+                                "identifier_list" => {
+                                    let mut id_cursor = name_node.walk();
+                                    for ident in name_node.named_children(&mut id_cursor) {
+                                        if ident.kind() == "identifier" {
+                                            let name =
+                                                ident.utf8_text(source).unwrap_or("").to_string();
+                                            if !name.is_empty() && name != "_" {
+                                                builder.cfg.param_names.push(name);
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Find the function body block
         let body = function_node
             .child_by_field_name("body")
