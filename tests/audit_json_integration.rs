@@ -2229,22 +2229,19 @@ fn memory_leak_indicators_go_clean() {
 #[test]
 fn command_injection_java_finds_method_invocation() {
     let dir = tempfile::tempdir().unwrap();
-    // method_invocation node -- triggers command_injection_call pattern
+    // 'args' is auto-tainted (PARAM_PATTERNS); Runtime.exec() call name = "exec" = sink.
+    // Multi-line so find_node_at_line can distinguish the method from the class.
     std::fs::write(
         dir.path().join("test.java"),
-        "class A { void f(String cmd) { Runtime.getRuntime().exec(cmd); } }",
-    )
-    .unwrap();
-
+        "class A {\n    void f(String args) throws Exception {\n        Runtime.getRuntime().exec(args);\n    }\n}\n",
+    ).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
-
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
         .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
-
     assert!(
         findings.iter().any(|f| f.pipeline == "command_injection" && f.pattern == "command_injection_call"),
         "expected command_injection/command_injection_call finding for Java; got: {:?}",
@@ -2274,6 +2271,28 @@ fn command_injection_java_clean() {
     assert!(
         !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".java")),
         "expected no command_injection finding for Java; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_java_no_fp_system_out() {
+    let dir = tempfile::tempdir().unwrap();
+    // System.out.println — a method call that is not exec(). Must NOT fire after fix.
+    std::fs::write(
+        dir.path().join("test.java"),
+        "class A { void f(String s) { System.out.println(s); } }",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Java])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".java")),
+        "expected no command_injection finding for System.out.println; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }

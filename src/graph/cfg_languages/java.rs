@@ -12,6 +12,23 @@ impl CfgBuilder for JavaCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut ctx = BuildCtx::new();
 
+        // Extract parameter names from formal_parameters.
+        // Java: method_declaration/constructor_declaration has a "parameters" field
+        // containing formal_parameters, each child being a formal_parameter with a "name" field.
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                if child.kind() == "formal_parameter" || child.kind() == "spread_parameter" {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        let name = name_node.utf8_text(source).unwrap_or("").to_string();
+                        if !name.is_empty() {
+                            ctx.cfg.param_names.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
         // The entry block is already created by FunctionCfg::new().
         let body = find_body(function_node);
         let Some(body) = body else {
@@ -1300,5 +1317,17 @@ mod tests {
         assert_eq!(cfg.blocks.node_count(), 1);
         assert_eq!(cfg.exits.len(), 1);
         assert_eq!(cfg.exits[0], cfg.entry);
+    }
+
+    #[test]
+    fn param_names_extracted() {
+        let cfg = build_java_cfg(
+            "class A { void f(String args) throws Exception { Runtime.getRuntime().exec(args); } }",
+        );
+        assert!(
+            cfg.param_names.contains(&"args".to_string()),
+            "expected 'args' in param_names, got: {:?}",
+            cfg.param_names
+        );
     }
 }

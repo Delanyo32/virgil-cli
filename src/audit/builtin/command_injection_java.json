@@ -1,18 +1,32 @@
 {
   "pipeline": "command_injection",
   "category": "security",
-  "description": "Detects command injection risks in Java: Runtime.exec() and new ProcessBuilder() calls. JSON version matches all method invocations and object creation expressions (cannot filter by method name or argument content without #match? predicate support). Precision reduced per D-07.",
-  "languages": [
-    "java"
-  ],
+  "description": "Detect command injection in Java via taint analysis: user-controlled data reaching Runtime.exec() or ProcessBuilder",
+  "languages": ["java"],
   "graph": [
     {
-      "match_pattern": "(method_invocation name: (identifier) @method arguments: (argument_list) @args) @call"
+      "taint_sources": [
+        {"pattern": "request.getParameter", "kind": "user_input"},
+        {"pattern": "request.getParameterValues", "kind": "user_input"},
+        {"pattern": "request.getHeader", "kind": "user_input"},
+        {"pattern": "request.getInputStream", "kind": "user_input"},
+        {"pattern": "request.getReader", "kind": "user_input"},
+        {"pattern": "System.getenv", "kind": "env_var"}
+      ]
+    },
+    {
+      "taint_sanitizers": []
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "exec", "vulnerability": "command_injection"},
+        {"pattern": "new ProcessBuilder", "vulnerability": "command_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "command_injection_call",
-        "message": "Method invocation detected -- verify this is not Runtime.exec() or ProcessBuilder with dynamic user input",
+        "message": "Command injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }
