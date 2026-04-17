@@ -1,0 +1,38 @@
+{
+  "pipeline": "ssrf_go",
+  "category": "security",
+  "description": "Detect SSRF in Go",
+  "languages": ["go"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "r.URL.Query()",    "kind": "user_input"},
+          {"pattern": "r.FormValue",      "kind": "user_input"},
+          {"pattern": "r.Header.Get",     "kind": "user_input"},
+          {"pattern": "r.Body",           "kind": "user_input"},
+          {"pattern": "os.Getenv",        "kind": "env_var"}
+        ],
+        "sinks": [
+          {"pattern": "http.Get(",        "vulnerability": "ssrf"},
+          {"pattern": "http.Post(",       "vulnerability": "ssrf"},
+          {"pattern": "http.NewRequest(", "vulnerability": "ssrf"},
+          {"pattern": "net.Dial(",        "vulnerability": "ssrf"},
+          {"pattern": "http.Redirect(",   "vulnerability": "ssrf"}
+        ],
+        "sanitizers": [
+          {"pattern": "url.Parse"},
+          {"pattern": "url.ParseRequestURI"},
+          {"pattern": "allowlist"}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "ssrf",
+        "message": "SSRF: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "pipeline": "xxe_java",
+  "category": "security",
+  "description": "Detect XXE in Java",
+  "languages": ["java"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "getInputStream",          "kind": "user_input"},
+          {"pattern": "getParameter",            "kind": "user_input"},
+          {"pattern": "getReader",               "kind": "user_input"},
+          {"pattern": "System.in",               "kind": "user_input"}
+        ],
+        "sinks": [
+          {"pattern": "DocumentBuilder.parse",   "vulnerability": "xxe"},
+          {"pattern": "SAXParser.parse",         "vulnerability": "xxe"},
+          {"pattern": "XMLReader.parse",         "vulnerability": "xxe"},
+          {"pattern": "Unmarshaller.unmarshal",  "vulnerability": "xxe"},
+          {"pattern": "XPathExpression.evaluate","vulnerability": "xxe"}
+        ],
+        "sanitizers": [
+          {"pattern": "setExpandEntityReferences(false)"},
+          {"pattern": "disallow-doctype-decl"},
+          {"pattern": "setFeature(XMLConstants"}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "xxe",
+        "message": "XXE: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "pipeline": "xxe_csharp",
+  "category": "security",
+  "description": "Detect XXE in C#",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "taint": {
+        "sources": [
+          {"pattern": "Request.Body",     "kind": "user_input"},
+          {"pattern": "Request.Form",     "kind": "user_input"},
+          {"pattern": "Console.ReadLine", "kind": "user_input"}
+        ],
+        "sinks": [
+          {"pattern": "XmlDocument.Load",   "vulnerability": "xxe"},
+          {"pattern": "XmlReader.Create",   "vulnerability": "xxe"},
+          {"pattern": "XDocument.Load",     "vulnerability": "xxe"},
+          {"pattern": "XmlSerializer",      "vulnerability": "xxe"}
+        ],
+        "sanitizers": [
+          {"pattern": "DtdProcessing.Prohibit"},
+          {"pattern": "ProhibitDtd = true"},
+          {"pattern": "XmlReaderSettings"}
+        ]
+      }
+    },
+    {
+      "flag": {
+        "pattern": "xxe",
+        "message": "XXE: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
+        "severity": "error"
+      }
+    }
+  ]
+}
