@@ -1,32 +1,17 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use anyhow::Result;
-use rayon::prelude::*;
 
 use crate::graph::CodeGraph;
 use crate::language::Language;
-use crate::parser;
 use crate::workspace::Workspace;
 
 use super::models::{AuditFinding, AuditSummary};
-use super::pipeline::{self, AnyPipeline, GraphPipelineContext, PipelineContext};
-use super::pipelines::helpers::count_all_identifier_occurrences;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PipelineSelector {
-    TechDebt,
-    Complexity,
-    CodeStyle,
-    Security,
-    Scalability,
-    Architecture,
-}
 
 pub struct AuditEngine {
     languages: Vec<Language>,
     pipeline_filter: Vec<String>,
-    pipeline_selector: PipelineSelector,
+    category_filter: Vec<String>,
     progress: Option<indicatif::ProgressBar>,
     project_dir: Option<std::path::PathBuf>,
 }
@@ -42,7 +27,7 @@ impl AuditEngine {
         Self {
             languages: vec![Language::Rust],
             pipeline_filter: Vec::new(),
-            pipeline_selector: PipelineSelector::TechDebt,
+            category_filter: Vec::new(),
             progress: None,
             project_dir: None,
         }
@@ -58,8 +43,8 @@ impl AuditEngine {
         self
     }
 
-    pub fn pipeline_selector(mut self, s: PipelineSelector) -> Self {
-        self.pipeline_selector = s;
+    pub fn categories(mut self, cats: Vec<String>) -> Self {
+        self.category_filter = cats;
         self
     }
 
@@ -83,161 +68,31 @@ impl AuditEngine {
             self.project_dir.as_deref(),
         );
 
-        // Build a set of pipeline names that JSON audits override
-        let json_pipeline_names: std::collections::HashSet<String> = json_audits
-            .iter()
-            .map(|a| a.pipeline.clone())
-            .collect();
-
-        // Build pipelines per language, apply filter
-        let mut pipeline_map: HashMap<Language, Vec<Arc<AnyPipeline>>> = HashMap::new();
-        for lang in &self.languages {
-            let mut lang_pipelines = match self.pipeline_selector {
-                PipelineSelector::TechDebt => pipeline::pipelines_for_language(*lang)?,
-                PipelineSelector::Complexity => pipeline::complexity_pipelines_for_language(*lang)?,
-                PipelineSelector::CodeStyle => pipeline::code_style_pipelines_for_language(*lang)?,
-                PipelineSelector::Security => pipeline::security_pipelines_for_language(*lang)?,
-                PipelineSelector::Scalability => {
-                    pipeline::scalability_pipelines_for_language(*lang)?
-                }
-                PipelineSelector::Architecture => {
-                    // All architecture pipelines are now JSON-only
-                    vec![]
-                }
-            };
-
-            // ENG-01: suppress Rust lang_pipelines that are overridden by a JSON pipeline
-            lang_pipelines.retain(|p| !json_pipeline_names.contains(&p.name().to_string()));
-
-            if !self.pipeline_filter.is_empty() {
-                lang_pipelines.retain(|p| self.pipeline_filter.contains(&p.name().to_string()));
-            }
-
-            if !lang_pipelines.is_empty() {
-                let arced: Vec<Arc<AnyPipeline>> =
-                    lang_pipelines.into_iter().map(Arc::new).collect();
-                pipeline_map.insert(*lang, arced);
-            }
-        }
-
-        let pipeline_map = Arc::new(pipeline_map);
-
-        // Group workspace files by language
-        let grouped_files: Vec<(Language, &str)> = workspace
+        // No Rust pipelines remain — all audit logic is JSON-driven.
+        // files_scanned counts workspace files visible to the engine's languages.
+        let files_scanned = workspace
             .files()
             .iter()
-            .filter_map(|rel_path| {
-                let lang = workspace.file_language(rel_path)?;
-                if pipeline_map.contains_key(&lang) {
-                    Some((lang, rel_path.as_str()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let files_scanned = grouped_files.len();
+            .filter(|rel_path| workspace.file_language(rel_path).is_some_and(|l| self.languages.contains(&l)))
+            .count();
 
         if let Some(pb) = &self.progress {
             pb.set_length(files_scanned as u64);
-        }
-
-        let progress = self.progress.clone();
-        // Provide a fallback empty graph so Graph pipelines run even when the
-        // caller does not supply a pre-built CodeGraph (e.g. tech-debt audit
-        // without explicit graph construction).
-        let fallback_graph = CodeGraph::new();
-        let effective_graph: &CodeGraph = graph.unwrap_or(&fallback_graph);
-        let graph_ref = graph;
-
-        // Phase 4.4: Reduced stack size — stack-based iteration in helpers
-        // eliminates deep recursion, so 4MB suffices.
-        let pool = rayon::ThreadPoolBuilder::new()
-            .stack_size(4 * 1024 * 1024) // 4MB per thread (reduced from 16MB)
-            .build()
-            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
-
-        // Run pipelines in parallel over pre-grouped files
-        let all_findings: Vec<Vec<AuditFinding>> = pool.install(|| {
-            grouped_files
-                .par_iter()
-                .filter_map(|&(lang, rel_path)| {
-                    let result = (|| {
-                        let pipelines = pipeline_map.get(&lang)?;
-
-                        let mut ts_parser = match parser::create_parser(lang) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                eprintln!("Warning: failed to create parser for {}: {e}", rel_path);
-                                return None;
-                            }
-                        };
-
-                        let source = workspace.read_file(rel_path)?;
-
-                        let tree = match ts_parser.parse(&*source, None) {
-                            Some(t) => t,
-                            None => {
-                                eprintln!("Warning: failed to parse {}", rel_path);
-                                return None;
-                            }
-                        };
-
-                        let id_counts =
-                            count_all_identifier_occurrences(tree.root_node(), source.as_bytes());
-
-                        let mut file_findings = Vec::new();
-                        for pipeline in pipelines {
-                            match pipeline.as_ref() {
-                                AnyPipeline::Node(p) => {
-                                    file_findings.extend(p.check(
-                                        &tree,
-                                        source.as_bytes(),
-                                        rel_path,
-                                    ));
-                                }
-                                AnyPipeline::Graph(p) => {
-                                    let ctx = GraphPipelineContext {
-                                        tree: &tree,
-                                        source: source.as_bytes(),
-                                        file_path: rel_path,
-                                        id_counts: &id_counts,
-                                        graph: effective_graph,
-                                    };
-                                    file_findings.extend(p.check(&ctx));
-                                }
-                                AnyPipeline::Legacy(p) => {
-                                    let ctx = PipelineContext {
-                                        tree: &tree,
-                                        source: source.as_bytes(),
-                                        file_path: rel_path,
-                                        id_counts: &id_counts,
-                                        graph: graph_ref,
-                                    };
-                                    file_findings.extend(p.check_with_context(&ctx));
-                                }
-                            }
-                        }
-
-                        Some(file_findings)
-                    })();
-                    if let Some(pb) = &progress {
-                        pb.inc(1);
-                    }
-                    result
-                })
-                .collect()
-        });
-
-        if let Some(pb) = &self.progress {
             pb.finish_and_clear();
         }
 
-        let mut findings: Vec<AuditFinding> = all_findings.into_iter().flatten().collect();
+        let mut findings: Vec<AuditFinding> = Vec::new();
 
         // Run JSON audit pipelines after Rust pipelines
         if let Some(g) = graph {
             for json_audit in &json_audits {
+                // Apply category filter if set
+                if !self.category_filter.is_empty()
+                    && !self.category_filter.iter().any(|c| c == &json_audit.category)
+                {
+                    continue;
+                }
+
                 // Apply pipeline filter if set
                 if !self.pipeline_filter.is_empty()
                     && !self.pipeline_filter.contains(&json_audit.pipeline)
@@ -446,7 +301,7 @@ mod tests {
 
         let (findings, summary) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .pipeline_selector(PipelineSelector::Architecture)
+            .categories(vec!["architecture".to_string()])
             .project_dir(proj_dir.path().to_path_buf())
             .run(&workspace, Some(&graph))
             .unwrap();
@@ -493,7 +348,7 @@ mod tests {
 
         let (findings, _) = AuditEngine::new()
             .languages(vec![Language::Rust])
-            .pipeline_selector(PipelineSelector::Architecture)
+            .categories(vec!["architecture".to_string()])
             .project_dir(proj_dir.path().to_path_buf())
             .run(&workspace, Some(&graph))
             .unwrap();

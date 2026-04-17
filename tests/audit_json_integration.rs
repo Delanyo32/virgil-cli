@@ -13,7 +13,7 @@
 //!   so the chain needs 7 files (a->b->c->d->e->f->g).
 
 use virgil_cli::{
-    audit::engine::{AuditEngine, PipelineSelector},
+    audit::engine::AuditEngine,
     graph::builder::GraphBuilder,
     language::Language,
     workspace::Workspace,
@@ -35,7 +35,7 @@ fn module_size_distribution_rust_finds_oversized() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -60,7 +60,7 @@ fn module_size_distribution_rust_clean_file() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -87,7 +87,7 @@ fn api_surface_area_typescript_finds_excessive() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -110,7 +110,7 @@ fn api_surface_area_typescript_clean_file() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -146,7 +146,7 @@ fn circular_dependencies_python_finds_cycle() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -168,7 +168,7 @@ fn circular_dependencies_python_no_cycle() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -232,7 +232,7 @@ fn dependency_graph_depth_typescript_finds_deep_chain() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -259,7 +259,7 @@ fn dependency_graph_depth_typescript_shallow_is_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -287,7 +287,6 @@ fn cyclomatic_complexity_ts_finds_complex_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -309,7 +308,6 @@ fn cyclomatic_complexity_ts_clean_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -335,7 +333,6 @@ fn function_length_ts_finds_long_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -357,7 +354,6 @@ fn function_length_ts_clean_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -402,7 +398,6 @@ fn cognitive_complexity_ts_finds_complex_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -424,7 +419,6 @@ fn cognitive_complexity_ts_clean_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -450,7 +444,6 @@ fn comment_to_code_ratio_ts_finds_under_documented() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -473,7 +466,6 @@ fn comment_to_code_ratio_ts_clean_file() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -503,7 +495,7 @@ for (let i = 0; i < ids.length; i++) {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -525,7 +517,7 @@ fn n_plus_one_queries_ts_clean_code() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -547,7 +539,7 @@ fn sync_blocking_in_async_ts_finds_sync_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -570,7 +562,7 @@ fn sync_blocking_in_async_ts_clean_code() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -597,7 +589,7 @@ fn race_conditions_rust_finds_static_mut() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -620,7 +612,7 @@ fn race_conditions_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -644,7 +636,7 @@ fn type_confusion_rust_finds_union() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -667,7 +659,7 @@ fn type_confusion_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -691,7 +683,7 @@ fn unsafe_memory_rust_finds_unsafe_block() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -714,7 +706,7 @@ fn unsafe_memory_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -738,7 +730,7 @@ fn integer_overflow_rust_finds_arithmetic() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -761,7 +753,7 @@ fn integer_overflow_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -785,7 +777,7 @@ fn path_traversal_rust_finds_method_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -808,7 +800,7 @@ fn path_traversal_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -832,7 +824,7 @@ fn resource_exhaustion_rust_finds_scoped_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -855,7 +847,7 @@ fn resource_exhaustion_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -879,7 +871,7 @@ fn panic_dos_rust_finds_method_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -902,7 +894,7 @@ fn panic_dos_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -926,7 +918,7 @@ fn toctou_rust_finds_method_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -949,7 +941,7 @@ fn toctou_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -973,7 +965,7 @@ fn memory_leak_indicators_rust_finds_scoped_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -996,7 +988,7 @@ fn memory_leak_indicators_rust_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -1024,7 +1016,6 @@ fn cyclomatic_complexity_rust_finds_complex_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1046,7 +1037,6 @@ fn cyclomatic_complexity_rust_clean_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1072,7 +1062,6 @@ fn cyclomatic_complexity_python_finds_complex_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1094,7 +1083,6 @@ fn cyclomatic_complexity_python_clean_function() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Complexity)
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1124,7 +1112,7 @@ fn command_injection_javascript_finds_exec_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1150,7 +1138,7 @@ fn command_injection_javascript_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1178,7 +1166,7 @@ fn code_injection_javascript_finds_direct_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1204,7 +1192,7 @@ fn code_injection_javascript_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1232,7 +1220,7 @@ fn prototype_pollution_javascript_finds_for_in() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1258,7 +1246,7 @@ fn prototype_pollution_javascript_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1286,7 +1274,7 @@ fn type_system_bypass_typescript_finds_as_expression() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1312,7 +1300,7 @@ fn type_system_bypass_typescript_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1340,7 +1328,7 @@ fn memory_leak_indicators_javascript_finds_direct_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1366,7 +1354,7 @@ fn memory_leak_indicators_javascript_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1396,7 +1384,7 @@ fn command_injection_go_finds_selector_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1422,7 +1410,7 @@ fn command_injection_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1450,7 +1438,7 @@ fn go_path_traversal_go_finds_selector_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1476,7 +1464,7 @@ fn go_path_traversal_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1504,7 +1492,7 @@ fn race_conditions_go_finds_goroutine_in_loop() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1530,7 +1518,7 @@ fn race_conditions_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1558,7 +1546,7 @@ fn resource_exhaustion_go_finds_goroutine_in_loop() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1584,7 +1572,7 @@ fn resource_exhaustion_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1612,7 +1600,7 @@ fn go_integer_overflow_go_finds_type_conversion() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1638,7 +1626,7 @@ fn go_integer_overflow_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1666,7 +1654,7 @@ fn go_type_confusion_go_finds_type_assertion() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1692,7 +1680,7 @@ fn go_type_confusion_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1722,7 +1710,7 @@ fn command_injection_python_finds_attribute_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1748,7 +1736,7 @@ fn command_injection_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1776,7 +1764,7 @@ fn code_injection_python_finds_direct_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1802,7 +1790,7 @@ fn code_injection_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1831,7 +1819,7 @@ fn path_traversal_python_finds_attribute_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1857,7 +1845,7 @@ fn path_traversal_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1885,7 +1873,7 @@ fn insecure_deserialization_python_finds_attribute_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1911,7 +1899,7 @@ fn insecure_deserialization_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1939,7 +1927,7 @@ fn xxe_format_string_python_finds_attribute_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1965,7 +1953,7 @@ fn xxe_format_string_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -1993,7 +1981,7 @@ fn resource_exhaustion_python_finds_re_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2019,7 +2007,7 @@ fn resource_exhaustion_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2047,7 +2035,7 @@ fn memory_leak_indicators_python_finds_open_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2073,7 +2061,7 @@ fn memory_leak_indicators_python_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2101,7 +2089,7 @@ fn memory_leak_indicators_go_finds_goroutine_in_loop() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2127,7 +2115,7 @@ fn memory_leak_indicators_go_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2157,7 +2145,7 @@ fn command_injection_java_finds_method_invocation() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2183,7 +2171,7 @@ fn command_injection_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2211,7 +2199,7 @@ fn weak_cryptography_java_finds_method_invocation() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2237,7 +2225,7 @@ fn weak_cryptography_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2265,7 +2253,7 @@ fn insecure_deserialization_java_finds_method_invocation() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2291,7 +2279,7 @@ fn insecure_deserialization_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2319,7 +2307,7 @@ fn java_path_traversal_java_finds_object_creation() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2345,7 +2333,7 @@ fn java_path_traversal_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2373,7 +2361,7 @@ fn reflection_injection_java_finds_method_invocation() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2399,7 +2387,7 @@ fn reflection_injection_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2427,7 +2415,7 @@ fn java_race_conditions_java_finds_generic_field() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2453,7 +2441,7 @@ fn java_race_conditions_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2481,7 +2469,7 @@ fn memory_leak_indicators_java_finds_resource_creation() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2507,7 +2495,7 @@ fn memory_leak_indicators_java_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2536,7 +2524,7 @@ fn format_string_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2562,7 +2550,7 @@ fn format_string_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2589,7 +2577,7 @@ fn c_command_injection_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2615,7 +2603,7 @@ fn c_command_injection_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2642,7 +2630,7 @@ fn c_buffer_overflow_security_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2668,7 +2656,7 @@ fn c_buffer_overflow_security_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2695,7 +2683,7 @@ fn c_integer_overflow_c_finds_binary_expr() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2721,7 +2709,7 @@ fn c_integer_overflow_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2748,7 +2736,7 @@ fn c_toctou_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2774,7 +2762,7 @@ fn c_toctou_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2801,7 +2789,7 @@ fn memory_leak_indicators_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2827,7 +2815,7 @@ fn memory_leak_indicators_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2854,7 +2842,7 @@ fn c_weak_randomness_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2880,7 +2868,7 @@ fn c_weak_randomness_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2907,7 +2895,7 @@ fn c_memory_mismanagement_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2933,7 +2921,7 @@ fn c_memory_mismanagement_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2960,7 +2948,7 @@ fn c_path_traversal_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -2986,7 +2974,7 @@ fn c_path_traversal_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3013,7 +3001,7 @@ fn c_uninitialized_memory_c_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3039,7 +3027,7 @@ fn c_uninitialized_memory_c_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3066,7 +3054,7 @@ fn cpp_injection_cpp_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3092,7 +3080,7 @@ fn cpp_injection_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3119,7 +3107,7 @@ fn cpp_buffer_overflow_cpp_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3145,7 +3133,7 @@ fn cpp_buffer_overflow_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3172,7 +3160,7 @@ fn cpp_exception_safety_cpp_finds_new() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3198,7 +3186,7 @@ fn cpp_exception_safety_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3225,7 +3213,7 @@ fn cpp_memory_mismanagement_cpp_finds_delete() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3251,7 +3239,7 @@ fn cpp_memory_mismanagement_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3278,7 +3266,7 @@ fn cpp_race_conditions_cpp_finds_field() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3304,7 +3292,7 @@ fn cpp_race_conditions_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3331,7 +3319,7 @@ fn cpp_path_traversal_cpp_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3357,7 +3345,7 @@ fn cpp_path_traversal_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3384,7 +3372,7 @@ fn memory_leak_indicators_cpp_finds_new() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3410,7 +3398,7 @@ fn memory_leak_indicators_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3437,7 +3425,7 @@ fn cpp_weak_randomness_cpp_finds_call() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3463,7 +3451,7 @@ fn cpp_weak_randomness_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3490,7 +3478,7 @@ fn cpp_type_confusion_cpp_finds_new() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3516,7 +3504,7 @@ fn cpp_type_confusion_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3543,7 +3531,7 @@ fn cpp_integer_overflow_cpp_finds_new() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3569,7 +3557,7 @@ fn cpp_integer_overflow_cpp_clean() {
 
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
 
@@ -3596,7 +3584,7 @@ fn command_injection_csharp_finds_invocation() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3619,7 +3607,7 @@ fn command_injection_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3643,7 +3631,7 @@ fn weak_cryptography_csharp_finds_invocation() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3666,7 +3654,7 @@ fn weak_cryptography_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3690,7 +3678,7 @@ fn insecure_deserialization_csharp_finds_object_creation() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3713,7 +3701,7 @@ fn insecure_deserialization_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3737,7 +3725,7 @@ fn csharp_path_traversal_csharp_finds_invocation() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3760,7 +3748,7 @@ fn csharp_path_traversal_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3784,7 +3772,7 @@ fn csharp_race_conditions_csharp_finds_field_decl() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3807,7 +3795,7 @@ fn csharp_race_conditions_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3831,7 +3819,7 @@ fn reflection_unsafe_csharp_finds_invocation() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3854,7 +3842,7 @@ fn reflection_unsafe_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3878,7 +3866,7 @@ fn memory_leak_indicators_csharp_finds_object_creation() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3901,7 +3889,7 @@ fn memory_leak_indicators_csharp_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3925,7 +3913,7 @@ fn command_injection_php_finds_function_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3948,7 +3936,7 @@ fn command_injection_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3972,7 +3960,7 @@ fn unsafe_include_php_finds_include_expression() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -3995,7 +3983,7 @@ fn unsafe_include_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4019,7 +4007,7 @@ fn type_juggling_php_finds_binary_expression() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4042,7 +4030,7 @@ fn type_juggling_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4066,7 +4054,7 @@ fn unescaped_output_php_finds_echo_statement() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4089,7 +4077,7 @@ fn unescaped_output_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4113,7 +4101,7 @@ fn session_auth_php_finds_function_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4136,7 +4124,7 @@ fn session_auth_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4160,7 +4148,7 @@ fn insecure_deserialization_php_finds_function_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4183,7 +4171,7 @@ fn insecure_deserialization_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4207,7 +4195,7 @@ fn memory_leak_indicators_php_finds_function_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4230,7 +4218,7 @@ fn memory_leak_indicators_php_clean() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -4252,7 +4240,6 @@ fn panic_detection_rust_finds_unwrap() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
@@ -4268,7 +4255,6 @@ fn panic_detection_rust_finds_expect() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
@@ -4284,7 +4270,6 @@ fn panic_detection_rust_finds_method_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "panic_detection"),
@@ -4300,7 +4285,6 @@ fn panic_detection_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"),
@@ -4315,7 +4299,6 @@ fn panic_detection_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"),
@@ -4330,7 +4313,6 @@ fn panic_detection_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "panic_detection").unwrap();
@@ -4347,7 +4329,6 @@ fn panic_detection_rust_multiple_calls() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "panic_detection").count();
@@ -4362,7 +4343,6 @@ fn panic_detection_rust_no_findings_constant() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"));
@@ -4377,7 +4357,6 @@ fn panic_detection_rust_chained_method() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "panic_detection"));
@@ -4391,7 +4370,6 @@ fn panic_detection_rust_no_findings_use_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "panic_detection"));
@@ -4405,7 +4383,6 @@ fn panic_detection_rust_findings_have_line() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "panic_detection").unwrap();
@@ -4423,7 +4400,6 @@ fn clone_detection_rust_finds_clone_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "clone_detection"),
@@ -4440,7 +4416,6 @@ fn clone_detection_rust_finds_to_owned() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "clone_detection"));
@@ -4455,7 +4430,6 @@ fn clone_detection_rust_finds_to_string() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "clone_detection"));
@@ -4469,7 +4443,6 @@ fn clone_detection_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"));
@@ -4484,7 +4457,6 @@ fn clone_detection_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "clone_detection").unwrap();
@@ -4501,7 +4473,6 @@ fn clone_detection_rust_multiple_clones() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "clone_detection").count();
@@ -4516,7 +4487,6 @@ fn clone_detection_rust_no_findings_struct_def() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"));
@@ -4531,7 +4501,6 @@ fn clone_detection_rust_method_call_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "clone_detection"));
@@ -4545,7 +4514,6 @@ fn clone_detection_rust_no_findings_const() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "clone_detection"));
@@ -4559,7 +4527,6 @@ fn clone_detection_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "clone_detection").unwrap();
@@ -4578,7 +4545,6 @@ fn god_object_detection_rust_finds_many_methods() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"),
@@ -4595,7 +4561,6 @@ fn god_object_detection_rust_no_findings_small_impl() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"),
@@ -4611,7 +4576,6 @@ fn god_object_detection_rust_threshold_at_ten() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4626,7 +4590,6 @@ fn god_object_detection_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "god_object_detection").unwrap();
@@ -4643,7 +4606,6 @@ fn god_object_detection_rust_severity_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "god_object_detection").unwrap();
@@ -4658,7 +4620,6 @@ fn god_object_detection_rust_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4673,7 +4634,6 @@ fn god_object_detection_rust_no_findings_nine_fns() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"),
@@ -4689,7 +4649,6 @@ fn god_object_detection_rust_pub_fns_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4705,7 +4664,6 @@ fn god_object_detection_rust_methods_in_impl_counted() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4719,7 +4677,6 @@ fn god_object_detection_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4736,7 +4693,6 @@ fn god_object_detection_rust_mixed_methods_and_fns() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4752,7 +4708,6 @@ fn god_object_detection_rust_large_impl_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4767,7 +4722,6 @@ fn god_object_detection_rust_no_findings_use_and_const() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4782,7 +4736,6 @@ fn god_object_detection_rust_eleven_fns_flagged() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_object_detection"));
@@ -4798,7 +4751,6 @@ fn stringly_typed_rust_finds_ref_str_param() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -4814,7 +4766,6 @@ fn stringly_typed_rust_finds_ref_primitive_param() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"));
@@ -4828,7 +4779,6 @@ fn stringly_typed_rust_no_findings_owned_type() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -4843,7 +4793,6 @@ fn stringly_typed_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"));
@@ -4857,7 +4806,6 @@ fn stringly_typed_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "stringly_typed").unwrap();
@@ -4873,7 +4821,6 @@ fn stringly_typed_rust_multiple_ref_params() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "stringly_typed").count();
@@ -4888,7 +4835,6 @@ fn stringly_typed_rust_no_findings_struct_def() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"));
@@ -4904,7 +4850,6 @@ fn must_use_ignored_rust_finds_dropped_method_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "must_use_ignored"),
@@ -4920,7 +4865,6 @@ fn must_use_ignored_rust_finds_dropped_send() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "must_use_ignored"));
@@ -4934,7 +4878,6 @@ fn must_use_ignored_rust_no_findings_assigned() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "must_use_ignored"),
@@ -4949,7 +4892,6 @@ fn must_use_ignored_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "must_use_ignored"));
@@ -4963,7 +4905,6 @@ fn must_use_ignored_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "must_use_ignored").unwrap();
@@ -4980,7 +4921,6 @@ fn must_use_ignored_rust_multiple_dropped_calls() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "must_use_ignored").count();
@@ -4995,7 +4935,6 @@ fn must_use_ignored_rust_no_findings_struct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "must_use_ignored"));
@@ -5009,7 +4948,6 @@ fn must_use_ignored_rust_write_dropped() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "must_use_ignored"));
@@ -5023,7 +4961,6 @@ fn must_use_ignored_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "must_use_ignored").unwrap();
@@ -5041,7 +4978,6 @@ fn mutex_overuse_rust_finds_mutex_new() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_overuse"),
@@ -5058,7 +4994,6 @@ fn mutex_overuse_rust_finds_arc_new() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_overuse"));
@@ -5072,7 +5007,6 @@ fn mutex_overuse_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutex_overuse"));
@@ -5087,7 +5021,6 @@ fn mutex_overuse_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "mutex_overuse").unwrap();
@@ -5103,7 +5036,6 @@ fn mutex_overuse_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutex_overuse"));
@@ -5118,7 +5050,6 @@ fn mutex_overuse_rust_rwlock_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_overuse"));
@@ -5135,7 +5066,6 @@ fn pub_field_leakage_rust_finds_pub_field() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "pub_field_leakage"),
@@ -5152,7 +5082,6 @@ fn pub_field_leakage_rust_no_findings_private_fields() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "pub_field_leakage"),
@@ -5168,7 +5097,6 @@ fn pub_field_leakage_rust_multiple_pub_fields() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "pub_field_leakage").count();
@@ -5184,7 +5112,6 @@ fn pub_field_leakage_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "pub_field_leakage").unwrap();
@@ -5201,7 +5128,6 @@ fn pub_field_leakage_rust_severity_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "pub_field_leakage").unwrap();
@@ -5216,7 +5142,6 @@ fn pub_field_leakage_rust_no_findings_empty_struct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "pub_field_leakage"));
@@ -5230,7 +5155,6 @@ fn pub_field_leakage_rust_no_findings_fn_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "pub_field_leakage"));
@@ -5244,7 +5168,6 @@ fn pub_field_leakage_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "pub_field_leakage").unwrap();
@@ -5260,7 +5183,6 @@ fn pub_field_leakage_rust_internal_struct_pub_field() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // JSON version flags all pub fields regardless of struct visibility
@@ -5277,7 +5199,6 @@ fn missing_trait_abstraction_rust_finds_exported_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"),
@@ -5293,7 +5214,6 @@ fn missing_trait_abstraction_rust_finds_pub_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
@@ -5307,7 +5227,6 @@ fn missing_trait_abstraction_rust_no_findings_private_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"),
@@ -5322,7 +5241,6 @@ fn missing_trait_abstraction_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
@@ -5336,7 +5254,6 @@ fn missing_trait_abstraction_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "missing_trait_abstraction").unwrap();
@@ -5353,7 +5270,6 @@ fn missing_trait_abstraction_rust_multiple_pub_fns() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "missing_trait_abstraction").count();
@@ -5369,7 +5285,6 @@ fn missing_trait_abstraction_rust_pub_method_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
@@ -5383,7 +5298,6 @@ fn missing_trait_abstraction_rust_severity_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "missing_trait_abstraction").unwrap();
@@ -5398,7 +5312,6 @@ fn missing_trait_abstraction_rust_no_findings_const() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_trait_abstraction"));
@@ -5412,7 +5325,6 @@ fn missing_trait_abstraction_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "missing_trait_abstraction").unwrap();
@@ -5431,7 +5343,6 @@ fn async_blocking_rust_finds_scoped_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "async_blocking"),
@@ -5448,7 +5359,6 @@ fn async_blocking_rust_finds_mutex_new_scoped() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5462,7 +5372,6 @@ fn async_blocking_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5476,7 +5385,6 @@ fn async_blocking_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5491,7 +5399,6 @@ fn async_blocking_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "async_blocking").unwrap();
@@ -5508,7 +5415,6 @@ fn async_blocking_rust_severity_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "async_blocking").unwrap();
@@ -5524,7 +5430,6 @@ fn async_blocking_rust_multiple_scoped_calls() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "async_blocking").count();
@@ -5539,7 +5444,6 @@ fn async_blocking_rust_no_findings_use_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5553,7 +5457,6 @@ fn async_blocking_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "async_blocking").unwrap();
@@ -5569,7 +5472,6 @@ fn async_blocking_rust_thread_sleep_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5583,7 +5485,6 @@ fn async_blocking_rust_no_findings_fn_with_let() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5598,7 +5499,6 @@ fn async_blocking_rust_nested_path_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5612,7 +5512,6 @@ fn async_blocking_rust_no_findings_const() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5627,7 +5526,6 @@ fn async_blocking_rust_no_findings_enum() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5641,7 +5539,6 @@ fn async_blocking_rust_vec_macro_no_findings() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5656,7 +5553,6 @@ fn async_blocking_rust_path_with_many_segments() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5670,7 +5566,6 @@ fn async_blocking_rust_no_findings_type_alias() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "async_blocking"));
@@ -5685,7 +5580,6 @@ fn async_blocking_rust_trait_method_scoped() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // scoped path in expression position may or may not be a call_expression
@@ -5703,7 +5597,6 @@ fn magic_numbers_rust_finds_integer_literal() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -5719,7 +5612,6 @@ fn magic_numbers_rust_finds_float_literal() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
@@ -5733,7 +5625,6 @@ fn magic_numbers_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
@@ -5749,7 +5640,6 @@ fn magic_numbers_rust_severity_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
@@ -5765,7 +5655,6 @@ fn magic_numbers_rust_multiple_literals() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "magic_numbers").count();
@@ -5780,7 +5669,6 @@ fn magic_numbers_rust_no_findings_empty_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
@@ -5794,7 +5682,6 @@ fn magic_numbers_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
@@ -5808,7 +5695,6 @@ fn magic_numbers_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
@@ -5823,7 +5709,6 @@ fn magic_numbers_rust_large_literal_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
@@ -5837,7 +5722,6 @@ fn magic_numbers_rust_no_findings_use_decl() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
@@ -5852,7 +5736,6 @@ fn magic_numbers_rust_small_literal_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
@@ -5869,7 +5752,6 @@ fn dead_code_rust_finds_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -5885,7 +5767,6 @@ fn dead_code_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -5900,7 +5781,6 @@ fn dead_code_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
@@ -5916,7 +5796,6 @@ fn dead_code_rust_severity_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
@@ -5932,7 +5811,6 @@ fn dead_code_rust_multiple_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "dead_code").count();
@@ -5947,7 +5825,6 @@ fn dead_code_rust_no_findings_const_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
@@ -5961,7 +5838,6 @@ fn dead_code_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
@@ -5978,7 +5854,6 @@ fn dead_code_rust_method_detected() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
@@ -5995,7 +5870,6 @@ fn duplicate_code_rust_finds_many_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -6011,7 +5885,6 @@ fn duplicate_code_rust_no_findings_single_fn() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -6027,7 +5900,6 @@ fn duplicate_code_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "duplicate_code").unwrap();
@@ -6043,7 +5915,6 @@ fn duplicate_code_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
@@ -6058,7 +5929,6 @@ fn duplicate_code_rust_threshold_at_three() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -6076,7 +5946,6 @@ fn coupling_rust_finds_use_declarations() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"),
@@ -6092,7 +5961,6 @@ fn coupling_rust_no_findings_no_use() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -6107,7 +5975,6 @@ fn coupling_rust_metadata_correct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
@@ -6123,7 +5990,6 @@ fn coupling_rust_severity_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
@@ -6139,7 +6005,6 @@ fn coupling_rust_multiple_use_lines() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
@@ -6154,7 +6019,6 @@ fn coupling_rust_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
@@ -6168,7 +6032,6 @@ fn coupling_rust_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "coupling").unwrap();
@@ -6183,7 +6046,6 @@ fn coupling_rust_single_use() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"));
@@ -6197,7 +6059,6 @@ fn coupling_rust_no_findings_const_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Rust])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
@@ -6222,7 +6083,6 @@ func main() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6246,7 +6106,6 @@ func multiReturn() (int, int, error) { return 1, 2, nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6264,7 +6123,6 @@ fn error_swallowing_go_no_findings_no_assignment() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6279,7 +6137,6 @@ fn error_swallowing_go_no_findings_empty_package() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6301,7 +6158,6 @@ func someFunc() (int, error) { return 1, nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "error_swallowing");
@@ -6324,7 +6180,6 @@ func compute() (int, error) { return 42, nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6339,7 +6194,6 @@ fn error_swallowing_go_no_findings_const_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6361,7 +6215,6 @@ func getVal() (int, error) { return 0, nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "error_swallowing" && f.pattern == "swallowed_error"),
@@ -6376,7 +6229,6 @@ fn error_swallowing_go_no_findings_struct_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6392,7 +6244,6 @@ fn error_swallowing_go_no_findings_go_file_extension() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "error_swallowing"),
@@ -6413,7 +6264,6 @@ type BigService struct {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_struct"),
@@ -6432,7 +6282,6 @@ type Config struct { Port int }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_struct"),
@@ -6447,7 +6296,6 @@ fn god_struct_go_no_findings_empty_package() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_struct"),
@@ -6462,7 +6310,6 @@ fn god_struct_go_pattern_is_god_struct() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_struct" && f.pattern == "god_struct"),
@@ -6477,7 +6324,6 @@ fn god_struct_go_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "god_struct");
@@ -6496,7 +6342,6 @@ type B struct { Y string }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "god_struct").count();
@@ -6513,7 +6358,6 @@ type Reader interface { Read([]byte) (int, error) }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_struct"),
@@ -6528,7 +6372,6 @@ fn god_struct_go_no_findings_rust_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_struct"),
@@ -6552,7 +6395,6 @@ func doWork() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "goroutine_leak"),
@@ -6573,7 +6415,6 @@ func worker() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "goroutine_leak"),
@@ -6593,7 +6434,6 @@ func doWork() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "goroutine_leak"),
@@ -6608,7 +6448,6 @@ fn goroutine_leak_go_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "goroutine_leak"),
@@ -6626,7 +6465,6 @@ func doWork() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "goroutine_leak" && f.pattern == "goroutine_leak_risk"),
@@ -6646,7 +6484,6 @@ func doWork() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "goroutine_leak");
@@ -6671,7 +6508,6 @@ func init() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6688,7 +6524,6 @@ fn init_abuse_go_finds_any_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6703,7 +6538,6 @@ fn init_abuse_go_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6718,7 +6552,6 @@ fn init_abuse_go_no_findings_empty_package_declaration() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6733,7 +6566,6 @@ fn init_abuse_go_pattern_is_init_function_abuse() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "init_abuse" && f.pattern == "init_function_abuse"),
@@ -6748,7 +6580,6 @@ fn init_abuse_go_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "init_abuse");
@@ -6768,7 +6599,6 @@ func main() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "init_abuse").count();
@@ -6783,7 +6613,6 @@ fn init_abuse_go_no_findings_no_go_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6798,7 +6627,6 @@ fn init_abuse_go_finds_exported_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6813,7 +6641,6 @@ fn init_abuse_go_no_findings_interface_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "init_abuse"),
@@ -6835,7 +6662,6 @@ func main() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -6856,7 +6682,6 @@ func main() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -6876,7 +6701,6 @@ func main() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -6891,7 +6715,6 @@ fn magic_numbers_go_pattern_is_magic_number() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers" && f.pattern == "magic_number"),
@@ -6911,7 +6734,6 @@ func f() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "magic_numbers");
@@ -6927,7 +6749,6 @@ fn magic_numbers_go_no_findings_empty_func() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -6948,7 +6769,6 @@ func f() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "magic_numbers").count();
@@ -6963,7 +6783,6 @@ fn magic_numbers_go_no_findings_struct_only_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -6982,7 +6801,6 @@ func check(x int) bool {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -7006,7 +6824,6 @@ func main() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse"),
@@ -7030,7 +6847,6 @@ func f() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse"),
@@ -7045,7 +6861,6 @@ fn mutex_misuse_go_no_findings_no_method_calls() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutex_misuse"),
@@ -7060,7 +6875,6 @@ fn mutex_misuse_go_no_findings_empty_func() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutex_misuse"),
@@ -7078,7 +6892,6 @@ var x interface{ Method() }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse" && f.pattern == "mutex_misuse"),
@@ -7098,7 +6911,6 @@ var obj interface{ Call() }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "mutex_misuse");
@@ -7120,7 +6932,6 @@ func f() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutex_misuse"),
@@ -7135,7 +6946,6 @@ fn mutex_misuse_go_no_findings_no_selector_expr() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutex_misuse"),
@@ -7154,7 +6964,6 @@ func Process(v interface{}) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7173,7 +6982,6 @@ type Reader interface { Read([]byte) (int, error) }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7188,7 +6996,6 @@ fn naked_interface_go_no_findings_no_interface() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7203,7 +7010,6 @@ fn naked_interface_go_no_findings_empty_func() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7218,7 +7024,6 @@ fn naked_interface_go_pattern_is_naked_interface() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "naked_interface" && f.pattern == "naked_interface"),
@@ -7235,7 +7040,6 @@ func f(v interface{}) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "naked_interface");
@@ -7255,7 +7059,6 @@ type Config struct {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7272,7 +7075,6 @@ func Process(v string) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7287,7 +7089,6 @@ fn naked_interface_go_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "naked_interface"),
@@ -7306,7 +7107,6 @@ func NewService(cfg map[string]string) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7324,7 +7124,6 @@ func New(cfg map[string]any) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7342,7 +7141,6 @@ func Process(data map[int]string) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7360,7 +7158,6 @@ func NewService(cfg Config) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7375,7 +7172,6 @@ fn stringly_typed_config_go_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7390,7 +7186,6 @@ fn stringly_typed_config_go_pattern_is_stringly_typed_config() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config" && f.pattern == "stringly_typed_config"),
@@ -7407,7 +7202,6 @@ func f(cfg map[string]string) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "stringly_typed_config");
@@ -7427,7 +7221,6 @@ type Config struct {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7444,7 +7237,6 @@ func f(x int, y string, z bool) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7459,7 +7251,6 @@ fn stringly_typed_config_go_no_findings_slice_type() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed_config"),
@@ -7476,7 +7267,6 @@ func f(a map[string]string, b map[string]int) {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "stringly_typed_config").count();
@@ -7496,7 +7286,6 @@ func GetCache() *Cache { return nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7516,7 +7305,6 @@ func newDB() *DB { return nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7535,7 +7323,6 @@ func NewCache() Cache { return &RedisCache{} }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7553,7 +7340,6 @@ func GetConfig() Config { return Config{} }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7568,7 +7354,6 @@ fn concrete_return_type_go_no_findings_string_return() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7586,7 +7371,6 @@ func GetSvc() *Svc { return nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type" && f.pattern == "concrete_return_type"),
@@ -7604,7 +7388,6 @@ func GetX() *X { return nil }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "concrete_return_type");
@@ -7620,7 +7403,6 @@ fn concrete_return_type_go_no_findings_empty_func() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7635,7 +7417,6 @@ fn concrete_return_type_go_no_findings_no_return_type() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7654,7 +7435,6 @@ func NewDB() *DB { return &DB{} }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "concrete_return_type"),
@@ -7678,7 +7458,6 @@ func doWork() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7700,7 +7479,6 @@ func handle() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7721,7 +7499,6 @@ func doWork() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7736,7 +7513,6 @@ fn context_not_propagated_go_no_findings_no_selector_calls() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7751,7 +7527,6 @@ fn context_not_propagated_go_no_findings_empty_func() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7769,7 +7544,6 @@ func f() { _ = context.Background() }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "context_not_propagated" && f.pattern == "context_not_propagated"),
@@ -7789,7 +7563,6 @@ func f() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "context_not_propagated");
@@ -7805,7 +7578,6 @@ fn context_not_propagated_go_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7820,7 +7592,6 @@ fn context_not_propagated_go_no_findings_const_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7835,7 +7606,6 @@ fn context_not_propagated_go_no_findings_no_go_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "context_not_propagated"),
@@ -7852,7 +7622,6 @@ fn dead_code_go_finds_function_symbol() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -7868,7 +7637,6 @@ fn dead_code_go_finds_exported_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -7883,7 +7651,6 @@ fn dead_code_go_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -7898,7 +7665,6 @@ fn dead_code_go_no_findings_empty_package() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -7913,7 +7679,6 @@ fn dead_code_go_pattern_is_potentially_dead_export() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code" && f.pattern == "potentially_dead_export"),
@@ -7928,7 +7693,6 @@ fn dead_code_go_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "dead_code");
@@ -7947,7 +7711,6 @@ func (s *Svc) Run() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -7966,7 +7729,6 @@ func setup() {}
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "dead_code").count();
@@ -7981,7 +7743,6 @@ fn dead_code_go_no_findings_no_go_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -7998,7 +7759,6 @@ fn duplicate_code_go_finds_function_symbol() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -8014,7 +7774,6 @@ fn duplicate_code_go_no_findings_empty_package() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -8029,7 +7788,6 @@ fn duplicate_code_go_pattern_is_potential_duplication() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_code" && f.pattern == "potential_duplication"),
@@ -8044,7 +7802,6 @@ fn duplicate_code_go_has_line_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "duplicate_code");
@@ -8060,7 +7817,6 @@ fn duplicate_code_go_no_findings_struct_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -8083,7 +7839,6 @@ func main() { fmt.Println(os.Args) }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"),
@@ -8099,7 +7854,6 @@ fn coupling_go_no_findings_no_imports() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -8117,7 +7871,6 @@ func main() { fmt.Println("hi") }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling" && f.pattern == "high_coupling"),
@@ -8135,7 +7888,6 @@ func main() { _ = os.Args }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let f = findings.iter().find(|f| f.pipeline == "coupling");
@@ -8154,7 +7906,6 @@ func main() { fmt.Println("hello") }
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
@@ -8169,7 +7920,6 @@ fn coupling_go_no_findings_empty_package() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -8184,7 +7934,6 @@ fn coupling_go_no_findings_no_go_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Go]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Go])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -8203,7 +7952,6 @@ fn bare_except_python_finds_bare_except() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "bare_except"),
@@ -8220,7 +7968,6 @@ fn bare_except_python_finds_multiple_bare_excepts() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "bare_except").count();
@@ -8237,7 +7984,6 @@ fn bare_except_python_finds_except_clause_any() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // JSON version matches all except_clause nodes (simplified behavior)
@@ -8254,7 +8000,6 @@ fn bare_except_python_finds_nested_try_except() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "bare_except"),
@@ -8269,7 +8014,6 @@ fn bare_except_python_no_findings_no_try() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "bare_except"),
@@ -8284,7 +8028,6 @@ fn bare_except_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "bare_except"),
@@ -8299,7 +8042,6 @@ fn bare_except_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "bare_except"),
@@ -8317,7 +8059,6 @@ fn deep_nesting_python_finds_five_nested_ifs() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "deep_nesting"),
@@ -8335,7 +8076,6 @@ fn deep_nesting_python_finds_mixed_control_flow() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "deep_nesting"),
@@ -8351,7 +8091,6 @@ fn deep_nesting_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "deep_nesting" && f.pattern == "excessive_nesting_depth"),
@@ -8367,7 +8106,6 @@ fn deep_nesting_python_finding_severity_is_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "deep_nesting" && f.severity == "warning"),
@@ -8383,7 +8121,6 @@ fn deep_nesting_python_no_findings_shallow() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting"),
@@ -8399,7 +8136,6 @@ fn deep_nesting_python_no_findings_flat_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting"),
@@ -8414,7 +8150,6 @@ fn deep_nesting_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "deep_nesting"),
@@ -8432,7 +8167,6 @@ fn duplicate_logic_python_finds_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_logic"),
@@ -8448,7 +8182,6 @@ fn duplicate_logic_python_finds_methods() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_logic"),
@@ -8464,7 +8197,6 @@ fn duplicate_logic_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_logic" && f.pattern == "potential_duplication"),
@@ -8479,7 +8211,6 @@ fn duplicate_logic_python_no_findings_no_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_logic"),
@@ -8494,7 +8225,6 @@ fn duplicate_logic_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_logic"),
@@ -8509,7 +8239,6 @@ fn duplicate_logic_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_logic"),
@@ -8526,7 +8255,6 @@ fn empty_test_files_python_finds_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8544,7 +8272,6 @@ fn empty_test_files_python_finds_test_dir_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8560,7 +8287,6 @@ fn empty_test_files_python_finds_multiple_test_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "empty_test_files").count();
@@ -8575,7 +8301,6 @@ fn empty_test_files_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files" && f.pattern == "empty_test_file"),
@@ -8590,7 +8315,6 @@ fn empty_test_files_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files" && f.severity == "info"),
@@ -8606,7 +8330,6 @@ fn empty_test_files_python_finds_spec_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8621,7 +8344,6 @@ fn empty_test_files_python_no_findings_non_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8636,7 +8358,6 @@ fn empty_test_files_python_no_findings_main_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8651,7 +8372,6 @@ fn empty_test_files_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8666,7 +8386,6 @@ fn empty_test_files_python_finds_empty_content() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8682,7 +8401,6 @@ fn empty_test_files_python_finds_helper_only_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8697,7 +8415,6 @@ fn empty_test_files_python_no_findings_module_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8712,7 +8429,6 @@ fn empty_test_files_python_no_findings_empty_dir() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "empty_test_files"),
@@ -8731,7 +8447,6 @@ fn god_functions_python_finds_large_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_functions"),
@@ -8749,7 +8464,6 @@ fn god_functions_python_finds_method_large() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_functions"),
@@ -8766,7 +8480,6 @@ fn god_functions_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_functions" && f.pattern == "god_function"),
@@ -8783,7 +8496,6 @@ fn god_functions_python_finding_severity_is_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "god_functions" && f.severity == "warning"),
@@ -8800,7 +8512,6 @@ fn god_functions_python_no_findings_small_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_functions"),
@@ -8815,7 +8526,6 @@ fn god_functions_python_no_findings_no_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_functions"),
@@ -8830,7 +8540,6 @@ fn god_functions_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_functions"),
@@ -8847,7 +8556,6 @@ fn god_functions_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "god_functions"),
@@ -8864,7 +8572,6 @@ fn magic_numbers_python_finds_integer_literal() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -8880,7 +8587,6 @@ fn magic_numbers_python_finds_float_literal() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -8896,7 +8602,6 @@ fn magic_numbers_python_finds_multiple_literals() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "magic_numbers").count();
@@ -8911,7 +8616,6 @@ fn magic_numbers_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers" && f.pattern == "magic_number"),
@@ -8926,7 +8630,6 @@ fn magic_numbers_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers" && f.severity == "info"),
@@ -8942,7 +8645,6 @@ fn magic_numbers_python_finds_in_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -8958,7 +8660,6 @@ fn magic_numbers_python_finds_in_class() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -8973,7 +8674,6 @@ fn magic_numbers_python_no_findings_string_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -8988,7 +8688,6 @@ fn magic_numbers_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -9003,7 +8702,6 @@ fn magic_numbers_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -9018,7 +8716,6 @@ fn magic_numbers_python_no_findings_pass_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
@@ -9036,7 +8733,6 @@ fn missing_type_hints_python_finds_exported_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9053,7 +8749,6 @@ fn missing_type_hints_python_finds_multiple_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "missing_type_hints").count();
@@ -9069,7 +8764,6 @@ fn missing_type_hints_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_type_hints" && f.pattern == "missing_type_hint"),
@@ -9085,7 +8779,6 @@ fn missing_type_hints_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_type_hints" && f.severity == "info"),
@@ -9101,7 +8794,6 @@ fn missing_type_hints_python_finds_method() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9117,7 +8809,6 @@ fn missing_type_hints_python_finds_async_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9132,7 +8823,6 @@ fn missing_type_hints_python_no_findings_no_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9147,7 +8837,6 @@ fn missing_type_hints_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9162,7 +8851,6 @@ fn missing_type_hints_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9178,7 +8866,6 @@ fn missing_type_hints_python_finds_class_level_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "missing_type_hints").count();
@@ -9193,7 +8880,6 @@ fn missing_type_hints_python_no_findings_import_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9209,7 +8895,6 @@ fn missing_type_hints_python_no_findings_class_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "missing_type_hints"),
@@ -9226,7 +8911,6 @@ fn mutable_default_args_python_finds_list_default() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9242,7 +8926,6 @@ fn mutable_default_args_python_finds_dict_default() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9257,7 +8940,6 @@ fn mutable_default_args_python_finds_typed_default() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9273,7 +8955,6 @@ fn mutable_default_args_python_finds_method_default() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9288,7 +8969,6 @@ fn mutable_default_args_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutable_default_args" && f.pattern == "mutable_default_arg"),
@@ -9303,7 +8983,6 @@ fn mutable_default_args_python_finding_severity_is_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "mutable_default_args" && f.severity == "warning"),
@@ -9319,7 +8998,6 @@ fn mutable_default_args_python_finds_scalar_with_default() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // JSON simplified: matches all default_parameter nodes regardless of mutability
@@ -9335,7 +9013,6 @@ fn mutable_default_args_python_no_findings_no_defaults() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9350,7 +9027,6 @@ fn mutable_default_args_python_no_findings_no_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9365,7 +9041,6 @@ fn mutable_default_args_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9380,7 +9055,6 @@ fn mutable_default_args_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "mutable_default_args"),
@@ -9398,7 +9072,6 @@ fn stringly_typed_python_finds_comparison_operator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9415,7 +9088,6 @@ fn stringly_typed_python_finds_chained_comparisons() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "stringly_typed").count();
@@ -9431,7 +9103,6 @@ fn stringly_typed_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed" && f.pattern == "stringly_typed"),
@@ -9447,7 +9118,6 @@ fn stringly_typed_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed" && f.severity == "info"),
@@ -9463,7 +9133,6 @@ fn stringly_typed_python_finds_in_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9479,7 +9148,6 @@ fn stringly_typed_python_finds_not_equal() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9494,7 +9162,6 @@ fn stringly_typed_python_no_findings_no_comparisons() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9509,7 +9176,6 @@ fn stringly_typed_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9525,7 +9191,6 @@ fn stringly_typed_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9540,7 +9205,6 @@ fn stringly_typed_python_no_findings_comment_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "stringly_typed"),
@@ -9558,7 +9222,6 @@ fn test_assertions_python_finds_assert_in_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9575,7 +9238,6 @@ fn test_assertions_python_finds_multiple_asserts() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "test_assertions").count();
@@ -9591,7 +9253,6 @@ fn test_assertions_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions" && f.pattern == "weak_assertion"),
@@ -9607,7 +9268,6 @@ fn test_assertions_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions" && f.severity == "info"),
@@ -9623,7 +9283,6 @@ fn test_assertions_python_finds_assert_true() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9639,7 +9298,6 @@ fn test_assertions_python_finds_assert_false() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9655,7 +9313,6 @@ fn test_assertions_python_finds_assert_with_message() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9673,7 +9330,6 @@ fn test_assertions_python_finds_in_tests_dir() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9689,7 +9345,6 @@ fn test_assertions_python_finds_nested_assert() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9705,7 +9360,6 @@ fn test_assertions_python_finds_assert_none() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9721,7 +9375,6 @@ fn test_assertions_python_finds_multiple_in_one_test() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "test_assertions").count();
@@ -9738,7 +9391,6 @@ fn test_assertions_python_no_findings_non_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9754,7 +9406,6 @@ fn test_assertions_python_no_findings_no_asserts_in_test() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9769,7 +9420,6 @@ fn test_assertions_python_no_findings_empty_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9785,7 +9435,6 @@ fn test_assertions_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9802,7 +9451,6 @@ fn test_assertions_python_no_findings_main_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9818,7 +9466,6 @@ fn test_assertions_python_finds_assert_in_class_method() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9834,7 +9481,6 @@ fn test_assertions_python_finds_assert_not_in() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9850,7 +9496,6 @@ fn test_assertions_python_finds_assert_raises_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9866,7 +9511,6 @@ fn test_assertions_python_finds_assert_in_loop() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9883,7 +9527,6 @@ fn test_assertions_python_no_findings_utils_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_assertions"),
@@ -9901,7 +9544,6 @@ fn test_hygiene_python_finds_decorator_in_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -9918,7 +9560,6 @@ fn test_hygiene_python_finds_multiple_decorators() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "test_hygiene").count();
@@ -9934,7 +9575,6 @@ fn test_hygiene_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene" && f.pattern == "test_hygiene"),
@@ -9950,7 +9590,6 @@ fn test_hygiene_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene" && f.severity == "info"),
@@ -9966,7 +9605,6 @@ fn test_hygiene_python_finds_pytest_mark_decorator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -9982,7 +9620,6 @@ fn test_hygiene_python_finds_fixture_decorator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -9998,7 +9635,6 @@ fn test_hygiene_python_finds_class_decorator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10016,7 +9652,6 @@ fn test_hygiene_python_finds_in_tests_dir() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10032,7 +9667,6 @@ fn test_hygiene_python_finds_nested_decorator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10049,7 +9683,6 @@ fn test_hygiene_python_no_findings_non_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10065,7 +9698,6 @@ fn test_hygiene_python_no_findings_no_decorators_in_test() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10080,7 +9712,6 @@ fn test_hygiene_python_no_findings_empty_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10096,7 +9727,6 @@ fn test_hygiene_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10112,7 +9742,6 @@ fn test_hygiene_python_no_findings_import_only_test() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10128,7 +9757,6 @@ fn test_hygiene_python_no_findings_constants_only_test() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10145,7 +9773,6 @@ fn test_hygiene_python_no_findings_utils_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10162,7 +9789,6 @@ fn test_hygiene_python_no_findings_main_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10179,7 +9805,6 @@ fn test_hygiene_python_no_findings_models_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_hygiene"),
@@ -10197,7 +9822,6 @@ fn test_pollution_python_finds_global_list() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10214,7 +9838,6 @@ fn test_pollution_python_finds_global_dict() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10230,7 +9853,6 @@ fn test_pollution_python_finds_module_level_assignment() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10247,7 +9869,6 @@ fn test_pollution_python_finds_string_constant() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10263,7 +9884,6 @@ fn test_pollution_python_finds_integer_constant() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10279,7 +9899,6 @@ fn test_pollution_python_finds_multiple_module_assignments() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "test_pollution").count();
@@ -10295,7 +9914,6 @@ fn test_pollution_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution" && f.pattern == "test_pollution"),
@@ -10311,7 +9929,6 @@ fn test_pollution_python_finding_severity_is_warning() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution" && f.severity == "warning"),
@@ -10327,7 +9944,6 @@ fn test_pollution_python_finds_in_test_file_with_prefix() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10345,7 +9961,6 @@ fn test_pollution_python_finds_in_tests_subdir() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10362,7 +9977,6 @@ fn test_pollution_python_finds_augmented_assignment() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10378,7 +9992,6 @@ fn test_pollution_python_finds_deque_assignment() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10394,7 +10007,6 @@ fn test_pollution_python_finds_none_assignment() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10411,7 +10023,6 @@ fn test_pollution_python_no_findings_non_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10428,7 +10039,6 @@ fn test_pollution_python_no_findings_utils_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10445,7 +10055,6 @@ fn test_pollution_python_no_findings_main_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10461,7 +10070,6 @@ fn test_pollution_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10476,7 +10084,6 @@ fn test_pollution_python_no_findings_empty_test_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10492,7 +10099,6 @@ fn test_pollution_python_no_findings_import_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10508,7 +10114,6 @@ fn test_pollution_python_no_findings_function_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10525,7 +10130,6 @@ fn test_pollution_python_no_findings_models_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10542,7 +10146,6 @@ fn test_pollution_python_no_findings_config_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10559,7 +10162,6 @@ fn test_pollution_python_no_findings_views_py() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10576,7 +10178,6 @@ fn test_pollution_python_no_findings_no_assignment_in_test() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10592,7 +10193,6 @@ fn test_pollution_python_no_findings_class_def_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10608,7 +10208,6 @@ fn test_pollution_python_no_findings_comment_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "test_pollution"),
@@ -10626,7 +10225,6 @@ fn dead_code_python_finds_function_symbol() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10643,7 +10241,6 @@ fn dead_code_python_finds_method_symbol() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10659,7 +10256,6 @@ fn dead_code_python_finds_multiple_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "dead_code").count();
@@ -10675,7 +10271,6 @@ fn dead_code_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code" && f.pattern == "potentially_dead_export"),
@@ -10691,7 +10286,6 @@ fn dead_code_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code" && f.severity == "info"),
@@ -10707,7 +10301,6 @@ fn dead_code_python_finds_async_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10723,7 +10316,6 @@ fn dead_code_python_finds_decorated_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10739,7 +10331,6 @@ fn dead_code_python_finds_nested_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10754,7 +10345,6 @@ fn dead_code_python_no_findings_no_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10769,7 +10359,6 @@ fn dead_code_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10784,7 +10373,6 @@ fn dead_code_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10799,7 +10387,6 @@ fn dead_code_python_no_findings_import_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10814,7 +10401,6 @@ fn dead_code_python_no_findings_class_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10831,7 +10417,6 @@ fn dead_code_python_excludes_test_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10847,7 +10432,6 @@ fn dead_code_python_no_findings_variable_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10863,7 +10447,6 @@ fn dead_code_python_no_findings_comment_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
@@ -10881,7 +10464,6 @@ fn duplicate_code_python_finds_function_symbols() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -10898,7 +10480,6 @@ fn duplicate_code_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "duplicate_code" && f.pattern == "potential_duplication"),
@@ -10913,7 +10494,6 @@ fn duplicate_code_python_no_findings_no_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -10928,7 +10508,6 @@ fn duplicate_code_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -10944,7 +10523,6 @@ fn duplicate_code_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
@@ -10962,7 +10540,6 @@ fn coupling_python_finds_import_statement() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"),
@@ -10979,7 +10556,6 @@ fn coupling_python_finds_from_import() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"),
@@ -10995,7 +10571,6 @@ fn coupling_python_finds_multiple_imports() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
@@ -11011,7 +10586,6 @@ fn coupling_python_finding_has_correct_pattern() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling" && f.pattern == "high_coupling"),
@@ -11027,7 +10601,6 @@ fn coupling_python_finding_severity_is_info() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling" && f.severity == "info"),
@@ -11043,7 +10616,6 @@ fn coupling_python_finds_single_import() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
@@ -11059,7 +10631,6 @@ fn coupling_python_finds_mixed_import_types() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     let count = findings.iter().filter(|f| f.pipeline == "coupling").count();
@@ -11075,7 +10646,6 @@ fn coupling_python_finds_relative_import() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11091,7 +10661,6 @@ fn coupling_python_finds_star_import() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11107,7 +10676,6 @@ fn coupling_python_no_findings_no_imports() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11122,7 +10690,6 @@ fn coupling_python_no_findings_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11138,7 +10705,6 @@ fn coupling_python_no_findings_no_python_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11154,7 +10720,6 @@ fn coupling_python_no_findings_comment_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11170,7 +10735,6 @@ fn coupling_python_no_findings_constants_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11186,7 +10750,6 @@ fn coupling_python_no_findings_class_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11201,7 +10764,6 @@ fn coupling_python_no_findings_pass_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11217,7 +10779,6 @@ fn coupling_python_no_findings_function_no_imports() {
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Python])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
@@ -11239,7 +10800,6 @@ fn deprecated_mysql_api_php_finds_mysql_connect() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11260,7 +10820,6 @@ fn deprecated_mysql_api_php_finds_mysql_query() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11281,7 +10840,6 @@ fn deprecated_mysql_api_php_finds_mysql_fetch_assoc() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11302,7 +10860,6 @@ fn deprecated_mysql_api_php_finds_multiple_calls() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11323,7 +10880,6 @@ fn deprecated_mysql_api_php_clean_mysqli() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // JSON version flags all function calls, mysqli_ is still a function call, but
@@ -11340,7 +10896,6 @@ fn deprecated_mysql_api_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11357,7 +10912,6 @@ fn deprecated_mysql_api_php_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11379,7 +10933,6 @@ fn error_suppression_php_finds_at_operator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11400,7 +10953,6 @@ fn error_suppression_php_finds_multiple_suppressions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11421,7 +10973,6 @@ fn error_suppression_php_finds_at_risky_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11442,7 +10993,6 @@ fn error_suppression_php_finds_at_session_start() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11463,7 +11013,6 @@ fn error_suppression_php_clean_no_at_operator() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11481,7 +11030,6 @@ fn error_suppression_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11498,7 +11046,6 @@ fn error_suppression_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11518,7 +11065,6 @@ fn error_suppression_php_finds_at_unlink() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11541,7 +11087,6 @@ fn extract_usage_php_finds_extract_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11562,7 +11107,6 @@ fn extract_usage_php_finds_extract_local_array() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11583,7 +11127,6 @@ fn extract_usage_php_finds_extract_get() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11604,7 +11147,6 @@ fn extract_usage_php_finds_extract_with_safe_flag() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11625,7 +11167,6 @@ fn extract_usage_php_finds_extract_skip_flag() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11646,7 +11187,6 @@ fn extract_usage_php_clean_no_extract() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11664,7 +11204,6 @@ fn extract_usage_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11681,7 +11220,6 @@ fn extract_usage_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11701,7 +11239,6 @@ fn extract_usage_php_clean_compact_not_extract() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // compact() and array_merge() should not trigger extract_usage (only extract())
@@ -11729,7 +11266,6 @@ fn god_class_php_finds_large_class() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11750,7 +11286,6 @@ fn god_class_php_finds_any_class() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11771,7 +11306,6 @@ fn god_class_php_finds_interface() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // Interface may or may not be flagged; pipeline runs without error
@@ -11786,7 +11320,6 @@ fn god_class_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11806,7 +11339,6 @@ fn god_class_php_clean_functions_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11826,7 +11358,6 @@ fn god_class_php_finds_multiple_classes() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11844,7 +11375,6 @@ fn god_class_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11866,7 +11396,6 @@ fn logic_in_views_php_finds_if_statement() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11887,7 +11416,6 @@ fn logic_in_views_php_finds_nested_if() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11908,7 +11436,6 @@ fn logic_in_views_php_finds_if_with_db_call() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11929,7 +11456,6 @@ fn logic_in_views_php_clean_no_control_flow() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11947,7 +11473,6 @@ fn logic_in_views_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11964,7 +11489,6 @@ fn logic_in_views_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -11984,7 +11508,6 @@ fn logic_in_views_php_finds_for_loop() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // for loops may or may not be flagged (pipeline matches if_statement); pipeline runs without error
@@ -12002,7 +11525,6 @@ fn logic_in_views_php_finds_if_else() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12023,7 +11545,6 @@ fn logic_in_views_php_finds_elseif_chain() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12046,7 +11567,6 @@ fn missing_type_declarations_php_finds_untyped_function() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12067,7 +11587,6 @@ fn missing_type_declarations_php_finds_untyped_method() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12088,7 +11607,6 @@ fn missing_type_declarations_php_finds_typed_function_too() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // JSON simplified version flags all functions regardless of typing
@@ -12107,7 +11625,6 @@ fn missing_type_declarations_php_finds_multiple_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12125,7 +11642,6 @@ fn missing_type_declarations_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12142,7 +11658,6 @@ fn missing_type_declarations_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12162,7 +11677,6 @@ fn missing_type_declarations_php_clean_constants_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12182,7 +11696,6 @@ fn missing_type_declarations_php_finds_private_method() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12203,7 +11716,6 @@ fn missing_type_declarations_php_finds_class_with_methods() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12224,7 +11736,6 @@ fn missing_type_declarations_php_finds_closure() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // Closures may or may not be captured as "function" symbols; pipeline runs without error
@@ -12244,7 +11755,6 @@ fn silent_exception_php_finds_catch_clause() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12265,7 +11775,6 @@ fn silent_exception_php_finds_catch_with_return() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12286,7 +11795,6 @@ fn silent_exception_php_finds_throwable_catch() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12307,7 +11815,6 @@ fn silent_exception_php_finds_multiple_catches() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12328,7 +11835,6 @@ fn silent_exception_php_finds_catch_with_logging() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     // JSON simplified version flags ALL catch clauses; substantive catches also flagged
@@ -12350,7 +11856,6 @@ fn silent_exception_php_clean_no_try_catch() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12368,7 +11873,6 @@ fn silent_exception_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12385,7 +11889,6 @@ fn silent_exception_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12405,7 +11908,6 @@ fn silent_exception_php_finds_specific_exception_empty() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12426,7 +11928,6 @@ fn silent_exception_php_finds_return_false_catch() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12449,7 +11950,6 @@ fn dead_code_php_finds_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12470,7 +11970,6 @@ fn dead_code_php_finds_private_method() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12491,7 +11990,6 @@ fn dead_code_php_finds_multiple_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12509,7 +12007,6 @@ fn dead_code_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12526,7 +12023,6 @@ fn dead_code_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12546,7 +12042,6 @@ fn dead_code_php_finds_class_methods() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12567,7 +12062,6 @@ fn dead_code_php_clean_constants_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12587,7 +12081,6 @@ fn dead_code_php_pattern_name_check() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12610,7 +12103,6 @@ fn duplicate_code_php_finds_functions() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12628,7 +12120,6 @@ fn duplicate_code_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12645,7 +12136,6 @@ fn duplicate_code_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12665,7 +12155,6 @@ fn duplicate_code_php_pattern_name_check() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12686,7 +12175,6 @@ fn duplicate_code_php_finds_class_methods() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12709,7 +12197,6 @@ fn coupling_php_finds_use_declaration() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12733,7 +12220,6 @@ fn coupling_php_finds_multiple_use_declarations() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12754,7 +12240,6 @@ fn coupling_php_pattern_name_check() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12775,7 +12260,6 @@ fn coupling_php_clean_no_use_declarations() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12793,7 +12277,6 @@ fn coupling_php_clean_empty_file() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12810,7 +12293,6 @@ fn coupling_php_clean_no_php_files() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12830,7 +12312,6 @@ fn coupling_php_finds_scoped_use() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12851,7 +12332,6 @@ fn coupling_php_clean_no_imports_class_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12871,7 +12351,6 @@ fn coupling_php_clean_no_findings_constants_only() {
     let graph = GraphBuilder::new(&workspace, &[Language::Php]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Php])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     assert!(
@@ -12889,7 +12368,6 @@ fn run_java_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models:
     let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -12900,7 +12378,6 @@ fn run_java_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models
     let graph = GraphBuilder::new(&workspace, &[Language::Java]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Java])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -14250,7 +13727,6 @@ fn run_c_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::Au
     let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -14261,7 +13737,6 @@ fn run_c_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::A
     let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -15388,7 +14863,6 @@ fn run_cpp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::
     let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -15399,7 +14873,6 @@ fn run_cpp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models:
     let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -16722,7 +16195,6 @@ fn run_js_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::A
     let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -16733,7 +16205,6 @@ fn run_js_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::
     let graph = GraphBuilder::new(&workspace, &[Language::JavaScript]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::JavaScript])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -18106,7 +17577,6 @@ fn run_ts_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::A
     let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -18117,7 +17587,6 @@ fn run_ts_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::
     let graph = GraphBuilder::new(&workspace, &[Language::TypeScript]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::TypeScript])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -19491,7 +18960,6 @@ fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::model
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::TechDebt)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings
@@ -19502,7 +18970,6 @@ fn run_csharp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::mode
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp]).build().unwrap();
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::CSharp])
-        .pipeline_selector(PipelineSelector::CodeStyle)
         .run(&workspace, Some(&graph))
         .unwrap();
     findings

@@ -472,7 +472,7 @@ fn run_complexity_ws(
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Complexity);
+        .categories(vec!["complexity".to_string()]);
 
     if let Some(filter) = pipeline_filter {
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
@@ -513,7 +513,7 @@ fn run_code_style_ws(
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
-        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle);
+        .categories(vec!["code_style".to_string()]);
 
     if let Some(filter) = pipeline_filter {
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
@@ -554,7 +554,7 @@ fn run_security_ws(
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Security);
+        .categories(vec!["security".to_string()]);
 
     if let Some(filter) = pipeline_filter {
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
@@ -595,7 +595,7 @@ fn run_scalability_ws(
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Scalability);
+        .categories(vec!["scalability".to_string()]);
 
     if let Some(filter) = pipeline_filter {
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
@@ -636,7 +636,7 @@ fn run_architecture_ws(
 
     let mut engine = audit::engine::AuditEngine::new()
         .languages(languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Architecture);
+        .categories(vec!["architecture".to_string()]);
 
     if let Some(filter) = pipeline_filter {
         let names: Vec<String> = filter.split(',').map(|s| s.trim().to_string()).collect();
@@ -696,7 +696,7 @@ fn run_code_quality_summary_ws(
         .collect();
     let cx_engine = audit::engine::AuditEngine::new()
         .languages(cx_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Complexity)
+        .categories(vec!["complexity".to_string()])
         .progress_bar(file_pb);
     let (_cx_findings, cx_summary) = cx_engine.run(workspace, Some(&index))?;
     overall.inc(1);
@@ -709,7 +709,7 @@ fn run_code_quality_summary_ws(
         .collect();
     let cs_engine = audit::engine::AuditEngine::new()
         .languages(cs_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
+        .categories(vec!["code_style".to_string()])
         .progress_bar(file_pb);
     let (_cs_findings, cs_summary) = cs_engine.run(workspace, Some(&index))?;
     overall.inc(1);
@@ -856,7 +856,7 @@ fn run_full_audit_ws(
         .collect();
     let (_, cx_summary) = audit::engine::AuditEngine::new()
         .languages(cx_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Complexity)
+        .categories(vec!["complexity".to_string()])
         .progress_bar(file_pb)
         .run(workspace, Some(&index))?;
     overall.inc(1);
@@ -871,7 +871,7 @@ fn run_full_audit_ws(
         .collect();
     let (_, cs_summary) = audit::engine::AuditEngine::new()
         .languages(cs_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::CodeStyle)
+        .categories(vec!["code_style".to_string()])
         .progress_bar(file_pb)
         .run(workspace, Some(&index))?;
     overall.inc(1);
@@ -886,7 +886,7 @@ fn run_full_audit_ws(
         .collect();
     let (_, sec_summary) = audit::engine::AuditEngine::new()
         .languages(sec_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Security)
+        .categories(vec!["security".to_string()])
         .progress_bar(file_pb)
         .run(workspace, Some(&index))?;
     overall.inc(1);
@@ -901,7 +901,7 @@ fn run_full_audit_ws(
         .collect();
     let (_, scl_summary) = audit::engine::AuditEngine::new()
         .languages(scl_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Scalability)
+        .categories(vec!["scalability".to_string()])
         .progress_bar(file_pb)
         .run(workspace, Some(&index))?;
     overall.inc(1);
@@ -912,7 +912,7 @@ fn run_full_audit_ws(
     let arch_languages: Vec<Language> = all_languages.clone();
     let (_, arch_summary) = audit::engine::AuditEngine::new()
         .languages(arch_languages)
-        .pipeline_selector(audit::engine::PipelineSelector::Architecture)
+        .categories(vec!["architecture".to_string()])
         .progress_bar(file_pb)
         .run(workspace, Some(&index))?;
     overall.inc(1);

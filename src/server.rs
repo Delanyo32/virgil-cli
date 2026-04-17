@@ -13,7 +13,7 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 use crate::audit;
-use crate::audit::engine::{AuditEngine, PipelineSelector};
+use crate::audit::engine::AuditEngine;
 use crate::audit::models::AuditFinding;
 use crate::graph::CodeGraph;
 use crate::graph::builder::GraphBuilder;
@@ -214,15 +214,13 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
         tokio::task::spawn_blocking(move || {
             let user_languages = &state.languages;
 
-            let categories: Vec<(&str, PipelineSelector, Vec<Language>)> = vec![
+            let categories: Vec<(&str, Vec<Language>)> = vec![
                 (
                     "tech_debt",
-                    PipelineSelector::TechDebt,
                     filter_languages(user_languages, audit::pipeline::supported_audit_languages()),
                 ),
                 (
                     "complexity",
-                    PipelineSelector::Complexity,
                     filter_languages(
                         user_languages,
                         audit::pipeline::supported_complexity_languages(),
@@ -230,7 +228,6 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 ),
                 (
                     "code_style",
-                    PipelineSelector::CodeStyle,
                     filter_languages(
                         user_languages,
                         audit::pipeline::supported_code_style_languages(),
@@ -238,7 +235,6 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 ),
                 (
                     "security",
-                    PipelineSelector::Security,
                     filter_languages(
                         user_languages,
                         audit::pipeline::supported_security_languages(),
@@ -246,7 +242,6 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 ),
                 (
                     "scalability",
-                    PipelineSelector::Scalability,
                     filter_languages(
                         user_languages,
                         audit::pipeline::supported_scalability_languages(),
@@ -254,33 +249,26 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 ),
                 (
                     "architecture",
-                    PipelineSelector::Architecture,
                     filter_languages(user_languages, Language::all().to_vec()),
                 ),
             ];
 
             let attempted = categories
                 .iter()
-                .filter(|(_, _, langs)| !langs.is_empty())
+                .filter(|(_, langs)| !langs.is_empty())
                 .count();
             let mut total_scanned = 0;
             let mut files_with_findings = std::collections::HashSet::new();
             let mut errors: Vec<serde_json::Value> = Vec::new();
 
-            for (name, selector, langs) in categories {
+            for (name, langs) in categories {
                 if langs.is_empty() {
                     continue;
                 }
-                let index_ref = match selector {
-                    PipelineSelector::Architecture | PipelineSelector::CodeStyle => {
-                        Some(&state.code_graph)
-                    }
-                    _ => None,
-                };
                 let engine = AuditEngine::new()
                     .languages(langs)
-                    .pipeline_selector(selector);
-                match engine.run(&state.workspace, index_ref) {
+                    .categories(vec![name.to_string()]);
+                match engine.run(&state.workspace, Some(&state.code_graph)) {
                     Ok((findings, summary)) => {
                         total_scanned = total_scanned.max(summary.files_scanned);
                         for f in &findings {
@@ -366,20 +354,20 @@ async fn handle_audit_category(
                 return run_code_quality_audit_blocking(&state, per_page);
             }
 
-            let (selector, langs) = match category.as_str() {
+            let (cat, langs) = match category.as_str() {
                 "architecture" => (
-                    PipelineSelector::Architecture,
+                    "architecture",
                     filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 "security" => (
-                    PipelineSelector::Security,
+                    "security",
                     filter_languages(
                         user_languages,
                         audit::pipeline::supported_security_languages(),
                     ),
                 ),
                 "scalability" => (
-                    PipelineSelector::Scalability,
+                    "scalability",
                     filter_languages(
                         user_languages,
                         audit::pipeline::supported_scalability_languages(),
@@ -392,15 +380,11 @@ async fn handle_audit_category(
                 return Ok(serde_json::json!([]));
             }
 
-            let index_ref = match selector {
-                PipelineSelector::Architecture => Some(&state.code_graph),
-                _ => None,
-            };
             let engine = AuditEngine::new()
                 .languages(langs)
-                .pipeline_selector(selector);
+                .categories(vec![cat.to_string()]);
 
-            match engine.run(&state.workspace, index_ref) {
+            match engine.run(&state.workspace, Some(&state.code_graph)) {
                 Ok((findings, _)) => {
                     let limited: Vec<&AuditFinding> = findings.iter().take(per_page).collect();
                     Ok(serde_json::to_value(&limited).unwrap_or_default())
@@ -432,15 +416,13 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
     let user_languages = &state.languages;
     let mut all_findings: Vec<AuditFinding> = Vec::new();
 
-    let sub_categories: Vec<(&str, PipelineSelector, Vec<Language>)> = vec![
+    let sub_categories: Vec<(&str, Vec<Language>)> = vec![
         (
             "tech_debt",
-            PipelineSelector::TechDebt,
             filter_languages(user_languages, audit::pipeline::supported_audit_languages()),
         ),
         (
             "complexity",
-            PipelineSelector::Complexity,
             filter_languages(
                 user_languages,
                 audit::pipeline::supported_complexity_languages(),
@@ -448,7 +430,6 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
         ),
         (
             "code_style",
-            PipelineSelector::CodeStyle,
             filter_languages(
                 user_languages,
                 audit::pipeline::supported_code_style_languages(),
@@ -456,18 +437,14 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
         ),
     ];
 
-    for (_, selector, langs) in sub_categories {
+    for (cat, langs) in sub_categories {
         if langs.is_empty() {
             continue;
         }
-        let index_ref = match selector {
-            PipelineSelector::CodeStyle => Some(&state.code_graph),
-            _ => None,
-        };
         let engine = AuditEngine::new()
             .languages(langs)
-            .pipeline_selector(selector);
-        if let Ok((findings, _)) = engine.run(&state.workspace, index_ref) {
+            .categories(vec![cat.to_string()]);
+        if let Ok((findings, _)) = engine.run(&state.workspace, Some(&state.code_graph)) {
             all_findings.extend(findings);
         }
     }
