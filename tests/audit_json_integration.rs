@@ -1698,12 +1698,11 @@ fn go_type_confusion_go_clean() {
 #[test]
 fn command_injection_python_finds_attribute_call() {
     let dir = tempfile::tempdir().unwrap();
-    // Attribute call on os object -- triggers command_injection_call pattern
+    // 'request' is auto-tainted; os.system() is the sink.
     std::fs::write(
         dir.path().join("test.py"),
-        "import os\nos.system(user_input)\n",
-    )
-    .unwrap();
+        "import os\ndef run(request):\n    cmd = request.args.get('cmd')\n    os.system(cmd)\n",
+    ).unwrap();
 
     let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
@@ -1744,6 +1743,29 @@ fn command_injection_python_clean() {
         !findings.iter().any(|f| f.pipeline == "command_injection" && f.file_path.ends_with(".py")),
         "expected no command_injection finding for Python; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn command_injection_python_no_fp_os_system_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    // os.system() called with a literal — no tainted variable reaches the sink.
+    // Wrapped in a function so CFG is built and taint engine runs.
+    std::fs::write(
+        dir.path().join("test.py"),
+        "import os\ndef safe():\n    os.system(\"ls -la\")\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Python], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Python]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Python])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "command_injection"),
+        "expected no command_injection finding for os.system with literal; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
 

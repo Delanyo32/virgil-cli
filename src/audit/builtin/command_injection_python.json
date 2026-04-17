@@ -1,18 +1,45 @@
 {
   "pipeline": "command_injection",
   "category": "security",
-  "description": "Detects command injection risks in Python: os.system, os.popen, subprocess.run/call/Popen with dynamic arguments. Simplified from Rust: flags all attribute calls on os or subprocess objects. Cannot verify shell=True or non-literal args without #match? predicate support.",
-  "languages": [
-    "python"
-  ],
+  "description": "Detect command injection in Python via taint analysis: user-controlled data reaching os.system, os.popen, or subprocess sinks",
+  "languages": ["python"],
   "graph": [
     {
-      "match_pattern": "(call function: (attribute object: (identifier) @obj attribute: (identifier) @method) @call)"
+      "taint_sources": [
+        {"pattern": "request.form", "kind": "user_input"},
+        {"pattern": "request.args", "kind": "user_input"},
+        {"pattern": "request.data", "kind": "user_input"},
+        {"pattern": "request.json", "kind": "user_input"},
+        {"pattern": "request.values", "kind": "user_input"},
+        {"pattern": "request.POST", "kind": "user_input"},
+        {"pattern": "request.GET", "kind": "user_input"},
+        {"pattern": "request.body", "kind": "user_input"},
+        {"pattern": "input(", "kind": "user_input"},
+        {"pattern": "sys.argv", "kind": "user_input"},
+        {"pattern": "os.environ", "kind": "env_var"},
+        {"pattern": "os.environ.get", "kind": "env_var"}
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {"pattern": "shlex.quote"}
+      ]
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "os.system", "vulnerability": "command_injection"},
+        {"pattern": "os.popen", "vulnerability": "command_injection"},
+        {"pattern": "subprocess.run", "vulnerability": "command_injection"},
+        {"pattern": "subprocess.call", "vulnerability": "command_injection"},
+        {"pattern": "subprocess.Popen", "vulnerability": "command_injection"},
+        {"pattern": "subprocess.check_output", "vulnerability": "command_injection"},
+        {"pattern": "subprocess.check_call", "vulnerability": "command_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "command_injection_call",
-        "message": "Command execution call detected -- verify dynamic user input is not passed to os.system, os.popen, subprocess.run, subprocess.call, or subprocess.Popen",
+        "message": "Command injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }
