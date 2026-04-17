@@ -101,7 +101,7 @@ fn api_surface_area_typescript_finds_excessive() {
 #[test]
 fn api_surface_area_typescript_clean_file() {
     let dir = tempfile::tempdir().unwrap();
-    // Only 3 exported functions — under the 10-symbol minimum
+    // Only 3 exported functions — well under the 20-symbol minimum
     let content = "export function a() {}\nexport function b() {}\nexport function c() {}\n";
     std::fs::write(dir.path().join("utils.ts"), content).unwrap();
 

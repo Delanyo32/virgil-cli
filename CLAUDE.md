@@ -98,7 +98,7 @@ Critical gotchas and design decisions that are not obvious from reading the code
 - `PipelineContext` and `GraphPipelineContext` are deleted — all analysis goes through `src/pipeline/executor.rs` via `run_pipeline`. The executor handles `select`, `compute_metric`, `taint_sources`/`taint_sanitizers`/`taint_sinks`, `flag`, and other stages directly.
 - `WhereClause.metrics` is a `HashMap<String, NumericPredicate>` — metric predicates use `{"metrics": {"name": {...}}}` nesting, not flat named fields.
 - `taint_sources` / `taint_sanitizers` / `taint_sinks` accumulate into a `TaintContext` per pipeline run. The old `taint` combined form desugars automatically.
-- Architecture audit thresholds (not in JSON files): oversized_module ≥ 30 symbols OR ≥ 1000 lines; monolithic_export_surface ≥ 20 exports; barrel_file_reexport ≥ 5 re-exports; hub_module_bidirectional ≥ 5 intra-project imports; deep_import_chain ≥ 4 path depth; excessive_public_api ≥ 10 symbols AND >80% exported.
+- Architecture audit thresholds (not in JSON files): oversized_module ≥ 30 symbols OR ≥ 1000 lines; monolithic_export_surface ≥ 20 exports; barrel_file_reexport ≥ 5 re-exports; hub_module_bidirectional ≥ 5 intra-project imports; deep_import_chain ≥ 4 path depth; excessive_public_api ≥ 20 symbols AND >80% exported.
 
 **Call graph**
 Name-based resolution via `symbols_by_name` lookup — heuristic only, no type info. BFS with configurable depth (max 5). Replaces old `call_graph.rs`.
