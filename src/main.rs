@@ -296,7 +296,7 @@ fn run_json_audit_file_ws(
 ) -> Result<()> {
     let content = std::fs::read_to_string(audit_file_path)
         .map_err(|e| anyhow::anyhow!("failed to read audit file {:?}: {e}", audit_file_path))?;
-    let json_audit: virgil_cli::audit::json_audit::JsonAuditFile =
+    let json_audit: virgil_cli::pipeline::loader::JsonAuditFile =
         serde_json::from_str(&content)
             .map_err(|e| anyhow::anyhow!("invalid audit JSON in {:?}: {e}", audit_file_path))?;
 
@@ -321,11 +321,11 @@ fn run_json_audit_file_ws(
     );
 
     let output =
-        virgil_cli::graph::executor::run_pipeline(&json_audit.graph, &graph, None, None, None, &json_audit.pipeline)?;
+        virgil_cli::pipeline::executor::run_pipeline(&json_audit.graph, &graph, None, None, None, &json_audit.pipeline)?;
 
     let findings = match output {
-        virgil_cli::graph::executor::PipelineOutput::Findings(f) => f,
-        virgil_cli::graph::executor::PipelineOutput::Results(results) => {
+        virgil_cli::pipeline::executor::PipelineOutput::Findings(f) => f,
+        virgil_cli::pipeline::executor::PipelineOutput::Results(results) => {
             // Pipeline did not end with a Flag stage — report as info findings
             results
                 .into_iter()

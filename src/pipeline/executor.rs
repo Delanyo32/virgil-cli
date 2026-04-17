@@ -12,10 +12,10 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use crate::audit::models::AuditFinding;
-use crate::audit::pipelines::helpers::{
+use crate::pipeline::helpers::{
     is_barrel_file, is_excluded_for_arch_analysis, is_test_file,
 };
-use crate::graph::pipeline::{
+use crate::pipeline::dsl::{
     EdgeType, GraphStage, MetricValue, PipelineNode, interpolate_message,
 };
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
@@ -198,15 +198,15 @@ fn execute_stage(
 // ---------------------------------------------------------------------------
 
 fn execute_select(
-    node_type: &crate::graph::pipeline::NodeType,
-    filter: Option<&crate::graph::pipeline::WhereClause>,
-    exclude: Option<&crate::graph::pipeline::WhereClause>,
+    node_type: &crate::pipeline::dsl::NodeType,
+    filter: Option<&crate::pipeline::dsl::WhereClause>,
+    exclude: Option<&crate::pipeline::dsl::WhereClause>,
     graph: &CodeGraph,
     is_test_fn: &impl Fn(&str) -> bool,
     is_generated_fn: &impl Fn(&str) -> bool,
     is_barrel_fn: &impl Fn(&str) -> bool,
 ) -> anyhow::Result<Vec<PipelineNode>> {
-    use crate::graph::pipeline::NodeType;
+    use crate::pipeline::dsl::NodeType;
 
     let mut result = Vec::new();
 
@@ -399,7 +399,7 @@ fn execute_group_by(group_by_field: &str, mut nodes: Vec<PipelineNode>) -> Vec<P
 /// whose count satisfies the threshold predicate. Emits one representative
 /// `PipelineNode` per surviving group with `metrics["count"]` set.
 fn execute_count(
-    threshold: &crate::graph::pipeline::NumericPredicate,
+    threshold: &crate::pipeline::dsl::NumericPredicate,
     nodes: Vec<PipelineNode>,
 ) -> Vec<PipelineNode> {
     // Collect groups preserving insertion order for determinism
@@ -548,7 +548,7 @@ fn execute_find_cycles(
 // ---------------------------------------------------------------------------
 
 fn execute_max_depth(
-    config: &crate::graph::pipeline::MaxDepthConfig,
+    config: &crate::pipeline::dsl::MaxDepthConfig,
     nodes: Vec<PipelineNode>,
     graph: &CodeGraph,
 ) -> anyhow::Result<Vec<PipelineNode>> {
@@ -672,7 +672,7 @@ fn execute_max_depth(
 // ---------------------------------------------------------------------------
 
 fn execute_ratio(
-    config: &crate::graph::pipeline::RatioConfig,
+    config: &crate::pipeline::dsl::RatioConfig,
     nodes: Vec<PipelineNode>,
     is_test_fn: &impl Fn(&str) -> bool,
     is_generated_fn: &impl Fn(&str) -> bool,
@@ -957,7 +957,7 @@ fn execute_compute_metric(
 // ---------------------------------------------------------------------------
 
 fn execute_taint(
-    stage: &crate::graph::pipeline::TaintStage,
+    stage: &crate::pipeline::dsl::TaintStage,
     graph: &CodeGraph,
 ) -> anyhow::Result<Vec<PipelineNode>> {
     use crate::graph::taint::{TaintConfig, TaintEngine};
@@ -1006,7 +1006,7 @@ fn execute_taint(
 // ---------------------------------------------------------------------------
 
 fn execute_find_duplicates(
-    stage: &crate::graph::pipeline::FindDuplicatesStage,
+    stage: &crate::pipeline::dsl::FindDuplicatesStage,
     nodes: Vec<PipelineNode>,
 ) -> Vec<PipelineNode> {
     let mut groups: HashMap<String, Vec<PipelineNode>> = HashMap::new();
@@ -1243,7 +1243,7 @@ fn ordered_cycle_path_for_edge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::pipeline::{
+    use crate::pipeline::dsl::{
         CountConfig, EdgeType, FlagConfig, FindCyclesConfig, GraphStage, MaxDepthConfig,
         NodeType, NumericPredicate, RatioConfig, NumeratorConfig, DenominatorConfig,
         WhereClause,
@@ -1576,7 +1576,7 @@ mod tests {
             message: "{{file}} has {{count}} symbols".to_string(),
             severity: None,
             severity_map: Some(vec![
-                crate::graph::pipeline::SeverityEntry {
+                crate::pipeline::dsl::SeverityEntry {
                     when: Some(WhereClause {
                         count: Some(NumericPredicate {
                             gte: Some(20.0),
@@ -1586,7 +1586,7 @@ mod tests {
                     }),
                     severity: "error".to_string(),
                 },
-                crate::graph::pipeline::SeverityEntry {
+                crate::pipeline::dsl::SeverityEntry {
                     when: None,
                     severity: "warning".to_string(),
                 },
@@ -1715,7 +1715,7 @@ fn bar() { println!("ok"); }
                     .to_string(),
             },
             GraphStage::Flag {
-                flag: crate::graph::pipeline::FlagConfig {
+                flag: crate::pipeline::dsl::FlagConfig {
                     pattern: "panic_detected".to_string(),
                     message: "panic at {{file}}:{{line}}".to_string(),
                     severity: Some("warning".to_string()),
@@ -1758,7 +1758,7 @@ fn bar() { println!("ok"); }
                     .to_string(),
             },
             GraphStage::Flag {
-                flag: crate::graph::pipeline::FlagConfig {
+                flag: crate::pipeline::dsl::FlagConfig {
                     pattern: "panic_detected".to_string(),
                     message: "panic at {{file}}:{{line}}".to_string(),
                     severity: Some("warning".to_string()),
@@ -1796,7 +1796,7 @@ fn bar() { println!("ok"); }
                 match_pattern: "(function_declaration name: (identifier) @name)".to_string(),
             },
             GraphStage::Flag {
-                flag: crate::graph::pipeline::FlagConfig {
+                flag: crate::pipeline::dsl::FlagConfig {
                     pattern: "ts_function".to_string(),
                     message: "function at {{file}}:{{line}}".to_string(),
                     severity: Some("info".to_string()),
@@ -1867,7 +1867,7 @@ fn bar() { println!("ok"); }
 
         let stages = vec![
             GraphStage::Select {
-                select: crate::graph::pipeline::NodeType::Symbol,
+                select: crate::pipeline::dsl::NodeType::Symbol,
                 filter: None,
                 exclude: None,
             },
@@ -1875,7 +1875,7 @@ fn bar() { println!("ok"); }
                 compute_metric: "cyclomatic_complexity".to_string(),
             },
             GraphStage::Flag {
-                flag: crate::graph::pipeline::FlagConfig {
+                flag: crate::pipeline::dsl::FlagConfig {
                     pattern: "high_cc".to_string(),
                     message: "CC={{cyclomatic_complexity}} in {{name}}".to_string(),
                     severity: Some("warning".to_string()),
@@ -1934,7 +1934,7 @@ fn bar() { println!("ok"); }
 
         let stages = vec![
             GraphStage::Select {
-                select: crate::graph::pipeline::NodeType::Symbol,
+                select: crate::pipeline::dsl::NodeType::Symbol,
                 filter: None,
                 exclude: None,
             },

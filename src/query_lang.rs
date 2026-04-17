@@ -60,7 +60,7 @@ pub struct TsQuery {
 
     /// Graph pipeline stages. If present, executed after symbol filtering.
     #[serde(default)]
-    pub graph: Option<Vec<crate::graph::pipeline::GraphStage>>,
+    pub graph: Option<Vec<crate::pipeline::dsl::GraphStage>>,
 }
 
 #[derive(Debug, Deserialize)]

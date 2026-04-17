@@ -4,7 +4,7 @@ use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
-use crate::graph::pipeline::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
+use crate::pipeline::dsl::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
 use super::cfg::{CfgStatementKind, FunctionCfg};
 use super::{CodeGraph, NodeWeight};
 

@@ -306,8 +306,8 @@ pub fn execute(
         };
 
         let pipeline_name = "graph_query";
-        match crate::graph::executor::run_pipeline(stages, graph, None, None, seed_nodes, pipeline_name)? {
-            crate::graph::executor::PipelineOutput::Findings(findings) => {
+        match crate::pipeline::executor::run_pipeline(stages, graph, None, None, seed_nodes, pipeline_name)? {
+            crate::pipeline::executor::PipelineOutput::Findings(findings) => {
                 return Ok(QueryOutput {
                     results: Vec::new(),
                     files_parsed,
@@ -316,7 +316,7 @@ pub fn execute(
                     findings: Some(findings),
                 });
             }
-            crate::graph::executor::PipelineOutput::Results(graph_results) => {
+            crate::pipeline::executor::PipelineOutput::Results(graph_results) => {
                 results = graph_results;
             }
         }
@@ -671,7 +671,7 @@ mod tests {
 
     #[test]
     fn graph_pipeline_flag_produces_findings() {
-        use crate::graph::pipeline::{FlagConfig, GraphStage, NodeType};
+        use crate::pipeline::dsl::{FlagConfig, GraphStage, NodeType};
         use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
         use crate::language::Language;
 
@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(query.graph.as_ref().unwrap().len(), 2);
 
         // Run the pipeline stages directly via executor to verify Findings output
-        let out = crate::graph::executor::run_pipeline(
+        let out = crate::pipeline::executor::run_pipeline(
             query.graph.as_ref().unwrap(),
             &g,
             None,
@@ -730,7 +730,7 @@ mod tests {
         ).unwrap();
 
         match out {
-            crate::graph::executor::PipelineOutput::Findings(findings) => {
+            crate::pipeline::executor::PipelineOutput::Findings(findings) => {
                 assert_eq!(findings.len(), 1);
                 assert_eq!(findings[0].severity, "info");
                 assert_eq!(findings[0].pattern, "test_pattern");
@@ -742,7 +742,7 @@ mod tests {
 
     #[test]
     fn graph_pipeline_select_produces_results() {
-        use crate::graph::pipeline::{GraphStage, NodeType};
+        use crate::pipeline::dsl::{GraphStage, NodeType};
         use crate::graph::{CodeGraph, NodeWeight};
         use crate::language::Language;
 
@@ -759,10 +759,10 @@ mod tests {
             exclude: None,
         }];
 
-        let out = crate::graph::executor::run_pipeline(&stages, &g, None, None, None, "graph_query").unwrap();
+        let out = crate::pipeline::executor::run_pipeline(&stages, &g, None, None, None, "graph_query").unwrap();
 
         match out {
-            crate::graph::executor::PipelineOutput::Results(results) => {
+            crate::pipeline::executor::PipelineOutput::Results(results) => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].file, "src/a.rs");
             }

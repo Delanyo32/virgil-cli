@@ -16,6 +16,4 @@ pub mod server;
 pub mod signature;
 pub mod workspace;
 
-pub use audit::json_audit;
-pub use graph::executor;
-pub use graph::pipeline;
+pub mod pipeline;

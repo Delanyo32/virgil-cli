@@ -1,3 +1,9 @@
+//! JSON audit pipeline DSL.
+//!
+//! A pipeline is a `Vec<GraphStage>`. Stages compose left-to-right:
+//! `select` → `compute_metric` / `taint_sources` / `taint_sanitizers` / `taint_sinks` → `flag`.
+//! Each stage reads from and writes to a shared `Vec<PipelineNode>` carried through the run.
+
 use std::collections::HashMap;
 
 use petgraph::graph::NodeIndex;

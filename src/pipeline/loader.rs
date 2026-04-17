@@ -1,4 +1,10 @@
-use crate::graph::pipeline::GraphStage;
+//! JSON audit file loading and discovery.
+//!
+//! Discovery order: project-local (`.virgil/audits/`) → user-global (`~/.virgil-cli/audits/`) → built-ins.
+//! Files with the same pipeline name AND the same language filter deduplicate (project-local wins).
+//! Files with the same pipeline name but different language filters are all included (per-language variants).
+
+use crate::pipeline::dsl::GraphStage;
 use include_dir::{include_dir, Dir};
 use serde::Deserialize;
 

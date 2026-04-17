@@ -64,7 +64,7 @@ impl AuditEngine {
         graph: Option<&CodeGraph>,
     ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Discover JSON audit files (project-local → user-global → built-ins)
-        let json_audits = crate::audit::json_audit::discover_json_audits(
+        let json_audits = crate::pipeline::loader::discover_json_audits(
             self.project_dir.as_deref(),
         );
 
@@ -112,7 +112,7 @@ impl AuditEngine {
                     }
                 }
 
-                match crate::graph::executor::run_pipeline(
+                match crate::pipeline::executor::run_pipeline(
                     &json_audit.graph,
                     g,
                     Some(workspace),
@@ -120,10 +120,10 @@ impl AuditEngine {
                     None,
                     &json_audit.pipeline,
                 ) {
-                    Ok(crate::graph::executor::PipelineOutput::Findings(new_findings)) => {
+                    Ok(crate::pipeline::executor::PipelineOutput::Findings(new_findings)) => {
                         findings.extend(new_findings);
                     }
-                    Ok(crate::graph::executor::PipelineOutput::Results(_)) => {
+                    Ok(crate::pipeline::executor::PipelineOutput::Results(_)) => {
                         // Non-flag pipelines in audit context don't produce findings
                     }
                     Err(e) => {

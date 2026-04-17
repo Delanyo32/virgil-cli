@@ -217,34 +217,34 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
             let categories: Vec<(&str, Vec<Language>)> = vec![
                 (
                     "tech_debt",
-                    filter_languages(user_languages, audit::pipeline::supported_audit_languages()),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 (
                     "complexity",
                     filter_languages(
                         user_languages,
-                        audit::pipeline::supported_complexity_languages(),
+                        Language::all().to_vec(),
                     ),
                 ),
                 (
                     "code_style",
                     filter_languages(
                         user_languages,
-                        audit::pipeline::supported_code_style_languages(),
+                        Language::all().to_vec(),
                     ),
                 ),
                 (
                     "security",
                     filter_languages(
                         user_languages,
-                        audit::pipeline::supported_security_languages(),
+                        Language::all().to_vec(),
                     ),
                 ),
                 (
                     "scalability",
                     filter_languages(
                         user_languages,
-                        audit::pipeline::supported_scalability_languages(),
+                        Language::all().to_vec(),
                     ),
                 ),
                 (
@@ -363,14 +363,14 @@ async fn handle_audit_category(
                     "security",
                     filter_languages(
                         user_languages,
-                        audit::pipeline::supported_security_languages(),
+                        Language::all().to_vec(),
                     ),
                 ),
                 "scalability" => (
                     "scalability",
                     filter_languages(
                         user_languages,
-                        audit::pipeline::supported_scalability_languages(),
+                        Language::all().to_vec(),
                     ),
                 ),
                 _ => unreachable!(),
@@ -419,20 +419,20 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
     let sub_categories: Vec<(&str, Vec<Language>)> = vec![
         (
             "tech_debt",
-            filter_languages(user_languages, audit::pipeline::supported_audit_languages()),
+            filter_languages(user_languages, Language::all().to_vec()),
         ),
         (
             "complexity",
             filter_languages(
                 user_languages,
-                audit::pipeline::supported_complexity_languages(),
+                Language::all().to_vec(),
             ),
         ),
         (
             "code_style",
             filter_languages(
                 user_languages,
-                audit::pipeline::supported_code_style_languages(),
+                Language::all().to_vec(),
             ),
         ),
     ];
