@@ -176,7 +176,6 @@ This also fixes the line number problem — the reported line is now always the 
 
 **Fix:** Raise the `count` threshold from `"gte": 10` to `"gte": 20` in all 9 per-language files:
 - `api_surface_area_rust.json`
-- `api_surface_area_typescript.json` (if exists, else skip)
 - `api_surface_area_javascript.json`
 - `api_surface_area_python.json`
 - `api_surface_area_go.json`
