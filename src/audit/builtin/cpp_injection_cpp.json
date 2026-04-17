@@ -1,18 +1,43 @@
 {
   "pipeline": "cpp_injection",
   "category": "security",
-  "description": "Detects injection risks in C++: system()/popen() calls with dynamic arguments, printf family with variable format strings. Simplified from Rust per D-07: flags all call_expression nodes (cannot filter by function name or verify literal argument without #match? predicate support).",
-  "languages": [
-    "cpp"
-  ],
+  "description": "Detect command injection and format string injection in C++ via taint analysis",
+  "languages": ["cpp"],
   "graph": [
     {
-      "match_pattern": "(call_expression function: (_) @fn_name arguments: (argument_list) @args) @call"
+      "taint_sources": [
+        {"pattern": "argv", "kind": "user_input"},
+        {"pattern": "getenv", "kind": "env_var"},
+        {"pattern": "cin", "kind": "user_input"},
+        {"pattern": "std::cin", "kind": "user_input"},
+        {"pattern": "fgets", "kind": "user_input"},
+        {"pattern": "scanf", "kind": "user_input"},
+        {"pattern": "getline", "kind": "user_input"},
+        {"pattern": "std::getline", "kind": "user_input"}
+      ]
+    },
+    {
+      "taint_sanitizers": []
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "system", "vulnerability": "command_injection"},
+        {"pattern": "popen", "vulnerability": "command_injection"},
+        {"pattern": "execv", "vulnerability": "command_injection"},
+        {"pattern": "execvp", "vulnerability": "command_injection"},
+        {"pattern": "execve", "vulnerability": "command_injection"},
+        {"pattern": "printf", "vulnerability": "format_string_injection"},
+        {"pattern": "fprintf", "vulnerability": "format_string_injection"},
+        {"pattern": "sprintf", "vulnerability": "format_string_injection"},
+        {"pattern": "snprintf", "vulnerability": "format_string_injection"},
+        {"pattern": "vprintf", "vulnerability": "format_string_injection"},
+        {"pattern": "vsprintf", "vulnerability": "format_string_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "command_injection_call",
-        "message": "Function call detected -- verify system(), popen(), printf() and related functions do not receive dynamic or user-controlled arguments to prevent command injection and format string injection",
+        "message": "Injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

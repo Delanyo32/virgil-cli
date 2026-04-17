@@ -3177,21 +3177,18 @@ fn c_uninitialized_memory_c_clean() {
 #[test]
 fn cpp_injection_cpp_finds_call() {
     let dir = tempfile::tempdir().unwrap();
+    // 'args' is auto-tainted (PARAM_PATTERNS); system() is the sink.
     std::fs::write(
         dir.path().join("test.cpp"),
-        "#include <cstdlib>\nvoid f(const char *cmd) { system(cmd); }",
-    )
-    .unwrap();
-
+        "#include <cstdlib>\nvoid f(char *args) {\n    system(args);\n}\n",
+    ).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
-
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::Cpp])
         .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
-
     assert!(
         findings.iter().any(|f| f.pipeline == "cpp_injection" && f.pattern == "command_injection_call"),
         "expected cpp_injection/command_injection_call finding for C++; got: {:?}",
@@ -3221,6 +3218,28 @@ fn cpp_injection_cpp_clean() {
     assert!(
         !findings.iter().any(|f| f.pipeline == "cpp_injection" && f.file_path.ends_with(".cpp")),
         "expected no cpp_injection finding for clean C++; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cpp_injection_cpp_no_fp_strlen() {
+    let dir = tempfile::tempdir().unwrap();
+    // strlen() is not a shell execution or format-string sink. Must NOT fire after fix.
+    std::fs::write(
+        dir.path().join("test.cpp"),
+        "#include <string.h>\nvoid f(char *s) {\n    int n = strlen(s);\n}\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "cpp_injection" && f.file_path.ends_with(".cpp")),
+        "expected no cpp_injection finding for strlen; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }

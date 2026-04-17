@@ -13,6 +13,25 @@ pub struct CppCfgBuilder;
 impl CfgBuilder for CppCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut cfg = FunctionCfg::new();
+
+        // Extract parameter names from the function signature.
+        // C++ function_definition has a `declarator` field (function_declarator) whose
+        // `parameters` field holds a `parameter_list`. Each child is a `parameter_declaration`
+        // with a `declarator` field that may be a pointer_declarator wrapping an identifier.
+        if let Some(params_node) = find_cpp_parameter_list(function_node) {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                if child.kind() == "parameter_declaration" {
+                    if let Some(declarator) = child.child_by_field_name("declarator") {
+                        let name = extract_cpp_param_ident(&declarator, source);
+                        if !name.is_empty() {
+                            cfg.param_names.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
         let body = find_compound_statement(function_node);
         let body = match body {
             Some(b) => b,
@@ -784,6 +803,58 @@ fn detect_cpp_resource_acquire(node: &Node, source: &[u8]) -> Option<String> {
 fn is_cpp_resource_release(name: &str) -> bool {
     let base = name.rsplit("::").next().unwrap_or(name);
     CPP_FREE_FUNCTIONS.contains(&base)
+}
+
+// ── Parameter extraction ───────────────────────────────────────────────────
+
+/// Find the `parameter_list` node for a C++ `function_definition`.
+/// Structure: function_definition.declarator (function_declarator).parameters (parameter_list).
+fn find_cpp_parameter_list<'a>(function_node: &Node<'a>) -> Option<Node<'a>> {
+    let declarator = function_node.child_by_field_name("declarator")?;
+    find_function_declarator_params(&declarator)
+}
+
+/// Recursively descend through declarator wrappers (pointer_declarator, reference_declarator, etc.)
+/// to find a `function_declarator` and return its `parameters` field.
+fn find_function_declarator_params<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    if node.kind() == "function_declarator" {
+        return node.child_by_field_name("parameters");
+    }
+    if let Some(inner) = node.child_by_field_name("declarator") {
+        return find_function_declarator_params(&inner);
+    }
+    None
+}
+
+/// Recursively extract the innermost identifier from a C++ declarator node.
+/// Handles pointer_declarator (`*args`), reference_declarator (`&args`), and plain identifier.
+fn extract_cpp_param_ident(node: &Node, source: &[u8]) -> String {
+    match node.kind() {
+        "identifier" => node.utf8_text(source).unwrap_or("").to_string(),
+        "pointer_declarator" | "reference_declarator" | "abstract_pointer_declarator" => {
+            if let Some(inner) = node.child_by_field_name("declarator") {
+                return extract_cpp_param_ident(&inner, source);
+            }
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                let name = extract_cpp_param_ident(&child, source);
+                if !name.is_empty() {
+                    return name;
+                }
+            }
+            String::new()
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                let name = extract_cpp_param_ident(&child, source);
+                if !name.is_empty() {
+                    return name;
+                }
+            }
+            String::new()
+        }
+    }
 }
 
 // ── Utility ────────────────────────────────────────────────────────────────
