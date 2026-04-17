@@ -1,21 +1,40 @@
 {
   "pipeline": "code_injection",
   "category": "security",
-  "description": "Detects code injection in JavaScript/TypeScript: eval(), new Function(), setTimeout/setInterval with string argument, vm.runInContext. Simplified from Rust: flags all call_expression nodes with an identifier function (cannot filter to only eval/setTimeout/setInterval without #match? predicate support, and cannot check if first arg is non-literal). All direct calls and new_expression with Function constructor flagged.",
-  "languages": [
-    "javascript",
-    "jsx",
-    "typescript",
-    "tsx"
-  ],
+  "description": "Detect code injection in JavaScript/TypeScript via taint analysis: user-controlled data reaching eval(), Function(), or vm.run* sinks",
+  "languages": ["javascript", "jsx", "typescript", "tsx"],
   "graph": [
     {
-      "match_pattern": "(call_expression function: (identifier) @fn)"
+      "taint_sources": [
+        {"pattern": "req.body", "kind": "user_input"},
+        {"pattern": "req.query", "kind": "user_input"},
+        {"pattern": "req.params", "kind": "user_input"},
+        {"pattern": "req.headers", "kind": "user_input"},
+        {"pattern": "request.body", "kind": "user_input"},
+        {"pattern": "request.query", "kind": "user_input"},
+        {"pattern": "process.env", "kind": "env_var"},
+        {"pattern": "process.argv", "kind": "user_input"}
+      ]
+    },
+    {
+      "taint_sanitizers": [
+        {"pattern": "escape"},
+        {"pattern": "encodeURIComponent"}
+      ]
+    },
+    {
+      "taint_sinks": [
+        {"pattern": "eval", "vulnerability": "code_injection"},
+        {"pattern": "Function", "vulnerability": "code_injection"},
+        {"pattern": "vm.runInContext", "vulnerability": "code_injection"},
+        {"pattern": "vm.runInNewContext", "vulnerability": "code_injection"},
+        {"pattern": "vm.runInThisContext", "vulnerability": "code_injection"}
+      ]
     },
     {
       "flag": {
         "pattern": "code_injection_call",
-        "message": "Direct function call detected -- verify this is not eval(), setTimeout(), or setInterval() with a dynamic string argument",
+        "message": "Code injection: tainted value from '{{tainted_var}}' reaches {{sink}} in {{file}}:{{line}}",
         "severity": "error"
       }
     }

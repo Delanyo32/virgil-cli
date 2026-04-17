@@ -17,8 +17,18 @@ impl CfgBuilder for TypeScriptCfgBuilder {
         let body = find_function_body(function_node).unwrap_or(*function_node);
 
         let mut ctx = BuildContext::new();
-        let entry = ctx.cfg.entry;
 
+        // Extract parameter names from the function signature.
+        // JS/TS grammars use "formal_parameters" for function/method declarations
+        // and "formal_parameters" for arrow functions too.
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                extract_param_name(&child, source, &mut ctx.cfg.param_names);
+            }
+        }
+
+        let entry = ctx.cfg.entry;
         let exits = ctx.process_block(&body, entry, source);
 
         // Mark all dangling exits as function exits
@@ -942,6 +952,63 @@ fn is_resource_release(name: &str) -> bool {
             | "fclose"
             | "free"
     )
+}
+
+/// Extract a parameter name from a formal_parameters child node and push it
+/// into `out`. Handles plain identifiers, typed/optional parameters (TS), and
+/// rest parameters (`...args`).
+fn extract_param_name(node: &Node, source: &[u8], out: &mut Vec<String>) {
+    match node.kind() {
+        "identifier" => {
+            if let Ok(name) = node.utf8_text(source) {
+                let name = name.trim();
+                if !name.is_empty() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        // TypeScript: required_parameter, optional_parameter, rest_parameter
+        // The pattern identifier is always the first named child.
+        "required_parameter" | "optional_parameter" | "rest_parameter" => {
+            if let Some(inner) = node.named_child(0) {
+                if inner.kind() == "identifier" {
+                    if let Ok(name) = inner.utf8_text(source) {
+                        let name = name.trim();
+                        if !name.is_empty() {
+                            out.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        // JavaScript rest element: `...args`
+        "spread_element" => {
+            if let Some(inner) = node.named_child(0) {
+                if inner.kind() == "identifier" {
+                    if let Ok(name) = inner.utf8_text(source) {
+                        let name = name.trim();
+                        if !name.is_empty() {
+                            out.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        // Assignment pattern for default parameters: `x = default`
+        "assignment_pattern" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                if left.kind() == "identifier" {
+                    if let Ok(name) = left.utf8_text(source) {
+                        let name = name.trim();
+                        if !name.is_empty() {
+                            out.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Check if a string is a JS/TS keyword (to filter out from variable extraction).
