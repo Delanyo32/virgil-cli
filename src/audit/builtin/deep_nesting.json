@@ -1,18 +1,17 @@
 {
-  "pipeline": "deep_nesting_rust",
+  "pipeline": "deep_nesting",
   "category": "complexity",
-  "description": "Detects rust functions with excessive control flow nesting depth. Threshold: warning >= 4, error >= 6.",
-  "languages": ["rust"],
+  "description": "Detects functions with excessive control flow nesting depth. Threshold: warning >= 4, error >= 6.",
   "graph": [
     {
       "select": "symbol",
-      "where": { "kind": ["function", "method"] },
+      "where": { "kind": ["function", "method", "arrow_function"] },
       "exclude": { "is_test_file": true }
     },
     { "compute_metric": "nesting_depth" },
     {
       "flag": {
-        "pattern": "excessive_nesting_depth",
+        "pattern": "deep_nesting",
         "message": "Function `{{name}}` has nesting depth of {{nesting_depth}} (threshold: 4)",
         "severity_map": [
           { "when": { "metrics": { "nesting_depth": { "gte": 6 } } }, "severity": "error" },
