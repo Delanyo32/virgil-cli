@@ -2681,21 +2681,18 @@ fn format_string_c_clean() {
 #[test]
 fn c_command_injection_c_finds_call() {
     let dir = tempfile::tempdir().unwrap();
+    // 'args' is auto-tainted (PARAM_PATTERNS); system() is the sink.
     std::fs::write(
         dir.path().join("test.c"),
-        "#include <stdlib.h>\nvoid f(char *cmd) { system(cmd); }",
-    )
-    .unwrap();
-
+        "#include <stdlib.h>\nvoid f(char *args) {\n    system(args);\n}\n",
+    ).unwrap();
     let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
-
     let (findings, _) = AuditEngine::new()
         .languages(vec![Language::C])
         .categories(vec!["security".to_string()])
         .run(&workspace, Some(&graph))
         .unwrap();
-
     assert!(
         findings.iter().any(|f| f.pipeline == "c_command_injection" && f.pattern == "command_injection_call"),
         "expected c_command_injection/command_injection_call finding for C; got: {:?}",
@@ -2725,6 +2722,28 @@ fn c_command_injection_c_clean() {
     assert!(
         !findings.iter().any(|f| f.pipeline == "c_command_injection" && f.file_path.ends_with(".c")),
         "expected no c_command_injection finding for clean C; got: {:?}",
+        findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn c_command_injection_c_no_fp_strlen() {
+    let dir = tempfile::tempdir().unwrap();
+    // strlen() is not a shell execution sink. Must NOT fire after fix.
+    std::fs::write(
+        dir.path().join("test.c"),
+        "#include <string.h>\nvoid f(char *s) {\n    int n = strlen(s);\n}\n",
+    ).unwrap();
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .categories(vec!["security".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    assert!(
+        !findings.iter().any(|f| f.pipeline == "c_command_injection" && f.file_path.ends_with(".c")),
+        "expected no c_command_injection finding for strlen; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern, &f.file_path)).collect::<Vec<_>>()
     );
 }

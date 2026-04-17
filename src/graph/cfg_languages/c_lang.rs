@@ -13,6 +13,26 @@ pub struct CCfgBuilder;
 impl CfgBuilder for CCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut cfg = FunctionCfg::new();
+
+        // Extract parameter names from the function signature.
+        // In C's grammar, function_definition has a `declarator` field which is a
+        // `function_declarator`. That node has a `parameters` field with a `parameter_list`.
+        // Each child of the list is a `parameter_declaration` whose `declarator` field
+        // may be a `pointer_declarator` (wrapping further declarators) or a plain `identifier`.
+        if let Some(params_node) = find_c_parameter_list(function_node) {
+            let mut cursor = params_node.walk();
+            for child in params_node.named_children(&mut cursor) {
+                if child.kind() == "parameter_declaration" {
+                    if let Some(declarator) = child.child_by_field_name("declarator") {
+                        let name = extract_c_param_ident(&declarator, source);
+                        if !name.is_empty() {
+                            cfg.param_names.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
         let body = find_compound_statement(function_node);
         let body = match body {
             Some(b) => b,
@@ -44,6 +64,27 @@ fn find_compound_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .find(|&child| child.kind() == "compound_statement")
+}
+
+/// Find the `parameter_list` node for a C `function_definition`.
+/// Structure: function_definition.declarator (function_declarator).parameters (parameter_list).
+fn find_c_parameter_list<'a>(function_node: &Node<'a>) -> Option<Node<'a>> {
+    // Walk the declarator chain to find a function_declarator, then get its parameters field.
+    let declarator = function_node.child_by_field_name("declarator")?;
+    find_function_declarator_params(&declarator)
+}
+
+/// Recursively descend through declarator wrappers (pointer_declarator, etc.)
+/// to find a `function_declarator` and return its `parameters` field.
+fn find_function_declarator_params<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    if node.kind() == "function_declarator" {
+        return node.child_by_field_name("parameters");
+    }
+    // pointer_declarator and similar wrappers have a `declarator` field
+    if let Some(inner) = node.child_by_field_name("declarator") {
+        return find_function_declarator_params(&inner);
+    }
+    None
 }
 
 /// Process a compound_statement (or block) and return the last live block index,
@@ -601,6 +642,40 @@ fn is_c_resource_release(name: &str) -> bool {
 }
 
 // ── Utility ────────────────────────────────────────────────────────────────
+
+/// Recursively find the innermost identifier name from a C declarator node.
+/// Handles `pointer_declarator` wrappers (e.g. `*args`) and plain `identifier`.
+fn extract_c_param_ident(node: &Node, source: &[u8]) -> String {
+    match node.kind() {
+        "identifier" => node.utf8_text(source).unwrap_or("").to_string(),
+        "pointer_declarator" | "abstract_pointer_declarator" => {
+            // The declarator field holds the inner declarator
+            if let Some(inner) = node.child_by_field_name("declarator") {
+                return extract_c_param_ident(&inner, source);
+            }
+            // Fallback: walk named children
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                let name = extract_c_param_ident(&child, source);
+                if !name.is_empty() {
+                    return name;
+                }
+            }
+            String::new()
+        }
+        _ => {
+            // For array_declarator or other wrappers, recurse into named children
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                let name = extract_c_param_ident(&child, source);
+                if !name.is_empty() {
+                    return name;
+                }
+            }
+            String::new()
+        }
+    }
+}
 
 fn collect_identifiers(node: &Node, source: &[u8]) -> Vec<String> {
     let mut ids = Vec::new();
