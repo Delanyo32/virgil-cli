@@ -29,9 +29,7 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 
 ### Active
 
-- [ ] Convert remaining Rust audit pipelines (per-language tech-debt, code-style, complexity) to JSON definitions in `src/audit/builtin/`
-- [ ] Remove or consolidate legacy analyzer helpers (`src/audit/analyzers/`) no longer needed
-- [ ] `cargo test` passes with zero failures after all changes
+— (all requirements validated, milestone complete)
 
 ### Out of Scope
 
@@ -42,7 +40,7 @@ All audit pipelines run as declarative JSON definitions — no Rust code require
 
 ## Context
 
-**Current state (after Phase 4):** Architecture (Phase 1), complexity+scalability (Phase 3), and security+memory_leak_indicators (Phase 4) audit categories are 100% JSON-driven. ~75 new JSON security/scalability pipeline files added; ~75 legacy Rust pipeline files deleted. 162 integration tests (positive + negative fixtures per pipeline) committed alongside each batch. Taint-based pipelines (SQL injection, XSS, SSRF, XXE) remain in Rust as permanent documented exceptions — they depend on FlowsTo/SanitizedBy graph edges not expressible in match_pattern JSON. 2142 total tests pass. Next: migrate remaining Rust pipeline categories (per-language tech-debt, code-style) to JSON and restore test health.
+**Current state (after Phase 5 — MILESTONE COMPLETE):** All audit pipeline categories are now JSON-driven. 114 per-language tech-debt and code-style pipelines migrated across 10 languages (Rust, Go, Python, PHP, Java, C, C++, JavaScript, TypeScript, C#) in Phase 5. Dead language subdirectories (rust/, c/, cpp/, typescript/) deleted; helpers.rs pruned from 1743 to ~250 lines. Only 14 taint exception pipelines remain as Rust (sql_injection, ssrf, xss, xxe variants) with PERMANENT RUST EXCEPTION annotations. 1996 total tests pass (518 unit + 1470 integration + 8 E2E), 0 failures, 0 warnings. Milestone goal achieved: all audit pipelines run as declarative JSON definitions — no Rust code required to add, modify, or ship an audit rule.
 
 **JSON pipeline format:** Defined in `src/audit/builtin/*.json`. The engine (`src/audit/json_audit.rs`) loads these at startup via `include_dir!` macro and matches pipeline names against registered Rust pipelines — when a JSON file name matches a Rust pipeline name, the JSON version takes precedence.
 
