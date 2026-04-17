@@ -1,7 +1,7 @@
 {
   "pipeline": "callback_hell",
   "category": "code_style",
-  "description": "Detects JavaScript callback hell: async scheduler functions (setTimeout, setInterval, etc.) and non-functional-array method calls that receive callbacks. Excludes idiomatic array methods (map, filter, reduce, forEach, find, findIndex, some, every, flatMap) and Promise chain methods (then, catch, finally).",
+  "description": "Detects JavaScript callback hell: any function receiving a callback argument, plus method calls that receive callbacks. Excludes idiomatic array methods (map, filter, reduce, forEach, find, findIndex, some, every, flatMap) and Promise chain methods (then, catch, finally).",
   "languages": ["javascript"],
   "graph": [
     {
