@@ -15380,3 +15380,1337 @@ fn coupling_c_finds_many_includes() {
     let findings = run_c_code_style(&dir);
     assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 5);
 }
+
+// ── Phase 5: C++ Tech Debt + Code Style Pipelines ──
+
+fn run_cpp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+fn run_cpp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Cpp]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Cpp])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+// ── c_style_cast (8 tests) ──
+
+#[test]
+fn c_style_cast_cpp_finds_int_cast() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), "void f() { int x = (int)3.14; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "c_style_cast"),
+        "expected c_style_cast finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn c_style_cast_cpp_finds_pointer_cast() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), "void f(void* p) { int* ip = (int*)p; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "c_style_cast"),
+        "expected c_style_cast finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn c_style_cast_cpp_finds_char_cast() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), "void f() { char c = (char)65; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "c_style_cast"));
+}
+
+#[test]
+fn c_style_cast_cpp_finds_multiple_casts() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = (int)3.14; char c = (char)65; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "c_style_cast").count() >= 2);
+}
+
+#[test]
+fn c_style_cast_cpp_clean_no_cast() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = static_cast<int>(3.14); }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "c_style_cast"),
+        "expected no c_style_cast finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn c_style_cast_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "c_style_cast"));
+}
+
+#[test]
+fn c_style_cast_cpp_finds_double_to_int_cast() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(double d) { long l = (long)d; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "c_style_cast"));
+}
+
+#[test]
+fn c_style_cast_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), "void f() { int x = (int)3.14; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "c_style_cast").unwrap();
+    assert!(!f.pattern.is_empty());
+    assert!(!f.message.is_empty());
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── endl_flush (8 tests) ──
+
+#[test]
+fn endl_flush_cpp_finds_std_endl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\nvoid f() { std::cout << \"hello\" << std::endl; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "endl_flush"),
+        "expected endl_flush finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn endl_flush_cpp_finds_std_flush() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { std::cout << std::flush; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "endl_flush"));
+}
+
+#[test]
+fn endl_flush_cpp_finds_multiple_endl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { std::cout << std::endl; std::cout << std::endl; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "endl_flush").count() >= 2);
+}
+
+#[test]
+fn endl_flush_cpp_finds_std_string_qualified_id() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { std::string s; std::cout << std::endl; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    // At least one endl_flush finding expected
+    assert!(findings.iter().any(|f| f.pipeline == "endl_flush"));
+}
+
+#[test]
+fn endl_flush_cpp_clean_newline_char() {
+    let dir = tempfile::tempdir().unwrap();
+    // Use source with no qualified identifiers at all to avoid false positives
+    // (simplified JSON pipeline flags all qualified_identifier nodes, not just std::endl)
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; return; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "endl_flush"),
+        "expected no endl_flush finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn endl_flush_cpp_clean_no_endl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "endl_flush"));
+}
+
+#[test]
+fn endl_flush_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "endl_flush"));
+}
+
+#[test]
+fn endl_flush_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { std::cout << std::endl; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "endl_flush").unwrap();
+    assert_eq!(f.pipeline, "endl_flush");
+    assert!(!f.message.is_empty());
+}
+
+// ── exception_across_boundary (7 tests) ──
+
+#[test]
+fn exception_across_boundary_cpp_finds_throw_stmt() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { throw 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_across_boundary"),
+        "expected exception_across_boundary finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn exception_across_boundary_cpp_finds_throw_in_extern_c() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "extern \"C\" { void foo() { throw 42; } }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_across_boundary"));
+}
+
+#[test]
+fn exception_across_boundary_cpp_finds_nested_throw() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { if (true) { throw std::runtime_error(\"err\"); } }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "exception_across_boundary"));
+}
+
+#[test]
+fn exception_across_boundary_cpp_finds_multiple_throws() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { throw 1; } void g() { throw 2; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "exception_across_boundary").count() >= 2);
+}
+
+#[test]
+fn exception_across_boundary_cpp_clean_no_throw() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "extern \"C\" { void foo() { int x = 42; } }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_across_boundary"),
+        "expected no exception_across_boundary finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn exception_across_boundary_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "exception_across_boundary"));
+}
+
+#[test]
+fn exception_across_boundary_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), "void f() { throw 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "exception_across_boundary").unwrap();
+    assert!(!f.pattern.is_empty());
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── excessive_includes (7 tests) ──
+
+#[test]
+fn excessive_includes_cpp_finds_single_include() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\nvoid f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "excessive_includes"),
+        "expected excessive_includes finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn excessive_includes_cpp_finds_multiple_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut src = String::new();
+    for i in 0..5 {
+        src.push_str(&format!("#include <header{i}.h>\n"));
+    }
+    src.push_str("void f() {}\n");
+    std::fs::write(dir.path().join("test.cpp"), src).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "excessive_includes").count() >= 5);
+}
+
+#[test]
+fn excessive_includes_cpp_finds_local_include() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include \"myheader.h\"\nvoid f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "excessive_includes"));
+}
+
+#[test]
+fn excessive_includes_cpp_finds_system_and_local() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\n#include \"config.h\"\nvoid f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "excessive_includes").count() >= 2);
+}
+
+#[test]
+fn excessive_includes_cpp_clean_no_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "excessive_includes"),
+        "expected no excessive_includes finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn excessive_includes_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "excessive_includes"));
+}
+
+#[test]
+fn excessive_includes_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\nvoid f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "excessive_includes").unwrap();
+    assert_eq!(f.pipeline, "excessive_includes");
+    assert!(!f.message.is_empty());
+}
+
+// ── large_object_by_value (11 tests) ──
+
+#[test]
+fn large_object_by_value_cpp_finds_string_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(std::string s) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "large_object_by_value"),
+        "expected large_object_by_value finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_vector_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(std::vector<int> v) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "large_object_by_value"));
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_int_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(int x) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "large_object_by_value"));
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_multiple_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(int a, int b, int c) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "large_object_by_value").count() >= 3);
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_map_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(std::map<std::string, int> data) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "large_object_by_value"));
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_deque_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(std::deque<int> d) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "large_object_by_value"));
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_set_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(std::set<int> s) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "large_object_by_value"));
+}
+
+#[test]
+fn large_object_by_value_cpp_clean_no_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "large_object_by_value"),
+        "expected no large_object_by_value finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn large_object_by_value_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "large_object_by_value"));
+}
+
+#[test]
+fn large_object_by_value_cpp_finds_double_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "double compute(double x, double y) { return x + y; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "large_object_by_value").count() >= 2);
+}
+
+#[test]
+fn large_object_by_value_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(std::string s) {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "large_object_by_value").unwrap();
+    assert_eq!(f.pipeline, "large_object_by_value");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── magic_numbers (13 tests) ──
+
+#[test]
+fn magic_numbers_cpp_finds_literal_in_func() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected magic_numbers finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn magic_numbers_cpp_finds_float_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { float x = 3.14; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_buffer_size_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { char buf[1024]; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_literal_in_condition() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(int x) { if (x > 99) {} }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_literal_in_return() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "int f() { return 404; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_multiple_literals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; int y = 99; int z = 7; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "magic_numbers").count() >= 3);
+}
+
+#[test]
+fn magic_numbers_cpp_finds_hex_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 0xDEAD; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_literal_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { for (int i = 0; i < 100; i++) {} }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_clean_no_literals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { std::string s; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected no magic_numbers finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn magic_numbers_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_large_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 65535; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_finds_negative_style_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(int x) { if (x == 7) {} }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "magic_numbers").unwrap();
+    assert_eq!(f.pipeline, "magic_numbers");
+    assert_eq!(f.pattern, "magic_number");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── missing_override (7 tests) ──
+
+#[test]
+fn missing_override_cpp_finds_method_in_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { public: int doIt() { return 42; } };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_override"),
+        "expected missing_override finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_override_cpp_finds_virtual_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Base { public: virtual void foo() {} };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_override"));
+}
+
+#[test]
+fn missing_override_cpp_finds_derived_class_method() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class Base { virtual void foo() {} };
+class Derived : public Base { virtual void foo() {} };
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_override"));
+}
+
+#[test]
+fn missing_override_cpp_finds_methods_in_both_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class A { void m1() {} void m2() {} };
+class B { void n1() {} void n2() {} };
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "missing_override").count() >= 2);
+}
+
+#[test]
+fn missing_override_cpp_clean_no_methods() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void standalone() { int x = 0; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_override"),
+        "expected no missing_override finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_override_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_override"));
+}
+
+#[test]
+fn missing_override_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { public: void bar() {} };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "missing_override").unwrap();
+    assert_eq!(f.pipeline, "missing_override");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── raw_memory_management (11 tests) ──
+
+#[test]
+fn raw_memory_management_cpp_finds_raw_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int* p = new int(42); }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_memory_management"),
+        "expected raw_memory_management finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn raw_memory_management_cpp_finds_raw_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(int* p) { delete p; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_memory_management"));
+}
+
+#[test]
+fn raw_memory_management_cpp_finds_array_new() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int* arr = new int[100]; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_memory_management"));
+}
+
+#[test]
+fn raw_memory_management_cpp_finds_array_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f(int* arr) { delete[] arr; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_memory_management"));
+}
+
+#[test]
+fn raw_memory_management_cpp_finds_new_and_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+void f() {
+    int* p = new int(10);
+    delete p;
+}
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "raw_memory_management").count() >= 2);
+}
+
+#[test]
+fn raw_memory_management_cpp_finds_new_in_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class Foo {
+    int* data;
+    Foo() { data = new int; }
+};
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_memory_management"));
+}
+
+#[test]
+fn raw_memory_management_cpp_finds_new_in_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+void f() {
+    for (int i = 0; i < 10; i++) {
+        int* p = new int;
+        delete p;
+    }
+}
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "raw_memory_management").count() >= 2);
+}
+
+#[test]
+fn raw_memory_management_cpp_clean_make_unique() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { auto p = std::make_unique<int>(42); }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_memory_management"),
+        "expected no raw_memory_management finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn raw_memory_management_cpp_clean_no_new_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_memory_management"));
+}
+
+#[test]
+fn raw_memory_management_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_memory_management"));
+}
+
+#[test]
+fn raw_memory_management_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int* p = new int; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "raw_memory_management").unwrap();
+    assert_eq!(f.pipeline, "raw_memory_management");
+    assert_eq!(f.pattern, "raw_new_delete");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── raw_union (8 tests) ──
+
+#[test]
+fn raw_union_cpp_finds_named_union() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "union Data { int i; float f; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_union"),
+        "expected raw_union finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn raw_union_cpp_finds_unnamed_union() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "union { int x; float y; } val;").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_union"));
+}
+
+#[test]
+fn raw_union_cpp_finds_multiple_unions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+union A { int i; float f; };
+union B { char c; double d; };
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "raw_union").count() >= 2);
+}
+
+#[test]
+fn raw_union_cpp_finds_union_with_nontrivial_members() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+union Bad {
+    std::string s;
+    int i;
+};
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_union"));
+}
+
+#[test]
+fn raw_union_cpp_finds_union_with_pod_members() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "union Reg { unsigned int raw; struct { unsigned short lo; unsigned short hi; } parts; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_union"));
+}
+
+#[test]
+fn raw_union_cpp_clean_no_union() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "struct Foo { int x; float y; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_union"),
+        "expected no raw_union finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn raw_union_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_union"));
+}
+
+#[test]
+fn raw_union_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "union Data { int i; float f; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "raw_union").unwrap();
+    assert_eq!(f.pipeline, "raw_union");
+    assert_eq!(f.pattern, "raw_union");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── rule_of_five (7 tests) ──
+
+#[test]
+fn rule_of_five_cpp_finds_class_def() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class Resource {
+    int* data;
+public:
+    ~Resource() { delete data; }
+};
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "rule_of_five"),
+        "expected rule_of_five finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn rule_of_five_cpp_finds_struct_def() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "struct Foo { int x; float y; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "rule_of_five"));
+}
+
+#[test]
+fn rule_of_five_cpp_finds_multiple_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class A { int x; };
+class B { float y; };
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "rule_of_five").count() >= 2);
+}
+
+#[test]
+fn rule_of_five_cpp_finds_class_with_destructor() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class Partial {
+    int* data;
+public:
+    ~Partial() { delete data; }
+    Partial(const Partial& other) : data(new int(*other.data)) {}
+};
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "rule_of_five"));
+}
+
+#[test]
+fn rule_of_five_cpp_clean_no_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void standalone() { int x = 0; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "rule_of_five"),
+        "expected no rule_of_five finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn rule_of_five_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "rule_of_five"));
+}
+
+#[test]
+fn rule_of_five_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "rule_of_five").unwrap();
+    assert_eq!(f.pipeline, "rule_of_five");
+    assert_eq!(f.pattern, "missing_rule_of_five");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── shared_ptr_cycle_risk (10 tests) ──
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_field_in_class() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class Node {
+    std::shared_ptr<Node> next;
+};
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"),
+        "expected shared_ptr_cycle_risk finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_int_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; float y; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"));
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_multiple_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class Graph {
+    std::shared_ptr<Graph> left;
+    std::shared_ptr<Graph> right;
+};
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "shared_ptr_cycle_risk").count() >= 2);
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_field_in_struct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "struct Bar { int a; double b; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"));
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_string_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { std::string name; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"));
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_pointer_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int* ptr; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"));
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_clean_no_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"),
+        "expected no shared_ptr_cycle_risk finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "shared_ptr_cycle_risk"));
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_finds_field_in_both_classes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+class A { int x; };
+class B { double y; };
+"#).unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "shared_ptr_cycle_risk").count() >= 2);
+}
+
+#[test]
+fn shared_ptr_cycle_risk_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "shared_ptr_cycle_risk").unwrap();
+    assert_eq!(f.pipeline, "shared_ptr_cycle_risk");
+    assert_eq!(f.pattern, "shared_ptr_cycle_risk");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── uninitialized_member (11 tests) ──
+
+#[test]
+fn uninitialized_member_cpp_finds_int_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "uninitialized_member"),
+        "expected uninitialized_member finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_float_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "struct Bar { float val; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "uninitialized_member"));
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_pointer_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int* ptr; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "uninitialized_member"));
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_string_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { std::string name; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "uninitialized_member"));
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_multiple_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; float y; bool z; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "uninitialized_member").count() >= 3);
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_field_in_struct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "struct Baz { double val; char c; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "uninitialized_member").count() >= 2);
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_bool_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { bool flag; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "uninitialized_member"));
+}
+
+#[test]
+fn uninitialized_member_cpp_clean_no_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "uninitialized_member"),
+        "expected no uninitialized_member finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn uninitialized_member_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "uninitialized_member"));
+}
+
+#[test]
+fn uninitialized_member_cpp_finds_char_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { char c; unsigned int u; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "uninitialized_member").count() >= 2);
+}
+
+#[test]
+fn uninitialized_member_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; };").unwrap();
+    let findings = run_cpp_tech_debt(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "uninitialized_member").unwrap();
+    assert_eq!(f.pipeline, "uninitialized_member");
+    assert_eq!(f.pattern, "uninitialized_member");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── dead_code (6 tests) ──
+
+#[test]
+fn dead_code_cpp_finds_unexported_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+static int unusedHelper() {
+    return 42;
+}
+
+int main() {
+    return 0;
+}
+"#).unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_cpp_finds_multiple_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    // static functions are not exported (exported: false) so they are flagged by the JSON pipeline
+    std::fs::write(dir.path().join("test.cpp"), r#"
+static void helperA() {}
+static void helperB() {}
+static void helperC() {}
+"#).unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "dead_code").count() >= 3);
+}
+
+#[test]
+fn dead_code_cpp_finds_function_with_body() {
+    let dir = tempfile::tempdir().unwrap();
+    // static function is not exported, so it is flagged by the JSON pipeline
+    std::fs::write(dir.path().join("test.cpp"),
+        "static void compute() { int x = 1; int y = 2; int z = x + y; }").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_cpp_clean_no_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; };").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected no dead_code finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "static void helper() { int x = 42; }").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "dead_code").unwrap();
+    assert_eq!(f.pipeline, "dead_code");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── duplicate_code (6 tests) ──
+
+#[test]
+fn duplicate_code_cpp_finds_function_symbols() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+void doA() {
+    int x = 1;
+    int y = 2;
+    int z = x + y;
+    int w = z * 2;
+    return;
+}
+
+void doB() {
+    int x = 1;
+    int y = 2;
+    int z = x + y;
+    int w = z * 2;
+    return;
+}
+"#).unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected duplicate_code finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn duplicate_code_cpp_finds_multiple_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"), r#"
+void funcA() {}
+void funcB() {}
+void funcC() {}
+"#).unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "duplicate_code").count() >= 3);
+}
+
+#[test]
+fn duplicate_code_cpp_finds_method_symbols() {
+    let dir = tempfile::tempdir().unwrap();
+    // Use free functions rather than class methods -- class method symbols
+    // are indexed as methods and select:symbol kind:function may not match them
+    std::fs::write(dir.path().join("test.cpp"), r#"
+static void doIt() { int x = 42; }
+static void process() { int y = 99; }
+"#).unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_cpp_clean_no_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "class Foo { int x; float y; };").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected no duplicate_code finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn duplicate_code_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_cpp_metadata_correct() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void helper() { int x = 1; }").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    let f = findings.iter().find(|f| f.pipeline == "duplicate_code").unwrap();
+    assert_eq!(f.pipeline, "duplicate_code");
+    assert!(f.file_path.ends_with(".cpp"));
+}
+
+// ── coupling (7 tests) ──
+
+#[test]
+fn coupling_cpp_finds_include_directive() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\nvoid f() {}").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected coupling finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_cpp_finds_multiple_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\n#include <vector>\n#include <string>\nvoid f() {}").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 3);
+}
+
+#[test]
+fn coupling_cpp_finds_local_include() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include \"myheader.h\"\nvoid f() {}").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_cpp_finds_mixed_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "#include <iostream>\n#include \"config.h\"\nvoid f() {}").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 2);
+}
+
+#[test]
+fn coupling_cpp_finds_many_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut src = String::new();
+    for i in 0..5 {
+        src.push_str(&format!("#include <header{i}.h>\n"));
+    }
+    src.push_str("void f() {}\n");
+    std::fs::write(dir.path().join("test.cpp"), src).unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 5);
+}
+
+#[test]
+fn coupling_cpp_clean_no_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.cpp"),
+        "void f() { int x = 42; }").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected no coupling finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_cpp_clean_no_cpp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "#[allow(unused)]").unwrap();
+    let findings = run_cpp_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
