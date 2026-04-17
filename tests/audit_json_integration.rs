@@ -14242,3 +14242,1141 @@ fn coupling_java_finds_static_import() {
     let findings = run_java_code_style(&dir);
     assert!(findings.iter().any(|f| f.pipeline == "coupling"));
 }
+
+// ── Phase 5: C Tech Debt + Code Style Pipelines ──
+
+fn run_c_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::TechDebt)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+fn run_c_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+    let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::C]).build().unwrap();
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::C])
+        .pipeline_selector(PipelineSelector::CodeStyle)
+        .run(&workspace, Some(&graph))
+        .unwrap();
+    findings
+}
+
+// ── buffer_overflows (11 tests) ──
+
+#[test]
+fn buffer_overflows_c_finds_strcpy_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *d, char *s) { strcpy(d, s); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"),
+        "expected buffer_overflows finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn buffer_overflows_c_finds_strcat_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *d, char *s) { strcat(d, s); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_gets_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *buf) { gets(buf); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_sprintf_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), r#"void f(char *buf, char *name) { sprintf(buf, "%s", name); }"#).unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_vsprintf_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *buf, va_list args) { vsprintf(buf, \"%s\", args); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_scanf_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int x; scanf(\"%d\", &x); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_wcscpy_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(wchar_t *d, wchar_t *s) { wcscpy(d, s); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_multiple_unsafe_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f(char *d, char *s, char *buf) { strcpy(d, s); sprintf(buf, \"%s\", s); gets(buf); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "buffer_overflows").count() >= 2);
+}
+
+#[test]
+fn buffer_overflows_c_finds_stpcpy_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *d, char *s) { stpcpy(d, s); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+#[test]
+fn buffer_overflows_c_finds_sscanf_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *buf) { int x; sscanf(buf, \"%d\", &x); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "buffer_overflows"));
+}
+
+// ── define_instead_of_inline (9 tests) ──
+
+#[test]
+fn define_instead_of_inline_c_finds_simple_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define DOUBLE(x) ((x) * 2)\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"),
+        "expected define_instead_of_inline finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_add_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define ADD(a, b) ((a) + (b))\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_max_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define MAX(a, b) ((a) > (b) ? (a) : (b))\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_square_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define SQUARE(x) ((x) * (x))\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_abs_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define ABS(x) ((x) < 0 ? -(x) : (x))\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_multiple_macros() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "#define DOUBLE(x) ((x) * 2)\n#define TRIPLE(x) ((x) * 3)\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "define_instead_of_inline").count() >= 2);
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_clamp_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : (v) > (hi) ? (hi) : (v))\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+#[test]
+fn define_instead_of_inline_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+#[test]
+fn define_instead_of_inline_c_finds_min_macro() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#define MIN(a, b) ((a) < (b) ? (a) : (b))\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "define_instead_of_inline"));
+}
+
+// ── global_mutable_state (10 tests) ──
+
+#[test]
+fn global_mutable_state_c_finds_int_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int global_count = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"),
+        "expected global_mutable_state finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn global_mutable_state_c_finds_char_pointer_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "char *global_buf = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_finds_array_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int lookup[256] = {0};\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_finds_double_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "double ratio = 1.0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_finds_multiple_globals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "int g1 = 0;\nint g2 = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "global_mutable_state").count() >= 2);
+}
+
+#[test]
+fn global_mutable_state_c_finds_flag_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int initialized = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_finds_static_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "static int count = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    // static globals are still declarations in translation_unit
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "static mut X: i32 = 0;").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_finds_unsigned_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "unsigned int error_code = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+#[test]
+fn global_mutable_state_c_finds_long_global() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "long total_bytes = 0;\nvoid f() {}\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "global_mutable_state"));
+}
+
+// ── ignored_return_values (8 tests) ──
+
+#[test]
+fn ignored_return_values_c_finds_fopen_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { fopen(\"a\", \"r\"); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "ignored_return_values"),
+        "expected ignored_return_values finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn ignored_return_values_c_finds_fwrite_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(FILE *fp) { fwrite(buf, 1, 10, fp); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "ignored_return_values"));
+}
+
+#[test]
+fn ignored_return_values_c_finds_fread_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(FILE *fp) { fread(buf, 1, 10, fp); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "ignored_return_values"));
+}
+
+#[test]
+fn ignored_return_values_c_finds_send_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int sock) { send(sock, buf, 10, 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "ignored_return_values"));
+}
+
+#[test]
+fn ignored_return_values_c_finds_multiple_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f(FILE *fp, int sock) { fwrite(buf, 1, 10, fp); send(sock, buf, 10, 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "ignored_return_values").count() >= 2);
+}
+
+#[test]
+fn ignored_return_values_c_finds_recv_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int sock) { recv(sock, buf, 100, 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "ignored_return_values"));
+}
+
+#[test]
+fn ignored_return_values_c_finds_snprintf_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *buf) { snprintf(buf, 10, \"%s\", \"hi\"); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "ignored_return_values"));
+}
+
+#[test]
+fn ignored_return_values_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "ignored_return_values"));
+}
+
+// ── magic_numbers (11 tests) ──
+
+#[test]
+fn magic_numbers_c_finds_literal_in_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int x = 42; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"),
+        "expected magic_numbers finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn magic_numbers_c_finds_hex_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int x = 0xDEAD; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_large_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int x = 9999; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_port_number() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int port = 8080; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_float_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { double d = 3.14159; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_timeout_value() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int timeout = 30000; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_buffer_size() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { char buf[4097]; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_multiple_literals() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int x = 42; int y = 99; int z = 777; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "magic_numbers").count() >= 2);
+}
+
+#[test]
+fn magic_numbers_c_finds_calculation_literal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int f(int n) { return n * 37; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() { let x = 42; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+#[test]
+fn magic_numbers_c_finds_hex_0xBEEF() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int x = 0xBEEF; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "magic_numbers"));
+}
+
+// ── memory_leaks (10 tests) ──
+
+#[test]
+fn memory_leaks_c_finds_malloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int *p = malloc(10); p[0] = 1; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"),
+        "expected memory_leaks finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn memory_leaks_c_finds_calloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int *p = calloc(10, sizeof(int)); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_finds_realloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int *p) { p = realloc(p, 100); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_finds_strdup_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *s) { char *copy = strdup(s); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_finds_aligned_alloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { void *p = aligned_alloc(16, 64); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_finds_multiple_allocs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f() { int *p = malloc(10); int *q = calloc(5, 4); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "memory_leaks").count() >= 2);
+}
+
+#[test]
+fn memory_leaks_c_finds_malloc_with_cast() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int *p = (int *)malloc(100); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_finds_strndup_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *s) { char *t = strndup(s, 10); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+#[test]
+fn memory_leaks_c_finds_mmap_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { void *p = mmap(0, 4096, 3, 1, -1, 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "memory_leaks"));
+}
+
+// ── missing_const (10 tests) ──
+
+#[test]
+fn missing_const_c_finds_read_only_pointer_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int sum(int *arr, int n) { return arr[0]; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"),
+        "expected missing_const finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn missing_const_c_finds_char_pointer_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int len(char *s) { int i = 0; while(s[i]) i++; return i; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_finds_struct_pointer_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "struct Foo { int x; };\nvoid print_foo(struct Foo *f) { int v = f->x; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_finds_void_pointer_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int check(void *data) { return data != 0; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_finds_multiple_pointer_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f(int *a, char *b) { int x = *a; int y = b[0]; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "missing_const").count() >= 2);
+}
+
+#[test]
+fn missing_const_c_finds_int_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int deref(int *p) { return *p; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_finds_double_ptr_in_different_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int get_val(double *d) { return (int)*d; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f(x: &i32) -> i32 { *x }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_finds_unsigned_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int sum_u(unsigned int *arr, int n) { return arr[0]; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+#[test]
+fn missing_const_c_finds_size_t_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int f(size_t *n) { return (int)*n; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "missing_const"));
+}
+
+// ── raw_struct_serialization (9 tests) ──
+
+#[test]
+fn raw_struct_serialization_c_finds_fwrite_with_sizeof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "struct R { int id; };\nvoid f(FILE *fp) { struct R r; fwrite(&r, sizeof(struct R), 1, fp); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"),
+        "expected raw_struct_serialization finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_fread_with_sizeof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "typedef struct { int x; } Point;\nvoid f(FILE *fp) { Point p; fread(&p, sizeof(Point), 1, fp); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_write_syscall_with_sizeof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "struct M { int t; };\nvoid f(int fd) { struct M m; write(fd, &m, sizeof(struct M)); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_send_with_sizeof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "struct P { int seq; };\nvoid f(int sock) { struct P pkt; send(sock, &pkt, sizeof(struct P), 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_sendto_with_sizeof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "struct D { int v; };\nvoid f(int sock) { struct D d; sendto(sock, &d, sizeof(struct D), 0, 0, 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_multiple_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "struct R { int id; };\nvoid f(FILE *fp, int fd) { struct R r; fwrite(&r, sizeof(struct R), 1, fp); write(fd, &r, sizeof(struct R)); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "raw_struct_serialization").count() >= 2);
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_sizeof_in_args() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f(FILE *fp, int *buf) { fwrite(buf, sizeof(int), 10, fp); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+#[test]
+fn raw_struct_serialization_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+#[test]
+fn raw_struct_serialization_c_finds_fwrite_with_typedef_sizeof() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "typedef struct { char name[32]; } Record;\nvoid f(FILE *fp) { Record rec; fwrite(&rec, sizeof(Record), 1, fp); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "raw_struct_serialization"));
+}
+
+// ── signed_unsigned_mismatch (8 tests) ──
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_int_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int n) { for (int i = 0; i < n; i++) {} }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "signed_unsigned_mismatch"),
+        "expected signed_unsigned_mismatch finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_int_vs_strlen() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *s) { for (int i = 0; i < strlen(s); i++) {} }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "signed_unsigned_mismatch"));
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_long_counter() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(long n) { for (long i = 0; i < n; i++) {} }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "signed_unsigned_mismatch"));
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_multiple_loops() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f(int n) { for (int i = 0; i < n; i++) {} for (int j = 0; j < n; j++) {} }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "signed_unsigned_mismatch").count() >= 2);
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_short_counter() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(short n) { for (short i = 0; i < n; i++) {} }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "signed_unsigned_mismatch"));
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_nested_loops() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f(int m, int n) { for (int i = 0; i < m; i++) { for (int j = 0; j < n; j++) {} } }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "signed_unsigned_mismatch").count() >= 2);
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "signed_unsigned_mismatch"));
+}
+
+#[test]
+fn signed_unsigned_mismatch_c_finds_int_count_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int count) { for (int idx = 0; idx < count; idx++) {} }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "signed_unsigned_mismatch"));
+}
+
+// ── typedef_pointer_hiding (8 tests) ──
+
+#[test]
+fn typedef_pointer_hiding_c_finds_int_ptr_typedef() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "typedef int *IntPtr;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"),
+        "expected typedef_pointer_hiding finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn typedef_pointer_hiding_c_finds_char_ptr_typedef() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "typedef char *String;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"));
+}
+
+#[test]
+fn typedef_pointer_hiding_c_finds_struct_ptr_typedef() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "struct Foo { int x; };\ntypedef struct Foo *FooPtr;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"));
+}
+
+#[test]
+fn typedef_pointer_hiding_c_finds_void_ptr_typedef() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "typedef void *Handle;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"));
+}
+
+#[test]
+fn typedef_pointer_hiding_c_finds_multiple_ptr_typedefs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "typedef int *IntPtr;\ntypedef char *StrPtr;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "typedef_pointer_hiding").count() >= 2);
+}
+
+#[test]
+fn typedef_pointer_hiding_c_finds_double_ptr_typedef() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "typedef int **IntPtrPtr;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"));
+}
+
+#[test]
+fn typedef_pointer_hiding_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "type IntPtr = *mut i32;").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"));
+}
+
+#[test]
+fn typedef_pointer_hiding_c_finds_float_ptr_typedef() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "typedef float *FloatBuf;\n").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "typedef_pointer_hiding"));
+}
+
+// ── unchecked_malloc (9 tests) ──
+
+#[test]
+fn unchecked_malloc_c_finds_malloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int *p = malloc(10); p[0] = 1; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"),
+        "expected unchecked_malloc finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn unchecked_malloc_c_finds_calloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { int *p = calloc(10, sizeof(int)); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+#[test]
+fn unchecked_malloc_c_finds_realloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int *p) { p = realloc(p, 100); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+#[test]
+fn unchecked_malloc_c_finds_aligned_alloc_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { void *p = aligned_alloc(16, 1024); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+#[test]
+fn unchecked_malloc_c_finds_multiple_alloc_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f() { int *p = malloc(10); int *q = calloc(5, 4); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "unchecked_malloc").count() >= 2);
+}
+
+#[test]
+fn unchecked_malloc_c_finds_mmap_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { void *p = mmap(0, 4096, 3, 1, -1, 0); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+#[test]
+fn unchecked_malloc_c_finds_strdup_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(char *s) { char *t = strdup(s); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+#[test]
+fn unchecked_malloc_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+#[test]
+fn unchecked_malloc_c_finds_posix_memalign_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f() { void *p; posix_memalign(&p, 16, 64); }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "unchecked_malloc"));
+}
+
+// ── void_pointer_abuse (8 tests) ──
+
+#[test]
+fn void_pointer_abuse_c_finds_void_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void process(void *data) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "void_pointer_abuse"),
+        "expected void_pointer_abuse finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn void_pointer_abuse_c_finds_int_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int *p) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    // int* is also a pointer param — pipeline flags all pointer params with primitive type
+    assert!(findings.iter().any(|f| f.pipeline == "void_pointer_abuse"));
+}
+
+#[test]
+fn void_pointer_abuse_c_finds_char_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "int f(char *s) { return s[0]; }").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "void_pointer_abuse"));
+}
+
+#[test]
+fn void_pointer_abuse_c_finds_void_ptr_in_callback() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void register_handler(void *ctx, int event) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "void_pointer_abuse"));
+}
+
+#[test]
+fn void_pointer_abuse_c_finds_multiple_ptr_params() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(void *a, void *b) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "void_pointer_abuse").count() >= 2);
+}
+
+#[test]
+fn void_pointer_abuse_c_finds_double_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(int **pp) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "void_pointer_abuse"));
+}
+
+#[test]
+fn void_pointer_abuse_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f(x: *mut i32) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "void_pointer_abuse"));
+}
+
+#[test]
+fn void_pointer_abuse_c_finds_float_ptr_param() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "void f(float *buf) {}").unwrap();
+    let findings = run_c_tech_debt(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "void_pointer_abuse"));
+}
+
+// ── dead_code (6 tests) ──
+
+#[test]
+fn dead_code_c_finds_static_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "static int helper(void) { return 42; }\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"),
+        "expected dead_code finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn dead_code_c_finds_multiple_static_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "static int a(void) { return 1; }\nstatic int b(void) { return 2; }\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "dead_code").count() >= 2);
+}
+
+#[test]
+fn dead_code_c_finds_static_with_storage_specifier() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "static void cleanup(void) { }\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_c_finds_static_int_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "static int compute(int x) { return x * 2; }\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+#[test]
+fn dead_code_c_finds_static_char_ptr_fn() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "static char *get_str(void) { return \"hello\"; }\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "dead_code"));
+}
+
+// ── duplicate_code (6 tests) ──
+
+#[test]
+fn duplicate_code_c_finds_function_body() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "int do_a(int n) {\n    int x = n + 1;\n    int y = x * 2;\n    return y;\n}\n\nint do_b(int m) {\n    int x = m + 1;\n    int y = x * 2;\n    return y;\n}\n").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"),
+        "expected duplicate_code finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn duplicate_code_c_finds_multiple_function_bodies() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void f1(void) { int a = 1; int b = 2; }\nvoid f2(void) { int a = 1; int b = 2; }\nvoid f3(void) { int a = 1; int b = 2; }\n").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_c_finds_two_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "int calc_a(int x, int y) { return x + y; }\nint calc_b(int a, int b) { return a + b; }\n").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "fn f() {}").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_c_finds_void_function() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "void init_a(void) { }\nvoid init_b(void) { }\n").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+#[test]
+fn duplicate_code_c_finds_helper_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "int helper1(int x) { return x; }\nint helper2(int y) { return y; }\n").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "duplicate_code"));
+}
+
+// ── coupling (6 tests) ──
+
+#[test]
+fn coupling_c_finds_include_directive() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#include <stdio.h>\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"),
+        "expected coupling finding; got: {:?}", findings.iter().map(|f| &f.pipeline).collect::<Vec<_>>());
+}
+
+#[test]
+fn coupling_c_finds_multiple_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 3);
+}
+
+#[test]
+fn coupling_c_finds_local_include() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"), "#include \"myheader.h\"\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_c_clean_no_c_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.rs"), "#[allow(unused)]").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
+}
+
+#[test]
+fn coupling_c_finds_system_and_local_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.c"),
+        "#include <stdio.h>\n#include \"config.h\"\nint main(void) { return 0; }").unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 2);
+}
+
+#[test]
+fn coupling_c_finds_many_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut src = String::new();
+    for i in 0..5 {
+        src.push_str(&format!("#include <header{i}.h>\n"));
+    }
+    src.push_str("int main(void) { return 0; }\n");
+    std::fs::write(dir.path().join("test.c"), src).unwrap();
+    let findings = run_c_code_style(&dir);
+    assert!(findings.iter().filter(|f| f.pipeline == "coupling").count() >= 5);
+}
