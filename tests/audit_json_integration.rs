@@ -20431,3 +20431,128 @@ fn coupling_csharp_clean_no_using_directives() {
     let findings = run_csharp_code_style(&dir);
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"));
 }
+
+// ── function_length (Rust) ──
+
+#[test]
+fn function_length_rust_finds_long_function() {
+    let dir = tempfile::tempdir().unwrap();
+    // 55 let-bindings = 57 lines including fn open/close, well above 50-line warning threshold
+    let body: String = (0..55).map(|i| format!("    let _{i} = {i};\n")).collect();
+    let content = format!("fn long_fn() {{\n{body}}}\n");
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .categories(vec!["complexity".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pattern == "function_too_long"),
+        "expected function_too_long finding; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn function_length_rust_clean_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "fn short_fn() {\n    let x = 1;\n    let y = 2;\n    let _ = x + y;\n}\n";
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .categories(vec!["complexity".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "function_too_long"),
+        "expected no function_too_long finding; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+// ── cyclomatic_complexity (Rust) via complexity category ──
+
+#[test]
+fn cyclomatic_complexity_rust_complexity_category_finds() {
+    let dir = tempfile::tempdir().unwrap();
+    // 10 nested ifs = CC 11, above the > 10 warning threshold
+    let content = r#"fn complex(a: i32, b: i32, c: i32, d: i32) -> i32 {
+    if a > 0 {
+        if b > 0 {
+            if c > 0 {
+                if d > 0 {
+                    if a > 1 {
+                        if b > 1 {
+                            if c > 1 {
+                                if d > 1 {
+                                    if a > 2 {
+                                        if b > 2 { return 10; }
+                                        return 9;
+                                    }
+                                    return 8;
+                                }
+                                return 7;
+                            }
+                            return 6;
+                        }
+                        return 5;
+                    }
+                    return 4;
+                }
+                return 3;
+            }
+            return 2;
+        }
+        return 1;
+    }
+    0
+}
+"#;
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .categories(vec!["complexity".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        findings.iter().any(|f| f.pattern == "high_cyclomatic_complexity"),
+        "expected high_cyclomatic_complexity finding; got: {:?}",
+        findings.iter().map(|f| &f.pattern).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn cyclomatic_complexity_rust_complexity_category_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "fn simple(x: i32) -> i32 { x + 1 }\n";
+    std::fs::write(dir.path().join("lib.rs"), content).unwrap();
+
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], Some(10_000_000)).unwrap();
+    let graph = GraphBuilder::new(&workspace, &[Language::Rust]).build().unwrap();
+
+    let (findings, _) = AuditEngine::new()
+        .languages(vec![Language::Rust])
+        .categories(vec!["complexity".to_string()])
+        .run(&workspace, Some(&graph))
+        .unwrap();
+
+    assert!(
+        !findings.iter().any(|f| f.pattern == "high_cyclomatic_complexity"),
+        "expected no high_cyclomatic_complexity finding"
+    );
+}

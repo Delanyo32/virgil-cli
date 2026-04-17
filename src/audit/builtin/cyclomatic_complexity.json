@@ -1,6 +1,6 @@
 {
   "pipeline": "cyclomatic_complexity",
-  "category": "code-quality",
+  "category": "complexity",
   "description": "Detects functions with high cyclomatic complexity. CC = 1 + decision points + logical operators. Threshold: warning > 10, error >= 20.",
   "graph": [
     {

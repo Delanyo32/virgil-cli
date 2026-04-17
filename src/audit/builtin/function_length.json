@@ -1,6 +1,6 @@
 {
   "pipeline": "function_length",
-  "category": "code-quality",
+  "category": "complexity",
   "description": "Detects functions that are too long. Threshold: warning > 50 lines, error >= 100 lines. Note: the Rust implementation also checked statement count (> 20 statements); that check is not expressible in the current JSON DSL and is dropped.",
   "graph": [
     {
