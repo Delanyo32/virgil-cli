@@ -1,0 +1,18 @@
+{
+  "pipeline": "coupling",
+  "category": "code-quality",
+  "description": "Detects excessive using directives, parameter overload, and low method cohesion in C#. Simplified from Rust: flags all using_directive nodes. Cannot apply the 15-import threshold (count_all_identifier_occurrences), detect parameter overload (>5 params), or low cohesion (methods not referencing 'this'). Structural detection only.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(using_directive) @using_dir"
+    },
+    {
+      "flag": {
+        "pattern": "excessive_imports",
+        "message": "using directive detected -- if the file has more than 15 using directives, consider splitting it into smaller files with fewer dependencies.",
+        "severity": "info"
+      }
+    }
+  ]
+}

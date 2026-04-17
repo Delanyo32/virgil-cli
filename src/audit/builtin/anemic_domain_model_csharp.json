@@ -1,0 +1,18 @@
+{
+  "pipeline": "anemic_domain_model",
+  "category": "code-quality",
+  "description": "Detects C# classes with only properties and no methods (anemic domain model anti-pattern). Simplified from Rust: flags all class_declaration nodes. Cannot filter by property vs method count, DTO suffix exclusion, or ORM attribute checks. Higher false positive rate -- all classes flagged.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(class_declaration name: (identifier) @class_name) @class_decl"
+    },
+    {
+      "flag": {
+        "pattern": "anemic_class",
+        "message": "Class detected -- verify it has sufficient behavior (not just properties). Consider adding domain methods or using a record/DTO.",
+        "severity": "info"
+      }
+    }
+  ]
+}

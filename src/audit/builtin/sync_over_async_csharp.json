@@ -1,0 +1,18 @@
+{
+  "pipeline": "sync_over_async",
+  "category": "code-quality",
+  "description": "Detects C# blocking calls on async code (.Result, .Wait(), .GetAwaiter().GetResult()) and async void methods. Simplified from Rust: flags all member_access_expression nodes. Cannot filter by member name (Result, Wait, GetResult), async context detection, or Main method exclusion. Higher false positive rate than Rust version.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(member_access_expression name: (identifier) @member_name) @member_access"
+    },
+    {
+      "flag": {
+        "pattern": "blocking_result_access",
+        "message": "Member access detected -- if accessing .Result or .Wait() on a Task, use await instead to avoid blocking the calling thread.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

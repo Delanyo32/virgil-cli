@@ -1,0 +1,18 @@
+{
+  "pipeline": "hardcoded_config",
+  "category": "code-quality",
+  "description": "Detects hardcoded connection strings, API keys, and secrets in C# string literals. Simplified from Rust: flags all string_literal nodes. Cannot filter by suspicious content patterns (Password=, Bearer, sk_live_, Server=, etc.), logging call context, or config-key variable names. Higher false positive rate.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(string_literal) @str_lit"
+    },
+    {
+      "flag": {
+        "pattern": "hardcoded_config_value",
+        "message": "String literal detected -- verify it does not contain hardcoded credentials, connection strings, API keys, or secrets. Use configuration/secrets management instead.",
+        "severity": "info"
+      }
+    }
+  ]
+}

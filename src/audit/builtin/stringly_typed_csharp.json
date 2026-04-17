@@ -1,0 +1,18 @@
+{
+  "pipeline": "stringly_typed",
+  "category": "code-quality",
+  "description": "Detects C# string-typed parameters, fields, and properties with names suggesting an enum (status, state, type, kind, role, mode, etc.). Simplified from Rust: flags all parameter nodes. Cannot filter by specific suspicious name list, string type check, DTO class exclusion, or compound name matching. Structural detection only.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(parameter name: (identifier) @param_name) @param"
+    },
+    {
+      "flag": {
+        "pattern": "stringly_typed",
+        "message": "Parameter detected -- if string-typed with a name suggesting an enum (status, role, type, kind), consider using a strongly-typed enum instead.",
+        "severity": "info"
+      }
+    }
+  ]
+}

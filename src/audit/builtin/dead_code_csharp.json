@@ -1,0 +1,18 @@
+{
+  "pipeline": "dead_code",
+  "category": "code-quality",
+  "description": "Detects unused private methods, unused imports, and unreachable code in C#. Simplified from Rust: flags all using_directive nodes. Cannot detect unused private methods (requires identifier occurrence counting) or unreachable code after return/break/throw (requires block-level CFG). Only using directive structural detection.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(using_directive) @using_dir"
+    },
+    {
+      "flag": {
+        "pattern": "unused_import",
+        "message": "using directive detected -- verify this import is actually used in the file. Remove unused using directives to reduce coupling.",
+        "severity": "info"
+      }
+    }
+  ]
+}

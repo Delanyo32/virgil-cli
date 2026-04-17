@@ -1,0 +1,18 @@
+{
+  "pipeline": "thread_sleep",
+  "category": "code-quality",
+  "description": "Detects C# Thread.Sleep() calls which block the current thread. Simplified from Rust: flags all invocation_expression nodes. Cannot filter by Thread.Sleep specifically (vs other invocations), skip Sleep(0)/Sleep(1) yield idioms, or detect async context for severity graduation. Higher false positive rate.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(invocation_expression function: (member_access_expression name: (identifier) @fn_name) @fn_access) @invocation"
+    },
+    {
+      "flag": {
+        "pattern": "thread_sleep_call",
+        "message": "Method invocation detected -- if this is Thread.Sleep(), use Task.Delay() with async/await instead to avoid blocking the current thread.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

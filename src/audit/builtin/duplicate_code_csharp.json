@@ -1,0 +1,18 @@
+{
+  "pipeline": "duplicate_code",
+  "category": "code-quality",
+  "description": "Detects duplicate method bodies and duplicate switch case sections in C#. Simplified from Rust: flags all method_declaration nodes. Cannot perform rolling-hash body comparison (find_duplicate_bodies) or duplicate switch case detection (find_duplicate_arms). Structural detection only -- all methods flagged.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(method_declaration name: (identifier) @method_name) @method_decl"
+    },
+    {
+      "flag": {
+        "pattern": "duplicate_function_body",
+        "message": "Method declaration detected -- verify its body is not identical to another method in the same class. Extract shared logic into a helper method.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

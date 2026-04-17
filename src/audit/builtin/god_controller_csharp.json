@@ -1,0 +1,18 @@
+{
+  "pipeline": "god_controller",
+  "category": "code-quality",
+  "description": "Detects C# ASP.NET Controller classes with too many action methods (god controller anti-pattern). Simplified from Rust: flags all class_declaration nodes. Cannot filter by Controller suffix or ApiController attribute, count only public non-NonAction methods, or apply the 8-action threshold. Structural detection only.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(class_declaration name: (identifier) @class_name) @class_decl"
+    },
+    {
+      "flag": {
+        "pattern": "oversized_controller",
+        "message": "Class detected -- if this is a Controller with more than 8 public action methods, consider splitting into multiple focused controllers.",
+        "severity": "info"
+      }
+    }
+  ]
+}

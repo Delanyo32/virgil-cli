@@ -1,0 +1,18 @@
+{
+  "pipeline": "exception_control_flow",
+  "category": "code-quality",
+  "description": "Detects C# catch clauses that may silently swallow exceptions (empty catch, catch-return-default, overly broad catch). Simplified from Rust: flags all catch_clause nodes. Cannot distinguish empty vs non-empty bodies, return-default patterns, or Exception vs specific types. Higher false positive rate.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(catch_clause) @catch"
+    },
+    {
+      "flag": {
+        "pattern": "empty_catch",
+        "message": "Catch clause detected -- verify it logs, rethrows, or handles the exception appropriately. Empty catch blocks silently swallow exceptions.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

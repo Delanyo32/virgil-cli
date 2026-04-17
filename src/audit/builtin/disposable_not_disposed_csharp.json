@@ -1,0 +1,18 @@
+{
+  "pipeline": "disposable_not_disposed",
+  "category": "code-quality",
+  "description": "Detects C# local variable declarations that instantiate IDisposable types outside a using statement. Simplified from Rust: flags all object_creation_expression nodes. Cannot filter by known-disposable type list (FileStream, HttpClient, SqlConnection, etc.) or verify using statement wrapping. Higher false positive rate.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(object_creation_expression type: (identifier) @type_name) @obj_creation"
+    },
+    {
+      "flag": {
+        "pattern": "missing_using",
+        "message": "Object creation detected -- if this type implements IDisposable, wrap it in a using statement to prevent resource leaks.",
+        "severity": "warning"
+      }
+    }
+  ]
+}

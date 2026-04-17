@@ -1,0 +1,18 @@
+{
+  "pipeline": "missing_cancellation_token",
+  "category": "code-quality",
+  "description": "Detects C# async methods without a CancellationToken parameter. Simplified from Rust: flags all method_declaration nodes. Cannot filter to only async methods, check for existing CancellationToken parameter, exclude event handlers or controller actions, or graduate severity by visibility. Structural detection only.",
+  "languages": ["csharp"],
+  "graph": [
+    {
+      "match_pattern": "(method_declaration name: (identifier) @method_name) @method_decl"
+    },
+    {
+      "flag": {
+        "pattern": "no_cancellation_token",
+        "message": "Method detected -- if async, verify it accepts a CancellationToken parameter so callers can cancel the operation.",
+        "severity": "info"
+      }
+    }
+  ]
+}
