@@ -1,27 +1,16 @@
 {
   "pipeline": "god_functions",
   "category": "tech_debt",
-  "description": "Detects functions exceeding size thresholds (>50 lines). Uses compute_metric function_length to measure body size.",
+  "description": "Detects functions exceeding size thresholds. Simplified from Rust: flags all function_definition nodes. Cannot perform line-count threshold checking in the JSON DSL without compute_metric support.",
   "languages": ["python"],
   "graph": [
     {
-      "select": "symbol",
-      "where": {
-        "kind": ["function", "method"]
-      }
-    },
-    {
-      "compute_metric": "function_length"
-    },
-    {
-      "threshold": {
-        "gte": 51
-      }
+      "match_pattern": "(function_definition name: (identifier) @fn_name) @fn_def"
     },
     {
       "flag": {
         "pattern": "god_function",
-        "message": "function is too large -- consider splitting into smaller focused functions",
+        "message": "function detected -- verify it does not exceed size thresholds (>50 lines or >20 statements)",
         "severity": "warning"
       }
     }

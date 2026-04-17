@@ -675,7 +675,7 @@ Source: [VERIFIED: modeled after `engine_json_audit_findings_merged` test in `sr
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`Language::as_str()` for TSX/JSX**
    - What we know: TypeScript/JavaScript pipelines should cover `.tsx`/`.jsx` files

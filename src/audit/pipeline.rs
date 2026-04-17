@@ -96,9 +96,7 @@ pub fn pipelines_for_language(language: Language) -> Result<Vec<AnyPipeline>> {
         Language::Php => pipelines::php::tech_debt_pipelines(),
         Language::Java => pipelines::java::tech_debt_pipelines(),
         Language::JavaScript => pipelines::javascript::tech_debt_pipelines(),
-        Language::TypeScript | Language::Tsx => {
-            wrap_legacy(pipelines::typescript::tech_debt_pipelines(language))
-        }
+        Language::TypeScript | Language::Tsx => pipelines::javascript::tech_debt_pipelines(),
         Language::CSharp => pipelines::csharp::tech_debt_pipelines(),
         _ => Ok(vec![]),
     }
@@ -112,7 +110,7 @@ pub fn complexity_pipelines_for_language(language: Language) -> Result<Vec<AnyPi
         Language::Java => wrap_legacy(pipelines::java::complexity_pipelines()),
         Language::JavaScript => wrap_legacy(pipelines::javascript::complexity_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            wrap_legacy(pipelines::typescript::complexity_pipelines(language))
+            wrap_legacy(pipelines::javascript::complexity_pipelines())
         }
         Language::CSharp => wrap_legacy(pipelines::csharp::complexity_pipelines()),
         _ => Ok(vec![]),
@@ -159,7 +157,7 @@ pub fn code_style_pipelines_for_language(language: Language) -> Result<Vec<AnyPi
         Language::Java => wrap_legacy(pipelines::java::code_style_pipelines()),
         Language::JavaScript => wrap_legacy(pipelines::javascript::code_style_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            wrap_legacy(pipelines::typescript::code_style_pipelines(language))
+            wrap_legacy(pipelines::javascript::code_style_pipelines())
         }
         Language::CSharp => wrap_legacy(pipelines::csharp::code_style_pipelines()),
         _ => Ok(vec![]),
@@ -193,7 +191,7 @@ pub fn security_pipelines_for_language(language: Language) -> Result<Vec<AnyPipe
             wrap_legacy(pipelines::javascript::security_pipelines(Language::JavaScript))
         }
         Language::TypeScript | Language::Tsx => {
-            wrap_legacy(pipelines::typescript::security_pipelines(language))
+            wrap_legacy(pipelines::javascript::security_pipelines(language))
         }
         _ => Ok(vec![]),
     }
@@ -223,7 +221,7 @@ pub fn scalability_pipelines_for_language(language: Language) -> Result<Vec<AnyP
         Language::Java => wrap_legacy(pipelines::java::scalability_pipelines()),
         Language::JavaScript => wrap_legacy(pipelines::javascript::scalability_pipelines()),
         Language::TypeScript | Language::Tsx => {
-            wrap_legacy(pipelines::typescript::scalability_pipelines(language))
+            wrap_legacy(pipelines::javascript::scalability_pipelines())
         }
         Language::CSharp => wrap_legacy(pipelines::csharp::scalability_pipelines()),
         _ => Ok(vec![]),

@@ -527,33 +527,38 @@ fn <pipeline>_<lang>_finds_<pattern>() {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the match_pattern executor support `#match?` predicates?**
    - What we know: `execute_match_pattern` in `src/graph/executor.rs` compiles the query string and runs it. tree-sitter's `#match?` is a built-in predicate.
    - What's unclear: Whether the executor applies predicates or returns all matches regardless.
    - Recommendation: Planner should verify by reading `execute_match_pattern` fully (lines 714+). If predicates are applied, use them for name filtering. If not, use broader patterns and document precision reduction.
+   - **RESOLVED (Plan 04-01):** The planner confirmed executor behavior. Each JSON file uses a single `match_pattern` stage per file; broader patterns are used without predicate reliance, with precision reduction documented where applicable.
 
 2. **Does the match_pattern executor support multiple match_pattern stages in sequence?**
    - What we know: The `graph` array can have multiple stages. The executor processes them in sequence.
    - What's unclear: Whether two `match_pattern` stages in one JSON file each start fresh or chain output nodes.
    - Recommendation: Planner should check whether multiple `match_pattern` stages are chained (output of first is input to second) or independent. The current Phase 3 JSON files only use one `match_pattern` stage per file.
+   - **RESOLVED (Plan 04-01 interfaces):** Multiple `match_pattern` stages overwrite (not chain) — each starts fresh from workspace files. Decision: use one `match_pattern` + one `flag` stage per JSON file.
 
 3. **resource_exhaustion pipelines for Rust, Go, Python**
    - What we know: These are in the respective security_pipelines() registrations but not fully read in this research.
    - What's unclear: Whether they use pure tree-sitter or graph analysis.
    - Recommendation: Planner reads these files during planning and applies D-01 match-pattern test. If graph-based, document as Rust exception per D-03/D-07.
+   - **RESOLVED (Plans 04-01, 04-03, 04-04):** All three classified as MIGRATE with simplified match_pattern patterns per D-07. Rust: flags `with_capacity`/`.reserve()` calls. Go: flags goroutine channel operations. Python: flags `re.compile`/`re.search`/`re.match` calls broadly.
 
 4. **panic_dos and toctou in Rust**
    - What we know: These are registered in `rust::security_pipelines()` but not read in this research.
    - What's unclear: Whether they pass the match-pattern test.
    - Recommendation: Planner reads these files and classifies.
+   - **RESOLVED (Plan 04-01):** Both classified MIGRATE. `panic_dos_rust.json` flags `panic!`/`unwrap()`/`expect()` macros in loop bodies. `toctou_rust.json` flags `std::fs::metadata` followed by `std::fs::File::open` call sequences.
 
 5. **Go race_conditions pipeline name**
    - What we know: Go's `go_race_conditions.rs` was briefly read — uses `go_statement` inside `for_statement` detection, plus concurrent bracket access.
    - What's unclear: Whether the Rust struct's `name()` returns `"race_conditions"` or `"go_race_conditions"`.
    - **Critical:** If it returns `"race_conditions"`, the JSON file must use `"pipeline": "race_conditions"` with `"languages": ["go"]`. If it returns `"go_race_conditions"`, use that.
    - Recommendation: Planner checks the `fn name()` return value in `go_race_conditions.rs` before writing JSON.
+   - **RESOLVED (Plan 04-03 interfaces):** `GoRaceConditionsPipeline::name()` returns `"race_conditions"`. JSON file uses `"pipeline": "race_conditions"` with `"languages": ["go"]` to disambiguate from Rust's `race_conditions_rust.json` (`"languages": ["rust"]`).
 
 ---
 

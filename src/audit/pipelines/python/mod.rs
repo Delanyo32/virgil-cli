@@ -1,8 +1,5 @@
 pub mod primitives;
 
-pub mod sql_injection;
-pub mod ssrf;
-
 use crate::audit::pipeline::AnyPipeline;
 use anyhow::Result;
 
@@ -19,10 +16,7 @@ pub fn code_style_pipelines() -> Result<Vec<AnyPipeline>> {
 }
 
 pub fn security_pipelines() -> Result<Vec<AnyPipeline>> {
-    Ok(vec![
-        AnyPipeline::Graph(Box::new(sql_injection::SqlInjectionPipeline::new()?)),
-        AnyPipeline::Graph(Box::new(ssrf::SsrfPipeline::new()?)),
-    ])
+    Ok(vec![])
 }
 
 pub fn scalability_pipelines() -> Result<Vec<AnyPipeline>> {
