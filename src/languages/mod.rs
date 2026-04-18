@@ -75,7 +75,7 @@ pub fn extract_symbols(
 ) -> Vec<SymbolInfo> {
     match language {
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
-            typescript::extract_symbols(tree, source, query, file_path)
+            typescript::extract_symbols(tree, source, query, file_path, language)
         }
         Language::C => c_lang::extract_symbols(tree, source, query, file_path),
         Language::Cpp => cpp::extract_symbols(tree, source, query, file_path),

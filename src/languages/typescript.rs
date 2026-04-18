@@ -61,6 +61,24 @@ const JS_SYMBOL_QUERY: &str = r#"
     value: (_) @value)) @definition
 "#;
 
+/// Matches `exports.NAME = VALUE` and `module.exports.NAME = VALUE` assignments.
+/// Used for a second-pass CommonJS export detection on JavaScript/JSX files.
+const JS_COMMONJS_EXPORT_QUERY: &str = r#"
+(assignment_expression
+  left: (member_expression
+    object: (member_expression
+      object: (identifier) @module_obj
+      property: (property_identifier) @exports_kw)
+    property: (property_identifier) @name)
+  right: (_) @value) @assign
+
+(assignment_expression
+  left: (member_expression
+    object: (identifier) @exports_obj
+    property: (property_identifier) @name)
+  right: (_) @value) @assign
+"#;
+
 // ── Import queries ──
 
 const TS_IMPORT_QUERY: &str = r#"
@@ -135,6 +153,7 @@ pub fn extract_symbols(
     source: &[u8],
     query: &Query,
     file_path: &str,
+    language: Language,
 ) -> Vec<SymbolInfo> {
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(query, tree.root_node(), source);
@@ -181,6 +200,107 @@ pub fn extract_symbols(
             is_exported,
         };
         symbols.push(symbol);
+    }
+
+    // Second pass: detect CommonJS exports (exports.NAME = fn / module.exports.NAME = fn)
+    // Only applies to JavaScript and JSX files.
+    if matches!(language, Language::JavaScript | Language::Jsx) {
+        let ts_lang = language.tree_sitter_language();
+        if let Ok(cjs_query) = tree_sitter::Query::new(&ts_lang, JS_COMMONJS_EXPORT_QUERY) {
+            let name_idx = cjs_query.capture_index_for_name("name");
+            let value_idx = cjs_query.capture_index_for_name("value");
+            let assign_idx = cjs_query.capture_index_for_name("assign");
+            let module_obj_idx = cjs_query.capture_index_for_name("module_obj");
+            let exports_kw_idx = cjs_query.capture_index_for_name("exports_kw");
+
+            let mut cjs_cursor = tree_sitter::QueryCursor::new();
+            let mut cjs_matches = cjs_cursor.matches(&cjs_query, tree.root_node(), source);
+
+            while let Some(m) = cjs_matches.next() {
+                // For `module.exports.NAME = VALUE`, guard that object is "module" and
+                // property is "exports". For bare `exports.NAME = VALUE` the query
+                // already constrains via @exports_obj (#eq? is not used here, so we
+                // must check the text ourselves).
+                let name_cap =
+                    name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+                let value_cap =
+                    value_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+                let assign_cap =
+                    assign_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+
+                let Some(name_cap) = name_cap else { continue };
+
+                let export_name = match name_cap.node.utf8_text(source) {
+                    Ok(n) if !n.is_empty() => n.to_string(),
+                    _ => continue,
+                };
+
+                // If this is a module.exports.NAME pattern, verify the object names.
+                // The query captures @module_obj and @exports_kw only for that branch.
+                let is_module_exports_branch = module_obj_idx
+                    .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
+                    .is_some();
+
+                if is_module_exports_branch {
+                    let module_text = module_obj_idx
+                        .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
+                        .and_then(|c| c.node.utf8_text(source).ok())
+                        .unwrap_or("");
+                    let exports_text = exports_kw_idx
+                        .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
+                        .and_then(|c| c.node.utf8_text(source).ok())
+                        .unwrap_or("");
+                    if module_text != "module" || exports_text != "exports" {
+                        continue;
+                    }
+                } else {
+                    // Bare `exports.NAME = VALUE` branch: guard that the object is "exports".
+                    // The @exports_obj capture is used in the query for the bare branch.
+                    let exports_obj_idx = cjs_query.capture_index_for_name("exports_obj");
+                    let obj_text = exports_obj_idx
+                        .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
+                        .and_then(|c| c.node.utf8_text(source).ok())
+                        .unwrap_or("");
+                    if obj_text != "exports" {
+                        continue;
+                    }
+                }
+
+                let value_kind = value_cap.map(|c| c.node.kind());
+                let symbol_kind = match value_kind {
+                    // tree-sitter-javascript uses "function_expression" for
+                    // named/anonymous function expressions (including async ones).
+                    // "function" is just the keyword token (unnamed node).
+                    Some("function_expression") | Some("function") => SymbolKind::Function,
+                    Some("generator_function") | Some("generator_function_expression") => {
+                        SymbolKind::Function
+                    }
+                    Some("arrow_function") => SymbolKind::ArrowFunction,
+                    _ => SymbolKind::Variable,
+                };
+
+                let start_line = name_cap.node.start_position().row as u32 + 1;
+                let end_line = assign_cap
+                    .map(|c| c.node.end_position().row as u32 + 1)
+                    .unwrap_or(start_line);
+
+                // If a symbol with the same name already exists, just mark it exported.
+                if let Some(existing) = symbols.iter_mut().find(|s| s.name == export_name) {
+                    existing.is_exported = true;
+                } else {
+                    symbols.push(SymbolInfo {
+                        name: export_name,
+                        kind: symbol_kind,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        start_column: name_cap.node.start_position().column as u32,
+                        end_line,
+                        end_column: name_cap.node.end_position().column as u32,
+                        is_exported: true,
+                    });
+                }
+            }
+        }
     }
 
     symbols
@@ -726,7 +846,7 @@ mod tests {
         let mut parser = create_parser(language).expect("create parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         let query = compile_symbol_query(language).expect("compile query");
-        extract_symbols(&tree, source.as_bytes(), &query, "test.ts")
+        extract_symbols(&tree, source.as_bytes(), &query, "test.ts", language)
     }
 
     // ── Import test helpers ──
@@ -891,6 +1011,70 @@ mod tests {
         let source = "function add() {}\nclass Calc {}\nconst x = 1;\nconst f = () => {};";
         let syms = parse_and_extract(source, Language::JavaScript);
         assert_eq!(syms.len(), 4);
+    }
+
+    #[test]
+    fn test_commonjs_exports_symbolized_with_correct_kind() {
+        let source = r#"exports.createComment = async function(req, res) {
+    return res.json({});
+};
+exports.updatePost = (req, res) => {
+    return res.json({});
+};
+module.exports.deleteItem = function(req, res) {
+    return res.json({});
+};
+"#;
+        let syms = parse_and_extract(source, Language::JavaScript);
+        let exported: Vec<_> = syms.iter().filter(|s| s.is_exported).collect();
+        assert_eq!(
+            exported.len(),
+            3,
+            "expected 3 CommonJS exports, got {:?}",
+            exported
+                .iter()
+                .map(|s| format!("{}:{:?}", s.name, s.kind))
+                .collect::<Vec<_>>()
+        );
+
+        let create = exported
+            .iter()
+            .find(|s| s.name == "createComment")
+            .expect("createComment should exist");
+        assert!(
+            matches!(
+                create.kind,
+                crate::models::SymbolKind::Function | crate::models::SymbolKind::ArrowFunction
+            ),
+            "createComment should be Function/ArrowFunction kind, got {:?}",
+            create.kind
+        );
+
+        let update = exported
+            .iter()
+            .find(|s| s.name == "updatePost")
+            .expect("updatePost should exist");
+        assert!(
+            matches!(
+                update.kind,
+                crate::models::SymbolKind::Function | crate::models::SymbolKind::ArrowFunction
+            ),
+            "updatePost should be Function/ArrowFunction kind, got {:?}",
+            update.kind
+        );
+
+        let delete = exported
+            .iter()
+            .find(|s| s.name == "deleteItem")
+            .expect("deleteItem should exist");
+        assert!(
+            matches!(
+                delete.kind,
+                crate::models::SymbolKind::Function | crate::models::SymbolKind::ArrowFunction
+            ),
+            "deleteItem should be Function/ArrowFunction kind, got {:?}",
+            delete.kind
+        );
     }
 
     #[test]
