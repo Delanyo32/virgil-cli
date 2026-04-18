@@ -1,19 +1,20 @@
 {
   "pipeline": "argument_mutation",
   "category": "code_style",
-  "description": "Detects mutation of function parameters in JavaScript. NOTE: high false positive rate -- fires on any member property assignment inside a function body, including locally-constructed objects (e.g. const filter = {}; filter.role = role). A proper fix requires scope analysis (lhs_is_parameter primitive) planned as a follow-up. Manual triage required.",
+  "description": "Detects mutation of function parameters in JavaScript. Fires only when the LHS member expression object is a named function parameter, preventing false positives on locally-constructed objects.",
   "languages": [
     "javascript"
   ],
   "graph": [
     {
-      "match_pattern": "[(assignment_expression left: (member_expression) @lhs) (augmented_assignment_expression left: (member_expression) @lhs)] @assign"
+      "match_pattern": "[(assignment_expression left: (member_expression) @lhs) (augmented_assignment_expression left: (member_expression) @lhs)] @assign",
+      "when": { "lhs_is_parameter": true }
     },
     {
       "flag": {
         "pattern": "argument_mutation",
-        "message": "Member expression assignment -- manually verify the object is a function parameter, not a local variable (false positives likely)",
-        "severity": "info"
+        "message": "Function parameter `{{name}}` is mutated — prefer returning a new value instead",
+        "severity": "warning"
       }
     }
   ]

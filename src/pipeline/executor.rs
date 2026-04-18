@@ -804,9 +804,21 @@ fn node_lhs_is_parameter(
     }
     let Some(lhs) = node.child_by_field_name("left") else { return false };
     if lhs.kind() != "member_expression" { return false }
-    let Some(obj) = lhs.child_by_field_name("object") else { return false };
-    if obj.kind() != "identifier" { return false }
-    let Ok(obj_name) = obj.utf8_text(source) else { return false };
+    // Walk through nested member expressions to find the root identifier.
+    // e.g. `config.nested.deep = true` has LHS `config.nested.deep`; root is `config`.
+    let mut root_obj = lhs;
+    loop {
+        let Some(obj) = root_obj.child_by_field_name("object") else { return false };
+        if obj.kind() == "identifier" {
+            root_obj = obj;
+            break;
+        } else if obj.kind() == "member_expression" {
+            root_obj = obj;
+        } else {
+            return false;
+        }
+    }
+    let Ok(obj_name) = root_obj.utf8_text(source) else { return false };
 
     // Build parent map by one full-tree walk
     let mut parent_map: std::collections::HashMap<usize, tree_sitter::Node> = std::collections::HashMap::new();
