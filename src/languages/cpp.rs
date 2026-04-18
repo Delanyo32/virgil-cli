@@ -170,7 +170,9 @@ fn determine_cpp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
             let mut cursor = def_node.walk();
             for child in def_node.children(&mut cursor) {
                 if child.kind() == "function_declarator" {
-                    return Some(SymbolKind::Function);
+                    // Forward declaration (e.g. `int foo(int x);`) — no body, skip it
+                    // to avoid spurious "no function body" warnings in compute_metric.
+                    return None;
                 }
             }
             Some(SymbolKind::Variable)

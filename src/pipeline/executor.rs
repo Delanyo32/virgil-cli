@@ -2286,4 +2286,57 @@ fn bar() { println!("ok"); }
         }
     }
 
+    #[test]
+    fn test_compute_metric_function_length_csharp_method() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src_dir = dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        // Write a C# method with 60 lines in the body
+        let mut body = String::from("public class MyService {\n    public void ProcessOrder(int orderId) {\n");
+        for i in 0..58 {
+            body.push_str(&format!("        var step{i} = orderId + {i};\n"));
+        }
+        body.push_str("    }\n}\n");
+        std::fs::write(src_dir.join("service.cs"), &body).unwrap();
+
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::CSharp], None).unwrap();
+        let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::CSharp])
+            .build()
+            .expect("GraphBuilder should succeed");
+
+        let is_test_fn = |path: &str| is_test_file(path);
+        let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
+        let is_barrel_fn = |path: &str| is_barrel_file(path);
+        let mut taint_ctx = TaintContext::default();
+
+        let nodes = execute_stage(
+            &GraphStage::Select {
+                select: crate::pipeline::dsl::NodeType::Symbol,
+                filter: Some(crate::pipeline::dsl::WhereClause {
+                    kind: Some(vec!["method".to_string()]),
+                    ..Default::default()
+                }),
+                exclude: None,
+            },
+            Vec::new(), &graph, Some(&ws), None, "csharp_length_test",
+            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
+        ).unwrap();
+
+        assert!(!nodes.is_empty(), "expected at least one method symbol in C# file");
+
+        let result_nodes = execute_stage(
+            &GraphStage::ComputeMetric { compute_metric: "function_length".to_string() },
+            nodes, &graph, Some(&ws), None, "csharp_length_test",
+            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
+        ).unwrap();
+
+        assert_eq!(result_nodes.len(), 1, "expected 1 method node with metric");
+        let len = result_nodes[0].metrics.get("function_length")
+            .expect("function_length metric should be present");
+        match len {
+            MetricValue::Int(v) => assert!(*v >= 50, "expected >= 50 lines, got {}", v),
+            _ => panic!("expected Int metric"),
+        }
+    }
+
 }
