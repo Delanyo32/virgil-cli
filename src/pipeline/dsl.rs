@@ -150,6 +150,12 @@ pub struct WhereClause {
     /// can be filtered without changing the Rust schema.
     #[serde(default)]
     pub metrics: HashMap<String, NumericPredicate>,
+
+    /// When true, the matched node must be an assignment expression whose LHS
+    /// member-expression object is a named parameter of the enclosing function.
+    /// Evaluated by execute_match_pattern when used in a MatchPattern when clause.
+    #[serde(default)]
+    pub lhs_is_parameter: Option<bool>,
 }
 
 impl WhereClause {
@@ -167,6 +173,7 @@ impl WhereClause {
             && self.unreferenced.is_none()
             && self.is_entry_point.is_none()
             && self.metrics.is_empty()
+            && self.lhs_is_parameter.is_none()
     }
 
     /// Evaluate predicate against a node's metrics only (no file system access).
@@ -506,6 +513,9 @@ pub enum GraphStage {
     },
     MatchPattern {
         match_pattern: String,
+        /// Optional post-filter on each match result.
+        #[serde(default)]
+        when: Option<WhereClause>,
     },
     ComputeMetric {
         compute_metric: String,
@@ -1074,8 +1084,23 @@ mod tests {
         let json = r#"{"match_pattern": "(identifier) @name"}"#;
         let stage: GraphStage = serde_json::from_str(json).unwrap();
         match stage {
-            GraphStage::MatchPattern { match_pattern } => {
+            GraphStage::MatchPattern { match_pattern, when } => {
                 assert_eq!(match_pattern, "(identifier) @name");
+                assert!(when.is_none());
+            }
+            _ => panic!("expected MatchPattern stage"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_match_pattern_with_when_lhs_is_parameter() {
+        let json = r#"{"match_pattern": "(identifier) @name", "when": {"lhs_is_parameter": true}}"#;
+        let stage: GraphStage = serde_json::from_str(json).unwrap();
+        match stage {
+            GraphStage::MatchPattern { match_pattern, when } => {
+                assert_eq!(match_pattern, "(identifier) @name");
+                let wc = when.expect("when should be present");
+                assert_eq!(wc.lhs_is_parameter, Some(true));
             }
             _ => panic!("expected MatchPattern stage"),
         }

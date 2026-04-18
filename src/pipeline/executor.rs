@@ -162,9 +162,9 @@ fn execute_stage(
             // just pass nodes through unchanged.
             Ok(nodes)
         }
-        GraphStage::MatchPattern { match_pattern } => {
+        GraphStage::MatchPattern { match_pattern, when } => {
             match workspace {
-                Some(ws) => execute_match_pattern(match_pattern, ws, pipeline_languages),
+                Some(ws) => execute_match_pattern(match_pattern, when.as_ref(), ws, pipeline_languages),
                 None => anyhow::bail!(
                     "match_pattern stage requires workspace -- call run_pipeline with Some(workspace)"
                 ),
@@ -762,8 +762,80 @@ fn execute_ratio(
 // MatchPattern stage (source: iterates workspace files, not graph nodes)
 // ---------------------------------------------------------------------------
 
+/// Returns the parameter identifier names declared in a function-like node.
+fn collect_function_params<'a>(func_node: &tree_sitter::Node, source: &'a [u8], _lang: crate::language::Language) -> Vec<&'a str> {
+    let mut params = Vec::new();
+    let Some(params_node) = func_node.child_by_field_name("parameters") else { return params };
+    let mut cursor = params_node.walk();
+    for child in params_node.named_children(&mut cursor) {
+        match child.kind() {
+            "identifier" => {
+                if let Ok(name) = child.utf8_text(source) {
+                    params.push(name);
+                }
+            }
+            // TypeScript/JS: required_parameter { pattern: identifier, ... }
+            "required_parameter" | "optional_parameter" => {
+                if let Some(pattern) = child.child_by_field_name("pattern") {
+                    if pattern.kind() == "identifier" {
+                        if let Ok(name) = pattern.utf8_text(source) {
+                            params.push(name);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    params
+}
+
+/// For an assignment_expression node, returns true if the LHS member-expression
+/// object is a named parameter of the nearest enclosing function.
+fn node_lhs_is_parameter(
+    node: &tree_sitter::Node,
+    root: tree_sitter::Node,
+    source: &[u8],
+    lang: crate::language::Language,
+) -> bool {
+    let kind = node.kind();
+    if kind != "assignment_expression" && kind != "augmented_assignment_expression" {
+        return false;
+    }
+    let Some(lhs) = node.child_by_field_name("left") else { return false };
+    if lhs.kind() != "member_expression" { return false }
+    let Some(obj) = lhs.child_by_field_name("object") else { return false };
+    if obj.kind() != "identifier" { return false }
+    let Ok(obj_name) = obj.utf8_text(source) else { return false };
+
+    // Build parent map by one full-tree walk
+    let mut parent_map: std::collections::HashMap<usize, tree_sitter::Node> = std::collections::HashMap::new();
+    let mut stack = vec![root];
+    while let Some(current) = stack.pop() {
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            parent_map.insert(child.id(), current);
+            stack.push(child);
+        }
+    }
+
+    // Walk up from the assignment node to the nearest enclosing function
+    let func_kinds = crate::graph::metrics::function_node_kinds_for_language(lang);
+    let mut current_id = node.id();
+    loop {
+        let Some(parent) = parent_map.get(&current_id) else { break };
+        if func_kinds.contains(&parent.kind()) {
+            let params = collect_function_params(parent, source, lang);
+            return params.contains(&obj_name);
+        }
+        current_id = parent.id();
+    }
+    false
+}
+
 fn execute_match_pattern(
     query_str: &str,
+    when: Option<&crate::pipeline::dsl::WhereClause>,
     workspace: &Workspace,
     pipeline_languages: Option<&[String]>,
 ) -> anyhow::Result<Vec<PipelineNode>> {
@@ -815,6 +887,14 @@ fn execute_match_pattern(
         while let Some(m) = matches.next() {
             for cap in m.captures {
                 let node = cap.node;
+                // Apply when filter if present
+                if let Some(wc) = when {
+                    if wc.lhs_is_parameter == Some(true) {
+                        if !node_lhs_is_parameter(&node, tree.root_node(), source.as_bytes(), lang) {
+                            continue;
+                        }
+                    }
+                }
                 let line = node.start_position().row as u32 + 1;
                 result.push(PipelineNode {
                     node_idx: petgraph::graph::NodeIndex::new(0), // synthetic -- match_pattern nodes are not graph-backed
@@ -1734,6 +1814,7 @@ fn bar() { println!("ok"); }
             GraphStage::MatchPattern {
                 match_pattern: r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
                     .to_string(),
+                when: None,
             },
             GraphStage::Flag {
                 flag: crate::pipeline::dsl::FlagConfig {
@@ -1777,6 +1858,7 @@ fn bar() { println!("ok"); }
             GraphStage::MatchPattern {
                 match_pattern: r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
                     .to_string(),
+                when: None,
             },
             GraphStage::Flag {
                 flag: crate::pipeline::dsl::FlagConfig {
@@ -1815,6 +1897,7 @@ fn bar() { println!("ok"); }
         let stages = vec![
             GraphStage::MatchPattern {
                 match_pattern: "(function_declaration name: (identifier) @name)".to_string(),
+                when: None,
             },
             GraphStage::Flag {
                 flag: crate::pipeline::dsl::FlagConfig {
@@ -2283,6 +2366,57 @@ fn bar() { println!("ok"); }
         match depth {
             MetricValue::Int(v) => assert_eq!(*v, 4, "expected nesting depth 4, got {}", v),
             _ => panic!("expected Int metric"),
+        }
+    }
+
+    #[test]
+    fn test_lhs_is_parameter_filters_local_object_mutations() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("service.js"),
+            r#"function createFilter(role) {
+    const filter = {};
+    filter.role = role;
+    return filter;
+}
+function mutateParam(user) {
+    user.name = "overwritten";
+}
+"#,
+        ).unwrap();
+        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
+
+        let stages = vec![
+            GraphStage::MatchPattern {
+                match_pattern: "(assignment_expression left: (member_expression) @lhs) @assign".to_string(),
+                when: Some(crate::pipeline::dsl::WhereClause {
+                    lhs_is_parameter: Some(true),
+                    ..Default::default()
+                }),
+            },
+            GraphStage::Flag {
+                flag: crate::pipeline::dsl::FlagConfig {
+                    pattern: "argument_mutation".to_string(),
+                    message: "mutation".to_string(),
+                    severity: Some("warning".to_string()),
+                    severity_map: None,
+                    pipeline_name: None,
+                },
+            },
+        ];
+        let graph = CodeGraph::new();
+        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "lhs_param_test").unwrap();
+        match out {
+            PipelineOutput::Findings(findings) => {
+                assert_eq!(findings.len(), 1,
+                    "expected exactly 1 finding (mutateParam's user.name), got {} findings: {:?}",
+                    findings.len(),
+                    findings.iter().map(|f| format!("{}:{}", f.file_path, f.line)).collect::<Vec<_>>()
+                );
+                assert_eq!(findings[0].line, 7, "expected line 7 (user.name = ...), got {}", findings[0].line);
+            }
+            _ => panic!("expected Findings"),
         }
     }
 
