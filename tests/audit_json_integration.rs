@@ -13894,15 +13894,13 @@ fn duplicate_code_java_clean_no_java_files() {
 }
 
 // ── coupling (Java, 8 tests) ──
-// The coupling_java pipeline uses efferent_coupling (intra-project Imports edges).
-// External library imports (java.util.*, org.springframework.*) don't resolve to project
-// files, so they don't contribute to efferent_coupling. Only imports between files within
-// the same project create Imports edges and trigger findings.
+// The coupling_java pipeline counts import_declaration nodes per file via match_pattern +
+// group_by + count. Both external and intra-project imports count toward the threshold.
+// Warning >= 8 imports, error >= 15 imports.
 
 #[test]
 fn coupling_java_finds_import_declaration() {
-    // Single-file project: external imports don't create intra-project Imports edges.
-    // efferent_coupling = 0, no coupling findings expected.
+    // Single import: count = 1, below warning threshold of 8. No finding expected.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("Svc.java"),
@@ -13910,7 +13908,7 @@ fn coupling_java_finds_import_declaration() {
     ).unwrap();
     let findings = run_java_code_style(&dir);
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
-        "external imports should not trigger efferent_coupling; got: {:?}",
+        "1 import is below threshold 8; got: {:?}",
         findings.iter().map(|f| (&f.pipeline, &f.pattern)).collect::<Vec<_>>()
     );
 }
@@ -13925,11 +13923,9 @@ fn coupling_java_clean_no_imports() {
 
 #[test]
 fn coupling_java_pattern_is_excessive_imports() {
-    // efferent_coupling uses pattern "high_coupling" (not "excessive_imports").
-    // Single-file with external imports: 0 findings, pattern check N/A.
-    // Verify pattern name via a multi-file setup that triggers a finding.
+    // 9 import declarations in Svc.java: count = 9 >= 8 warning threshold.
+    // Pipeline now counts import_declaration nodes directly, so this must find a finding.
     let dir = tempfile::tempdir().unwrap();
-    // Create 10 dependency files so Svc.java can import 9 of them (>= 8 threshold).
     let pkg_dir = dir.path().join("com").join("example");
     std::fs::create_dir_all(&pkg_dir).unwrap();
     for i in 0..9 {
@@ -13947,9 +13943,10 @@ fn coupling_java_pattern_is_excessive_imports() {
          class Svc {}",
     ).unwrap();
     let findings = run_java_code_style(&dir);
-    // If the project layout resolves intra-project imports, expect pattern "high_coupling".
-    // If not (e.g. package paths don't match filenames), no coupling findings is acceptable.
-    for f in findings.iter().filter(|f| f.pipeline == "coupling") {
+    let coupling_findings: Vec<_> = findings.iter().filter(|f| f.pipeline == "coupling").collect();
+    assert!(!coupling_findings.is_empty(),
+        "Svc.java has 9 imports (>= 8 threshold); expected at least one coupling finding");
+    for f in &coupling_findings {
         assert_eq!(f.pattern, "high_coupling",
             "coupling pipeline should use pattern 'high_coupling', got '{}'", f.pattern);
     }
@@ -13957,7 +13954,7 @@ fn coupling_java_pattern_is_excessive_imports() {
 
 #[test]
 fn coupling_java_severity_is_info() {
-    // Single-file project with external imports: no coupling findings.
+    // 1 import: below threshold of 8, no coupling finding.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("Svc.java"),
@@ -13965,12 +13962,12 @@ fn coupling_java_severity_is_info() {
     ).unwrap();
     let findings = run_java_code_style(&dir);
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
-        "external imports should not trigger efferent_coupling");
+        "1 import is below threshold 8");
 }
 
 #[test]
 fn coupling_java_finds_multiple_imports() {
-    // Single-file project: all imports are external, efferent_coupling = 0.
+    // 4 imports: below warning threshold of 8. No finding expected.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("Heavy.java"),
@@ -13978,7 +13975,7 @@ fn coupling_java_finds_multiple_imports() {
     ).unwrap();
     let findings = run_java_code_style(&dir);
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
-        "external imports should not trigger efferent_coupling");
+        "4 imports is below threshold 8");
 }
 
 #[test]
@@ -13999,7 +13996,7 @@ fn coupling_java_clean_empty_class() {
 
 #[test]
 fn coupling_java_finds_static_import() {
-    // Single-file project with external static import: efferent_coupling = 0.
+    // 1 static import: count = 1, below threshold of 8. No finding expected.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("Test.java"),
@@ -14007,7 +14004,7 @@ fn coupling_java_finds_static_import() {
     ).unwrap();
     let findings = run_java_code_style(&dir);
     assert!(!findings.iter().any(|f| f.pipeline == "coupling"),
-        "external static imports should not trigger efferent_coupling");
+        "1 static import is below threshold 8");
 }
 
 // ── Phase 5: C Tech Debt + Code Style Pipelines ──

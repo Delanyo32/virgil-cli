@@ -1,32 +1,35 @@
 {
   "pipeline": "coupling",
   "category": "code-quality",
-  "description": "Detects Java files with high efferent coupling (excessive unique import dependencies). Warning >= 8 imports, error >= 15.",
+  "description": "Detects Java files with high import count (high fan-out coupling). Warning >= 8 import declarations, error >= 15.",
   "languages": [
     "java"
   ],
   "graph": [
     {
-      "select": "file",
-      "exclude": {
-        "or": [
-          { "is_test_file": true },
-          { "is_generated": true }
-        ]
+      "match_pattern": "(import_declaration) @import"
+    },
+    {
+      "group_by": "file"
+    },
+    {
+      "count": {
+        "threshold": {
+          "gte": 8
+        }
       }
     },
-    { "compute_metric": "efferent_coupling" },
     {
       "flag": {
         "pattern": "high_coupling",
-        "message": "{{file}} imports from {{efferent_coupling}} modules — high fan-out coupling",
+        "message": "{{file}} has {{count}} import declarations — high fan-out coupling",
         "severity_map": [
           {
-            "when": { "metrics": { "efferent_coupling": { "gte": 15 } } },
+            "when": { "metrics": { "count": { "gte": 15 } } },
             "severity": "error"
           },
           {
-            "when": { "metrics": { "efferent_coupling": { "gte": 8 } } },
+            "when": { "metrics": { "count": { "gte": 8 } } },
             "severity": "warning"
           }
         ]

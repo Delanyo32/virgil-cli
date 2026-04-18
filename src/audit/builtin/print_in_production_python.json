@@ -7,7 +7,7 @@
   ],
   "graph": [
     {
-      "match_pattern": "(call function: (identifier) @fn (#eq? @fn \"print\")) @call"
+      "match_pattern": "(call function: (identifier) @fn (#eq? @fn \"print\"))"
     },
     {
       "flag": {
