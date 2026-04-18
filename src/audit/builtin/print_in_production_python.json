@@ -1,0 +1,20 @@
+{
+  "pipeline": "print_in_production",
+  "category": "code_style",
+  "description": "Detects print() calls in production Python modules. In codebases using a logging library, print() loses severity levels, routing, and structured context.",
+  "languages": [
+    "python"
+  ],
+  "graph": [
+    {
+      "match_pattern": "(call function: (identifier) @fn (#eq? @fn \"print\")) @call"
+    },
+    {
+      "flag": {
+        "pattern": "print_instead_of_logging",
+        "message": "print() call in production code — replace with logging.info() / logging.debug()",
+        "severity": "info"
+      }
+    }
+  ]
+}

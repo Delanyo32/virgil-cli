@@ -1,19 +1,35 @@
 {
   "pipeline": "coupling",
   "category": "code-quality",
-  "description": "Detects high coupling in Java files via import declarations. Simplified from Rust: flags all import_declaration nodes as coupling indicators. Cannot count total imports against the 15-import threshold, detect parameter overload (>=5 params), or check low-cohesion methods.",
+  "description": "Detects Java files with high efferent coupling (excessive unique import dependencies). Warning >= 8 imports, error >= 15.",
   "languages": [
     "java"
   ],
   "graph": [
     {
-      "match_pattern": "(import_declaration) @import_stmt"
+      "select": "file",
+      "exclude": {
+        "or": [
+          { "is_test_file": true },
+          { "is_generated": true }
+        ]
+      }
     },
+    { "compute_metric": "efferent_coupling" },
     {
       "flag": {
-        "pattern": "excessive_imports",
-        "message": "import declaration detected -- monitor total import count; high coupling (>=15 imports) indicates a class doing too much",
-        "severity": "info"
+        "pattern": "high_coupling",
+        "message": "{{file}} imports from {{efferent_coupling}} modules — high fan-out coupling",
+        "severity_map": [
+          {
+            "when": { "metrics": { "efferent_coupling": { "gte": 15 } } },
+            "severity": "error"
+          },
+          {
+            "when": { "metrics": { "efferent_coupling": { "gte": 8 } } },
+            "severity": "warning"
+          }
+        ]
       }
     }
   ]
