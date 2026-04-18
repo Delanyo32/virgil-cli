@@ -790,11 +790,28 @@ fn collect_function_params<'a>(func_node: &tree_sitter::Node, source: &'a [u8], 
     params
 }
 
+/// Build a child→parent map for an entire tree in one DFS pass.
+/// Used by `node_lhs_is_parameter` to walk upward from a match node.
+fn build_parent_map(root: tree_sitter::Node) -> std::collections::HashMap<usize, tree_sitter::Node> {
+    let mut map = std::collections::HashMap::new();
+    let mut stack = vec![root];
+    while let Some(current) = stack.pop() {
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            map.insert(child.id(), current);
+            stack.push(child);
+        }
+    }
+    map
+}
+
 /// For an assignment_expression node, returns true if the LHS member-expression
 /// object is a named parameter of the nearest enclosing function.
+/// `parent_map` must be pre-built via `build_parent_map` — callers should build
+/// it once per file, not once per capture.
 fn node_lhs_is_parameter(
     node: &tree_sitter::Node,
-    root: tree_sitter::Node,
+    parent_map: &std::collections::HashMap<usize, tree_sitter::Node>,
     source: &[u8],
     lang: crate::language::Language,
 ) -> bool {
@@ -819,17 +836,6 @@ fn node_lhs_is_parameter(
         }
     }
     let Ok(obj_name) = root_obj.utf8_text(source) else { return false };
-
-    // Build parent map by one full-tree walk
-    let mut parent_map: std::collections::HashMap<usize, tree_sitter::Node> = std::collections::HashMap::new();
-    let mut stack = vec![root];
-    while let Some(current) = stack.pop() {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            parent_map.insert(child.id(), current);
-            stack.push(child);
-        }
-    }
 
     // Walk up from the assignment node to the nearest enclosing function
     let func_kinds = crate::graph::metrics::function_node_kinds_for_language(lang);
@@ -894,6 +900,11 @@ fn execute_match_pattern(
             }
         };
 
+        // Build the parent map once per file if lhs_is_parameter filtering is active.
+        let parent_map = when
+            .and_then(|wc| wc.lhs_is_parameter)
+            .map(|_| build_parent_map(tree.root_node()));
+
         let mut cursor = tree_sitter::QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
         while let Some(m) = matches.next() {
@@ -902,8 +913,10 @@ fn execute_match_pattern(
                 // Apply when filter if present
                 if let Some(wc) = when {
                     if wc.lhs_is_parameter == Some(true) {
-                        if !node_lhs_is_parameter(&node, tree.root_node(), source.as_bytes(), lang) {
-                            continue;
+                        if let Some(ref pm) = parent_map {
+                            if !node_lhs_is_parameter(&node, pm, source.as_bytes(), lang) {
+                                continue;
+                            }
                         }
                     }
                 }
@@ -2290,30 +2303,6 @@ fn bar() { println!("ok"); }
         // 4 levels: if > if > if > if
         let depth = result_nodes[0].metric_f64("nesting_depth") as i64;
         assert_eq!(depth, 4, "expected nesting depth of 4, got {}", depth);
-    }
-
-    #[test]
-    fn debug_js_async_arrow_function_ast() {
-        let source = b"const createComment = async (req, res) => {\n    if (req.body) { return req.body; }\n};\n";
-        let mut parser = crate::parser::create_parser(Language::JavaScript).unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        let mut stack = vec![tree.root_node()];
-        while let Some(node) = stack.pop() {
-            if node.start_position().row <= 1 {
-                let body_field = node.child_by_field_name("body").map(|b| format!("{}@row{}", b.kind(), b.start_position().row));
-                eprintln!(
-                    "kind={:30} row={} col={} body_field={:?}",
-                    node.kind(),
-                    node.start_position().row,
-                    node.start_position().column,
-                    body_field
-                );
-            }
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                stack.push(child);
-            }
-        }
     }
 
     #[test]
