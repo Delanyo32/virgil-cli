@@ -853,10 +853,7 @@ fn node_lhs_is_parameter(
     // Walk up from the assignment node to the nearest enclosing function
     let func_kinds = crate::graph::metrics::function_node_kinds_for_language(lang);
     let mut current_id = node.id();
-    loop {
-        let Some(parent) = parent_map.get(&current_id) else {
-            break;
-        };
+    while let Some(parent) = parent_map.get(&current_id) {
         if func_kinds.contains(&parent.kind()) {
             let params = collect_function_params(parent, source, lang);
             return params.contains(&obj_name);

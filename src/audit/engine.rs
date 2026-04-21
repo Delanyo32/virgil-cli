@@ -164,10 +164,10 @@ fn compute_summary(findings: &[AuditFinding], files_scanned: usize) -> AuditSumm
     }
 
     let mut by_pipeline: Vec<(String, usize)> = by_pipeline.into_iter().collect();
-    by_pipeline.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    by_pipeline.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
 
     let mut by_pattern: Vec<(String, usize)> = by_pattern.into_iter().collect();
-    by_pattern.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    by_pattern.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
 
     let by_pipeline_pattern: Vec<(String, Vec<(String, usize)>)> = by_pipeline
         .iter()
@@ -177,7 +177,7 @@ fn compute_summary(findings: &[AuditFinding], files_scanned: usize) -> AuditSumm
                 .unwrap_or_default()
                 .into_iter()
                 .collect();
-            patterns.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+            patterns.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
             (pipeline_name.clone(), patterns)
         })
         .collect();

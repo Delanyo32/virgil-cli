@@ -261,23 +261,23 @@ pub fn extract_imports(
                 let mut found_names = false;
                 for child in import_node.children(&mut cursor_walk) {
                     match child.kind() {
-                        "dotted_name" => {
+                        "dotted_name"
+                            if found_names || is_import_name_position(import_node, child) =>
+                        {
                             // Skip the module part (first dotted_name is the module)
                             // Subsequent dotted_names are imported names
-                            if found_names || is_import_name_position(import_node, child) {
-                                let name = child.utf8_text(source).unwrap_or("").to_string();
-                                if !name.is_empty() && name != module {
-                                    imports.push(ImportInfo {
-                                        source_file: file_path.to_string(),
-                                        module_specifier: module.clone(),
-                                        imported_name: name.clone(),
-                                        local_name: name,
-                                        kind: "from".to_string(),
-                                        is_type_only: false,
-                                        line,
-                                        is_external: !is_internal,
-                                    });
-                                }
+                            let name = child.utf8_text(source).unwrap_or("").to_string();
+                            if !name.is_empty() && name != module {
+                                imports.push(ImportInfo {
+                                    source_file: file_path.to_string(),
+                                    module_specifier: module.clone(),
+                                    imported_name: name.clone(),
+                                    local_name: name,
+                                    kind: "from".to_string(),
+                                    is_type_only: false,
+                                    line,
+                                    is_external: !is_internal,
+                                });
                             }
                         }
                         "aliased_import" => {
