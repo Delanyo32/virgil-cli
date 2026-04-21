@@ -64,16 +64,19 @@ impl AuditEngine {
         graph: Option<&CodeGraph>,
     ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Discover JSON audit files (project-local → user-global → built-ins)
-        let json_audits = crate::pipeline::loader::discover_json_audits(
-            self.project_dir.as_deref(),
-        );
+        let json_audits =
+            crate::pipeline::loader::discover_json_audits(self.project_dir.as_deref());
 
         // No Rust pipelines remain — all audit logic is JSON-driven.
         // files_scanned counts workspace files visible to the engine's languages.
         let files_scanned = workspace
             .files()
             .iter()
-            .filter(|rel_path| workspace.file_language(rel_path).is_some_and(|l| self.languages.contains(&l)))
+            .filter(|rel_path| {
+                workspace
+                    .file_language(rel_path)
+                    .is_some_and(|l| self.languages.contains(&l))
+            })
             .count();
 
         if let Some(pb) = &self.progress {
@@ -88,7 +91,10 @@ impl AuditEngine {
             for json_audit in &json_audits {
                 // Apply category filter if set
                 if !self.category_filter.is_empty()
-                    && !self.category_filter.iter().any(|c| c == &json_audit.category)
+                    && !self
+                        .category_filter
+                        .iter()
+                        .any(|c| c == &json_audit.category)
                 {
                     continue;
                 }
@@ -214,7 +220,7 @@ mod tests {
         // Note: files_scanned counts only Rust-lang-pipeline files (0 now that all Rust
         // tech-debt pipelines are JSON); files_with_findings counts files from JSON findings.
         assert!(
-            findings.len() >= 1,
+            !findings.is_empty(),
             "expected at least 1 finding from JSON pipelines; got 0"
         );
         assert_eq!(summary.total_findings, findings.len());
@@ -332,11 +338,7 @@ mod tests {
                 {"flag": {"pattern": "json_coupling", "message": "json coupling {{file}}", "severity": "info"}}
             ]
         }"#;
-        std::fs::write(
-            audit_dir.join("cross_file_coupling.json"),
-            override_json,
-        )
-        .unwrap();
+        std::fs::write(audit_dir.join("cross_file_coupling.json"), override_json).unwrap();
 
         let src_dir = tempfile::tempdir().expect("src_dir");
         std::fs::write(src_dir.path().join("a.rs"), "fn foo() {}").unwrap();

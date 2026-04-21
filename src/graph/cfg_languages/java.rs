@@ -18,12 +18,12 @@ impl CfgBuilder for JavaCfgBuilder {
         if let Some(params_node) = function_node.child_by_field_name("parameters") {
             let mut cursor = params_node.walk();
             for child in params_node.named_children(&mut cursor) {
-                if child.kind() == "formal_parameter" || child.kind() == "spread_parameter" {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        let name = name_node.utf8_text(source).unwrap_or("").to_string();
-                        if !name.is_empty() {
-                            ctx.cfg.param_names.push(name);
-                        }
+                if (child.kind() == "formal_parameter" || child.kind() == "spread_parameter")
+                    && let Some(name_node) = child.child_by_field_name("name")
+                {
+                    let name = name_node.utf8_text(source).unwrap_or("").to_string();
+                    if !name.is_empty() {
+                        ctx.cfg.param_names.push(name);
                     }
                 }
             }
@@ -1023,14 +1023,14 @@ mod tests {
             .edge_indices()
             .filter(|&e| {
                 let w = &cfg.blocks[e];
-                match (w, kind) {
-                    (CfgEdge::Normal, "Normal") => true,
-                    (CfgEdge::TrueBranch, "TrueBranch") => true,
-                    (CfgEdge::FalseBranch, "FalseBranch") => true,
-                    (CfgEdge::Exception, "Exception") => true,
-                    (CfgEdge::Cleanup, "Cleanup") => true,
-                    _ => false,
-                }
+                matches!(
+                    (w, kind),
+                    (CfgEdge::Normal, "Normal")
+                        | (CfgEdge::TrueBranch, "TrueBranch")
+                        | (CfgEdge::FalseBranch, "FalseBranch")
+                        | (CfgEdge::Exception, "Exception")
+                        | (CfgEdge::Cleanup, "Cleanup")
+                )
             })
             .count()
     }

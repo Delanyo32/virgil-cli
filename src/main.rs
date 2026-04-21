@@ -131,13 +131,8 @@ fn main() -> Result<()> {
                 };
                 let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages)
                     .build()?;
-                let output = virgil_cli::query_engine::execute(
-                    &project,
-                    &query,
-                    max,
-                    &workspace,
-                    &graph,
-                )?;
+                let output =
+                    virgil_cli::query_engine::execute(&project, &query, max, &workspace, &graph)?;
                 let elapsed = start.elapsed();
 
                 let formatted = virgil_cli::format::format_results(
@@ -296,9 +291,8 @@ fn run_json_audit_file_ws(
 ) -> Result<()> {
     let content = std::fs::read_to_string(audit_file_path)
         .map_err(|e| anyhow::anyhow!("failed to read audit file {:?}: {e}", audit_file_path))?;
-    let json_audit: virgil_cli::pipeline::loader::JsonAuditFile =
-        serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("invalid audit JSON in {:?}: {e}", audit_file_path))?;
+    let json_audit: virgil_cli::pipeline::loader::JsonAuditFile = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("invalid audit JSON in {:?}: {e}", audit_file_path))?;
 
     let languages: Vec<Language> = if let Some(filter) = lang_filter {
         language::parse_language_filter(filter)
@@ -320,8 +314,14 @@ fn run_json_audit_file_ws(
         json_audit.pipeline, json_audit.category
     );
 
-    let output =
-        virgil_cli::pipeline::executor::run_pipeline(&json_audit.graph, &graph, None, None, None, &json_audit.pipeline)?;
+    let output = virgil_cli::pipeline::executor::run_pipeline(
+        &json_audit.graph,
+        &graph,
+        None,
+        None,
+        None,
+        &json_audit.pipeline,
+    )?;
 
     let findings = match output {
         virgil_cli::pipeline::executor::PipelineOutput::Findings(f) => f,
@@ -367,4 +367,3 @@ fn run_json_audit_file_ws(
 
     Ok(())
 }
-

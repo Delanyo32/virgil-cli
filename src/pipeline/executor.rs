@@ -12,13 +12,9 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use crate::audit::models::AuditFinding;
-use crate::pipeline::helpers::{
-    is_barrel_file, is_excluded_for_arch_analysis, is_test_file,
-};
-use crate::pipeline::dsl::{
-    EdgeType, GraphStage, MetricValue, PipelineNode, interpolate_message,
-};
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
+use crate::pipeline::dsl::{EdgeType, GraphStage, MetricValue, PipelineNode, interpolate_message};
+use crate::pipeline::helpers::{is_barrel_file, is_excluded_for_arch_analysis, is_test_file};
 use crate::query_engine::QueryResult;
 use crate::workspace::Workspace;
 
@@ -126,6 +122,7 @@ pub fn run_pipeline(
 // Stage dispatch
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)] // central stage dispatch needs all context
 fn execute_stage(
     stage: &GraphStage,
     nodes: Vec<PipelineNode>,
@@ -139,21 +136,25 @@ fn execute_stage(
     taint_ctx: &mut TaintContext,
 ) -> anyhow::Result<Vec<PipelineNode>> {
     match stage {
-        GraphStage::Select { select, filter, exclude } => {
-            execute_select(select, filter.as_ref(), exclude.as_ref(), graph, is_test_fn, is_generated_fn, is_barrel_fn)
-        }
-        GraphStage::GroupBy { group_by } => {
-            Ok(execute_group_by(group_by, nodes))
-        }
-        GraphStage::Count { count } => {
-            Ok(execute_count(&count.threshold, nodes))
-        }
+        GraphStage::Select {
+            select,
+            filter,
+            exclude,
+        } => execute_select(
+            select,
+            filter.as_ref(),
+            exclude.as_ref(),
+            graph,
+            is_test_fn,
+            is_generated_fn,
+            is_barrel_fn,
+        ),
+        GraphStage::GroupBy { group_by } => Ok(execute_group_by(group_by, nodes)),
+        GraphStage::Count { count } => Ok(execute_count(&count.threshold, nodes)),
         GraphStage::FindCycles { find_cycles } => {
             execute_find_cycles(&find_cycles.edge, nodes, graph)
         }
-        GraphStage::MaxDepth { max_depth } => {
-            execute_max_depth(max_depth, nodes, graph)
-        }
+        GraphStage::MaxDepth { max_depth } => execute_max_depth(max_depth, nodes, graph),
         GraphStage::Ratio { ratio } => {
             execute_ratio(ratio, nodes, is_test_fn, is_generated_fn, is_barrel_fn)
         }
@@ -162,22 +163,21 @@ fn execute_stage(
             // just pass nodes through unchanged.
             Ok(nodes)
         }
-        GraphStage::MatchPattern { match_pattern, when } => {
-            match workspace {
-                Some(ws) => execute_match_pattern(match_pattern, when.as_ref(), ws, pipeline_languages),
-                None => anyhow::bail!(
-                    "match_pattern stage requires workspace -- call run_pipeline with Some(workspace)"
-                ),
-            }
-        }
-        GraphStage::ComputeMetric { compute_metric } => {
-            match workspace {
-                Some(ws) => execute_compute_metric(compute_metric, nodes, ws, graph),
-                None => anyhow::bail!(
-                    "compute_metric stage requires workspace -- call run_pipeline with Some(workspace)"
-                ),
-            }
-        }
+        GraphStage::MatchPattern {
+            match_pattern,
+            when,
+        } => match workspace {
+            Some(ws) => execute_match_pattern(match_pattern, when.as_ref(), ws, pipeline_languages),
+            None => anyhow::bail!(
+                "match_pattern stage requires workspace -- call run_pipeline with Some(workspace)"
+            ),
+        },
+        GraphStage::ComputeMetric { compute_metric } => match workspace {
+            Some(ws) => execute_compute_metric(compute_metric, nodes, ws, graph),
+            None => anyhow::bail!(
+                "compute_metric stage requires workspace -- call run_pipeline with Some(workspace)"
+            ),
+        },
         GraphStage::Taint { taint } => {
             let config = crate::graph::taint::TaintConfig {
                 sources: taint.sources.clone(),
@@ -191,7 +191,9 @@ fn execute_stage(
             Ok(nodes)
         }
         GraphStage::TaintSanitizers { taint_sanitizers } => {
-            taint_ctx.sanitizers.extend(taint_sanitizers.iter().cloned());
+            taint_ctx
+                .sanitizers
+                .extend(taint_sanitizers.iter().cloned());
             Ok(nodes)
         }
         GraphStage::TaintSinks { taint_sinks } => {
@@ -242,16 +244,16 @@ fn execute_select(
                     metrics: HashMap::new(),
                 };
                 // Apply where clause
-                if let Some(wc) = filter {
-                    if !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn) {
-                        continue;
-                    }
+                if let Some(wc) = filter
+                    && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                {
+                    continue;
                 }
                 // Apply exclude clause
-                if let Some(exc) = exclude {
-                    if exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn) {
-                        continue;
-                    }
+                if let Some(exc) = exclude
+                    && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                {
+                    continue;
                 }
                 result.push(node);
             }
@@ -271,7 +273,9 @@ fn execute_select(
                         .file_nodes
                         .get(file_path)
                         .and_then(|&file_idx| match &graph.graph[file_idx] {
-                            NodeWeight::File { language, .. } => Some(language.as_str().to_string()),
+                            NodeWeight::File { language, .. } => {
+                                Some(language.as_str().to_string())
+                            }
                             _ => None,
                         })
                         .unwrap_or_default();
@@ -293,14 +297,13 @@ fn execute_select(
                     );
 
                     // is_entry_point: file stem matches known entry-point names
-                    const ENTRY_POINT_NAMES: &[&str] = &[
-                        "main", "lib", "mod", "index", "__init__", "__main__",
-                    ];
+                    const ENTRY_POINT_NAMES: &[&str] =
+                        &["main", "lib", "mod", "index", "__init__", "__main__"];
                     let stem = std::path::Path::new(file_path.as_str())
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("");
-                    let ep = ENTRY_POINT_NAMES.iter().any(|&e| stem == e);
+                    let ep = ENTRY_POINT_NAMES.contains(&stem);
                     metrics.insert(
                         "is_entry_point".to_string(),
                         MetricValue::Int(if ep { 1 } else { 0 }),
@@ -317,16 +320,16 @@ fn execute_select(
                         metrics,
                     };
                     // Apply where clause
-                    if let Some(wc) = filter {
-                        if !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn) {
-                            continue;
-                        }
+                    if let Some(wc) = filter
+                        && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    {
+                        continue;
                     }
                     // Apply exclude clause
-                    if let Some(exc) = exclude {
-                        if exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn) {
-                            continue;
-                        }
+                    if let Some(exc) = exclude
+                        && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    {
+                        continue;
                     }
                     result.push(node);
                 }
@@ -344,7 +347,9 @@ fn execute_select(
                         .file_nodes
                         .get(file_path)
                         .and_then(|&file_idx| match &graph.graph[file_idx] {
-                            NodeWeight::File { language, .. } => Some(language.as_str().to_string()),
+                            NodeWeight::File { language, .. } => {
+                                Some(language.as_str().to_string())
+                            }
                             _ => None,
                         })
                         .unwrap_or_default();
@@ -360,16 +365,16 @@ fn execute_select(
                         metrics: HashMap::new(),
                     };
                     // Apply where clause
-                    if let Some(wc) = filter {
-                        if !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn) {
-                            continue;
-                        }
+                    if let Some(wc) = filter
+                        && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    {
+                        continue;
                     }
                     // Apply exclude clause
-                    if let Some(exc) = exclude {
-                        if exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn) {
-                            continue;
-                        }
+                    if let Some(exc) = exclude
+                        && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    {
+                        continue;
                     }
                     result.push(node);
                 }
@@ -474,9 +479,7 @@ fn execute_find_cycles(
         }
         let src = edge.source();
         let tgt = edge.target();
-        if let (Some(&sub_src), Some(&sub_tgt)) =
-            (orig_to_sub.get(&src), orig_to_sub.get(&tgt))
-        {
+        if let (Some(&sub_src), Some(&sub_tgt)) = (orig_to_sub.get(&src), orig_to_sub.get(&tgt)) {
             import_graph.add_edge(sub_src, sub_tgt, ());
         }
     }
@@ -496,23 +499,16 @@ fn execute_find_cycles(
         // Collect file paths for cycle members
         let participants: Vec<String> = orig_indices
             .iter()
-            .filter_map(|&idx| {
-                match &graph.graph[idx] {
-                    NodeWeight::File { path, .. } => Some(path.clone()),
-                    NodeWeight::Symbol { file_path, .. } => Some(file_path.clone()),
-                    _ => None,
-                }
+            .filter_map(|&idx| match &graph.graph[idx] {
+                NodeWeight::File { path, .. } => Some(path.clone()),
+                NodeWeight::Symbol { file_path, .. } => Some(file_path.clone()),
+                _ => None,
             })
             .collect();
 
         let cycle_size = scc.len();
         let scc_set: HashSet<NodeIndex> = orig_indices.iter().copied().collect();
-        let cycle_path = ordered_cycle_path_for_edge(
-            &orig_indices,
-            &scc_set,
-            graph,
-            edge_type,
-        );
+        let cycle_path = ordered_cycle_path_for_edge(&orig_indices, &scc_set, graph, edge_type);
 
         // Lexicographically smallest file path as representative
         let representative_path = participants.iter().min().cloned().unwrap_or_default();
@@ -525,8 +521,8 @@ fn execute_find_cycles(
             .copied()
             .unwrap_or(orig_indices[0]);
 
-        let rep_base = pipeline_node_from_index(rep_node_idx, graph)
-            .unwrap_or_else(|| PipelineNode {
+        let rep_base =
+            pipeline_node_from_index(rep_node_idx, graph).unwrap_or_else(|| PipelineNode {
                 node_idx: rep_node_idx,
                 file_path: representative_path.clone(),
                 name: representative_path.clone(),
@@ -547,8 +543,10 @@ fn execute_find_cycles(
             language: rep_base.language,
             metrics: HashMap::new(),
         };
-        rep.metrics
-            .insert("cycle_size".to_string(), MetricValue::Int(cycle_size as i64));
+        rep.metrics.insert(
+            "cycle_size".to_string(),
+            MetricValue::Int(cycle_size as i64),
+        );
         rep.metrics
             .insert("cycle_path".to_string(), MetricValue::Text(cycle_path));
 
@@ -577,8 +575,7 @@ fn execute_max_depth(
         nodes.iter().map(|n| (n.node_idx, n)).collect();
 
     // Compute in-degree within the subgraph (edges of our type between nodes in the set)
-    let mut in_degree: HashMap<NodeIndex, usize> =
-        node_set.iter().map(|&idx| (idx, 0)).collect();
+    let mut in_degree: HashMap<NodeIndex, usize> = node_set.iter().map(|&idx| (idx, 0)).collect();
 
     for edge in graph.graph.edge_references() {
         if !edge_matches_type(edge.weight(), edge_type) {
@@ -599,8 +596,7 @@ fn execute_max_depth(
         .collect();
 
     // depth_map: NodeIndex -> depth
-    let mut depth_map: HashMap<NodeIndex, usize> =
-        node_set.iter().map(|&idx| (idx, 0)).collect();
+    let mut depth_map: HashMap<NodeIndex, usize> = node_set.iter().map(|&idx| (idx, 0)).collect();
 
     // Topological BFS/DP (same pattern as dependency_depth.rs)
     // Build topological order via Kahn's
@@ -741,15 +737,17 @@ fn execute_ratio(
 
         // Apply threshold where clause (evaluates against a node with ratio metric set)
         let mut rep = members[0].clone();
-        rep.metrics
-            .insert("count".to_string(), MetricValue::Int(numerator_count as i64));
+        rep.metrics.insert(
+            "count".to_string(),
+            MetricValue::Int(numerator_count as i64),
+        );
         rep.metrics
             .insert("ratio".to_string(), MetricValue::Float(ratio));
 
-        if let Some(wc) = &config.threshold {
-            if !wc.eval_metrics(&rep) {
-                continue;
-            }
+        if let Some(wc) = &config.threshold
+            && !wc.eval_metrics(&rep)
+        {
+            continue;
         }
 
         result.push(rep);
@@ -763,9 +761,15 @@ fn execute_ratio(
 // ---------------------------------------------------------------------------
 
 /// Returns the parameter identifier names declared in a function-like node.
-fn collect_function_params<'a>(func_node: &tree_sitter::Node, source: &'a [u8], _lang: crate::language::Language) -> Vec<&'a str> {
+fn collect_function_params<'a>(
+    func_node: &tree_sitter::Node,
+    source: &'a [u8],
+    _lang: crate::language::Language,
+) -> Vec<&'a str> {
     let mut params = Vec::new();
-    let Some(params_node) = func_node.child_by_field_name("parameters") else { return params };
+    let Some(params_node) = func_node.child_by_field_name("parameters") else {
+        return params;
+    };
     let mut cursor = params_node.walk();
     for child in params_node.named_children(&mut cursor) {
         match child.kind() {
@@ -776,12 +780,11 @@ fn collect_function_params<'a>(func_node: &tree_sitter::Node, source: &'a [u8], 
             }
             // TypeScript/JS: required_parameter { pattern: identifier, ... }
             "required_parameter" | "optional_parameter" => {
-                if let Some(pattern) = child.child_by_field_name("pattern") {
-                    if pattern.kind() == "identifier" {
-                        if let Ok(name) = pattern.utf8_text(source) {
-                            params.push(name);
-                        }
-                    }
+                if let Some(pattern) = child.child_by_field_name("pattern")
+                    && pattern.kind() == "identifier"
+                    && let Ok(name) = pattern.utf8_text(source)
+                {
+                    params.push(name);
                 }
             }
             _ => {}
@@ -792,7 +795,9 @@ fn collect_function_params<'a>(func_node: &tree_sitter::Node, source: &'a [u8], 
 
 /// Build a child→parent map for an entire tree in one DFS pass.
 /// Used by `node_lhs_is_parameter` to walk upward from a match node.
-fn build_parent_map(root: tree_sitter::Node) -> std::collections::HashMap<usize, tree_sitter::Node> {
+fn build_parent_map(
+    root: tree_sitter::Node,
+) -> std::collections::HashMap<usize, tree_sitter::Node> {
     let mut map = std::collections::HashMap::new();
     let mut stack = vec![root];
     while let Some(current) = stack.pop() {
@@ -819,13 +824,19 @@ fn node_lhs_is_parameter(
     if kind != "assignment_expression" && kind != "augmented_assignment_expression" {
         return false;
     }
-    let Some(lhs) = node.child_by_field_name("left") else { return false };
-    if lhs.kind() != "member_expression" { return false }
+    let Some(lhs) = node.child_by_field_name("left") else {
+        return false;
+    };
+    if lhs.kind() != "member_expression" {
+        return false;
+    }
     // Walk through nested member expressions to find the root identifier.
     // e.g. `config.nested.deep = true` has LHS `config.nested.deep`; root is `config`.
     let mut root_obj = lhs;
     loop {
-        let Some(obj) = root_obj.child_by_field_name("object") else { return false };
+        let Some(obj) = root_obj.child_by_field_name("object") else {
+            return false;
+        };
         if obj.kind() == "identifier" {
             root_obj = obj;
             break;
@@ -835,13 +846,17 @@ fn node_lhs_is_parameter(
             return false;
         }
     }
-    let Ok(obj_name) = root_obj.utf8_text(source) else { return false };
+    let Ok(obj_name) = root_obj.utf8_text(source) else {
+        return false;
+    };
 
     // Walk up from the assignment node to the nearest enclosing function
     let func_kinds = crate::graph::metrics::function_node_kinds_for_language(lang);
     let mut current_id = node.id();
     loop {
-        let Some(parent) = parent_map.get(&current_id) else { break };
+        let Some(parent) = parent_map.get(&current_id) else {
+            break;
+        };
         if func_kinds.contains(&parent.kind()) {
             let params = collect_function_params(parent, source, lang);
             return params.contains(&obj_name);
@@ -911,14 +926,12 @@ fn execute_match_pattern(
             for cap in m.captures {
                 let node = cap.node;
                 // Apply when filter if present
-                if let Some(wc) = when {
-                    if wc.lhs_is_parameter == Some(true) {
-                        if let Some(ref pm) = parent_map {
-                            if !node_lhs_is_parameter(&node, pm, source.as_bytes(), lang) {
-                                continue;
-                            }
-                        }
-                    }
+                if let Some(wc) = when
+                    && wc.lhs_is_parameter == Some(true)
+                    && let Some(ref pm) = parent_map
+                    && !node_lhs_is_parameter(&node, pm, source.as_bytes(), lang)
+                {
+                    continue;
                 }
                 let line = node.start_position().row as u32 + 1;
                 result.push(PipelineNode {
@@ -1031,11 +1044,7 @@ fn execute_compute_metric(
         }
 
         // For function-level metrics, locate the function body at the node's line
-        let body_node = find_function_body_at_line(
-            tree.root_node(),
-            target_line,
-            lang,
-        );
+        let body_node = find_function_body_at_line(tree.root_node(), target_line, lang);
         let Some(body) = body_node else {
             eprintln!(
                 "Warning: compute_metric: no function body at line {} in {}",
@@ -1056,9 +1065,7 @@ fn execute_compute_metric(
             "cognitive_complexity" => {
                 crate::graph::metrics::compute_cognitive(body, &config, source.as_bytes()) as i64
             }
-            "nesting_depth" => {
-                crate::graph::metrics::compute_nesting_depth(body, &config) as i64
-            }
+            "nesting_depth" => crate::graph::metrics::compute_nesting_depth(body, &config) as i64,
             other => {
                 anyhow::bail!(
                     "compute_metric: unknown metric '{}' -- supported: cyclomatic_complexity, function_length, cognitive_complexity, comment_to_code_ratio, nesting_depth, efferent_coupling, afferent_coupling",
@@ -1099,9 +1106,18 @@ fn execute_taint_with_config(
                 .find(|s| f.sink_name.contains(s.pattern.as_str()))
                 .map(|s| s.vulnerability.clone())
                 .unwrap_or_else(|| "unknown".to_string());
-            metrics.insert("vulnerability".to_string(), MetricValue::Text(vulnerability));
-            metrics.insert("tainted_var".to_string(), MetricValue::Text(f.tainted_var.clone()));
-            metrics.insert("source_description".to_string(), MetricValue::Text(f.source_description.clone()));
+            metrics.insert(
+                "vulnerability".to_string(),
+                MetricValue::Text(vulnerability),
+            );
+            metrics.insert(
+                "tainted_var".to_string(),
+                MetricValue::Text(f.tainted_var.clone()),
+            );
+            metrics.insert(
+                "source_description".to_string(),
+                MetricValue::Text(f.source_description.clone()),
+            );
             PipelineNode {
                 node_idx: f.function_node,
                 file_path: f.file_path.clone(),
@@ -1150,9 +1166,12 @@ fn execute_find_duplicates(
             let count = members.len();
             let files: Vec<String> = members.iter().map(|n| n.file_path.clone()).collect();
             let mut rep = members.into_iter().next().unwrap();
-            rep.metrics.insert("count".to_string(), MetricValue::Int(count as i64));
-            rep.metrics.insert("files".to_string(), MetricValue::Text(files.join(", ")));
-            rep.metrics.insert("name".to_string(), MetricValue::Text(key));
+            rep.metrics
+                .insert("count".to_string(), MetricValue::Int(count as i64));
+            rep.metrics
+                .insert("files".to_string(), MetricValue::Text(files.join(", ")));
+            rep.metrics
+                .insert("name".to_string(), MetricValue::Text(key));
             rep
         })
         .collect()
@@ -1171,10 +1190,11 @@ fn find_function_body_at_line(
 
     let mut stack = vec![root];
     while let Some(current) = stack.pop() {
-        if func_kinds.contains(&current.kind()) && current.start_position().row == target_line {
-            if let Some(body) = current.child_by_field_name(body_field) {
-                return Some(body);
-            }
+        if func_kinds.contains(&current.kind())
+            && current.start_position().row == target_line
+            && let Some(body) = current.child_by_field_name(body_field)
+        {
+            return Some(body);
         }
         let mut cursor = current.walk();
         for child in current.children(&mut cursor) {
@@ -1277,17 +1297,17 @@ fn pipeline_node_to_query_result(node: PipelineNode) -> QueryResult {
 
 /// Check if an EdgeWeight matches an EdgeType.
 fn edge_matches_type(ew: &EdgeWeight, et: &EdgeType) -> bool {
-    match (ew, et) {
-        (EdgeWeight::Calls, EdgeType::Calls) => true,
-        (EdgeWeight::Imports, EdgeType::Imports) => true,
-        (EdgeWeight::FlowsTo, EdgeType::FlowsTo) => true,
-        (EdgeWeight::Acquires { .. }, EdgeType::Acquires) => true,
-        (EdgeWeight::ReleasedBy, EdgeType::ReleasedBy) => true,
-        (EdgeWeight::Contains, EdgeType::Contains) => true,
-        (EdgeWeight::Exports, EdgeType::Exports) => true,
-        (EdgeWeight::DefinedIn, EdgeType::DefinedIn) => true,
-        _ => false,
-    }
+    matches!(
+        (ew, et),
+        (EdgeWeight::Calls, EdgeType::Calls)
+            | (EdgeWeight::Imports, EdgeType::Imports)
+            | (EdgeWeight::FlowsTo, EdgeType::FlowsTo)
+            | (EdgeWeight::Acquires { .. }, EdgeType::Acquires)
+            | (EdgeWeight::ReleasedBy, EdgeType::ReleasedBy)
+            | (EdgeWeight::Contains, EdgeType::Contains)
+            | (EdgeWeight::Exports, EdgeType::Exports)
+            | (EdgeWeight::DefinedIn, EdgeType::DefinedIn)
+    )
 }
 
 /// Extract a display path from a NodeWeight.
@@ -1360,12 +1380,11 @@ fn ordered_cycle_path_for_edge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::dsl::{
-        CountConfig, EdgeType, FlagConfig, FindCyclesConfig, GraphStage, MaxDepthConfig,
-        NodeType, NumericPredicate, RatioConfig, NumeratorConfig, DenominatorConfig,
-        WhereClause,
-    };
     use crate::language::Language;
+    use crate::pipeline::dsl::{
+        CountConfig, DenominatorConfig, EdgeType, FindCyclesConfig, FlagConfig, GraphStage,
+        MaxDepthConfig, NodeType, NumeratorConfig, NumericPredicate, RatioConfig, WhereClause,
+    };
 
     // ── Test graph builders ──────────────────────────────────────────
 
@@ -1445,7 +1464,9 @@ mod tests {
                 exclude: None,
             },
             GraphStage::FindCycles {
-                find_cycles: FindCyclesConfig { edge: EdgeType::Imports },
+                find_cycles: FindCyclesConfig {
+                    edge: EdgeType::Imports,
+                },
             },
         ];
         let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
@@ -1487,10 +1508,13 @@ mod tests {
             &is_generated_fn,
             &is_barrel_fn,
             &mut taint_ctx,
-        ).unwrap();
+        )
+        .unwrap();
 
         let cycle_stage = GraphStage::FindCycles {
-            find_cycles: FindCyclesConfig { edge: EdgeType::Imports },
+            find_cycles: FindCyclesConfig {
+                edge: EdgeType::Imports,
+            },
         };
         let cycle_nodes = execute_stage(
             &cycle_stage,
@@ -1503,7 +1527,8 @@ mod tests {
             &is_generated_fn,
             &is_barrel_fn,
             &mut taint_ctx,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(cycle_nodes.len(), 1);
         assert_eq!(cycle_nodes[0].metric_f64("cycle_size") as usize, 2);
@@ -1524,7 +1549,9 @@ mod tests {
                 exclude: None,
             },
             GraphStage::FindCycles {
-                find_cycles: FindCyclesConfig { edge: EdgeType::Imports },
+                find_cycles: FindCyclesConfig {
+                    edge: EdgeType::Imports,
+                },
             },
         ];
         let out = run_pipeline(&stages, &graph, None, None, None, "test").unwrap();
@@ -1630,7 +1657,8 @@ mod tests {
             &is_generated_fn,
             &is_barrel_fn,
             &mut taint_ctx,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Run max_depth with threshold >= 2 (should match c.rs only)
         let max_depth_stage = GraphStage::MaxDepth {
@@ -1654,7 +1682,8 @@ mod tests {
             &is_generated_fn,
             &is_barrel_fn,
             &mut taint_ctx,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(result.len(), 1, "only c.rs should have depth >= 2");
         assert_eq!(result[0].file_path, "c.rs");
@@ -1689,7 +1718,8 @@ mod tests {
             &is_generated_fn,
             &is_barrel_fn,
             &mut taint_ctx,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Inject a count metric manually
         for n in &mut nodes {
@@ -1705,7 +1735,13 @@ mod tests {
                     when: Some(WhereClause {
                         metrics: {
                             let mut m = std::collections::HashMap::new();
-                            m.insert("count".to_string(), NumericPredicate { gte: Some(20.0), ..Default::default() });
+                            m.insert(
+                                "count".to_string(),
+                                NumericPredicate {
+                                    gte: Some(20.0),
+                                    ..Default::default()
+                                },
+                            );
                             m
                         },
                         ..Default::default()
@@ -1720,7 +1756,10 @@ mod tests {
             pipeline_name: None,
         };
 
-        let effective_pipeline = flag_config.pipeline_name.as_deref().unwrap_or("test_pipeline");
+        let effective_pipeline = flag_config
+            .pipeline_name
+            .as_deref()
+            .unwrap_or("test_pipeline");
         let findings: Vec<AuditFinding> = nodes
             .iter()
             .filter_map(|node| {
@@ -1837,8 +1876,9 @@ fn bar() { println!("ok"); }
 
         let stages = vec![
             GraphStage::MatchPattern {
-                match_pattern: r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
-                    .to_string(),
+                match_pattern:
+                    r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
+                        .to_string(),
                 when: None,
             },
             GraphStage::Flag {
@@ -1881,8 +1921,9 @@ fn bar() { println!("ok"); }
 
         let stages = vec![
             GraphStage::MatchPattern {
-                match_pattern: r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
-                    .to_string(),
+                match_pattern:
+                    r#"(macro_invocation (identifier) @name (#eq? @name "panic")) @call"#
+                        .to_string(),
                 when: None,
             },
             GraphStage::Flag {
@@ -1938,7 +1979,10 @@ fn bar() { println!("ok"); }
         let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "test_ts").unwrap();
         match out {
             PipelineOutput::Findings(findings) => {
-                assert!(!findings.is_empty(), "expected findings for TypeScript function");
+                assert!(
+                    !findings.is_empty(),
+                    "expected findings for TypeScript function"
+                );
                 assert!(
                     findings[0].file_path.ends_with(".ts"),
                     "expected .ts file path, got {}",
@@ -1983,7 +2027,9 @@ fn bar() { println!("ok"); }
             path: "src/complex.rs".to_string(),
             language: Language::Rust,
         });
-        graph.file_nodes.insert("src/complex.rs".to_string(), file_idx);
+        graph
+            .file_nodes
+            .insert("src/complex.rs".to_string(), file_idx);
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
             name: "complex".to_string(),
             kind: crate::models::SymbolKind::Function,
@@ -1992,7 +2038,9 @@ fn bar() { println!("ok"); }
             end_line: 14,
             exported: false,
         });
-        graph.symbol_nodes.insert(("src/complex.rs".to_string(), 1), sym_idx);
+        graph
+            .symbol_nodes
+            .insert(("src/complex.rs".to_string(), 1), sym_idx);
 
         let stages = vec![
             GraphStage::Select {
@@ -2013,7 +2061,15 @@ fn bar() { println!("ok"); }
                 },
             },
         ];
-        let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "cyclomatic_complexity").unwrap();
+        let out = run_pipeline(
+            &stages,
+            &graph,
+            Some(&ws),
+            None,
+            None,
+            "cyclomatic_complexity",
+        )
+        .unwrap();
         match out {
             PipelineOutput::Findings(findings) => {
                 assert_eq!(findings.len(), 1, "expected 1 finding for complex function");
@@ -2050,7 +2106,9 @@ fn bar() { println!("ok"); }
             path: "src/simple.rs".to_string(),
             language: Language::Rust,
         });
-        graph.file_nodes.insert("src/simple.rs".to_string(), file_idx);
+        graph
+            .file_nodes
+            .insert("src/simple.rs".to_string(), file_idx);
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
             name: "simple".to_string(),
             kind: crate::models::SymbolKind::Function,
@@ -2059,7 +2117,9 @@ fn bar() { println!("ok"); }
             end_line: 3,
             exported: false,
         });
-        graph.symbol_nodes.insert(("src/simple.rs".to_string(), 1), sym_idx);
+        graph
+            .symbol_nodes
+            .insert(("src/simple.rs".to_string(), 1), sym_idx);
 
         let stages = vec![
             GraphStage::Select {
@@ -2127,13 +2187,17 @@ fn bar() { println!("ok"); }
                             ..Default::default()
                         }),
                     },
-                    denominator: DenominatorConfig {
-                        filter: None,
-                    },
+                    denominator: DenominatorConfig { filter: None },
                     threshold: Some(WhereClause {
                         metrics: {
                             let mut m = std::collections::HashMap::new();
-                            m.insert("ratio".to_string(), NumericPredicate { gte: Some(0.5), ..Default::default() });
+                            m.insert(
+                                "ratio".to_string(),
+                                NumericPredicate {
+                                    gte: Some(0.5),
+                                    ..Default::default()
+                                },
+                            );
                             m
                         },
                         ..Default::default()
@@ -2191,7 +2255,9 @@ fn bar() { println!("ok"); }
             end_line: 13,
             exported: false,
         });
-        graph.symbol_nodes.insert(("src/lib.rs".to_string(), 1), sym_idx);
+        graph
+            .symbol_nodes
+            .insert(("src/lib.rs".to_string(), 1), sym_idx);
 
         let is_test_fn = |path: &str| is_test_file(path);
         let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
@@ -2234,9 +2300,17 @@ fn bar() { println!("ok"); }
         )
         .unwrap();
 
-        assert_eq!(result_nodes.len(), 1, "expected 1 result for deeply_nested function");
+        assert_eq!(
+            result_nodes.len(),
+            1,
+            "expected 1 result for deeply_nested function"
+        );
         let depth = result_nodes[0].metric_f64("nesting_depth") as i64;
-        assert!(depth >= 4, "expected nesting_depth >= 4 for 4-level nesting, got {}", depth);
+        assert!(
+            depth >= 4,
+            "expected nesting_depth >= 4 for 4-level nesting, got {}",
+            depth
+        );
     }
 
     #[test]
@@ -2261,7 +2335,8 @@ fn bar() { println!("ok"); }
 "#,
         )
         .unwrap();
-        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
+        let ws =
+            crate::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
         let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::JavaScript])
             .build()
             .unwrap();
@@ -2285,21 +2360,48 @@ fn bar() { println!("ok"); }
             exclude: None,
         };
         let nodes = execute_stage(
-            &select_stage, Vec::new(), &graph, Some(&ws), None,
-            "js_nesting_test", &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
-        ).unwrap();
+            &select_stage,
+            Vec::new(),
+            &graph,
+            Some(&ws),
+            None,
+            "js_nesting_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
 
-        assert_eq!(nodes.len(), 1, "expected 1 symbol node, got {}", nodes.len());
+        assert_eq!(
+            nodes.len(),
+            1,
+            "expected 1 symbol node, got {}",
+            nodes.len()
+        );
 
         let metric_stage = GraphStage::ComputeMetric {
             compute_metric: "nesting_depth".to_string(),
         };
         let result_nodes = execute_stage(
-            &metric_stage, nodes, &graph, Some(&ws), None,
-            "js_nesting_test", &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
-        ).unwrap();
+            &metric_stage,
+            nodes,
+            &graph,
+            Some(&ws),
+            None,
+            "js_nesting_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
 
-        assert_eq!(result_nodes.len(), 1, "expected 1 node after compute_metric");
+        assert_eq!(
+            result_nodes.len(),
+            1,
+            "expected 1 node after compute_metric"
+        );
         // 4 levels: if > if > if > if
         let depth = result_nodes[0].metric_f64("nesting_depth") as i64;
         assert_eq!(depth, 4, "expected nesting depth of 4, got {}", depth);
@@ -2339,7 +2441,7 @@ fn bar() { println!("ok"); }
             .unwrap();
 
         assert!(
-            graph.symbol_nodes.len() >= 1,
+            !graph.symbol_nodes.is_empty(),
             "CPP_SYMBOL_QUERY must match qualified-name function definition -- got 0 symbols"
         );
 
@@ -2349,16 +2451,38 @@ fn bar() { println!("ok"); }
         let mut taint_ctx = TaintContext::default();
 
         let nodes = execute_stage(
-            &GraphStage::Select { select: crate::pipeline::dsl::NodeType::Symbol, filter: None, exclude: None },
-            Vec::new(), &graph, Some(&ws), None, "cpp_nesting_test",
-            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
-        ).unwrap();
+            &GraphStage::Select {
+                select: crate::pipeline::dsl::NodeType::Symbol,
+                filter: None,
+                exclude: None,
+            },
+            Vec::new(),
+            &graph,
+            Some(&ws),
+            None,
+            "cpp_nesting_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
 
         let result_nodes = execute_stage(
-            &GraphStage::ComputeMetric { compute_metric: "nesting_depth".to_string() },
-            nodes, &graph, Some(&ws), None, "cpp_nesting_test",
-            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
-        ).unwrap();
+            &GraphStage::ComputeMetric {
+                compute_metric: "nesting_depth".to_string(),
+            },
+            nodes,
+            &graph,
+            Some(&ws),
+            None,
+            "cpp_nesting_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
 
         assert_eq!(result_nodes.len(), 1, "expected 1 symbol node");
         let depth = result_nodes[0].metrics.get("nesting_depth")
@@ -2385,12 +2509,15 @@ function mutateParam(user) {
     user.name = "overwritten";
 }
 "#,
-        ).unwrap();
-        let ws = crate::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
+        )
+        .unwrap();
+        let ws =
+            crate::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
 
         let stages = vec![
             GraphStage::MatchPattern {
-                match_pattern: "(assignment_expression left: (member_expression) @lhs) @assign".to_string(),
+                match_pattern: "(assignment_expression left: (member_expression) @lhs) @assign"
+                    .to_string(),
                 when: Some(crate::pipeline::dsl::WhereClause {
                     lhs_is_parameter: Some(true),
                     ..Default::default()
@@ -2410,12 +2537,21 @@ function mutateParam(user) {
         let out = run_pipeline(&stages, &graph, Some(&ws), None, None, "lhs_param_test").unwrap();
         match out {
             PipelineOutput::Findings(findings) => {
-                assert_eq!(findings.len(), 1,
+                assert_eq!(
+                    findings.len(),
+                    1,
                     "expected exactly 1 finding (mutateParam's user.name), got {} findings: {:?}",
                     findings.len(),
-                    findings.iter().map(|f| format!("{}:{}", f.file_path, f.line)).collect::<Vec<_>>()
+                    findings
+                        .iter()
+                        .map(|f| format!("{}:{}", f.file_path, f.line))
+                        .collect::<Vec<_>>()
                 );
-                assert_eq!(findings[0].line, 7, "expected line 7 (user.name = ...), got {}", findings[0].line);
+                assert_eq!(
+                    findings[0].line, 7,
+                    "expected line 7 (user.name = ...), got {}",
+                    findings[0].line
+                );
             }
             _ => panic!("expected Findings"),
         }
@@ -2427,7 +2563,8 @@ function mutateParam(user) {
         let src_dir = dir.path().join("src");
         std::fs::create_dir_all(&src_dir).unwrap();
         // Write a C# method with 60 lines in the body
-        let mut body = String::from("public class MyService {\n    public void ProcessOrder(int orderId) {\n");
+        let mut body =
+            String::from("public class MyService {\n    public void ProcessOrder(int orderId) {\n");
         for i in 0..58 {
             body.push_str(&format!("        var step{i} = orderId + {i};\n"));
         }
@@ -2453,25 +2590,47 @@ function mutateParam(user) {
                 }),
                 exclude: None,
             },
-            Vec::new(), &graph, Some(&ws), None, "csharp_length_test",
-            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
-        ).unwrap();
+            Vec::new(),
+            &graph,
+            Some(&ws),
+            None,
+            "csharp_length_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
 
-        assert!(!nodes.is_empty(), "expected at least one method symbol in C# file");
+        assert!(
+            !nodes.is_empty(),
+            "expected at least one method symbol in C# file"
+        );
 
         let result_nodes = execute_stage(
-            &GraphStage::ComputeMetric { compute_metric: "function_length".to_string() },
-            nodes, &graph, Some(&ws), None, "csharp_length_test",
-            &is_test_fn, &is_generated_fn, &is_barrel_fn, &mut taint_ctx,
-        ).unwrap();
+            &GraphStage::ComputeMetric {
+                compute_metric: "function_length".to_string(),
+            },
+            nodes,
+            &graph,
+            Some(&ws),
+            None,
+            "csharp_length_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
 
         assert_eq!(result_nodes.len(), 1, "expected 1 method node with metric");
-        let len = result_nodes[0].metrics.get("function_length")
+        let len = result_nodes[0]
+            .metrics
+            .get("function_length")
             .expect("function_length metric should be present");
         match len {
             MetricValue::Int(v) => assert!(*v >= 50, "expected >= 50 lines, got {}", v),
             _ => panic!("expected Int metric"),
         }
     }
-
 }

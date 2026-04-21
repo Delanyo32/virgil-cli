@@ -5,7 +5,7 @@
 //! Files with the same pipeline name but different language filters are all included (per-language variants).
 
 use crate::pipeline::dsl::GraphStage;
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -34,8 +34,7 @@ pub struct JsonAuditFile {
 // Built-in audit files (embedded at compile time)
 // ---------------------------------------------------------------------------
 
-static BUILTIN_AUDITS_DIR: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/src/audit/builtin");
+static BUILTIN_AUDITS_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/src/audit/builtin");
 
 fn builtin_audits() -> Vec<JsonAuditFile> {
     BUILTIN_AUDITS_DIR
@@ -45,14 +44,20 @@ fn builtin_audits() -> Vec<JsonAuditFile> {
             let src = match f.contents_utf8() {
                 Some(s) => s,
                 None => {
-                    eprintln!("Warning: built-in audit file {:?} is not valid UTF-8", f.path());
+                    eprintln!(
+                        "Warning: built-in audit file {:?} is not valid UTF-8",
+                        f.path()
+                    );
                     return None;
                 }
             };
             match serde_json::from_str::<JsonAuditFile>(src) {
                 Ok(audit) => Some(audit),
                 Err(e) => {
-                    eprintln!("Warning: failed to parse built-in audit {:?}: {e}", f.path());
+                    eprintln!(
+                        "Warning: failed to parse built-in audit {:?}: {e}",
+                        f.path()
+                    );
                     None
                 }
             }
@@ -156,7 +161,11 @@ mod tests {
     #[test]
     fn test_builtin_audits_returns_four() {
         let audits = builtin_audits();
-        assert!(audits.len() >= 45, "Expected at least 45 built-in audits, got {}", audits.len());
+        assert!(
+            audits.len() >= 45,
+            "Expected at least 45 built-in audits, got {}",
+            audits.len()
+        );
         for audit in &audits {
             assert!(
                 !audit.graph.is_empty(),
@@ -171,10 +180,26 @@ mod tests {
         let audits = builtin_audits();
         let names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
         // Per-language pipeline names (representative samples from the 45 built-ins)
-        assert!(names.contains(&"circular_dependencies_rust"), "missing circular_dependencies_rust in {:?}", names);
-        assert!(names.contains(&"dependency_graph_depth_javascript"), "missing dependency_graph_depth_javascript in {:?}", names);
-        assert!(names.contains(&"api_surface_area_python"), "missing api_surface_area_python in {:?}", names);
-        assert!(names.contains(&"module_size_distribution_go"), "missing module_size_distribution_go in {:?}", names);
+        assert!(
+            names.contains(&"circular_dependencies_rust"),
+            "missing circular_dependencies_rust in {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"dependency_graph_depth_javascript"),
+            "missing dependency_graph_depth_javascript in {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"api_surface_area_python"),
+            "missing api_surface_area_python in {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"module_size_distribution_go"),
+            "missing module_size_distribution_go in {:?}",
+            names
+        );
     }
 
     #[test]
@@ -203,7 +228,11 @@ mod tests {
                 {"flag": {"pattern": "circular_dependency", "message": "Override", "severity": "warning"}}
             ]
         }"#;
-        std::fs::write(audit_dir.join("circular_dependencies.json"), override_content).unwrap();
+        std::fs::write(
+            audit_dir.join("circular_dependencies.json"),
+            override_content,
+        )
+        .unwrap();
 
         let audits = discover_json_audits(Some(tmp.path()));
 
@@ -212,7 +241,11 @@ mod tests {
             .iter()
             .filter(|a| a.pipeline == "circular_dependencies")
             .collect::<Vec<_>>();
-        assert_eq!(circular.len(), 1, "Should only have one circular_dependencies entry");
+        assert_eq!(
+            circular.len(),
+            1,
+            "Should only have one circular_dependencies entry"
+        );
         assert_eq!(
             circular[0].description.as_deref(),
             Some("project-local override"),
@@ -228,8 +261,14 @@ mod tests {
         // Per-language built-ins should still be present alongside the override
         let pipeline_names: Vec<&str> = audits.iter().map(|a| a.pipeline.as_str()).collect();
         assert!(pipeline_names.contains(&"circular_dependencies"));
-        assert!(pipeline_names.contains(&"circular_dependencies_rust"), "per-language built-in should still be present");
-        assert!(pipeline_names.contains(&"module_size_distribution_go"), "per-language built-in should still be present");
+        assert!(
+            pipeline_names.contains(&"circular_dependencies_rust"),
+            "per-language built-in should still be present"
+        );
+        assert!(
+            pipeline_names.contains(&"module_size_distribution_go"),
+            "per-language built-in should still be present"
+        );
     }
 
     #[test]

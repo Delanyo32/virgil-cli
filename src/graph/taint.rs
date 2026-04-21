@@ -4,9 +4,9 @@ use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
-use crate::pipeline::dsl::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
 use super::cfg::{CfgStatementKind, FunctionCfg};
 use super::{CodeGraph, NodeWeight};
+use crate::pipeline::dsl::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
 
 // ---------------------------------------------------------------------------
 // TaintConfig — dynamic pattern tables loaded from JSON pipeline files
@@ -137,8 +137,14 @@ impl TaintEngine {
                 param_names.clone()
             };
 
-            let findings =
-                Self::analyze_function(*func_idx, func_name, file_path, &cfg, &effective_params, config);
+            let findings = Self::analyze_function(
+                *func_idx,
+                func_name,
+                file_path,
+                &cfg,
+                &effective_params,
+                config,
+            );
 
             all_findings.extend(findings);
         }
@@ -274,19 +280,19 @@ impl TaintEngine {
                             }
 
                             // 3) Check if this call is a sink with tainted args.
-                            if is_sink_pattern(name, config) {
-                                if let Some((tainted_var, origin)) = state.any_tainted(args) {
-                                    findings.push(TaintFinding {
-                                        function_node: func_idx,
-                                        function_name: func_name.to_string(),
-                                        file_path: file_path.to_string(),
-                                        tainted_var: tainted_var.to_string(),
-                                        sink_name: name.clone(),
-                                        sink_line: stmt.line,
-                                        source_description: origin.description.clone(),
-                                        source_line: origin.line,
-                                    });
-                                }
+                            if is_sink_pattern(name, config)
+                                && let Some((tainted_var, origin)) = state.any_tainted(args)
+                            {
+                                findings.push(TaintFinding {
+                                    function_node: func_idx,
+                                    function_name: func_name.to_string(),
+                                    file_path: file_path.to_string(),
+                                    tainted_var: tainted_var.to_string(),
+                                    sink_name: name.clone(),
+                                    sink_line: stmt.line,
+                                    source_description: origin.description.clone(),
+                                    source_line: origin.line,
+                                });
                             }
 
                             // 4) Taint propagation through unknown calls:

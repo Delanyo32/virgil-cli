@@ -25,12 +25,12 @@ impl CfgBuilder for PythonCfgBuilder {
                     }
                     "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
                         // first named child is the identifier
-                        if let Some(ident) = child.named_child(0) {
-                            if ident.kind() == "identifier" {
-                                let name = ident.utf8_text(source).unwrap_or("").to_string();
-                                if !name.is_empty() {
-                                    ctx.cfg.param_names.push(name);
-                                }
+                        if let Some(ident) = child.named_child(0)
+                            && ident.kind() == "identifier"
+                        {
+                            let name = ident.utf8_text(source).unwrap_or("").to_string();
+                            if !name.is_empty() {
+                                ctx.cfg.param_names.push(name);
                             }
                         }
                     }

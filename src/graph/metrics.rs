@@ -524,12 +524,19 @@ fn php_config() -> ControlFlowConfig {
 pub fn function_node_kinds_for_language(lang: Language) -> &'static [&'static str] {
     match lang {
         Language::Rust => &["function_item"],
-        Language::TypeScript | Language::Tsx => {
-            &["function_declaration", "method_definition", "arrow_function", "function"]
-        }
-        Language::JavaScript | Language::Jsx => {
-            &["function_declaration", "method_definition", "arrow_function", "function", "function_expression"]
-        }
+        Language::TypeScript | Language::Tsx => &[
+            "function_declaration",
+            "method_definition",
+            "arrow_function",
+            "function",
+        ],
+        Language::JavaScript | Language::Jsx => &[
+            "function_declaration",
+            "method_definition",
+            "arrow_function",
+            "function",
+            "function_expression",
+        ],
         Language::Python => &["function_definition"],
         Language::Go => &["function_declaration", "method_declaration"],
         Language::Java => &["method_declaration", "constructor_declaration"],

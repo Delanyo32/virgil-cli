@@ -21,12 +21,12 @@ impl CfgBuilder for CppCfgBuilder {
         if let Some(params_node) = find_cpp_parameter_list(function_node) {
             let mut cursor = params_node.walk();
             for child in params_node.named_children(&mut cursor) {
-                if child.kind() == "parameter_declaration" {
-                    if let Some(declarator) = child.child_by_field_name("declarator") {
-                        let name = extract_cpp_param_ident(&declarator, source);
-                        if !name.is_empty() {
-                            cfg.param_names.push(name);
-                        }
+                if child.kind() == "parameter_declaration"
+                    && let Some(declarator) = child.child_by_field_name("declarator")
+                {
+                    let name = extract_cpp_param_ident(&declarator, source);
+                    if !name.is_empty() {
+                        cfg.param_names.push(name);
                     }
                 }
             }

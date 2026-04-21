@@ -220,31 +220,19 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 ),
                 (
                     "complexity",
-                    filter_languages(
-                        user_languages,
-                        Language::all().to_vec(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 (
                     "code_style",
-                    filter_languages(
-                        user_languages,
-                        Language::all().to_vec(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 (
                     "security",
-                    filter_languages(
-                        user_languages,
-                        Language::all().to_vec(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 (
                     "scalability",
-                    filter_languages(
-                        user_languages,
-                        Language::all().to_vec(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 (
                     "architecture",
@@ -360,17 +348,11 @@ async fn handle_audit_category(
                 ),
                 "security" => (
                     "security",
-                    filter_languages(
-                        user_languages,
-                        Language::all().to_vec(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 "scalability" => (
                     "scalability",
-                    filter_languages(
-                        user_languages,
-                        Language::all().to_vec(),
-                    ),
+                    filter_languages(user_languages, Language::all().to_vec()),
                 ),
                 _ => unreachable!(),
             };
@@ -422,17 +404,11 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
         ),
         (
             "complexity",
-            filter_languages(
-                user_languages,
-                Language::all().to_vec(),
-            ),
+            filter_languages(user_languages, Language::all().to_vec()),
         ),
         (
             "code_style",
-            filter_languages(
-                user_languages,
-                Language::all().to_vec(),
-            ),
+            filter_languages(user_languages, Language::all().to_vec()),
         ),
     ];
 

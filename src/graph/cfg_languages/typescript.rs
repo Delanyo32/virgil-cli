@@ -970,40 +970,37 @@ fn extract_param_name(node: &Node, source: &[u8], out: &mut Vec<String>) {
         // TypeScript: required_parameter, optional_parameter, rest_parameter
         // The pattern identifier is always the first named child.
         "required_parameter" | "optional_parameter" | "rest_parameter" => {
-            if let Some(inner) = node.named_child(0) {
-                if inner.kind() == "identifier" {
-                    if let Ok(name) = inner.utf8_text(source) {
-                        let name = name.trim();
-                        if !name.is_empty() {
-                            out.push(name.to_string());
-                        }
-                    }
+            if let Some(inner) = node.named_child(0)
+                && inner.kind() == "identifier"
+                && let Ok(name) = inner.utf8_text(source)
+            {
+                let name = name.trim();
+                if !name.is_empty() {
+                    out.push(name.to_string());
                 }
             }
         }
         // JavaScript rest element: `...args`
         "spread_element" => {
-            if let Some(inner) = node.named_child(0) {
-                if inner.kind() == "identifier" {
-                    if let Ok(name) = inner.utf8_text(source) {
-                        let name = name.trim();
-                        if !name.is_empty() {
-                            out.push(name.to_string());
-                        }
-                    }
+            if let Some(inner) = node.named_child(0)
+                && inner.kind() == "identifier"
+                && let Ok(name) = inner.utf8_text(source)
+            {
+                let name = name.trim();
+                if !name.is_empty() {
+                    out.push(name.to_string());
                 }
             }
         }
         // Assignment pattern for default parameters: `x = default`
         "assignment_pattern" => {
-            if let Some(left) = node.child_by_field_name("left") {
-                if left.kind() == "identifier" {
-                    if let Ok(name) = left.utf8_text(source) {
-                        let name = name.trim();
-                        if !name.is_empty() {
-                            out.push(name.to_string());
-                        }
-                    }
+            if let Some(left) = node.child_by_field_name("left")
+                && left.kind() == "identifier"
+                && let Ok(name) = left.utf8_text(source)
+            {
+                let name = name.trim();
+                if !name.is_empty() {
+                    out.push(name.to_string());
                 }
             }
         }

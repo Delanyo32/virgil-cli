@@ -221,8 +221,7 @@ pub fn extract_symbols(
                 // property is "exports". For bare `exports.NAME = VALUE` the query
                 // already constrains via @exports_obj (#eq? is not used here, so we
                 // must check the text ourselves).
-                let name_cap =
-                    name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+                let name_cap = name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
                 let value_cap =
                     value_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
                 let assign_cap =

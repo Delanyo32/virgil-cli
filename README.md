@@ -161,6 +161,9 @@ Queries are JSON objects with composable filters:
 | `depth` | number | Call graph depth (default 1, max 5) |
 | `format` | string | Override output format from within query JSON |
 | `read` | string | File path to read (returns content instead of symbols). Combine with `lines` for a specific range |
+| `graph` | [stages] | Embedded audit pipeline. Runs after symbol filtering. See [Audit Pipeline DSL](#audit-pipeline-dsl) below. |
+
+**`find` notes:** `function` matches both function declarations and arrow functions; `type` matches both type aliases and C-style typedefs; `constructor` matches methods named `constructor`, `__init__`, `__construct`, or `new`.
 
 ## Query Output Formats
 
@@ -226,12 +229,116 @@ virgil audit --s3 s3://bucket/prefix --language rs --category security
 
 | Category | Description | Example Pipelines |
 |----------|-------------|-------------------|
-| `security` | Vulnerability detection | SQL injection, unsafe memory, race conditions |
+| `security` | Vulnerability detection | SQL injection, unsafe memory, race conditions, hardcoded secrets |
 | `architecture` | Structural analysis | Circular dependencies, module size, API surface area |
 | `tech_debt` | Tech debt patterns | Panic usage, deprecated APIs |
 | `code_style` | Style issues | Dead code, duplicate code, coupling |
 | `scalability` | Scalability risks | N+1 queries, sync blocking in async, memory leaks |
 | `complexity` | Complexity metrics | Cyclomatic complexity, function length, cognitive complexity |
+
+## Audit Pipeline DSL
+
+All audit logic is JSON. Each pipeline is a standalone `.json` file loaded from three locations (first match wins): built-ins bundled in the binary (`src/audit/builtin/*.json`), project-local (`.virgil/pipelines/*.json`), then user-global (`~/.virgil/pipelines/*.json`). A custom file can also be passed via `--file`. The same DSL works embedded in a query under the `graph` field.
+
+### File shape
+
+```json
+{
+  "pipeline": "my_rule",
+  "category": "security",
+  "description": "What this rule detects",
+  "languages": ["rust", "typescript"],
+  "graph": [ /* stages */ ]
+}
+```
+
+Stages in `graph` execute left-to-right, each reading and writing a shared node list. A pipeline ending in `flag` emits audit findings; otherwise it produces a filtered node list usable from the query DSL.
+
+### Stages
+
+| Stage | Purpose | Minimal form |
+|---|---|---|
+| `select` | Seed the pipeline with graph nodes of a type, optionally filtered | `{"select": "symbol", "where": {"kind": ["function"]}, "exclude": {"is_test_file": true}}` |
+| `match_pattern` | Match a tree-sitter query against source; post-filter via optional `when` | `{"match_pattern": "(call_expression ...)", "when": {"lhs_is_parameter": true}}` |
+| `compute_metric` | Compute a named metric on each node (stored in `node.metrics`) | `{"compute_metric": "cyclomatic_complexity"}` |
+| `group_by` | Tag each node with a `_group` metric | `{"group_by": "file"}` |
+| `count` | Count members per group, filter by `NumericPredicate` | `{"count": {"threshold": {"gte": 30}}}` |
+| `ratio` | Compute numerator/denominator ratio with optional threshold | `{"ratio": {"numerator": {"where": {"exported": true}}, "denominator": {}, "threshold": {"metrics": {"ratio": {"gte": 0.8}}}}}` |
+| `max_depth` | Traverse an edge kind to find the longest chain; filter by threshold | `{"max_depth": {"edge": "imports", "threshold": {"gte": 4}}}` |
+| `find_cycles` | Detect strongly-connected components on an edge kind | `{"find_cycles": {"edge": "imports"}}` |
+| `find_duplicates` | Detect duplicate blocks keyed by a property | `{"find_duplicates": {"by": "body", "min_count": 2}}` |
+| `taint_sources` | Register taint sources (accumulate into shared context) | `{"taint_sources": [{"pattern": "req.body", "kind": "user_input"}]}` |
+| `taint_sanitizers` | Register sanitizers that clear taint | `{"taint_sanitizers": [{"pattern": "escape_html"}]}` |
+| `taint_sinks` | Register sinks; emits findings for unsanitized flows | `{"taint_sinks": [{"pattern": "query", "vulnerability": "sql_injection"}]}` |
+| `taint` | Combined form (desugars to sources + sanitizers + sinks) for backward compat | `{"taint": {"sources": [...], "sanitizers": [...], "sinks": [...]}}` |
+| `flag` | Emit a finding for each remaining node | `{"flag": {"pattern": "oversized_module", "message": "Module `{{name}}` is oversized", "severity": "warning"}}` |
+
+`group_by` accepts the special keys `file` (alias `file_path`), `language`, `kind`, `name`, or any metric name produced upstream.
+
+### `select` — `NodeType` values
+
+`file`, `symbol`, `call_site`.
+
+### Edge kinds (used by `max_depth`, `find_cycles`)
+
+`calls`, `imports`, `flows_to`, `acquires`, `released_by`, `contains`, `exports`, `defined_in`.
+
+### `where` / `exclude` / `when` — `WhereClause`
+
+All three accept the same predicate object. Empty = always true.
+
+| Field | Type | Notes |
+|---|---|---|
+| `and` / `or` / `not` | nested `WhereClause`(s) | Logical composition |
+| `is_test_file`, `is_generated`, `is_barrel_file` | bool | Path-based heuristics |
+| `exported` | bool | Node visibility |
+| `kind` | [string] | Matches symbol kind (case-insensitive) |
+| `unreferenced`, `is_entry_point` | bool | Graph-context checks |
+| `lhs_is_parameter` | bool | Only inside a `match_pattern` `when` — asserts the match's LHS member-expression object is a named parameter |
+| `metrics` | `{name: NumericPredicate}` | Filter by any metric produced by `compute_metric`. Also matches built-in per-node fields that the executor surfaces as metrics. |
+
+### `NumericPredicate`
+
+Any subset of `gte`, `lte`, `gt`, `lt`, `eq`. Combined with AND.
+
+```json
+{"metrics": {"cyclomatic_complexity": {"gt": 10, "lt": 20}}}
+```
+
+### `flag` config
+
+| Field | Type | Notes |
+|---|---|---|
+| `pattern` | string | Finding pattern name (reported verbatim in output) |
+| `message` | string | Human-readable message; supports `{{var}}` interpolation |
+| `severity` | string | Default severity if no `severity_map` entry matches |
+| `severity_map` | [entries] | Ordered list; first matching `when` wins. An entry with no `when` (or empty `when`) is the catch-all default. |
+
+Template variables usable in `message`: `{{name}}`, `{{kind}}`, `{{file}}`, `{{line}}`, `{{language}}`, plus any metric name stored on the node (e.g. `{{cyclomatic_complexity}}`, `{{count}}`, `{{depth}}`, `{{cycle_size}}`, `{{edge_count}}`, `{{ratio}}`).
+
+### Worked example
+
+```json
+{
+  "pipeline": "cyclomatic_complexity",
+  "category": "complexity",
+  "languages": ["rust", "typescript"],
+  "graph": [
+    {"select": "symbol", "where": {"kind": ["function", "method"]}, "exclude": {"is_test_file": true}},
+    {"compute_metric": "cyclomatic_complexity"},
+    {"flag": {
+      "pattern": "cyclomatic_complexity",
+      "message": "`{{name}}` has complexity {{cyclomatic_complexity}}",
+      "severity_map": [
+        {"when": {"metrics": {"cyclomatic_complexity": {"gte": 20}}}, "severity": "error"},
+        {"when": {"metrics": {"cyclomatic_complexity": {"gt": 10}}}, "severity": "warning"}
+      ]
+    }}
+  ]
+}
+```
+
+See `src/audit/builtin/*.json` for hundreds of worked examples across every supported language.
 
 ## Examples
 

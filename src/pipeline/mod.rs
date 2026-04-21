@@ -6,9 +6,9 @@ pub mod helpers;
 pub mod loader;
 
 pub use dsl::{
-    EdgeDirection, EdgeType, FlagConfig, FindDuplicatesStage, GraphStage, MetricValue,
-    NodeType, NumericPredicate, PipelineNode, SeverityEntry, TaintSanitizerPattern,
-    TaintSinkPattern, TaintSourcePattern, TaintStage, WhereClause, interpolate_message,
+    EdgeDirection, EdgeType, FindDuplicatesStage, FlagConfig, GraphStage, MetricValue, NodeType,
+    NumericPredicate, PipelineNode, SeverityEntry, TaintSanitizerPattern, TaintSinkPattern,
+    TaintSourcePattern, TaintStage, WhereClause, interpolate_message,
 };
 pub use executor::{PipelineOutput, run_pipeline};
 pub use loader::{JsonAuditFile, discover_json_audits};

@@ -19,12 +19,12 @@ impl CfgBuilder for CSharpCfgBuilder {
         if let Some(params_node) = function_node.child_by_field_name("parameters") {
             let mut cursor = params_node.walk();
             for child in params_node.named_children(&mut cursor) {
-                if child.kind() == "parameter" {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        let name = name_node.utf8_text(source).unwrap_or("").to_string();
-                        if !name.is_empty() {
-                            cfg.param_names.push(name);
-                        }
+                if child.kind() == "parameter"
+                    && let Some(name_node) = child.child_by_field_name("name")
+                {
+                    let name = name_node.utf8_text(source).unwrap_or("").to_string();
+                    if !name.is_empty() {
+                        cfg.param_names.push(name);
                     }
                 }
             }

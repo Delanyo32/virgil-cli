@@ -222,4 +222,3 @@ pub enum OutputFormat {
     Json,
     Csv,
 }
-

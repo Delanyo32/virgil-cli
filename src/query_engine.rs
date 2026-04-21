@@ -306,7 +306,14 @@ pub fn execute(
         };
 
         let pipeline_name = "graph_query";
-        match crate::pipeline::executor::run_pipeline(stages, graph, None, None, seed_nodes, pipeline_name)? {
+        match crate::pipeline::executor::run_pipeline(
+            stages,
+            graph,
+            None,
+            None,
+            seed_nodes,
+            pipeline_name,
+        )? {
             crate::pipeline::executor::PipelineOutput::Findings(findings) => {
                 return Ok(QueryOutput {
                     results: Vec::new(),
@@ -671,9 +678,9 @@ mod tests {
 
     #[test]
     fn graph_pipeline_flag_produces_findings() {
-        use crate::pipeline::dsl::{FlagConfig, GraphStage, NodeType};
         use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
         use crate::language::Language;
+        use crate::pipeline::dsl::{FlagConfig, GraphStage, NodeType};
 
         // Build a minimal CodeGraph with one file node and one symbol node
         let mut g = CodeGraph::new();
@@ -691,7 +698,8 @@ mod tests {
             exported: true,
         });
         g.graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
-        g.symbol_nodes.insert(("src/big.rs".to_string(), 1), sym_idx);
+        g.symbol_nodes
+            .insert(("src/big.rs".to_string(), 1), sym_idx);
 
         // Build a graph pipeline: select(file) -> flag
         let stages = vec![
@@ -712,9 +720,13 @@ mod tests {
         ];
 
         // Build a TsQuery with graph stages
-        let query: crate::query_lang::TsQuery = serde_json::from_str(&serde_json::json!({
-            "graph": stages
-        }).to_string()).unwrap();
+        let query: crate::query_lang::TsQuery = serde_json::from_str(
+            &serde_json::json!({
+                "graph": stages
+            })
+            .to_string(),
+        )
+        .unwrap();
 
         assert!(query.graph.is_some());
         assert_eq!(query.graph.as_ref().unwrap().len(), 2);
@@ -727,7 +739,8 @@ mod tests {
             None,
             None,
             "graph_query",
-        ).unwrap();
+        )
+        .unwrap();
 
         match out {
             crate::pipeline::executor::PipelineOutput::Findings(findings) => {
@@ -742,9 +755,9 @@ mod tests {
 
     #[test]
     fn graph_pipeline_select_produces_results() {
-        use crate::pipeline::dsl::{GraphStage, NodeType};
         use crate::graph::{CodeGraph, NodeWeight};
         use crate::language::Language;
+        use crate::pipeline::dsl::{GraphStage, NodeType};
 
         let mut g = CodeGraph::new();
         let file_idx = g.graph.add_node(NodeWeight::File {
@@ -759,7 +772,9 @@ mod tests {
             exclude: None,
         }];
 
-        let out = crate::pipeline::executor::run_pipeline(&stages, &g, None, None, None, "graph_query").unwrap();
+        let out =
+            crate::pipeline::executor::run_pipeline(&stages, &g, None, None, None, "graph_query")
+                .unwrap();
 
         match out {
             crate::pipeline::executor::PipelineOutput::Results(results) => {
