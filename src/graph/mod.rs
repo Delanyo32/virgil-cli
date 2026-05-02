@@ -2,6 +2,7 @@ pub mod builder;
 pub mod cfg;
 pub mod cfg_languages;
 pub mod metrics;
+pub mod project_index;
 pub mod resource;
 pub mod taint;
 
@@ -11,7 +12,7 @@ use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
-use crate::audit::project_index::{ExportedSymbol, FileEntry, GraphNode, ProjectIndex};
+use crate::graph::project_index::{ExportedSymbol, FileEntry, GraphNode, ProjectIndex};
 use crate::language::Language;
 use crate::models::SymbolKind;
 
