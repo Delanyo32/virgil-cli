@@ -3,10 +3,32 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
+use serde::{Deserialize, Serialize};
 
 use super::cfg::{CfgStatementKind, FunctionCfg};
 use super::{CodeGraph, NodeWeight};
-use crate::pipeline::dsl::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
+
+// ---------------------------------------------------------------------------
+// Pattern types — describe what the taint engine looks for. Loaded from JSON
+// pipeline files via `pipeline::dsl`, which re-exports these.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintSourcePattern {
+    pub pattern: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintSinkPattern {
+    pub pattern: String,
+    pub vulnerability: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaintSanitizerPattern {
+    pub pattern: String,
+}
 
 // ---------------------------------------------------------------------------
 // TaintConfig — dynamic pattern tables loaded from JSON pipeline files

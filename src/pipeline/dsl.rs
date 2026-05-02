@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use petgraph::graph::NodeIndex;
 use serde::{Deserialize, Serialize};
 
+pub use crate::graph::taint::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
+
 // ---------------------------------------------------------------------------
 // NodeType — what kind of graph node to select
 // ---------------------------------------------------------------------------
@@ -397,23 +399,6 @@ pub struct RatioConfig {
     pub denominator: DenominatorConfig,
     #[serde(default)]
     pub threshold: Option<WhereClause>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaintSourcePattern {
-    pub pattern: String,
-    pub kind: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaintSinkPattern {
-    pub pattern: String,
-    pub vulnerability: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaintSanitizerPattern {
-    pub pattern: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
