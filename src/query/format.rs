@@ -30,7 +30,7 @@ pub fn format_results(
 }
 
 fn format_findings(
-    findings: &[crate::audit::models::AuditFinding],
+    findings: &[crate::pipeline::output::AuditFinding],
     output: &QueryOutput,
     pretty: bool,
     project_name: &str,

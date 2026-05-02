@@ -5,6 +5,7 @@ pub mod executor;
 pub mod helpers;
 pub mod loader;
 pub mod node_helpers;
+pub mod output;
 pub mod stages;
 
 pub use dsl::{

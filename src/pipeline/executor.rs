@@ -6,13 +6,12 @@
 
 use petgraph::graph::NodeIndex;
 
-use crate::audit::models::AuditFinding;
 use crate::graph::CodeGraph;
 use crate::pipeline::dsl::{GraphStage, PipelineNode, interpolate_message};
 use crate::pipeline::helpers::{is_barrel_file, is_excluded_for_arch_analysis, is_test_file};
 use crate::pipeline::node_helpers::pipeline_node_from_index;
+use crate::pipeline::output::{AuditFinding, QueryResult};
 use crate::pipeline::stages;
-use crate::query::engine::QueryResult;
 use crate::storage::workspace::Workspace;
 
 // ---------------------------------------------------------------------------

@@ -353,7 +353,7 @@ fn run_json_audit_file_ws(
             // Pipeline did not end with a Flag stage — report as info findings
             results
                 .into_iter()
-                .map(|r| virgil_cli::audit::models::AuditFinding {
+                .map(|r| virgil_cli::pipeline::output::AuditFinding {
                     file_path: r.file,
                     line: r.line,
                     column: 1,

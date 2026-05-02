@@ -2,8 +2,9 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::cli::OutputFormat;
+use crate::pipeline::output::AuditFinding;
 
-use super::models::{AuditFinding, AuditSummary};
+use super::models::AuditSummary;
 
 /// Format a vector of serializable rows into the requested output format.
 fn format_output<T: Serialize>(

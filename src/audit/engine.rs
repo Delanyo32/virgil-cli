@@ -4,9 +4,10 @@ use anyhow::Result;
 
 use crate::graph::CodeGraph;
 use crate::language::Language;
+use crate::pipeline::output::AuditFinding;
 use crate::storage::workspace::Workspace;
 
-use super::models::{AuditFinding, AuditSummary};
+use super::models::AuditSummary;
 
 pub struct AuditEngine {
     languages: Vec<Language>,

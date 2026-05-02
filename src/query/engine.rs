@@ -16,26 +16,7 @@ use crate::storage::registry::ProjectEntry;
 use crate::signature;
 use crate::storage::workspace::Workspace;
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct QueryResult {
-    pub name: String,
-    pub kind: String,
-    pub file: String,
-    pub line: u32,
-    pub end_line: u32,
-    pub column: u32,
-    pub exported: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub docstring: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-}
+pub use crate::pipeline::output::{AuditFinding, QueryResult};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ReadResult {
@@ -55,7 +36,7 @@ pub struct QueryOutput {
     pub read: Option<ReadResult>,
     /// Set when graph pipeline ends with Flag stage — contains AuditFindings
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub findings: Option<Vec<crate::audit::models::AuditFinding>>,
+    pub findings: Option<Vec<crate::pipeline::output::AuditFinding>>,
 }
 
 pub fn execute(
@@ -787,7 +768,7 @@ mod tests {
 
     #[test]
     fn query_output_findings_field_serializes() {
-        use crate::audit::models::AuditFinding;
+        use crate::pipeline::output::AuditFinding;
 
         let output = QueryOutput {
             results: Vec::new(),
