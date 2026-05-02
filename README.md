@@ -51,14 +51,14 @@ cp -r .agents/skills/virgil ~/.claude/skills/
 Three top-level command groups:
 
 ```bash
-virgil projects <COMMAND>
-virgil audit <DIR|--s3 URI> [OPTIONS]
-virgil serve --s3 <URI> [OPTIONS]
+virgil-cli projects <COMMAND>
+virgil-cli audit <DIR|--s3 URI> [OPTIONS]
+virgil-cli serve --s3 <URI> [OPTIONS]
 ```
 
 ## Projects
 
-All project commands are nested under `virgil projects`:
+All project commands are nested under `virgil-cli projects`:
 
 | Command | Description |
 |---------|-------------|
@@ -70,7 +70,7 @@ All project commands are nested under `virgil projects`:
 ### `projects create`
 
 ```bash
-virgil projects create <NAME> [OPTIONS]
+virgil-cli projects create <NAME> [OPTIONS]
 ```
 
 | Option | Description | Default |
@@ -83,7 +83,7 @@ virgil projects create <NAME> [OPTIONS]
 ### `projects list`
 
 ```bash
-virgil projects list
+virgil-cli projects list
 ```
 
 No arguments. Lists all registered projects with file counts.
@@ -91,7 +91,7 @@ No arguments. Lists all registered projects with file counts.
 ### `projects delete`
 
 ```bash
-virgil projects delete <NAME>
+virgil-cli projects delete <NAME>
 ```
 
 | Option | Description |
@@ -102,10 +102,10 @@ virgil projects delete <NAME>
 
 ```bash
 # Query a registered project
-virgil projects query <NAME> [OPTIONS]
+virgil-cli projects query <NAME> [OPTIONS]
 
 # Query an S3/R2 codebase directly (no registration needed)
-virgil projects query --s3 s3://bucket/prefix [OPTIONS]
+virgil-cli projects query --s3 s3://bucket/prefix [OPTIONS]
 ```
 
 Pass a query via `--q` (inline JSON), `--file` (path to JSON file), or pipe JSON to stdin.
@@ -196,19 +196,19 @@ Static analysis across 6 categories (security, architecture, code_style, tech_de
 
 ```bash
 # Local directory
-virgil audit ./src                                        # All categories
-virgil audit ./src --category security                    # Security only
-virgil audit ./src --category architecture                # Architecture only
-virgil audit ./src --category tech_debt                   # Tech debt only
-virgil audit ./src --category code_style                  # Code style only
-virgil audit ./src --category scalability                 # Scalability only
+virgil-cli audit ./src                                        # All categories
+virgil-cli audit ./src --category security                    # Security only
+virgil-cli audit ./src --category architecture                # Architecture only
+virgil-cli audit ./src --category tech_debt                   # Tech debt only
+virgil-cli audit ./src --category code_style                  # Code style only
+virgil-cli audit ./src --category scalability                 # Scalability only
 
 # Multiple categories
-virgil audit ./src --category "security,architecture"
+virgil-cli audit ./src --category "security,architecture"
 
 # S3/R2 (no registration needed)
-virgil audit --s3 s3://bucket/prefix
-virgil audit --s3 s3://bucket/prefix --language rs --category security
+virgil-cli audit --s3 s3://bucket/prefix
+virgil-cli audit --s3 s3://bucket/prefix --language rs --category security
 ```
 
 ### Options
@@ -344,89 +344,89 @@ See `src/audit/builtin/*.json` for hundreds of worked examples across every supp
 
 ```bash
 # Register a project
-virgil projects create myapp --path ./src
+virgil-cli projects create myapp --path ./src
 
 # Register with language filter and exclusions
-virgil projects create myapp --path ./src --lang ts,tsx,js,jsx --exclude "vendor/**"
+virgil-cli projects create myapp --path ./src --lang ts,tsx,js,jsx --exclude "vendor/**"
 
 # List registered projects
-virgil projects list
+virgil-cli projects list
 
 # Find all exported functions
-virgil projects query myapp --q '{"find": "function", "visibility": "exported"}'
+virgil-cli projects query myapp --q '{"find": "function", "visibility": "exported"}'
 
 # Search by name pattern with preview
-virgil projects query myapp --q '{"name": "handle*", "preview": 5}' --pretty
+virgil-cli projects query myapp --q '{"name": "handle*", "preview": 5}' --pretty
 
 # Methods inside a specific class
-virgil projects query myapp --q '{"find": "method", "inside": "AuthService"}'
+virgil-cli projects query myapp --q '{"find": "method", "inside": "AuthService"}'
 
 # Large functions (50+ lines) in a directory
-virgil projects query myapp --q '{"files": "src/api/**", "find": "function", "lines": {"min": 50}}'
+virgil-cli projects query myapp --q '{"files": "src/api/**", "find": "function", "lines": {"min": 50}}'
 
 # Functions missing docstrings
-virgil projects query myapp --q '{"find": "function", "has": {"not": "docstring"}}'
+virgil-cli projects query myapp --q '{"find": "function", "has": {"not": "docstring"}}'
 
 # Name regex — all getters
-virgil projects query myapp --q '{"name": {"regex": "^get[A-Z]"}}'
+virgil-cli projects query myapp --q '{"name": {"regex": "^get[A-Z]"}}'
 
 # Call graph — what does authenticate() call?
-virgil projects query myapp --q '{"name": "authenticate", "calls": "down", "depth": 2}'
+virgil-cli projects query myapp --q '{"name": "authenticate", "calls": "down", "depth": 2}'
 
 # Summary of an entire project
-virgil projects query myapp --q '{}' --out summary --pretty
+virgil-cli projects query myapp --q '{}' --out summary --pretty
 
 # Read a file
-virgil projects query myapp --q '{"read": "src/main.rs"}' --pretty
+virgil-cli projects query myapp --q '{"read": "src/main.rs"}' --pretty
 
 # Read specific lines from a file
-virgil projects query myapp --q '{"read": "src/main.rs", "lines": {"min": 10, "max": 25}}'
+virgil-cli projects query myapp --q '{"read": "src/main.rs", "lines": {"min": 10, "max": 25}}'
 
 # File:line locations only
-virgil projects query myapp --q '{"find": "class"}' --out locations
+virgil-cli projects query myapp --q '{"find": "class"}' --out locations
 
 # Query from a file
-virgil projects query myapp --file query.json
+virgil-cli projects query myapp --file query.json
 
 # Run all audit categories
-virgil audit ./src
+virgil-cli audit ./src
 
 # Run security audit with JSON output
-virgil audit ./src --category security --format json
+virgil-cli audit ./src --category security --format json
 
 # Run complexity analysis filtered to Rust
-virgil audit ./src --category complexity --language rs
+virgil-cli audit ./src --category complexity --language rs
 
 # Run a specific architecture pipeline
-virgil audit ./src --pipeline circular_dependencies
+virgil-cli audit ./src --pipeline circular_dependencies
 
 # Delete a project
-virgil projects delete myapp
+virgil-cli projects delete myapp
 
 # --- S3 / Cloudflare R2 ---
 
 # Query an S3 codebase directly (no project registration)
-virgil projects query --s3 s3://bucket/my-repo --q '{"find": "function"}' --out summary --pretty
+virgil-cli projects query --s3 s3://bucket/my-repo --q '{"find": "function"}' --out summary --pretty
 
 # Query with language filter
-virgil projects query --s3 s3://bucket/my-repo --q '{}' --out summary --lang rs
+virgil-cli projects query --s3 s3://bucket/my-repo --q '{}' --out summary --lang rs
 
 # Audit an S3 codebase
-virgil audit --s3 s3://bucket/my-repo --language rs
+virgil-cli audit --s3 s3://bucket/my-repo --language rs
 
 # Security audit on S3 codebase
-virgil audit --s3 s3://bucket/my-repo --language rs --category security
+virgil-cli audit --s3 s3://bucket/my-repo --language rs --category security
 
 # --- Server Mode ---
 
 # Start a persistent HTTP server (loads codebase once, serves queries/audits over HTTP)
-virgil serve --s3 s3://bucket/my-repo
+virgil-cli serve --s3 s3://bucket/my-repo
 
 # With language filter and custom port
-virgil serve --s3 s3://bucket/my-repo --lang rs --port 8080
+virgil-cli serve --s3 s3://bucket/my-repo --lang rs --port 8080
 
 # Expose on all interfaces (default is 127.0.0.1)
-virgil serve --s3 s3://bucket/my-repo --host 0.0.0.0 --port 8080
+virgil-cli serve --s3 s3://bucket/my-repo --host 0.0.0.0 --port 8080
 ```
 
 ## Serve (Server Mode)
@@ -434,7 +434,7 @@ virgil serve --s3 s3://bucket/my-repo --host 0.0.0.0 --port 8080
 Persistent HTTP server that loads a codebase from S3 once and serves queries and audits over HTTP. Designed for use by orchestrators (e.g. AI agents) that make many queries against the same codebase — avoids re-downloading and re-parsing on every request.
 
 ```bash
-virgil serve --s3 <URI> [OPTIONS]
+virgil-cli serve --s3 <URI> [OPTIONS]
 ```
 
 | Option | Description | Default |
