@@ -1,70 +1,15 @@
+//! Taint analysis engine — private state, pattern matching helpers, and the
+//! `TaintEngine` that walks each function's CFG.
+
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use serde::{Deserialize, Serialize};
 
-use super::cfg::{CfgStatementKind, FunctionCfg};
-use super::{CodeGraph, NodeWeight};
-
-// ---------------------------------------------------------------------------
-// Pattern types — describe what the taint engine looks for. Loaded from JSON
-// pipeline files via `pipeline::dsl`, which re-exports these.
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaintSourcePattern {
-    pub pattern: String,
-    pub kind: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaintSinkPattern {
-    pub pattern: String,
-    pub vulnerability: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaintSanitizerPattern {
-    pub pattern: String,
-}
-
-// ---------------------------------------------------------------------------
-// TaintConfig — dynamic pattern tables loaded from JSON pipeline files
-// ---------------------------------------------------------------------------
-
-/// Dynamic taint configuration — sources, sinks, and sanitizers come from JSON pipeline files.
-pub struct TaintConfig {
-    pub sources: Vec<TaintSourcePattern>,
-    pub sinks: Vec<TaintSinkPattern>,
-    pub sanitizers: Vec<TaintSanitizerPattern>,
-}
-
-// ---------------------------------------------------------------------------
-// Taint finding — output of the analysis
-// ---------------------------------------------------------------------------
-
-/// A single taint finding: unsanitized data flowing from source to sink.
-#[derive(Debug, Clone)]
-pub struct TaintFinding {
-    /// The function graph node where the finding was detected.
-    pub function_node: NodeIndex,
-    /// Human-readable name of the function.
-    pub function_name: String,
-    /// File path containing the function.
-    pub file_path: String,
-    /// The variable that carried taint into the sink.
-    pub tainted_var: String,
-    /// The sink call name.
-    pub sink_name: String,
-    /// Line of the sink call.
-    pub sink_line: u32,
-    /// How the variable became tainted (source description).
-    pub source_description: String,
-    /// Line where taint originated (if known).
-    pub source_line: Option<u32>,
-}
+use super::types::{TaintConfig, TaintFinding};
+use crate::graph::cfg::{CfgStatementKind, FunctionCfg};
+use crate::graph::{CodeGraph, NodeWeight};
 
 // ---------------------------------------------------------------------------
 // Taint state — per-variable tracking during analysis
@@ -599,6 +544,7 @@ fn topo_order_or_bfs(cfg: &FunctionCfg) -> Vec<NodeIndex> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
     use super::*;
     use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
     use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
