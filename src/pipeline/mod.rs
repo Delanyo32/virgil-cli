@@ -4,6 +4,8 @@ pub mod dsl;
 pub mod executor;
 pub mod helpers;
 pub mod loader;
+pub mod node_helpers;
+pub mod stages;
 
 pub use dsl::{
     EdgeDirection, EdgeType, FindDuplicatesStage, FlagConfig, GraphStage, MetricValue, NodeType,

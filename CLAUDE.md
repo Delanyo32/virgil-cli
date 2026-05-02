@@ -23,7 +23,9 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
 
 - `src/pipeline/` — JSON pipeline layer (single owner of the DSL, executor, and file loading)
   - `dsl.rs` — `GraphStage`, `WhereClause`, `PipelineNode` and all DSL types
-  - `executor.rs` — `run_pipeline` execution engine
+  - `executor.rs` — `run_pipeline` entry point and `execute_stage` dispatch
+  - `stages/` — per-stage executors: `select`, `aggregate` (group_by/count/ratio), `cycles` (find_cycles/max_depth), `match_pattern`, `compute_metric`, `taint`, `find_duplicates`
+  - `node_helpers.rs` — shared helpers (`pipeline_node_from_index`, `edge_matches_type`, `node_path`)
   - `loader.rs` — `load_json_audits` (project-local → user-global → built-ins)
   - `helpers.rs` — `is_test_file`, `is_barrel_file`, `is_excluded_for_arch_analysis`
 - `src/audit/` — orchestration and output only
