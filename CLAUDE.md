@@ -13,7 +13,7 @@ cargo run -- projects query myapp --q '{"find": "function", "name": "handle*"}' 
 cargo run -- projects query myapp --file query.json
 # S3/R2 (no registration needed)
 cargo run -- projects query --s3 s3://bucket/prefix --q '{"find": "function"}' [--lang rs]
-cargo run -- audit --dir ./src [--language rs] [--category security] [--pipeline sql_injection_rust]
+cargo run -- audit ./src [--language rs] [--category security] [--pipeline sql_injection_rust]
 cargo run -- audit --s3 s3://bucket/prefix [--language rs]
 # Serve mode
 cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
@@ -133,9 +133,8 @@ stages that accumulate into a shared context. The old combined `taint` form cont
 Use `AuditEngine::categories(vec!["security".to_string()])` to filter by category.
 
 **Audit CLI**
-`virgil audit [--dir|--s3] [--language] [--category] [--pipeline] [--format] [--per-page] [--page]`
-No nested subcommands. Category values match the `category` field in JSON pipeline files:
-`security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability`.
+`virgil audit <DIR>|--s3 <URI> [--language] [--category] [--pipeline] [--format] [--per-page] [--page]`
+DIR is positional (no `--dir` flag). No nested subcommands. Category values match the `category` field in JSON pipeline files: `security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability`.
 
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills

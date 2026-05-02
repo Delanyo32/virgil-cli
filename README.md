@@ -1,6 +1,6 @@
 # virgil-cli
 
-A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/) and queries them via a composable JSON query language. Includes static analysis auditing across 4 categories. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying and auditing remote codebases directly.
+A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/) and queries them via a composable JSON query language. Includes static analysis auditing across 6 categories. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying and auditing remote codebases directly.
 
 ## Installation
 
@@ -52,7 +52,7 @@ Three top-level command groups:
 
 ```bash
 virgil projects <COMMAND>
-virgil audit [CATEGORY] <DIR|--s3 URI> [OPTIONS]
+virgil audit <DIR|--s3 URI> [OPTIONS]
 virgil serve --s3 <URI> [OPTIONS]
 ```
 
@@ -149,7 +149,7 @@ Queries are JSON objects with composable filters:
 |-------|------|-------------|
 | `files` | string or [strings] | Glob pattern(s) to filter files |
 | `files_exclude` | [strings] | Glob pattern(s) to exclude files |
-| `find` | string or [strings] | Symbol kind(s): function, method, class, type, enum, struct, trait, variable, constant, property, namespace, module, macro, union, arrow_function, constructor, import, any |
+| `find` | string or [strings] | Symbol kind(s): function, method, class, interface, type, enum, struct, trait, variable, constant, property, namespace, module, macro, union, arrow_function, constructor, import, any |
 | `name` | string or {contains, regex} | Name filter: glob string, `{"contains": "auth"}`, or `{"regex": "^get[A-Z]"}` |
 | `visibility` | string | Filter by visibility: exported, public, private, protected, internal |
 | `inside` | string | Only symbols inside a parent with this name |
@@ -192,7 +192,7 @@ Wrapping structure:
 
 ## Audit
 
-Static analysis across 6 categories. All audit logic is JSON-driven — pipelines are loaded from built-in files and optionally supplemented with custom JSON files.
+Static analysis across 6 categories (security, architecture, code_style, tech_debt, complexity, scalability). All audit logic is JSON-driven — pipelines are loaded from built-in files and optionally supplemented with custom JSON files.
 
 ```bash
 # Local directory
@@ -238,7 +238,7 @@ virgil audit --s3 s3://bucket/prefix --language rs --category security
 
 ## Audit Pipeline DSL
 
-All audit logic is JSON. Each pipeline is a standalone `.json` file loaded from three locations (first match wins): built-ins bundled in the binary (`src/audit/builtin/*.json`), project-local (`.virgil/pipelines/*.json`), then user-global (`~/.virgil/pipelines/*.json`). A custom file can also be passed via `--file`. The same DSL works embedded in a query under the `graph` field.
+All audit logic is JSON. Each pipeline is a standalone `.json` file. The loader's discovery order is project-local (`.virgil/audits/*.json`) → user-global (`~/.virgil-cli/audits/*.json`) → built-ins bundled in the binary (`src/audit/builtin/*.json`); files with the same pipeline name and language filter deduplicate, project-local wins. A custom file can also be passed via `--file`. The same DSL works embedded in a query under the `graph` field.
 
 ### File shape
 
@@ -415,7 +415,7 @@ virgil projects query --s3 s3://bucket/my-repo --q '{}' --out summary --lang rs
 virgil audit --s3 s3://bucket/my-repo --language rs
 
 # Security audit on S3 codebase
-virgil audit security --s3 s3://bucket/my-repo --language rs
+virgil audit --s3 s3://bucket/my-repo --language rs --category security
 
 # --- Server Mode ---
 
@@ -458,7 +458,7 @@ virgil serve --s3 <URI> [OPTIONS]
 | `/health` | GET | Health check — returns `{"status": "ok"}` |
 | `/query` | POST | Codebase query (same JSON query language as `projects query`) |
 | `/audit/summary` | POST | Audit summary (files scanned, files with findings) |
-| `/audit/{category}` | POST | Audit by category: `architecture`, `security`, `scalability`, `code-quality` |
+| `/audit/{category}` | POST | Audit by category: `security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability` |
 
 **Query request body:**
 
