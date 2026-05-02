@@ -11,4 +11,4 @@ pub use dsl::{
     TaintSourcePattern, TaintStage, WhereClause, interpolate_message,
 };
 pub use executor::{PipelineOutput, run_pipeline};
-pub use loader::{JsonAuditFile, discover_json_audits};
+pub use loader::{JsonAuditFile, load_json_audits};

@@ -56,15 +56,15 @@ struct ReadySignal {
 
 pub async fn run_server(
     workspace: Workspace,
-    s3_uri: &str,
+    source_id: &str,
     host: &str,
     port: u16,
     lang_string: Option<String>,
     languages: Vec<Language>,
 ) -> Result<()> {
     let project = ProjectEntry {
-        name: s3_uri.to_string(),
-        path: std::path::PathBuf::from(s3_uri),
+        name: source_id.to_string(),
+        path: std::path::PathBuf::from(source_id),
         exclude: vec![],
         languages: lang_string,
         file_count: workspace.file_count(),
@@ -170,7 +170,7 @@ async fn handle_query(
             )?;
             let elapsed = start.elapsed();
 
-            let formatted = crate::format::format_results(
+            let formatted = crate::query::format::format_results(
                 &output,
                 &out_format,
                 true,

@@ -135,7 +135,7 @@ fn main() -> Result<()> {
                     virgil_cli::query_engine::execute(&project, &query, max, &workspace, &graph)?;
                 let elapsed = start.elapsed();
 
-                let formatted = virgil_cli::format::format_results(
+                let formatted = virgil_cli::query::format::format_results(
                     &output,
                     &out,
                     pretty,
@@ -149,6 +149,7 @@ fn main() -> Result<()> {
 
         Command::Serve {
             s3,
+            dir,
             host,
             port,
             lang,
@@ -158,10 +159,28 @@ fn main() -> Result<()> {
                 Some(f) => language::parse_language_filter(f),
                 None => Language::all().to_vec(),
             };
-            let loc = S3Location::parse(&s3)?;
-            eprintln!("Loading codebase from {}…", s3);
-            let workspace =
-                Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &exclude, None)?;
+            let (workspace, source_id) = match (s3.as_ref(), dir.as_ref()) {
+                (Some(s3_uri), None) => {
+                    let loc = S3Location::parse(s3_uri)?;
+                    eprintln!("Loading codebase from {}…", s3_uri);
+                    let ws = Workspace::load_from_s3(
+                        &loc.bucket,
+                        &loc.prefix,
+                        &languages,
+                        &exclude,
+                        None,
+                    )?;
+                    (ws, s3_uri.clone())
+                }
+                (None, Some(local_dir)) => {
+                    eprintln!("Loading codebase from {}…", local_dir.display());
+                    let ws = Workspace::load(local_dir, &languages, None)?;
+                    let canonical = std::fs::canonicalize(local_dir)
+                        .unwrap_or_else(|_| local_dir.clone());
+                    (ws, canonical.display().to_string())
+                }
+                _ => unreachable!("clap enforces exactly one of --s3 / --dir"),
+            };
             eprintln!(
                 "Loaded {} files. Starting server on {}:{}…",
                 workspace.file_count(),
@@ -175,7 +194,12 @@ fn main() -> Result<()> {
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(server::run_server(
-                workspace, &s3, &host, port, lang, languages,
+                workspace,
+                &source_id,
+                &host,
+                port,
+                lang,
+                languages,
             ))?;
             Ok(())
         }
@@ -317,8 +341,8 @@ fn run_json_audit_file_ws(
     let output = virgil_cli::pipeline::executor::run_pipeline(
         &json_audit.graph,
         &graph,
-        None,
-        None,
+        Some(workspace),
+        json_audit.languages.as_deref(),
         None,
         &json_audit.pipeline,
     )?;

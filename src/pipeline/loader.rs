@@ -92,7 +92,7 @@ fn dedup_key(audit: &JsonAuditFile) -> String {
 /// (project-local beats user-global beats built-in). Files with the same
 /// pipeline name but DIFFERENT language filters are all included — this
 /// supports per-language variants of a pipeline (e.g., sync_blocking_in_async).
-pub fn discover_json_audits(project_dir: Option<&std::path::Path>) -> Vec<JsonAuditFile> {
+pub fn load_json_audits(project_dir: Option<&std::path::Path>) -> Vec<JsonAuditFile> {
     let mut seen_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut result: Vec<JsonAuditFile> = Vec::new();
 
@@ -203,17 +203,17 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_json_audits_no_project_dir_returns_builtins() {
-        let audits = discover_json_audits(None);
+    fn test_load_json_audits_no_project_dir_returns_builtins() {
+        let audits = load_json_audits(None);
         assert!(
             audits.len() >= 4,
-            "Expected at least 4 built-ins from discover_json_audits(None), got {}",
+            "Expected at least 4 built-ins from load_json_audits(None), got {}",
             audits.len()
         );
     }
 
     #[test]
-    fn test_discover_json_audits_project_local_overrides_builtin() {
+    fn test_load_json_audits_project_local_overrides_builtin() {
         let tmp = tempfile::tempdir().unwrap();
         let audit_dir = tmp.path().join(".virgil").join("audits");
         std::fs::create_dir_all(&audit_dir).unwrap();
@@ -234,7 +234,7 @@ mod tests {
         )
         .unwrap();
 
-        let audits = discover_json_audits(Some(tmp.path()));
+        let audits = load_json_audits(Some(tmp.path()));
 
         // The project-local override should appear before (and instead of) the built-in
         let circular = audits
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_json_audits_invalid_json_is_skipped() {
+    fn test_load_json_audits_invalid_json_is_skipped() {
         let tmp = tempfile::tempdir().unwrap();
         let audit_dir = tmp.path().join(".virgil").join("audits");
         std::fs::create_dir_all(&audit_dir).unwrap();
@@ -281,7 +281,7 @@ mod tests {
         std::fs::write(audit_dir.join("bad.json"), "{ this is not valid json }").unwrap();
 
         // Should not panic; built-ins should still be returned
-        let audits = discover_json_audits(Some(tmp.path()));
+        let audits = load_json_audits(Some(tmp.path()));
         assert!(
             audits.len() >= 4,
             "Should still return built-ins even with invalid project-local JSON"
@@ -289,10 +289,10 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_json_audits_nonexistent_project_dir_is_ok() {
+    fn test_load_json_audits_nonexistent_project_dir_is_ok() {
         let nonexistent = std::path::Path::new("/tmp/__virgil_nonexistent_test_dir__");
         // Should not panic
-        let audits = discover_json_audits(Some(nonexistent));
+        let audits = load_json_audits(Some(nonexistent));
         assert!(audits.len() >= 4);
     }
 

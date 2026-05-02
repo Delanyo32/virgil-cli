@@ -65,7 +65,7 @@ impl AuditEngine {
     ) -> Result<(Vec<AuditFinding>, AuditSummary)> {
         // Discover JSON audit files (project-local → user-global → built-ins)
         let json_audits =
-            crate::pipeline::loader::discover_json_audits(self.project_dir.as_deref());
+            crate::pipeline::loader::load_json_audits(self.project_dir.as_deref());
 
         // No Rust pipelines remain — all audit logic is JSON-driven.
         // files_scanned counts workspace files visible to the engine's languages.
