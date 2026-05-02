@@ -7,10 +7,10 @@ use clap::Parser;
 use virgil_cli::audit;
 use virgil_cli::cli::{Cli, Command, OutputFormat, ProjectCommand};
 use virgil_cli::language::{self, Language};
-use virgil_cli::registry;
-use virgil_cli::s3::S3Location;
+use virgil_cli::storage::registry;
+use virgil_cli::storage::s3::S3Location;
 use virgil_cli::server;
-use virgil_cli::workspace::Workspace;
+use virgil_cli::storage::workspace::Workspace;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -94,7 +94,7 @@ fn main() -> Result<()> {
                         Some(f) => language::parse_language_filter(f),
                         None => Language::all().to_vec(),
                     };
-                    let loc = virgil_cli::s3::S3Location::parse(&s3_uri)?;
+                    let loc = virgil_cli::storage::s3::S3Location::parse(&s3_uri)?;
                     let ws = Workspace::load_from_s3(
                         &loc.bucket,
                         &loc.prefix,
@@ -280,7 +280,7 @@ fn resolve_audit_workspace(
         } else {
             Language::all().to_vec()
         };
-        let loc = virgil_cli::s3::S3Location::parse(s3_uri)?;
+        let loc = virgil_cli::storage::s3::S3Location::parse(s3_uri)?;
         Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &[], Some(1_000_000))
     } else {
         let dir =

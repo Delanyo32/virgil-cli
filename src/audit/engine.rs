@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::graph::CodeGraph;
 use crate::language::Language;
-use crate::workspace::Workspace;
+use crate::storage::workspace::Workspace;
 
 use super::models::{AuditFinding, AuditSummary};
 
@@ -195,7 +195,7 @@ fn compute_summary(findings: &[AuditFinding], files_scanned: usize) -> AuditSumm
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace::Workspace;
+    use crate::storage::workspace::Workspace;
 
     #[test]
     fn engine_basic() {

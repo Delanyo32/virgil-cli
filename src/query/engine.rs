@@ -12,9 +12,9 @@ use crate::languages;
 use crate::models::{CommentInfo, SymbolInfo, SymbolKind};
 use crate::parser;
 use crate::query::lang::{FindFilter, HasFilter, NameFilter, TsQuery};
-use crate::registry::ProjectEntry;
+use crate::storage::registry::ProjectEntry;
 use crate::signature;
-use crate::workspace::Workspace;
+use crate::storage::workspace::Workspace;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct QueryResult {

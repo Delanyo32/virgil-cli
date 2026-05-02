@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::discovery;
+use crate::storage::discovery;
 use crate::language::{self, Language};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

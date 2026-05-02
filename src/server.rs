@@ -19,8 +19,8 @@ use crate::graph::builder::GraphBuilder;
 use crate::language::Language;
 use crate::query::engine;
 use crate::query::lang::TsQuery;
-use crate::registry::ProjectEntry;
-use crate::workspace::Workspace;
+use crate::storage::registry::ProjectEntry;
+use crate::storage::workspace::Workspace;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 

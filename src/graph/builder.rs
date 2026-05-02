@@ -9,7 +9,7 @@ use crate::language::Language;
 use crate::languages;
 use crate::models::{ImportInfo, SymbolInfo, SymbolKind};
 use crate::parser;
-use crate::workspace::Workspace;
+use crate::storage::workspace::Workspace;
 
 use super::cfg::FunctionCfg;
 use super::cfg_languages;
