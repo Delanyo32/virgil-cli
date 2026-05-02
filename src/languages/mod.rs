@@ -14,7 +14,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tree_sitter::{Query, Tree};
 
-use crate::graph::project_index::GraphNode;
+use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::models::{CommentInfo, ImportInfo, SymbolInfo};
 

@@ -256,7 +256,7 @@ fn resolve_import_to_file(
     language: Language,
     known_files: &HashSet<String>,
 ) -> Option<String> {
-    use crate::graph::project_index::GraphNode;
+    use crate::graph::GraphNode;
     let node = languages::resolve_import(source_file, import, language, known_files)?;
     Some(match node {
         GraphNode::File(p) => p,

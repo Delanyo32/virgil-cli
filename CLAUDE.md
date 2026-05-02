@@ -33,11 +33,11 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
   - `format.rs` — finding output formatting (table/json/csv)
   - `models.rs` — `AuditFinding`, `AuditSummary`
 - `src/graph/` — graph data structures and builder
-  - `mod.rs` — `CodeGraph`, `NodeWeight`, `EdgeWeight`
+  - `mod.rs` — `CodeGraph`, `NodeWeight`, `EdgeWeight`, `GraphNode`
   - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`)
-  - `project_index.rs` — `ProjectIndex`, `GraphNode`, `FileEntry`, `ExportedSymbol`
   - `taint.rs` — `TaintEngine`, `TaintConfig` (internal engine used by `pipeline/executor.rs`)
   - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.)
+  - `resource.rs` — `ResourceAnalyzer` (acquires/released_by edges)
   - `cfg.rs` / `cfg_languages/` — control flow graph construction
 
 ## JSON Query Language
