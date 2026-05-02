@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
 
-use super::CfgBuilder;
+use crate::languages::cfg::CfgBuilder;
 
 /// Rust-specific CFG builder. Constructs intra-procedural control flow graphs
 /// from tree-sitter ASTs for Rust functions (function_item nodes).

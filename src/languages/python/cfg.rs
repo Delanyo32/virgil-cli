@@ -2,7 +2,7 @@ use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use tree_sitter::Node;
 
-use super::CfgBuilder;
+use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
 
 /// CFG builder for Python function bodies.

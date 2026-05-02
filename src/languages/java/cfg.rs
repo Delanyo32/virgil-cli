@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
 
-use super::CfgBuilder;
+use crate::languages::cfg::CfgBuilder;
 
 pub struct JavaCfgBuilder;
 

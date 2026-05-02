@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tree_sitter::Node;
 
-use super::CfgBuilder;
+use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
 use petgraph::graph::NodeIndex;
 

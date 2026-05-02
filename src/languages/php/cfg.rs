@@ -2,30 +2,31 @@ use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use tree_sitter::Node;
 
-use super::CfgBuilder;
+use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
 
-/// CFG builder for C: if/else, for/while/do, switch with fallthrough,
-/// return, variable declarations, call_expression, malloc/free, fopen/fclose.
-/// Best-effort goto handling (skipped).
-pub struct CCfgBuilder;
+/// CFG builder for PHP: if/else, for/foreach/while, switch, try/catch/finally,
+/// return. Handles function_call_expression and method_call_expression.
+pub struct PhpCfgBuilder;
 
-impl CfgBuilder for CCfgBuilder {
+impl CfgBuilder for PhpCfgBuilder {
     fn build_cfg(&self, function_node: &Node, source: &[u8]) -> Result<FunctionCfg> {
         let mut cfg = FunctionCfg::new();
 
         // Extract parameter names from the function signature.
-        // In C's grammar, function_definition has a `declarator` field which is a
-        // `function_declarator`. That node has a `parameters` field with a `parameter_list`.
-        // Each child of the list is a `parameter_declaration` whose `declarator` field
-        // may be a `pointer_declarator` (wrapping further declarators) or a plain `identifier`.
-        if let Some(params_node) = find_c_parameter_list(function_node) {
+        // PHP formal_parameters contains simple_parameter (or variadic_parameter) nodes,
+        // each of which has a "name" child that is a variable_name node (e.g. "$data").
+        // We strip the leading "$" so "data" matches PARAM_PATTERNS in the taint engine.
+        if let Some(params_node) = function_node.child_by_field_name("parameters") {
             let mut cursor = params_node.walk();
             for child in params_node.named_children(&mut cursor) {
-                if child.kind() == "parameter_declaration"
-                    && let Some(declarator) = child.child_by_field_name("declarator")
-                {
-                    let name = extract_c_param_ident(&declarator, source);
+                // Both simple_parameter and variadic_parameter have a "name" field.
+                if let Some(name_node) = child.child_by_field_name("name") {
+                    let name = name_node
+                        .utf8_text(source)
+                        .unwrap_or("")
+                        .trim_start_matches('$')
+                        .to_string();
                     if !name.is_empty() {
                         cfg.param_names.push(name);
                     }
@@ -48,7 +49,6 @@ impl CfgBuilder for CCfgBuilder {
             cfg.exits.push(exit_idx);
         }
 
-        // Deduplicate exits
         cfg.exits.sort_by_key(|n| n.index());
         cfg.exits.dedup();
 
@@ -66,29 +66,8 @@ fn find_compound_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
         .find(|&child| child.kind() == "compound_statement")
 }
 
-/// Find the `parameter_list` node for a C `function_definition`.
-/// Structure: function_definition.declarator (function_declarator).parameters (parameter_list).
-fn find_c_parameter_list<'a>(function_node: &Node<'a>) -> Option<Node<'a>> {
-    // Walk the declarator chain to find a function_declarator, then get its parameters field.
-    let declarator = function_node.child_by_field_name("declarator")?;
-    find_function_declarator_params(&declarator)
-}
-
-/// Recursively descend through declarator wrappers (pointer_declarator, etc.)
-/// to find a `function_declarator` and return its `parameters` field.
-fn find_function_declarator_params<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    if node.kind() == "function_declarator" {
-        return node.child_by_field_name("parameters");
-    }
-    // pointer_declarator and similar wrappers have a `declarator` field
-    if let Some(inner) = node.child_by_field_name("declarator") {
-        return find_function_declarator_params(&inner);
-    }
-    None
-}
-
-/// Process a compound_statement (or block) and return the last live block index,
-/// or None if every path returned / broke.
+/// Process a compound_statement and return the last live block index,
+/// or None if every path terminates.
 fn build_block(
     cfg: &mut FunctionCfg,
     mut current: NodeIndex,
@@ -108,12 +87,21 @@ fn build_block(
             "for_statement" | "while_statement" => {
                 current = build_loop(cfg, current, &child, source);
             }
+            "foreach_statement" => {
+                current = build_foreach(cfg, current, &child, source);
+            }
             "do_statement" => {
                 current = build_do_while(cfg, current, &child, source);
             }
 
             // ── switch ──────────────────────────────────────────────
             "switch_statement" => match build_switch(cfg, current, &child, source) {
+                Some(join) => current = join,
+                None => return None,
+            },
+
+            // ── try/catch/finally ───────────────────────────────────
+            "try_statement" => match build_try_catch(cfg, current, &child, source) {
                 Some(join) => current = join,
                 None => return None,
             },
@@ -126,21 +114,28 @@ fn build_block(
                     line: line_of(&child),
                 });
                 cfg.exits.push(current);
-                return None; // path terminates
+                return None;
             }
 
-            // ── goto (best-effort: skip) ────────────────────────────
-            "goto_statement" | "labeled_statement" => { /* skip */ }
-
-            // ── declarations & expressions ───────────────────────────
-            "declaration" => {
-                emit_declaration(cfg, current, &child, source);
+            // ── throw ───────────────────────────────────────────────
+            "throw_expression" | "throw_statement" => {
+                let vars = collect_identifiers(&child, source);
+                cfg.blocks[current].statements.push(CfgStatement {
+                    kind: CfgStatementKind::Call {
+                        name: "throw".to_string(),
+                        args: vars,
+                    },
+                    line: line_of(&child),
+                });
+                return None;
             }
+
+            // ── expression statements ───────────────────────────────
             "expression_statement" => {
                 emit_expression_stmt(cfg, current, &child, source);
             }
 
-            // ── nested compound_statement (bare blocks) ─────────────
+            // ── nested blocks ───────────────────────────────────────
             "compound_statement" => match build_block(cfg, current, &child, source) {
                 Some(cont) => current = cont,
                 None => return None,
@@ -160,7 +155,6 @@ fn build_if(
     node: &Node,
     source: &[u8],
 ) -> Option<NodeIndex> {
-    // Emit guard for condition
     let cond_vars = node
         .child_by_field_name("condition")
         .map(|c| collect_identifiers(&c, source))
@@ -173,54 +167,52 @@ fn build_if(
         line: line_of(node),
     });
 
+    // True branch (body)
     let true_block = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks
         .add_edge(current, true_block, CfgEdge::TrueBranch);
 
-    // Process consequence
-    let consequence = node.child_by_field_name("consequence");
-    let true_exit = match consequence {
-        Some(cons) => {
-            if cons.kind() == "compound_statement" {
-                build_block(cfg, true_block, &cons, source)
-            } else {
-                emit_any_statement(cfg, true_block, &cons, source);
-                Some(true_block)
-            }
+    let body = node.child_by_field_name("body");
+    let true_exit = match body {
+        Some(b) if b.kind() == "compound_statement" => build_block(cfg, true_block, &b, source),
+        Some(b) if b.kind() == "colon_block" => build_colon_block(cfg, true_block, &b, source),
+        Some(b) => {
+            emit_any_statement(cfg, true_block, &b, source);
+            Some(true_block)
         }
         None => Some(true_block),
     };
 
-    // Process alternative (else / else-if)
-    let alternative = node.child_by_field_name("alternative");
+    // False branch (alternative: else / elseif)
     let false_block = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks
         .add_edge(current, false_block, CfgEdge::FalseBranch);
 
+    let alternative = node.child_by_field_name("alternative");
     let false_exit = match alternative {
-        Some(alt) => {
-            if alt.kind() == "else_clause" {
-                // The else clause wraps its body
+        Some(alt) => match alt.kind() {
+            "else_clause" => {
                 let body = alt.named_child(0);
                 match body {
                     Some(b) if b.kind() == "compound_statement" => {
                         build_block(cfg, false_block, &b, source)
                     }
-                    Some(b) if b.kind() == "if_statement" => build_if(cfg, false_block, &b, source),
+                    Some(b) if b.kind() == "colon_block" => {
+                        build_colon_block(cfg, false_block, &b, source)
+                    }
                     Some(b) => {
                         emit_any_statement(cfg, false_block, &b, source);
                         Some(false_block)
                     }
                     None => Some(false_block),
                 }
-            } else {
-                Some(false_block)
             }
-        }
+            "else_if_clause" => build_if(cfg, false_block, &alt, source),
+            _ => Some(false_block),
+        },
         None => Some(false_block),
     };
 
-    // Join
     let join = cfg.blocks.add_node(BasicBlock::new());
     if let Some(te) = true_exit {
         cfg.blocks.add_edge(te, join, CfgEdge::Normal);
@@ -234,13 +226,23 @@ fn build_if(
     Some(join)
 }
 
+/// Handle PHP alternative syntax (if/while/for with colons).
+fn build_colon_block(
+    cfg: &mut FunctionCfg,
+    current: NodeIndex,
+    node: &Node,
+    source: &[u8],
+) -> Option<NodeIndex> {
+    // Colon blocks contain statements directly (same as compound_statement)
+    build_block(cfg, current, node, source)
+}
+
 // ── Loops (for / while) ────────────────────────────────────────────────────
 
 fn build_loop(cfg: &mut FunctionCfg, current: NodeIndex, node: &Node, source: &[u8]) -> NodeIndex {
     let header = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks.add_edge(current, header, CfgEdge::Normal);
 
-    // Guard for condition
     let cond_vars = node
         .child_by_field_name("condition")
         .map(|c| collect_identifiers(&c, source))
@@ -253,13 +255,13 @@ fn build_loop(cfg: &mut FunctionCfg, current: NodeIndex, node: &Node, source: &[
         line: line_of(node),
     });
 
-    // True branch -> loop body
     let body_block = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks.add_edge(header, body_block, CfgEdge::TrueBranch);
 
     let body = node.child_by_field_name("body");
     let body_exit = match body {
         Some(b) if b.kind() == "compound_statement" => build_block(cfg, body_block, &b, source),
+        Some(b) if b.kind() == "colon_block" => build_colon_block(cfg, body_block, &b, source),
         Some(b) => {
             emit_any_statement(cfg, body_block, &b, source);
             Some(body_block)
@@ -267,12 +269,80 @@ fn build_loop(cfg: &mut FunctionCfg, current: NodeIndex, node: &Node, source: &[
         None => Some(body_block),
     };
 
-    // Back edge
     if let Some(be) = body_exit {
         cfg.blocks.add_edge(be, header, CfgEdge::Normal);
     }
 
-    // False branch -> exit
+    let exit = cfg.blocks.add_node(BasicBlock::new());
+    cfg.blocks.add_edge(header, exit, CfgEdge::FalseBranch);
+    exit
+}
+
+// ── foreach ────────────────────────────────────────────────────────────────
+
+fn build_foreach(
+    cfg: &mut FunctionCfg,
+    current: NodeIndex,
+    node: &Node,
+    source: &[u8],
+) -> NodeIndex {
+    let header = cfg.blocks.add_node(BasicBlock::new());
+    cfg.blocks.add_edge(current, header, CfgEdge::Normal);
+
+    // Guard on the collection
+    let collection_vars = node
+        .named_children(&mut node.walk())
+        .find(|c| c.kind() == "parenthesized_expression" || c.kind() == "binary_expression")
+        .map(|c| collect_identifiers(&c, source))
+        .unwrap_or_default();
+
+    cfg.blocks[header].statements.push(CfgStatement {
+        kind: CfgStatementKind::Guard {
+            condition_vars: collection_vars,
+        },
+        line: line_of(node),
+    });
+
+    let body_block = cfg.blocks.add_node(BasicBlock::new());
+    cfg.blocks.add_edge(header, body_block, CfgEdge::TrueBranch);
+
+    // PHP foreach value variable: extract $value from `foreach ($arr as $key => $value)`
+    // The value and key are stored as children with specific node kinds
+    let mut var_cursor = node.walk();
+    for child in node.named_children(&mut var_cursor) {
+        if child.kind() == "variable_name" || child.kind() == "pair" {
+            let target = child
+                .utf8_text(source)
+                .unwrap_or_default()
+                .trim_start_matches('$')
+                .to_string();
+            if !target.is_empty() {
+                cfg.blocks[body_block].statements.push(CfgStatement {
+                    kind: CfgStatementKind::Assignment {
+                        target,
+                        source_vars: vec![],
+                    },
+                    line: line_of(&child),
+                });
+            }
+        }
+    }
+
+    let body = node.child_by_field_name("body");
+    let body_exit = match body {
+        Some(b) if b.kind() == "compound_statement" => build_block(cfg, body_block, &b, source),
+        Some(b) if b.kind() == "colon_block" => build_colon_block(cfg, body_block, &b, source),
+        Some(b) => {
+            emit_any_statement(cfg, body_block, &b, source);
+            Some(body_block)
+        }
+        None => Some(body_block),
+    };
+
+    if let Some(be) = body_exit {
+        cfg.blocks.add_edge(be, header, CfgEdge::Normal);
+    }
+
     let exit = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks.add_edge(header, exit, CfgEdge::FalseBranch);
     exit
@@ -299,7 +369,6 @@ fn build_do_while(
         None => Some(body_block),
     };
 
-    // Condition check after body
     let cond_block = cfg.blocks.add_node(BasicBlock::new());
     if let Some(be) = body_exit {
         cfg.blocks.add_edge(be, cond_block, CfgEdge::Normal);
@@ -317,11 +386,9 @@ fn build_do_while(
         line: line_of(node),
     });
 
-    // True -> back to body
     cfg.blocks
         .add_edge(cond_block, body_block, CfgEdge::TrueBranch);
 
-    // False -> exit
     let exit = cfg.blocks.add_node(BasicBlock::new());
     cfg.blocks.add_edge(cond_block, exit, CfgEdge::FalseBranch);
     exit
@@ -363,29 +430,27 @@ fn build_switch(
 
     let mut cursor = body.walk();
     for case in body.children(&mut cursor) {
-        if case.kind() != "case_statement" {
+        let is_case = match case.kind() {
+            "switch_case" | "case_statement" => true,
+            "switch_default" | "default_statement" => {
+                has_default = true;
+                true
+            }
+            _ => false,
+        };
+
+        if !is_case {
             continue;
-        }
-
-        let is_default = case
-            .child(0)
-            .map(|c| c.kind() == "default")
-            .unwrap_or(false);
-
-        if is_default {
-            has_default = true;
         }
 
         let case_block = cfg.blocks.add_node(BasicBlock::new());
         cfg.blocks
             .add_edge(current, case_block, CfgEdge::TrueBranch);
 
-        // Fallthrough from previous case
         if let Some(prev) = prev_fallthrough {
             cfg.blocks.add_edge(prev, case_block, CfgEdge::Normal);
         }
 
-        // Process statements inside case
         let mut case_current = case_block;
         let mut broke = false;
         let mut case_cursor = case.walk();
@@ -406,11 +471,20 @@ fn build_switch(
                     broke = true;
                     break;
                 }
+                "throw_expression" | "throw_statement" => {
+                    let vars = collect_identifiers(&stmt, source);
+                    cfg.blocks[case_current].statements.push(CfgStatement {
+                        kind: CfgStatementKind::Call {
+                            name: "throw".to_string(),
+                            args: vars,
+                        },
+                        line: line_of(&stmt),
+                    });
+                    broke = true;
+                    break;
+                }
                 "expression_statement" => {
                     emit_expression_stmt(cfg, case_current, &stmt, source);
-                }
-                "declaration" => {
-                    emit_declaration(cfg, case_current, &stmt, source);
                 }
                 "compound_statement" => match build_block(cfg, case_current, &stmt, source) {
                     Some(c) => case_current = c,
@@ -424,19 +498,16 @@ fn build_switch(
         }
 
         if !broke {
-            // Fallthrough to next case
             prev_fallthrough = Some(case_current);
         } else {
             prev_fallthrough = None;
         }
     }
 
-    // Last case without break also joins
     if let Some(ft) = prev_fallthrough {
         cfg.blocks.add_edge(ft, join, CfgEdge::Normal);
     }
 
-    // If no default, the switch condition can fall through
     if !has_default {
         cfg.blocks.add_edge(current, join, CfgEdge::FalseBranch);
     }
@@ -444,66 +515,100 @@ fn build_switch(
     Some(join)
 }
 
-// ── Statement emission ─────────────────────────────────────────────────────
+// ── Try / catch / finally ──────────────────────────────────────────────────
 
-fn emit_declaration(cfg: &mut FunctionCfg, block: NodeIndex, node: &Node, source: &[u8]) {
-    // Check for resource acquisition patterns: malloc, calloc, fopen
-    if let Some(init) = node.child_by_field_name("declarator")
-        && init.kind() == "init_declarator"
-    {
-        let target = init
-            .child_by_field_name("declarator")
-            .and_then(|d| d.utf8_text(source).ok())
-            .unwrap_or_default()
-            .to_string();
-        let value = init.child_by_field_name("value");
+fn build_try_catch(
+    cfg: &mut FunctionCfg,
+    current: NodeIndex,
+    node: &Node,
+    source: &[u8],
+) -> Option<NodeIndex> {
+    let try_block = cfg.blocks.add_node(BasicBlock::new());
+    cfg.blocks.add_edge(current, try_block, CfgEdge::Normal);
 
-        if let Some(val) = value
-            && let Some(resource_call) = detect_c_resource_acquire(&val, source)
-        {
-            cfg.blocks[block].statements.push(CfgStatement {
-                kind: CfgStatementKind::ResourceAcquire {
-                    target: target.clone(),
-                    resource_type: resource_call,
-                },
-                line: line_of(node),
-            });
-            return;
-        }
+    let try_body = node.child_by_field_name("body");
+    let try_exit = match try_body {
+        Some(b) if b.kind() == "compound_statement" => build_block(cfg, try_block, &b, source),
+        _ => Some(try_block),
+    };
 
-        let source_vars = value
-            .map(|v| collect_identifiers(&v, source))
-            .unwrap_or_default();
+    let join = cfg.blocks.add_node(BasicBlock::new());
 
-        if !target.is_empty() {
-            cfg.blocks[block].statements.push(CfgStatement {
-                kind: CfgStatementKind::Assignment {
-                    target,
-                    source_vars,
-                },
-                line: line_of(node),
-            });
-        }
-        return;
+    if let Some(te) = try_exit {
+        cfg.blocks.add_edge(te, join, CfgEdge::Normal);
     }
 
-    // Simple declaration without initializer
-    let target = node
-        .child_by_field_name("declarator")
-        .and_then(|d| d.utf8_text(source).ok())
-        .unwrap_or_default()
-        .to_string();
+    // Catch clauses
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "catch_clause" {
+            let catch_block = cfg.blocks.add_node(BasicBlock::new());
+            cfg.blocks
+                .add_edge(try_block, catch_block, CfgEdge::Exception);
 
-    if !target.is_empty() {
-        cfg.blocks[block].statements.push(CfgStatement {
-            kind: CfgStatementKind::Assignment {
-                target,
-                source_vars: vec![],
-            },
-            line: line_of(node),
-        });
+            // Extract catch parameter (e.g., `catch (Exception $e)`)
+            // PHP catch has type and name as fields
+            if let Some(name_node) = child.child_by_field_name("name") {
+                let target = name_node
+                    .utf8_text(source)
+                    .unwrap_or_default()
+                    .trim_start_matches('$')
+                    .to_string();
+                if !target.is_empty() {
+                    cfg.blocks[catch_block].statements.push(CfgStatement {
+                        kind: CfgStatementKind::Assignment {
+                            target,
+                            source_vars: vec![],
+                        },
+                        line: line_of(&child),
+                    });
+                }
+            }
+
+            let catch_body = child.child_by_field_name("body");
+            let catch_exit = match catch_body {
+                Some(b) if b.kind() == "compound_statement" => {
+                    build_block(cfg, catch_block, &b, source)
+                }
+                _ => Some(catch_block),
+            };
+
+            if let Some(ce) = catch_exit {
+                cfg.blocks.add_edge(ce, join, CfgEdge::Normal);
+            }
+        }
     }
+
+    // Finally clause
+    let mut cursor2 = node.walk();
+    for child in node.children(&mut cursor2) {
+        if child.kind() == "finally_clause" {
+            let finally_block = cfg.blocks.add_node(BasicBlock::new());
+            cfg.blocks.add_edge(join, finally_block, CfgEdge::Cleanup);
+
+            let finally_body = child
+                .child_by_field_name("body")
+                .or_else(|| child.named_child(0));
+            let finally_exit = match finally_body {
+                Some(b) if b.kind() == "compound_statement" => {
+                    build_block(cfg, finally_block, &b, source)
+                }
+                _ => Some(finally_block),
+            };
+
+            if let Some(fe) = finally_exit {
+                let after_finally = cfg.blocks.add_node(BasicBlock::new());
+                cfg.blocks.add_edge(fe, after_finally, CfgEdge::Normal);
+                return Some(after_finally);
+            }
+            return None;
+        }
+    }
+
+    Some(join)
 }
+
+// ── Statement emission ─────────────────────────────────────────────────────
 
 fn emit_expression_stmt(cfg: &mut FunctionCfg, block: NodeIndex, node: &Node, source: &[u8]) {
     let expr = match node.named_child(0) {
@@ -515,7 +620,7 @@ fn emit_expression_stmt(cfg: &mut FunctionCfg, block: NodeIndex, node: &Node, so
 
 fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source: &[u8]) {
     match expr.kind() {
-        "call_expression" => {
+        "function_call_expression" => {
             let name = expr
                 .child_by_field_name("function")
                 .and_then(|f| f.utf8_text(source).ok())
@@ -527,46 +632,92 @@ fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source:
                 .map(|a| collect_identifiers(&a, source))
                 .unwrap_or_default();
 
-            // Check for resource release: free, fclose
-            if is_c_resource_release(&name) {
-                let target = args.first().cloned().unwrap_or_default();
-                cfg.blocks[block].statements.push(CfgStatement {
-                    kind: CfgStatementKind::ResourceRelease {
-                        target,
-                        resource_type: name,
-                    },
-                    line: line_of(expr),
-                });
-            } else {
-                cfg.blocks[block].statements.push(CfgStatement {
-                    kind: CfgStatementKind::Call { name, args },
-                    line: line_of(expr),
-                });
-            }
+            cfg.blocks[block].statements.push(CfgStatement {
+                kind: CfgStatementKind::Call { name, args },
+                line: line_of(expr),
+            });
         }
-        "assignment_expression" => {
+        "method_call_expression" | "member_call_expression" => {
+            let name = expr
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(source).ok())
+                .unwrap_or_default()
+                .to_string();
+
+            let args = expr
+                .child_by_field_name("arguments")
+                .map(|a| collect_identifiers(&a, source))
+                .unwrap_or_default();
+
+            // Include the object as first arg for data flow tracking
+            let mut all_args = Vec::new();
+            if let Some(obj) = expr.child_by_field_name("object") {
+                let obj_text = obj
+                    .utf8_text(source)
+                    .unwrap_or_default()
+                    .trim_start_matches('$')
+                    .to_string();
+                if !obj_text.is_empty() {
+                    all_args.push(obj_text);
+                }
+            }
+            all_args.extend(args);
+
+            cfg.blocks[block].statements.push(CfgStatement {
+                kind: CfgStatementKind::Call {
+                    name,
+                    args: all_args,
+                },
+                line: line_of(expr),
+            });
+        }
+        "scoped_call_expression" => {
+            // Static method calls like ClassName::method()
+            let name = expr.utf8_text(source).unwrap_or_default().to_string();
+
+            let args = expr
+                .child_by_field_name("arguments")
+                .map(|a| collect_identifiers(&a, source))
+                .unwrap_or_default();
+
+            cfg.blocks[block].statements.push(CfgStatement {
+                kind: CfgStatementKind::Call { name, args },
+                line: line_of(expr),
+            });
+        }
+        "object_creation_expression" => {
+            let type_name = expr
+                .child_by_field_name("type")
+                .or_else(|| {
+                    let mut c = expr.walk();
+                    expr.children(&mut c)
+                        .find(|ch| ch.kind() == "name" || ch.kind() == "qualified_name")
+                })
+                .and_then(|t| t.utf8_text(source).ok())
+                .unwrap_or("unknown")
+                .to_string();
+
+            cfg.blocks[block].statements.push(CfgStatement {
+                kind: CfgStatementKind::Call {
+                    name: format!("new {}", type_name),
+                    args: expr
+                        .child_by_field_name("arguments")
+                        .map(|a| collect_identifiers(&a, source))
+                        .unwrap_or_default(),
+                },
+                line: line_of(expr),
+            });
+        }
+        "assignment_expression" | "augmented_assignment_expression" => {
             let target = expr
                 .child_by_field_name("left")
                 .and_then(|l| l.utf8_text(source).ok())
                 .unwrap_or_default()
+                .trim_start_matches('$')
                 .to_string();
-            let right = expr.child_by_field_name("right");
 
-            // Check for resource acquire in assignment
-            if let Some(ref r) = right
-                && let Some(resource_call) = detect_c_resource_acquire(r, source)
-            {
-                cfg.blocks[block].statements.push(CfgStatement {
-                    kind: CfgStatementKind::ResourceAcquire {
-                        target,
-                        resource_type: resource_call,
-                    },
-                    line: line_of(expr),
-                });
-                return;
-            }
-
-            let source_vars = right
+            let source_vars = expr
+                .child_by_field_name("right")
                 .map(|r| collect_identifiers(&r, source))
                 .unwrap_or_default();
 
@@ -580,7 +731,7 @@ fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source:
                 });
             }
         }
-        "update_expression" | "unary_expression" => {
+        "update_expression" => {
             let vars = collect_identifiers(expr, source);
             if let Some(target) = vars.first() {
                 cfg.blocks[block].statements.push(CfgStatement {
@@ -592,14 +743,6 @@ fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source:
                 });
             }
         }
-        "comma_expression" => {
-            let mut child_cursor = expr.walk();
-            for child in expr.children(&mut child_cursor) {
-                if child.is_named() {
-                    emit_expression(cfg, block, &child, source);
-                }
-            }
-        }
         _ => {}
     }
 }
@@ -607,7 +750,6 @@ fn emit_expression(cfg: &mut FunctionCfg, block: NodeIndex, expr: &Node, source:
 fn emit_any_statement(cfg: &mut FunctionCfg, block: NodeIndex, node: &Node, source: &[u8]) {
     match node.kind() {
         "expression_statement" => emit_expression_stmt(cfg, block, node, source),
-        "declaration" => emit_declaration(cfg, block, node, source),
         "return_statement" => {
             let vars = collect_identifiers(node, source);
             cfg.blocks[block].statements.push(CfgStatement {
@@ -620,62 +762,7 @@ fn emit_any_statement(cfg: &mut FunctionCfg, block: NodeIndex, node: &Node, sour
     }
 }
 
-// ── C resource patterns ────────────────────────────────────────────────────
-
-const C_ALLOC_FUNCTIONS: &[&str] = &["malloc", "calloc", "realloc", "fopen", "fdopen", "tmpfile"];
-const C_FREE_FUNCTIONS: &[&str] = &["free", "fclose", "close", "pclose"];
-
-fn detect_c_resource_acquire(node: &Node, source: &[u8]) -> Option<String> {
-    if node.kind() == "call_expression" {
-        let name = node
-            .child_by_field_name("function")
-            .and_then(|f| f.utf8_text(source).ok())?;
-        if C_ALLOC_FUNCTIONS.contains(&name) {
-            return Some(name.to_string());
-        }
-    }
-    None
-}
-
-fn is_c_resource_release(name: &str) -> bool {
-    C_FREE_FUNCTIONS.contains(&name)
-}
-
 // ── Utility ────────────────────────────────────────────────────────────────
-
-/// Recursively find the innermost identifier name from a C declarator node.
-/// Handles `pointer_declarator` wrappers (e.g. `*args`) and plain `identifier`.
-fn extract_c_param_ident(node: &Node, source: &[u8]) -> String {
-    match node.kind() {
-        "identifier" => node.utf8_text(source).unwrap_or("").to_string(),
-        "pointer_declarator" | "abstract_pointer_declarator" => {
-            // The declarator field holds the inner declarator
-            if let Some(inner) = node.child_by_field_name("declarator") {
-                return extract_c_param_ident(&inner, source);
-            }
-            // Fallback: walk named children
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                let name = extract_c_param_ident(&child, source);
-                if !name.is_empty() {
-                    return name;
-                }
-            }
-            String::new()
-        }
-        _ => {
-            // For array_declarator or other wrappers, recurse into named children
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                let name = extract_c_param_ident(&child, source);
-                if !name.is_empty() {
-                    return name;
-                }
-            }
-            String::new()
-        }
-    }
-}
 
 fn collect_identifiers(node: &Node, source: &[u8]) -> Vec<String> {
     let mut ids = Vec::new();
@@ -684,14 +771,17 @@ fn collect_identifiers(node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 fn collect_identifiers_rec(node: &Node, source: &[u8], out: &mut Vec<String>) {
-    if node.kind() == "identifier" {
-        if let Ok(text) = node.utf8_text(source) {
-            let s = text.to_string();
-            if !out.contains(&s) {
-                out.push(s);
+    match node.kind() {
+        "variable_name" | "name" => {
+            if let Ok(text) = node.utf8_text(source) {
+                let s = text.trim_start_matches('$').to_string();
+                if !s.is_empty() && !out.contains(&s) {
+                    out.push(s);
+                }
             }
+            return;
         }
-        return;
+        _ => {}
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

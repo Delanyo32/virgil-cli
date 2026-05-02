@@ -12,7 +12,6 @@ use crate::parser;
 use crate::storage::workspace::Workspace;
 
 use super::cfg::FunctionCfg;
-use super::cfg_languages;
 use super::{CodeGraph, EdgeWeight, NodeWeight};
 
 /// Per-file extraction result, collected in parallel.
@@ -273,7 +272,7 @@ fn build_function_cfgs(
     symbols: &[SymbolInfo],
     language: Language,
 ) -> Vec<(u32, FunctionCfg)> {
-    let builder = match cfg_languages::cfg_builder_for_language(language) {
+    let builder = match crate::languages::cfg::cfg_builder_for_language(language) {
         Some(b) => b,
         None => return Vec::new(),
     };

@@ -38,7 +38,11 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
   - `taint.rs` — `TaintEngine`, `TaintConfig` (internal engine used by `pipeline/executor.rs`)
   - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.)
   - `resource.rs` — `ResourceAnalyzer` (acquires/released_by edges)
-  - `cfg.rs` / `cfg_languages/` — control flow graph construction
+  - `cfg.rs` — control flow graph data structures
+- `src/languages/` — one deep module per language, plus shared facade
+  - `mod.rs` — language-agnostic facade (`compile_*_query`, `extract_*`, `resolve_import`)
+  - `cfg.rs` — `CfgBuilder` trait and `cfg_builder_for_language` dispatch
+  - `<lang>/{queries.rs, cfg.rs, mod.rs}` — per-language: tree-sitter queries+extractors and CFG builder, one folder per language
 
 ## JSON Query Language
 
