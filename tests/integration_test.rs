@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use virgil_cli::storage::discovery;
 use virgil_cli::language::Language;
 use virgil_cli::languages;
 use virgil_cli::models::{ImportInfo, SymbolInfo, SymbolKind};
 use virgil_cli::parser;
+use virgil_cli::storage::discovery;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")

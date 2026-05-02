@@ -26117,7 +26117,9 @@ fn coupling_ts_metadata_correct() {
 
 // ── Phase 5: C# Tech Debt + Code Style Pipelines ──
 
-fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
+fn run_csharp_tech_debt(
+    dir: &tempfile::TempDir,
+) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp])
         .build()
@@ -26129,7 +26131,9 @@ fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::ou
     findings
 }
 
-fn run_csharp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
+fn run_csharp_code_style(
+    dir: &tempfile::TempDir,
+) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp])
         .build()
