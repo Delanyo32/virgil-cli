@@ -1,8 +1,8 @@
 use anyhow::Result;
 use tree_sitter::Node;
 
-use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
+use crate::languages::cfg::CfgBuilder;
 use petgraph::graph::NodeIndex;
 
 pub struct GoCfgBuilder;

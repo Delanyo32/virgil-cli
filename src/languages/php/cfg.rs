@@ -2,8 +2,8 @@ use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use tree_sitter::Node;
 
-use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
+use crate::languages::cfg::CfgBuilder;
 
 /// CFG builder for PHP: if/else, for/foreach/while, switch, try/catch/finally,
 /// return. Handles function_call_expression and method_call_expression.

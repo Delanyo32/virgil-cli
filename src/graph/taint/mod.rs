@@ -10,4 +10,3 @@ pub use engine::TaintEngine;
 pub use types::{
     TaintConfig, TaintFinding, TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern,
 };
-

@@ -5,9 +5,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
+use crate::language::Language;
 use crate::storage::discovery;
 use crate::storage::file_source::{FileSource, MemoryFileSource};
-use crate::language::Language;
 
 pub struct Workspace {
     root: PathBuf,
@@ -92,7 +92,8 @@ impl Workspace {
         let keys = crate::storage::s3::list_objects(&location, languages, exclude)?;
         eprintln!("Found {} files, downloading...", keys.len());
 
-        let (file_map, size_map) = crate::storage::s3::download_objects(&location, &keys, max_file_size)?;
+        let (file_map, size_map) =
+            crate::storage::s3::download_objects(&location, &keys, max_file_size)?;
         eprintln!("Downloaded {} files into memory", file_map.len());
 
         // Build language map from extensions

@@ -117,8 +117,7 @@ pub(crate) fn execute_max_depth(
     let node_by_idx: HashMap<NodeIndex, &PipelineNode> =
         nodes.iter().map(|n| (n.node_idx, n)).collect();
 
-    let mut in_degree: HashMap<NodeIndex, usize> =
-        node_set.iter().map(|&idx| (idx, 0)).collect();
+    let mut in_degree: HashMap<NodeIndex, usize> = node_set.iter().map(|&idx| (idx, 0)).collect();
 
     for edge in graph.graph.edge_references() {
         if !edge_matches_type(edge.weight(), edge_type) {
@@ -137,8 +136,7 @@ pub(crate) fn execute_max_depth(
         .map(|(&idx, _)| idx)
         .collect();
 
-    let mut depth_map: HashMap<NodeIndex, usize> =
-        node_set.iter().map(|&idx| (idx, 0)).collect();
+    let mut depth_map: HashMap<NodeIndex, usize> = node_set.iter().map(|&idx| (idx, 0)).collect();
 
     let mut kahn_in_degree = in_degree.clone();
     let mut queue: VecDeque<NodeIndex> = roots;

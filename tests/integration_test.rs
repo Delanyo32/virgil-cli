@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use virgil_cli::discovery;
+use virgil_cli::storage::discovery;
 use virgil_cli::language::Language;
 use virgil_cli::languages;
 use virgil_cli::models::{ImportInfo, SymbolInfo, SymbolKind};

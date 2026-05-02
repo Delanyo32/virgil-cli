@@ -140,8 +140,12 @@ fn execute_stage(
             is_generated_fn,
             is_barrel_fn,
         ),
-        GraphStage::GroupBy { group_by } => Ok(stages::aggregate::execute_group_by(group_by, nodes)),
-        GraphStage::Count { count } => Ok(stages::aggregate::execute_count(&count.threshold, nodes)),
+        GraphStage::GroupBy { group_by } => {
+            Ok(stages::aggregate::execute_group_by(group_by, nodes))
+        }
+        GraphStage::Count { count } => {
+            Ok(stages::aggregate::execute_count(&count.threshold, nodes))
+        }
         GraphStage::FindCycles { find_cycles } => {
             stages::cycles::execute_find_cycles(&find_cycles.edge, nodes, graph)
         }
@@ -175,12 +179,9 @@ fn execute_stage(
             ),
         },
         GraphStage::ComputeMetric { compute_metric } => match workspace {
-            Some(ws) => stages::compute_metric::execute_compute_metric(
-                compute_metric,
-                nodes,
-                ws,
-                graph,
-            ),
+            Some(ws) => {
+                stages::compute_metric::execute_compute_metric(compute_metric, nodes, ws, graph)
+            }
             None => anyhow::bail!(
                 "compute_metric stage requires workspace -- call run_pipeline with Some(workspace)"
             ),
@@ -211,12 +212,9 @@ fn execute_stage(
             };
             stages::taint::execute_taint_with_config(&config, graph, taint_sinks)
         }
-        GraphStage::FindDuplicates { find_duplicates } => {
-            Ok(stages::find_duplicates::execute_find_duplicates(
-                find_duplicates,
-                nodes,
-            ))
-        }
+        GraphStage::FindDuplicates { find_duplicates } => Ok(
+            stages::find_duplicates::execute_find_duplicates(find_duplicates, nodes),
+        ),
     }
 }
 
@@ -240,7 +238,7 @@ fn pipeline_node_to_query_result(node: PipelineNode) -> QueryResult {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     use super::*;
     use crate::graph::{EdgeWeight, NodeWeight};
@@ -737,7 +735,8 @@ fn bar() { println!("ok"); }
 "#,
         )
         .unwrap();
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None)
+            .unwrap();
 
         let stages = vec![
             GraphStage::MatchPattern {
@@ -782,7 +781,8 @@ fn bar() { println!("ok"); }
             "fn clean() { println!(\"all good\"); }\n",
         )
         .unwrap();
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None)
+            .unwrap();
 
         let stages = vec![
             GraphStage::MatchPattern {
@@ -824,7 +824,8 @@ fn bar() { println!("ok"); }
         )
         .unwrap();
         let ws =
-            crate::storage::workspace::Workspace::load(dir.path(), &[Language::TypeScript], None).unwrap();
+            crate::storage::workspace::Workspace::load(dir.path(), &[Language::TypeScript], None)
+                .unwrap();
         let stages = vec![
             GraphStage::MatchPattern {
                 match_pattern: "(function_declaration name: (identifier) @name)".to_string(),
@@ -884,7 +885,8 @@ fn bar() { println!("ok"); }
 "#,
         )
         .unwrap();
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None)
+            .unwrap();
 
         // Build a graph with a symbol node at line 1 (the function start)
         let mut graph = CodeGraph::new();
@@ -964,7 +966,8 @@ fn bar() { println!("ok"); }
             "fn simple() {\n    println!(\"hello\");\n}\n",
         )
         .unwrap();
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None)
+            .unwrap();
 
         let mut graph = CodeGraph::new();
         let file_idx = graph.graph.add_node(NodeWeight::File {
@@ -1104,7 +1107,8 @@ fn bar() { println!("ok"); }
 "#,
         )
         .unwrap();
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None).unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None)
+            .unwrap();
 
         let mut graph = CodeGraph::new();
         let file_idx = graph.graph.add_node(NodeWeight::File {
@@ -1201,7 +1205,8 @@ fn bar() { println!("ok"); }
         )
         .unwrap();
         let ws =
-            crate::storage::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
+            crate::storage::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None)
+                .unwrap();
         let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::JavaScript])
             .build()
             .unwrap();
@@ -1298,7 +1303,8 @@ fn bar() { println!("ok"); }
 "#,
         )
         .unwrap();
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Cpp], None).unwrap();
+        let ws =
+            crate::storage::workspace::Workspace::load(dir.path(), &[Language::Cpp], None).unwrap();
         // Use GraphBuilder so the test exercises the full symbol-discovery path
         // (including CPP_SYMBOL_QUERY), not just execute_stage with a hand-built graph.
         let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::Cpp])
@@ -1377,7 +1383,8 @@ function mutateParam(user) {
         )
         .unwrap();
         let ws =
-            crate::storage::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None).unwrap();
+            crate::storage::workspace::Workspace::load(dir.path(), &[Language::JavaScript], None)
+                .unwrap();
 
         let stages = vec![
             GraphStage::MatchPattern {
@@ -1436,7 +1443,8 @@ function mutateParam(user) {
         body.push_str("    }\n}\n");
         std::fs::write(src_dir.join("service.cs"), &body).unwrap();
 
-        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::CSharp], None).unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::CSharp], None)
+            .unwrap();
         let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::CSharp])
             .build()
             .expect("GraphBuilder should succeed");

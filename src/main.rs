@@ -7,9 +7,9 @@ use clap::Parser;
 use virgil_cli::audit;
 use virgil_cli::cli::{Cli, Command, OutputFormat, ProjectCommand};
 use virgil_cli::language::{self, Language};
+use virgil_cli::server;
 use virgil_cli::storage::registry;
 use virgil_cli::storage::s3::S3Location;
-use virgil_cli::server;
 use virgil_cli::storage::workspace::Workspace;
 
 fn main() -> Result<()> {
@@ -175,8 +175,8 @@ fn main() -> Result<()> {
                 (None, Some(local_dir)) => {
                     eprintln!("Loading codebase from {}…", local_dir.display());
                     let ws = Workspace::load(local_dir, &languages, None)?;
-                    let canonical = std::fs::canonicalize(local_dir)
-                        .unwrap_or_else(|_| local_dir.clone());
+                    let canonical =
+                        std::fs::canonicalize(local_dir).unwrap_or_else(|_| local_dir.clone());
                     (ws, canonical.display().to_string())
                 }
                 _ => unreachable!("clap enforces exactly one of --s3 / --dir"),
@@ -194,12 +194,7 @@ fn main() -> Result<()> {
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(server::run_server(
-                workspace,
-                &source_id,
-                &host,
-                port,
-                lang,
-                languages,
+                workspace, &source_id, &host, port, lang, languages,
             ))?;
             Ok(())
         }

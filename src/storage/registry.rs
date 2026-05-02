@@ -6,8 +6,8 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::discovery;
 use crate::language::{self, Language};
+use crate::storage::discovery;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectEntry {

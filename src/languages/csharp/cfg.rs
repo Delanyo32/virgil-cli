@@ -2,8 +2,8 @@ use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use tree_sitter::Node;
 
-use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
+use crate::languages::cfg::CfgBuilder;
 
 /// CFG builder for C#: if/else, for/foreach/while, switch, try/catch/finally,
 /// using_statement (dispose as ResourceRelease), return.

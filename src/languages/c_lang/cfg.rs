@@ -2,8 +2,8 @@ use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use tree_sitter::Node;
 
-use crate::languages::cfg::CfgBuilder;
 use crate::graph::cfg::{BasicBlock, CfgEdge, CfgStatement, CfgStatementKind, FunctionCfg};
+use crate::languages::cfg::CfgBuilder;
 
 /// CFG builder for C: if/else, for/while/do, switch with fallthrough,
 /// return, variable declarations, call_expression, malloc/free, fopen/fclose.

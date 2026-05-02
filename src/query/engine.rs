@@ -12,8 +12,8 @@ use crate::languages;
 use crate::models::{CommentInfo, SymbolInfo, SymbolKind};
 use crate::parser;
 use crate::query::lang::{FindFilter, HasFilter, NameFilter, TsQuery};
-use crate::storage::registry::ProjectEntry;
 use crate::signature;
+use crate::storage::registry::ProjectEntry;
 use crate::storage::workspace::Workspace;
 
 pub use crate::pipeline::output::{AuditFinding, QueryResult};

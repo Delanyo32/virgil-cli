@@ -23,7 +23,7 @@
 
 use virgil_cli::{
     audit::engine::AuditEngine, graph::builder::GraphBuilder, language::Language,
-    workspace::Workspace,
+    storage::workspace::Workspace,
 };
 
 // ── module_size_distribution (Rust) ──
@@ -16961,7 +16961,7 @@ fn coupling_php_clean_no_findings_constants_only() {
 
 // ── exception_swallowing (Java, 10 tests) ──
 
-fn run_java_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_java_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Java])
         .build()
@@ -16973,7 +16973,7 @@ fn run_java_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models:
     findings
 }
 
-fn run_java_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_java_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::Java], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Java])
         .build()
@@ -18743,7 +18743,7 @@ fn coupling_java_finds_static_import() {
 
 // ── Phase 5: C Tech Debt + Code Style Pipelines ──
 
-fn run_c_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_c_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::C])
         .build()
@@ -18755,7 +18755,7 @@ fn run_c_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::Au
     findings
 }
 
-fn run_c_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_c_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::C], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::C])
         .build()
@@ -20488,7 +20488,7 @@ fn coupling_c_finds_many_includes() {
 
 // ── Phase 5: C++ Tech Debt + Code Style Pipelines ──
 
-fn run_cpp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_cpp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Cpp])
         .build()
@@ -20500,7 +20500,7 @@ fn run_cpp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::
     findings
 }
 
-fn run_cpp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_cpp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::Cpp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::Cpp])
         .build()
@@ -22410,7 +22410,7 @@ fn coupling_cpp_clean_no_cpp_files() {
 
 // ── Phase 5: JavaScript Tech Debt + Code Style Pipelines ──
 
-fn run_js_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_js_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::JavaScript])
         .build()
@@ -22422,7 +22422,7 @@ fn run_js_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::A
     findings
 }
 
-fn run_js_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_js_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::JavaScript], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::JavaScript])
         .build()
@@ -24231,7 +24231,7 @@ fn coupling_js_metadata_correct() {
 
 // ── Phase 5: TypeScript Tech Debt + Code Style Pipelines ──
 
-fn run_ts_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_ts_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::TypeScript])
         .build()
@@ -24243,7 +24243,7 @@ fn run_ts_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::A
     findings
 }
 
-fn run_ts_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_ts_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::TypeScript], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::TypeScript])
         .build()
@@ -26117,7 +26117,7 @@ fn coupling_ts_metadata_correct() {
 
 // ── Phase 5: C# Tech Debt + Code Style Pipelines ──
 
-fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp])
         .build()
@@ -26129,7 +26129,7 @@ fn run_csharp_tech_debt(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::model
     findings
 }
 
-fn run_csharp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::audit::models::AuditFinding> {
+fn run_csharp_code_style(dir: &tempfile::TempDir) -> Vec<virgil_cli::pipeline::output::AuditFinding> {
     let workspace = Workspace::load(dir.path(), &[Language::CSharp], Some(10_000_000)).unwrap();
     let graph = GraphBuilder::new(&workspace, &[Language::CSharp])
         .build()

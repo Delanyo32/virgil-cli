@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::taint::{TaintSanitizerPattern, TaintSinkPattern, TaintSourcePattern};
 
-use super::{
-    EdgeType, NodeType, NumericPredicate, PipelineNode, SeverityEntry, WhereClause,
-};
+use super::{EdgeType, NodeType, NumericPredicate, PipelineNode, SeverityEntry, WhereClause};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CountConfig {
