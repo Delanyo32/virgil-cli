@@ -15,7 +15,7 @@ use crate::audit::models::AuditFinding;
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 use crate::pipeline::dsl::{EdgeType, GraphStage, MetricValue, PipelineNode, interpolate_message};
 use crate::pipeline::helpers::{is_barrel_file, is_excluded_for_arch_analysis, is_test_file};
-use crate::query_engine::QueryResult;
+use crate::query::engine::QueryResult;
 use crate::workspace::Workspace;
 
 // ---------------------------------------------------------------------------

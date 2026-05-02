@@ -17,8 +17,8 @@ use crate::audit::models::AuditFinding;
 use crate::graph::CodeGraph;
 use crate::graph::builder::GraphBuilder;
 use crate::language::Language;
-use crate::query_engine;
-use crate::query_lang::TsQuery;
+use crate::query::engine;
+use crate::query::lang::TsQuery;
 use crate::registry::ProjectEntry;
 use crate::workspace::Workspace;
 
@@ -161,7 +161,7 @@ async fn handle_query(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let start = Instant::now();
-            let output = query_engine::execute(
+            let output = engine::execute(
                 &state.project,
                 &query,
                 max,

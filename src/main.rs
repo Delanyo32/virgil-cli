@@ -86,7 +86,7 @@ fn main() -> Result<()> {
                     }
                 };
 
-                let query: virgil_cli::query_lang::TsQuery = serde_json::from_str(&query_json)
+                let query: virgil_cli::query::lang::TsQuery = serde_json::from_str(&query_json)
                     .map_err(|e| anyhow::anyhow!("invalid query JSON: {e}"))?;
 
                 let (workspace, project) = if let Some(s3_uri) = s3 {
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
                 let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages)
                     .build()?;
                 let output =
-                    virgil_cli::query_engine::execute(&project, &query, max, &workspace, &graph)?;
+                    virgil_cli::query::engine::execute(&project, &query, max, &workspace, &graph)?;
                 let elapsed = start.elapsed();
 
                 let formatted = virgil_cli::query::format::format_results(

@@ -11,7 +11,7 @@ use crate::language::{self, Language};
 use crate::languages;
 use crate::models::{CommentInfo, SymbolInfo, SymbolKind};
 use crate::parser;
-use crate::query_lang::{FindFilter, HasFilter, NameFilter, TsQuery};
+use crate::query::lang::{FindFilter, HasFilter, NameFilter, TsQuery};
 use crate::registry::ProjectEntry;
 use crate::signature;
 use crate::workspace::Workspace;
@@ -344,7 +344,7 @@ pub fn execute(
 fn execute_read(
     workspace: &Workspace,
     file_path: &str,
-    lines: Option<&crate::query_lang::LineRange>,
+    lines: Option<&crate::query::lang::LineRange>,
 ) -> Result<QueryOutput> {
     let source = workspace
         .read_file(file_path)
@@ -720,7 +720,7 @@ mod tests {
         ];
 
         // Build a TsQuery with graph stages
-        let query: crate::query_lang::TsQuery = serde_json::from_str(
+        let query: crate::query::lang::TsQuery = serde_json::from_str(
             &serde_json::json!({
                 "graph": stages
             })

@@ -48,7 +48,7 @@ start_position().row as u32 + 1
 end_position().row as u32 + 1
 ```
 
-This applies to `start_line`, `end_line`, and any standalone `line` field on import/callsite nodes.
+This applies to `start_line`, `end_line`, and any standalone `line` field on import/callsite nodes. `end_line` is also 0-indexed in all parsers and is used by `query_engine.rs` for line-range reads and the `inside` containment filter — fixing it in the same pass prevents a class of off-by-one errors in those query paths.
 
 **Files:**
 - `src/languages/rust_lang.rs` — 2 symbol sites (lines 125, 329), 1 import site (line 213)

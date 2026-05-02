@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::cli::QueryOutputFormat;
-use crate::query_engine::{QueryOutput, QueryResult};
+use crate::query::engine::{QueryOutput, QueryResult};
 
 pub fn format_results(
     output: &QueryOutput,
@@ -52,7 +52,7 @@ fn format_findings(
 }
 
 fn format_read(
-    read: &crate::query_engine::ReadResult,
+    read: &crate::query::engine::ReadResult,
     pretty: bool,
     project_name: &str,
     query_ms: u64,

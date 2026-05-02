@@ -23,8 +23,12 @@ pub enum Command {
     /// Start a persistent HTTP server for queries and audits
     Serve {
         /// S3 URI — load codebase from S3 at startup
-        #[arg(long)]
-        s3: String,
+        #[arg(long, required_unless_present = "dir", conflicts_with = "dir")]
+        s3: Option<String>,
+
+        /// Local directory — load codebase from disk at startup (alternative to --s3)
+        #[arg(long, required_unless_present = "s3", conflicts_with = "s3")]
+        dir: Option<PathBuf>,
 
         /// Host to bind (use 0.0.0.0 for all interfaces)
         #[arg(long, default_value = "127.0.0.1")]
