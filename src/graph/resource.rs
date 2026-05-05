@@ -96,6 +96,9 @@ impl ResourceAnalyzer {
                 name: format!("acquire:{}", edge.resource_type),
                 file_path,
                 line,
+                arg_literals: Vec::new(),
+                enclosing_test_name: None,
+                caller_symbol: Some(edge.function_node),
             });
 
             // Function -> resource: Acquires edge

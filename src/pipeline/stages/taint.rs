@@ -42,6 +42,7 @@ pub(crate) fn execute_taint_with_config(
                 exported: false,
                 language: String::new(),
                 metrics,
+                ..Default::default()
             }
         })
         .collect();

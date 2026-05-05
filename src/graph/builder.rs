@@ -11,8 +11,8 @@ use crate::models::{ImportInfo, SymbolInfo, SymbolKind};
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
-use super::cfg::FunctionCfg;
-use super::{CodeGraph, EdgeWeight, NodeWeight};
+use super::cfg::{CfgStatementKind, FunctionCfg};
+use super::{CfgExitKind, CodeGraph, EdgeWeight, NodeWeight};
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -30,6 +30,12 @@ struct CallSiteData {
     callee_name: String,
     caller_file: String,
     caller_symbol_line: u32,
+    /// Line of the call expression itself (1-based).
+    line: u32,
+    /// Literal arguments (strings/numbers/bools) — non-literal args are skipped.
+    arg_literals: Vec<String>,
+    /// Name of the enclosing test function, when the caller is inside one.
+    enclosing_test_name: Option<String>,
 }
 
 pub struct GraphBuilder<'a> {
@@ -108,8 +114,14 @@ impl<'a> GraphBuilder<'a> {
 
                     // Extract call sites within each symbol's line range
                     let call_node_types = call_expression_types(lang);
+                    let is_test = crate::pipeline::helpers::is_test_file(rel_path);
                     let mut call_sites = Vec::new();
                     for sym in &symbols {
+                        let enclosing_test = if is_test && is_test_function_name(&sym.name) {
+                            Some(sym.name.clone())
+                        } else {
+                            None
+                        };
                         collect_calls_in_range(
                             tree.root_node(),
                             source.as_bytes(),
@@ -119,6 +131,7 @@ impl<'a> GraphBuilder<'a> {
                             lang,
                             rel_path,
                             sym.start_line,
+                            enclosing_test.as_deref(),
                             &mut call_sites,
                         );
                     }
@@ -206,14 +219,32 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        // 5d: Resolve calls via symbols_by_name -> Calls edges
+        // 5d: Materialise CallSite nodes + resolve calls via symbols_by_name -> Calls edges
         for fd in &file_data {
             for cs in &fd.call_sites {
                 // Find the caller symbol node
                 let caller_key = (cs.caller_file.clone(), cs.caller_symbol_line);
-                let caller_idx = match graph.symbol_nodes.get(&caller_key) {
-                    Some(&idx) => idx,
-                    None => continue,
+                let caller_idx = graph.symbol_nodes.get(&caller_key).copied();
+
+                // Materialise a CallSite node for every call expression. We do
+                // this even if the caller symbol can't be resolved so that
+                // `select: "call_site"` returns the call.
+                let callsite_idx = graph.graph.add_node(NodeWeight::CallSite {
+                    name: cs.callee_name.clone(),
+                    file_path: cs.caller_file.clone(),
+                    line: cs.line,
+                    arg_literals: cs.arg_literals.clone(),
+                    enclosing_test_name: cs.enclosing_test_name.clone(),
+                    caller_symbol: caller_idx,
+                });
+                if let Some(caller_idx) = caller_idx {
+                    graph
+                        .graph
+                        .add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
+                }
+
+                let Some(caller_idx) = caller_idx else {
+                    continue;
                 };
 
                 // Find target symbols by name
@@ -229,11 +260,40 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        // 5e: Store function CFGs
+        // 5e: Store function CFGs and emit one CfgExit node per exit block.
         for fd in &file_data {
             for (start_line, cfg) in &fd.function_cfgs {
-                if let Some(&sym_idx) = graph.symbol_nodes.get(&(fd.path.clone(), *start_line)) {
-                    graph.function_cfgs.insert(sym_idx, cfg.clone());
+                let Some(&sym_idx) = graph.symbol_nodes.get(&(fd.path.clone(), *start_line)) else {
+                    continue;
+                };
+                graph.function_cfgs.insert(sym_idx, cfg.clone());
+
+                let function_name = match &graph.graph[sym_idx] {
+                    NodeWeight::Symbol { name, .. } => name.clone(),
+                    _ => continue,
+                };
+
+                for &exit_block in &cfg.exits {
+                    let (exit_kind, exit_label) = classify_cfg_exit(cfg, exit_block);
+                    let exit_line = cfg.blocks[exit_block]
+                        .statements
+                        .last()
+                        .map(|s| s.line)
+                        .unwrap_or(*start_line);
+                    let exit_idx = graph.graph.add_node(NodeWeight::CfgExit {
+                        function_node: sym_idx,
+                        function_name: function_name.clone(),
+                        file_path: fd.path.clone(),
+                        line: exit_line,
+                        exit_kind: exit_kind.clone(),
+                        exit_label,
+                    });
+                    graph
+                        .graph
+                        .add_edge(sym_idx, exit_idx, EdgeWeight::Contains);
+                    graph
+                        .graph
+                        .add_edge(sym_idx, exit_idx, EdgeWeight::ExitsVia(exit_kind));
                 }
             }
         }
@@ -297,6 +357,78 @@ fn build_function_cfgs(
     cfgs
 }
 
+/// Classify how a function reaches `exit_block`. The kind comes from the
+/// edge weight on the (single) inbound edge — when an exit block has multiple
+/// inbound edges of different kinds, kinds are picked in priority order
+/// Exception > Cleanup > TrueBranch > FalseBranch > Normal.
+///
+/// `exit_label`:
+/// - branches: `condition_vars.join(" & ")` from the originating Guard, if any.
+/// - exception: callee name of any `Call` in the exit block.
+/// - normal/cleanup: `None`.
+fn classify_cfg_exit(
+    cfg: &FunctionCfg,
+    exit_block: petgraph::graph::NodeIndex,
+) -> (CfgExitKind, Option<String>) {
+    use petgraph::Direction;
+    use petgraph::visit::EdgeRef;
+
+    // Pick the highest-priority inbound edge kind.
+    let mut best: Option<CfgExitKind> = None;
+    for edge in cfg.blocks.edges_directed(exit_block, Direction::Incoming) {
+        let kind = CfgExitKind::from_cfg_edge(edge.weight());
+        best = Some(match (best.take(), kind) {
+            (None, k) => k,
+            (Some(prev), k) => higher_priority(prev, k),
+        });
+    }
+    let kind = best.unwrap_or(CfgExitKind::Normal);
+
+    let label = match &kind {
+        CfgExitKind::TrueBranch | CfgExitKind::FalseBranch => {
+            // Walk inbound edges, find the predecessor block whose Guard
+            // statement preceded this branch, and join its condition_vars.
+            let mut label = None;
+            for edge in cfg.blocks.edges_directed(exit_block, Direction::Incoming) {
+                let pred = edge.source();
+                for stmt in &cfg.blocks[pred].statements {
+                    if let CfgStatementKind::Guard { condition_vars } = &stmt.kind
+                        && !condition_vars.is_empty()
+                    {
+                        label = Some(condition_vars.join(" & "));
+                    }
+                }
+            }
+            label
+        }
+        CfgExitKind::Exception => {
+            cfg.blocks[exit_block]
+                .statements
+                .iter()
+                .find_map(|s| match &s.kind {
+                    CfgStatementKind::Call { name, .. } => Some(name.clone()),
+                    _ => None,
+                })
+        }
+        _ => None,
+    };
+
+    (kind, label)
+}
+
+fn higher_priority(a: CfgExitKind, b: CfgExitKind) -> CfgExitKind {
+    fn rank(k: &CfgExitKind) -> u8 {
+        match k {
+            CfgExitKind::Exception => 4,
+            CfgExitKind::Cleanup => 3,
+            CfgExitKind::TrueBranch => 2,
+            CfgExitKind::FalseBranch => 1,
+            CfgExitKind::Normal => 0,
+        }
+    }
+    if rank(&b) > rank(&a) { b } else { a }
+}
+
 /// Find a tree-sitter node that matches the given line range.
 fn find_node_at_line(
     node: tree_sitter::Node,
@@ -352,6 +484,7 @@ fn collect_calls_in_range(
     language: Language,
     file_path: &str,
     caller_symbol_line: u32,
+    enclosing_test_name: Option<&str>,
     out: &mut Vec<CallSiteData>,
 ) {
     let node_start = node.start_position().row as u32 + 1;
@@ -364,10 +497,15 @@ fn collect_calls_in_range(
     if call_types.contains(&node.kind())
         && let Some(name) = extract_callee_name(node, source, language)
     {
+        let line = node.start_position().row as u32 + 1;
+        let arg_literals = extract_call_args(node, source);
         out.push(CallSiteData {
             callee_name: name,
             caller_file: file_path.to_string(),
             caller_symbol_line,
+            line,
+            arg_literals,
+            enclosing_test_name: enclosing_test_name.map(|s| s.to_string()),
         });
     }
 
@@ -382,9 +520,92 @@ fn collect_calls_in_range(
             language,
             file_path,
             caller_symbol_line,
+            enclosing_test_name,
             out,
         );
     }
+}
+
+/// Extract literal arguments (strings/numbers/bools) from a call expression node.
+/// Non-literal arguments are skipped. The list of node kinds matched is the union
+/// across all 10 supported tree-sitter grammars; per-language refinement is a
+/// follow-up.
+fn extract_call_args(node: tree_sitter::Node, source: &[u8]) -> Vec<String> {
+    let args_node = match node
+        .child_by_field_name("arguments")
+        .or_else(|| node.child_by_field_name("argument_list"))
+    {
+        Some(n) => n,
+        None => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    let mut cursor = args_node.walk();
+    for child in args_node.named_children(&mut cursor) {
+        if !is_literal_kind(child.kind()) {
+            continue;
+        }
+        if let Ok(text) = child.utf8_text(source) {
+            out.push(strip_quotes(text).to_string());
+        }
+    }
+    out
+}
+
+fn is_literal_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "string"
+            | "string_literal"
+            | "interpreted_string_literal"
+            | "raw_string_literal"
+            | "number"
+            | "number_literal"
+            | "integer"
+            | "integer_literal"
+            | "float"
+            | "float_literal"
+            | "decimal_integer_literal"
+            | "decimal_floating_point_literal"
+            | "true"
+            | "false"
+            | "boolean"
+            | "boolean_literal"
+            | "true_lit"
+            | "false_lit"
+            | "null"
+            | "null_literal"
+            | "nil"
+            | "none"
+            | "encapsed_string"
+            | "shell_command_string"
+    )
+}
+
+fn strip_quotes(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' || first == b'\'' || first == b'`') && last == first {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
+}
+
+/// Heuristic: does this symbol name look like a test function?
+fn is_test_function_name(name: &str) -> bool {
+    if name.starts_with("test_") || name.starts_with("Test") || name.ends_with("_test") {
+        return true;
+    }
+    if name.ends_with("Test") && name.len() > 4 {
+        return true;
+    }
+    if name.starts_with("it ") || name.starts_with("describe ") {
+        return true;
+    }
+    false
 }
 
 fn extract_callee_name(
@@ -413,5 +634,228 @@ fn extract_callee_name(
         None
     } else {
         Some(name.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::workspace::Workspace;
+
+    fn build_graph(dir: &std::path::Path, langs: &[Language]) -> CodeGraph {
+        let ws = Workspace::load(dir, langs, None).unwrap();
+        GraphBuilder::new(&ws, langs).build().unwrap()
+    }
+
+    fn collect_callsites(graph: &CodeGraph) -> Vec<&NodeWeight> {
+        graph
+            .graph
+            .node_weights()
+            .filter(|nw| matches!(nw, NodeWeight::CallSite { .. }))
+            .collect()
+    }
+
+    #[test]
+    fn test_callsite_node_emitted_per_call_expression() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            r#"fn foo() { bar(); baz(); qux(); }
+fn bar() {}
+fn baz() {}
+fn qux() {}
+"#,
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let callsites = collect_callsites(&graph);
+        // foo calls bar/baz/qux — three call expressions inside foo.
+        assert!(
+            callsites.len() >= 3,
+            "expected >= 3 callsites, got {}",
+            callsites.len()
+        );
+    }
+
+    #[test]
+    fn test_callsite_arg_literals_strings() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            r#"fn foo() { bar("hello", 42); }
+fn bar(_a: &str, _b: i32) {}
+"#,
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let bar_call = graph
+            .graph
+            .node_weights()
+            .find_map(|nw| match nw {
+                NodeWeight::CallSite {
+                    name, arg_literals, ..
+                } if name == "bar" => Some(arg_literals.clone()),
+                _ => None,
+            })
+            .expect("bar callsite");
+        assert!(
+            bar_call.contains(&"hello".to_string()),
+            "expected hello in {:?}",
+            bar_call
+        );
+        assert!(
+            bar_call.iter().any(|s| s == "42"),
+            "expected 42 in {:?}",
+            bar_call
+        );
+    }
+
+    #[test]
+    fn test_callsite_skips_non_literal_args() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            r#"fn foo(x: i32, y: i32) { bar(x + y); }
+fn bar(_z: i32) {}
+"#,
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let bar_call = graph
+            .graph
+            .node_weights()
+            .find_map(|nw| match nw {
+                NodeWeight::CallSite {
+                    name, arg_literals, ..
+                } if name == "bar" => Some(arg_literals.clone()),
+                _ => None,
+            })
+            .expect("bar callsite");
+        assert!(
+            bar_call.is_empty(),
+            "expected no literals, got {:?}",
+            bar_call
+        );
+    }
+
+    #[test]
+    fn test_callsite_enclosing_test_name_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let tests = dir.path().join("tests");
+        std::fs::create_dir_all(&tests).unwrap();
+        std::fs::write(
+            tests.join("test_login.py"),
+            r#"def test_login():
+    user_login("alice")
+
+def user_login(name):
+    pass
+"#,
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Python]);
+        let cs = graph
+            .graph
+            .node_weights()
+            .find_map(|nw| match nw {
+                NodeWeight::CallSite {
+                    name,
+                    enclosing_test_name,
+                    ..
+                } if name == "user_login" => Some(enclosing_test_name.clone()),
+                _ => None,
+            })
+            .expect("user_login callsite");
+        assert_eq!(cs.as_deref(), Some("test_login"));
+    }
+
+    fn collect_cfg_exits(graph: &CodeGraph) -> Vec<&NodeWeight> {
+        graph
+            .graph
+            .node_weights()
+            .filter(|nw| matches!(nw, NodeWeight::CfgExit { .. }))
+            .collect()
+    }
+
+    #[test]
+    fn test_select_cfg_exit_normal_return_rust() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn foo() { let _ = 1; }\n").unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let exits = collect_cfg_exits(&graph);
+        assert!(!exits.is_empty(), "expected at least one CfgExit node");
+        assert!(exits.iter().any(|nw| matches!(
+            nw,
+            NodeWeight::CfgExit {
+                exit_kind: CfgExitKind::Normal,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn test_select_cfg_exit_no_cfg_for_non_function_symbol() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "struct Foo;\n").unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        // No function -> no CfgExit nodes.
+        assert!(collect_cfg_exits(&graph).is_empty());
+    }
+
+    #[test]
+    fn test_exits_via_edge_emitted_for_each_exit() {
+        use petgraph::Direction;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn foo() { let _ = 1; }\n").unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+
+        // Find the function symbol and assert it has at least one outgoing
+        // ExitsVia edge.
+        let foo_idx = graph
+            .graph
+            .node_indices()
+            .find(|&i| {
+                matches!(
+                    &graph.graph[i],
+                    NodeWeight::Symbol { name, .. } if name == "foo"
+                )
+            })
+            .expect("foo symbol");
+        let count = graph
+            .graph
+            .edges_directed(foo_idx, Direction::Outgoing)
+            .filter(|e| matches!(e.weight(), EdgeWeight::ExitsVia(_)))
+            .count();
+        assert!(count >= 1, "expected ExitsVia edge from foo");
+    }
+
+    #[test]
+    fn test_callsite_enclosing_test_name_none_in_prod_code() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("prod.py"),
+            r#"def login(name):
+    user_login(name)
+
+def user_login(name):
+    pass
+"#,
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Python]);
+        let cs = graph
+            .graph
+            .node_weights()
+            .find_map(|nw| match nw {
+                NodeWeight::CallSite {
+                    name,
+                    enclosing_test_name,
+                    ..
+                } if name == "user_login" => Some(enclosing_test_name.clone()),
+                _ => None,
+            })
+            .expect("user_login callsite");
+        assert_eq!(cs, None);
     }
 }

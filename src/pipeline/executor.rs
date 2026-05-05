@@ -1506,4 +1506,48 @@ function mutateParam(user) {
             _ => panic!("expected Int metric"),
         }
     }
+
+    #[test]
+    fn test_select_cfg_exit_basic() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a.rs"), "fn foo() { let _ = 1; }\n").unwrap();
+        let ws = crate::storage::workspace::Workspace::load(dir.path(), &[Language::Rust], None)
+            .unwrap();
+        let graph = crate::graph::builder::GraphBuilder::new(&ws, &[Language::Rust])
+            .build()
+            .unwrap();
+
+        let is_test_fn = |path: &str| is_test_file(path);
+        let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);
+        let is_barrel_fn = |path: &str| is_barrel_file(path);
+        let mut taint_ctx = TaintContext::default();
+
+        let nodes = execute_stage(
+            &GraphStage::Select {
+                select: crate::pipeline::dsl::NodeType::CfgExit,
+                filter: None,
+                exclude: None,
+            },
+            Vec::new(),
+            &graph,
+            Some(&ws),
+            None,
+            "cfg_exit_select_test",
+            &is_test_fn,
+            &is_generated_fn,
+            &is_barrel_fn,
+            &mut taint_ctx,
+        )
+        .unwrap();
+
+        assert!(
+            !nodes.is_empty(),
+            "expected at least one CfgExit pipeline node"
+        );
+        assert!(nodes.iter().all(|n| n.kind == "cfg_exit"));
+        assert!(
+            nodes.iter().any(|n| n.metric_str("exit_kind") == "normal"),
+            "expected at least one normal exit"
+        );
+    }
 }

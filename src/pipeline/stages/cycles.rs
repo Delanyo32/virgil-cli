@@ -80,6 +80,7 @@ pub(crate) fn execute_find_cycles(
                 exported: false,
                 language: String::new(),
                 metrics: HashMap::new(),
+                ..Default::default()
             });
 
         let mut rep = PipelineNode {
@@ -91,6 +92,7 @@ pub(crate) fn execute_find_cycles(
             exported: false,
             language: rep_base.language,
             metrics: HashMap::new(),
+            ..Default::default()
         };
         rep.metrics.insert(
             "cycle_size".to_string(),

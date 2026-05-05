@@ -31,6 +31,37 @@ pub enum SourceKind {
     Deserialization,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CfgExitKind {
+    Normal,
+    TrueBranch,
+    FalseBranch,
+    Exception,
+    Cleanup,
+}
+
+impl CfgExitKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::TrueBranch => "true_branch",
+            Self::FalseBranch => "false_branch",
+            Self::Exception => "exception",
+            Self::Cleanup => "cleanup",
+        }
+    }
+
+    pub fn from_cfg_edge(e: &cfg::CfgEdge) -> Self {
+        match e {
+            cfg::CfgEdge::Normal => Self::Normal,
+            cfg::CfgEdge::TrueBranch => Self::TrueBranch,
+            cfg::CfgEdge::FalseBranch => Self::FalseBranch,
+            cfg::CfgEdge::Exception => Self::Exception,
+            cfg::CfgEdge::Cleanup => Self::Cleanup,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum NodeWeight {
     File {
@@ -49,6 +80,14 @@ pub enum NodeWeight {
         name: String,
         file_path: String,
         line: u32,
+        /// Literal arguments at this call site (strings/numbers/bools only).
+        arg_literals: Vec<String>,
+        /// Name of the enclosing test function, when this call site sits
+        /// inside a test (path matches `is_test_file` and the enclosing
+        /// symbol's name follows a test naming convention).
+        enclosing_test_name: Option<String>,
+        /// The Symbol node that contains this call site, if any.
+        caller_symbol: Option<NodeIndex>,
     },
     Parameter {
         name: String,
@@ -60,6 +99,14 @@ pub enum NodeWeight {
         kind: SourceKind,
         file_path: String,
         line: u32,
+    },
+    CfgExit {
+        function_node: NodeIndex,
+        function_name: String,
+        file_path: String,
+        line: u32,
+        exit_kind: CfgExitKind,
+        exit_label: Option<String>,
     },
 }
 
@@ -74,6 +121,7 @@ pub enum EdgeWeight {
     Acquires { resource_type: String },
     ReleasedBy,
     Contains,
+    ExitsVia(CfgExitKind),
 }
 
 pub struct CodeGraph {

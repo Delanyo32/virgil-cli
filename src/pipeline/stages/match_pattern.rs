@@ -144,30 +144,61 @@ pub(crate) fn execute_match_pattern(
             .and_then(|wc| wc.lhs_is_parameter)
             .map(|_| build_parent_map(tree.root_node()));
 
+        let capture_names = query.capture_names();
+
         let mut cursor = tree_sitter::QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
         while let Some(m) = matches.next() {
+            if m.captures.is_empty() {
+                continue;
+            }
+
+            // Build the capture map (capture_name -> matched text). When a
+            // capture name appears multiple times in a single match, the
+            // last occurrence wins.
+            let mut captures: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for cap in m.captures {
-                let node = cap.node;
-                if let Some(wc) = when
-                    && wc.lhs_is_parameter == Some(true)
-                    && let Some(ref pm) = parent_map
-                    && !node_lhs_is_parameter(&node, pm, source.as_bytes(), lang)
-                {
+                let cap_name = capture_names.get(cap.index as usize).copied().unwrap_or("");
+                if cap_name.is_empty() {
                     continue;
                 }
-                let line = node.start_position().row as u32 + 1;
-                result.push(PipelineNode {
-                    node_idx: petgraph::graph::NodeIndex::new(0),
-                    file_path: rel_path.clone(),
-                    name: node.utf8_text(source.as_bytes()).unwrap_or("").to_string(),
-                    kind: node.kind().to_string(),
-                    line,
-                    exported: false,
-                    language: lang.as_str().to_string(),
-                    metrics: std::collections::HashMap::new(),
-                });
+                if let Ok(text) = cap.node.utf8_text(source.as_bytes()) {
+                    captures.insert(cap_name.to_string(), text.to_string());
+                }
             }
+
+            // Anchor the PipelineNode at the largest capture (by byte span).
+            // Falls back to the first capture if spans are equal.
+            let anchor_cap = m
+                .captures
+                .iter()
+                .max_by_key(|c| c.node.end_byte().saturating_sub(c.node.start_byte()))
+                .copied()
+                .unwrap_or(m.captures[0]);
+            let node = anchor_cap.node;
+
+            if let Some(wc) = when
+                && wc.lhs_is_parameter == Some(true)
+                && let Some(ref pm) = parent_map
+                && !node_lhs_is_parameter(&node, pm, source.as_bytes(), lang)
+            {
+                continue;
+            }
+
+            let line = node.start_position().row as u32 + 1;
+            result.push(PipelineNode {
+                node_idx: petgraph::graph::NodeIndex::new(0),
+                file_path: rel_path.clone(),
+                name: node.utf8_text(source.as_bytes()).unwrap_or("").to_string(),
+                kind: node.kind().to_string(),
+                line,
+                exported: false,
+                language: lang.as_str().to_string(),
+                metrics: std::collections::HashMap::new(),
+                captures,
+                ..Default::default()
+            });
         }
     }
 

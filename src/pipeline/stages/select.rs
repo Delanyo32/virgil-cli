@@ -33,6 +33,7 @@ pub(crate) fn execute_select(
                         _ => String::new(),
                     },
                     metrics: HashMap::new(),
+                    ..Default::default()
                 };
                 if let Some(wc) = filter
                     && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
@@ -105,6 +106,64 @@ pub(crate) fn execute_select(
                         exported: *exported,
                         language,
                         metrics,
+                        ..Default::default()
+                    };
+                    if let Some(wc) = filter
+                        && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    {
+                        continue;
+                    }
+                    if let Some(exc) = exclude
+                        && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    {
+                        continue;
+                    }
+                    result.push(node);
+                }
+            }
+        }
+        NodeType::CfgExit => {
+            for idx in graph.graph.node_indices() {
+                if let NodeWeight::CfgExit {
+                    function_name,
+                    file_path,
+                    line,
+                    exit_kind,
+                    exit_label,
+                    ..
+                } = &graph.graph[idx]
+                {
+                    let language = graph
+                        .file_nodes
+                        .get(file_path)
+                        .and_then(|&file_idx| match &graph.graph[file_idx] {
+                            NodeWeight::File { language, .. } => {
+                                Some(language.as_str().to_string())
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+
+                    let mut metrics = HashMap::new();
+                    metrics.insert(
+                        "exit_kind".to_string(),
+                        MetricValue::Text(exit_kind.as_str().to_string()),
+                    );
+                    metrics.insert(
+                        "exit_label".to_string(),
+                        MetricValue::Text(exit_label.clone().unwrap_or_default()),
+                    );
+
+                    let node = PipelineNode {
+                        node_idx: idx,
+                        file_path: file_path.clone(),
+                        name: function_name.clone(),
+                        kind: "cfg_exit".to_string(),
+                        line: *line,
+                        exported: false,
+                        language,
+                        metrics,
+                        ..Default::default()
                     };
                     if let Some(wc) = filter
                         && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
@@ -126,6 +185,9 @@ pub(crate) fn execute_select(
                     name,
                     file_path,
                     line,
+                    arg_literals,
+                    enclosing_test_name,
+                    ..
                 } = &graph.graph[idx]
                 {
                     let language = graph
@@ -148,6 +210,9 @@ pub(crate) fn execute_select(
                         exported: false,
                         language,
                         metrics: HashMap::new(),
+                        arg_literals: arg_literals.clone(),
+                        enclosing_test_name: enclosing_test_name.clone(),
+                        ..Default::default()
                     };
                     if let Some(wc) = filter
                         && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)

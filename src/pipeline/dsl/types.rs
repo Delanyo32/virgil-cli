@@ -14,6 +14,7 @@ pub enum NodeType {
     File,
     Symbol,
     CallSite,
+    CfgExit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,6 +29,11 @@ pub enum EdgeType {
     Exports,
     // SanitizedBy excluded — has a string payload, handled separately in taint analysis
     DefinedIn,
+    ExitsViaNormal,
+    ExitsViaTrue,
+    ExitsViaFalse,
+    ExitsViaException,
+    ExitsViaCleanup,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +126,30 @@ pub struct PipelineNode {
     pub language: String,
     /// Computed metrics: count, depth, cycle_size, edge_count, ratio, _group, etc.
     pub metrics: HashMap<String, MetricValue>,
+    /// match_pattern capture name (without leading @) -> captured text.
+    pub captures: HashMap<String, String>,
+    /// Literal arguments at this call site (CallSite nodes only).
+    pub arg_literals: Vec<String>,
+    /// Name of the enclosing test function, if this CallSite is inside one.
+    pub enclosing_test_name: Option<String>,
+}
+
+impl Default for PipelineNode {
+    fn default() -> Self {
+        Self {
+            node_idx: NodeIndex::new(0),
+            file_path: String::new(),
+            name: String::new(),
+            kind: String::new(),
+            line: 0,
+            exported: false,
+            language: String::new(),
+            metrics: HashMap::new(),
+            captures: HashMap::new(),
+            arg_literals: Vec::new(),
+            enclosing_test_name: None,
+        }
+    }
 }
 
 impl PipelineNode {
@@ -159,6 +189,18 @@ pub fn interpolate_message(template: &str, node: &PipelineNode) -> String {
             MetricValue::Text(s) => s.clone(),
         };
         result = result.replace(&placeholder, &value_str);
+    }
+
+    if !node.arg_literals.is_empty() {
+        result = result.replace("{{arg_literals}}", &node.arg_literals.join(", "));
+    }
+    if let Some(ref test_name) = node.enclosing_test_name {
+        result = result.replace("{{enclosing_test_name}}", test_name);
+    }
+
+    for (name, val) in &node.captures {
+        let placeholder = format!("{{{{@{}}}}}", name);
+        result = result.replace(&placeholder, val);
     }
     result
 }

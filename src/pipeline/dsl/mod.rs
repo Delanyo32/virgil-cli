@@ -48,6 +48,7 @@ mod tests {
             exported: true,
             language: "rust".to_string(),
             metrics: m,
+            ..Default::default()
         }
     }
 
@@ -855,6 +856,7 @@ mod tests {
             exported: false,
             language: "rust".to_string(),
             metrics: std::collections::HashMap::new(),
+            ..Default::default()
         };
         // CC = 15 > 10 -- should pass
         node.metrics
@@ -954,6 +956,31 @@ mod tests {
     }
 
     #[test]
+    fn test_interpolate_capture() {
+        let mut node = make_node(vec![]);
+        node.captures
+            .insert("func".to_string(), "login".to_string());
+        let out = interpolate_message("calls {{@func}} now", &node);
+        assert_eq!(out, "calls login now");
+    }
+
+    #[test]
+    fn test_capture_interpolation_unknown_capture_left_intact() {
+        let node = make_node(vec![]);
+        let out = interpolate_message("hello {{@nonexistent}}", &node);
+        assert_eq!(out, "hello {{@nonexistent}}");
+    }
+
+    #[test]
+    fn test_interpolate_arg_literals_and_test_name() {
+        let mut node = make_node(vec![]);
+        node.arg_literals = vec!["a".into(), "b".into()];
+        node.enclosing_test_name = Some("test_login".to_string());
+        let out = interpolate_message("{{enclosing_test_name}} -> {{arg_literals}}", &node);
+        assert_eq!(out, "test_login -> a, b");
+    }
+
+    #[test]
     fn where_clause_kind_filter() {
         let json = r#"{"kind": ["function", "method"]}"#;
         let wc: WhereClause = serde_json::from_str(json).unwrap();
@@ -968,6 +995,7 @@ mod tests {
             exported: false,
             language: "rust".to_string(),
             metrics: std::collections::HashMap::new(),
+            ..Default::default()
         };
         let is_test = |_: &str| false;
         let is_gen = |_: &str| false;
@@ -983,6 +1011,7 @@ mod tests {
             exported: false,
             language: "rust".to_string(),
             metrics: std::collections::HashMap::new(),
+            ..Default::default()
         };
         assert!(!wc.eval(&node_class, &is_test, &is_gen, &is_barrel));
     }
