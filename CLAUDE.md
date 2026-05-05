@@ -110,6 +110,18 @@ Critical gotchas and design decisions that are not obvious from reading the code
 **Call graph**
 Name-based resolution via `symbols_by_name` lookup — heuristic only, no type info. BFS with configurable depth (max 5). Replaces old `call_graph.rs`.
 
+**CallSite nodes are materialised at builder step 5d**
+`NodeWeight::CallSite` is emitted for *every* call expression encountered inside a symbol's line range — not just resource-tracking calls. The node carries `arg_literals` (string/number/bool literals only), `enclosing_test_name` (set when `is_test_file(path) && is_test_function_name(symbol)`), and `caller_symbol`. A `Contains` edge from the caller `Symbol` to the `CallSite` is added. Resource analysis still creates synthetic `acquire:<resource>` CallSites at `src/graph/resource.rs:95` — those have empty `arg_literals` and `caller_symbol = Some(function_node)`. Literal extraction uses a single union node-kind whitelist across grammars (`is_literal_kind` in `builder.rs`); per-language refinement is a follow-up.
+
+**CfgExit nodes + `ExitsVia` edges (builder step 5e)**
+For every entry in `FunctionCfg.exits`, the builder emits one `NodeWeight::CfgExit` and a `Contains` edge plus an `EdgeWeight::ExitsVia(CfgExitKind)` edge from the symbol. `CfgExitKind` is picked from the inbound CFG edge with priority `Exception > Cleanup > TrueBranch > FalseBranch > Normal` (`classify_cfg_exit` in `builder.rs`). `exit_label`: branch-kind exits join the originating `Guard.condition_vars` with ` & `; exception-kind exits use the first `Call.name` in the exit block; normal/cleanup are `None`. The DSL exposes the edge as five flat `EdgeType` variants (`exits_via_normal/true/false/exception/cleanup`) — `EdgeType` itself is still a payload-free flat enum.
+
+**`PipelineNode` has new optional fields**
+`captures: HashMap<String,String>` (populated by `match_pattern`), `arg_literals: Vec<String>` and `enclosing_test_name: Option<String>` (populated by `select: call_site`). A `Default` impl exists so struct literals can use `..Default::default()` without listing every field.
+
+**`match_pattern` semantics changed**
+Each tree-sitter *match* produces one `PipelineNode` anchored at the largest capture (by byte span). The full capture map is attached, and `interpolate_message` recognises `{{@capture_name}}` placeholders. Prior behaviour was "one node per capture, capture name discarded".
+
 **S3 workspace**
 - S3 workspace root is a synthetic `s3://bucket/prefix` path. `execute_read()` disk fallback is guarded by `root.exists()` to prevent filesystem access on S3 workspaces.
 - `--s3` flag conflicts with positional `name`/`dir` args via `#[arg(conflicts_with)]`

@@ -277,11 +277,14 @@ Stages in `graph` execute left-to-right, each reading and writing a shared node 
 
 ### `select` — `NodeType` values
 
-`file`, `symbol`, `call_site`.
+`file`, `symbol`, `call_site`, `cfg_exit`.
+
+`call_site` nodes carry `arg_literals`, `enclosing_test_name`, and a back-pointer to the calling `Symbol`. `cfg_exit` nodes are emitted one-per-CFG-exit-block of every function and expose `exit_kind` / `exit_label` as metrics.
 
 ### Edge kinds (used by `max_depth`, `find_cycles`)
 
-`calls`, `imports`, `flows_to`, `acquires`, `released_by`, `contains`, `exports`, `defined_in`.
+`calls`, `imports`, `flows_to`, `acquires`, `released_by`, `contains`, `exports`, `defined_in`,
+`exits_via_normal`, `exits_via_true`, `exits_via_false`, `exits_via_exception`, `exits_via_cleanup`.
 
 ### `where` / `exclude` / `when` — `WhereClause`
 
@@ -315,6 +318,8 @@ Any subset of `gte`, `lte`, `gt`, `lt`, `eq`. Combined with AND.
 | `severity_map` | [entries] | Ordered list; first matching `when` wins. An entry with no `when` (or empty `when`) is the catch-all default. |
 
 Template variables usable in `message`: `{{name}}`, `{{kind}}`, `{{file}}`, `{{line}}`, `{{language}}`, plus any metric name stored on the node (e.g. `{{cyclomatic_complexity}}`, `{{count}}`, `{{depth}}`, `{{cycle_size}}`, `{{edge_count}}`, `{{ratio}}`).
+
+Per-node-type extras: `{{@capture_name}}` for `match_pattern` captures, `{{arg_literals}}` and `{{enclosing_test_name}}` on `call_site` nodes, `{{exit_kind}}` and `{{exit_label}}` on `cfg_exit` nodes. See [docs/dsl.md](docs/dsl.md#message-interpolation) for the full table.
 
 ### Worked example
 

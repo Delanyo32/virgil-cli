@@ -288,7 +288,7 @@ Seeds the pipeline with graph nodes of one type, optionally filtered.
 
 ### `match_pattern`
 
-Runs a tree-sitter S-expression query against source files. Each capture becomes a node. An optional `when` post-filters captures.
+Runs a tree-sitter S-expression query against source files. Each *match* produces one node, anchored at the largest capture (by byte span). The full set of captures (`@name → matched text`) is attached to the node and is available to `flag.message` interpolation as `{{@name}}`.
 
 ```json
 {
@@ -298,6 +298,23 @@ Runs a tree-sitter S-expression query against source files. Each capture becomes
 ```
 
 `lhs_is_parameter` is the only `when` flag specific to `match_pattern`: it asserts the matched assignment's LHS object identifier is a named parameter of the enclosing function.
+
+**Capture interpolation example.** A query with two captures (`@callee`, `@call`) is anchored at `@call` (the largest span); the message can reference either capture by name:
+
+```json
+{
+  "graph": [
+    { "match_pattern": "(call_expression function: (identifier) @callee) @call" },
+    { "flag": {
+        "pattern": "call_audit",
+        "message": "Call to {{@callee}}",
+        "severity": "info"
+    } }
+  ]
+}
+```
+
+Unknown placeholders (`{{@nonexistent}}`) are left unchanged so typos are visible.
 
 ### `compute_metric`
 
@@ -482,7 +499,10 @@ An empty predicate matches every value.
 
 Used by `max_depth` and `find_cycles`:
 
-`calls`, `imports`, `flows_to`, `acquires`, `released_by`, `contains`, `exports`, `defined_in`.
+`calls`, `imports`, `flows_to`, `acquires`, `released_by`, `contains`, `exports`, `defined_in`,
+`exits_via_normal`, `exits_via_true`, `exits_via_false`, `exits_via_exception`, `exits_via_cleanup`.
+
+The five `exits_via_*` kinds connect each function `Symbol` to its `cfg_exit` nodes — one edge per exit, classified from the inbound CFG edge type. They let traversals like `max_depth` ask, e.g. *"functions reachable via an exception path within depth N"*.
 
 ## Node Types
 
@@ -492,7 +512,8 @@ Used by `select`:
 |---|---|
 | `file` | One node per source file in the workspace. |
 | `symbol` | One node per declared symbol. |
-| `call_site` | One node per call expression. |
+| `call_site` | One node per call expression. Carries `arg_literals` (literal args only — strings, numbers, booleans), `enclosing_test_name` (set when the call lives in a test function inside a test file), and `caller_symbol` (the containing `Symbol`). |
+| `cfg_exit` | One node per CFG exit block of every function. The node's `metrics` map carries `exit_kind` (`normal`, `true_branch`, `false_branch`, `exception`, `cleanup`) and `exit_label` (branch condition vars joined by ` & `, or the throwing callee name for exceptions; empty otherwise). |
 
 ## Severity Resolution
 
@@ -512,6 +533,16 @@ This last case is how rules expose progressive severities while leaving the "bel
 `{{name}}`, `{{kind}}`, `{{file}}`, `{{line}}`, `{{language}}`.
 
 Plus every metric on the node, e.g. `{{cyclomatic_complexity}}`, `{{count}}`, `{{depth}}`, `{{cycle_size}}`, `{{cycle_path}}`, `{{edge_count}}`, `{{ratio}}`, `{{total}}`. Floats render with two decimal places.
+
+**Per-node-type extras:**
+
+| Placeholder | Available on | Notes |
+|---|---|---|
+| `{{@capture_name}}` | nodes from `match_pattern` | Renders the text matched by capture `@capture_name`. Unknown captures are left unchanged. |
+| `{{arg_literals}}` | `call_site` nodes | Comma-separated list of literal args at the call. Empty when the call had no literal args. |
+| `{{enclosing_test_name}}` | `call_site` nodes | Name of the surrounding test function, or empty. |
+| `{{exit_kind}}` | `cfg_exit` nodes | `normal` \| `true_branch` \| `false_branch` \| `exception` \| `cleanup`. |
+| `{{exit_label}}` | `cfg_exit` nodes | Condition vars (branches) or throwing callee (exceptions); empty otherwise. |
 
 ## Pipeline Discovery Order
 
@@ -645,6 +676,79 @@ A specific file can also be passed via `--file <path.json>`.
   ]
 }
 ```
+
+### Function exit states (`cfg_exit`)
+
+Enumerate, for each function, every state in which control can leave it:
+
+```json
+{
+  "pipeline": "function_exit_states",
+  "category": "complexity",
+  "graph": [
+    { "select": "cfg_exit" },
+    { "flag": {
+        "pattern": "function_state",
+        "message": "{{name}} exits via {{exit_kind}} at {{file}}:{{line}} ({{exit_label}})",
+        "severity": "info"
+    } }
+  ]
+}
+```
+
+Filter to functions whose exception path is reachable within three calls:
+
+```json
+{
+  "graph": [
+    { "select": "symbol", "where": { "kind": ["function", "method"] } },
+    { "max_depth": { "edge": "exits_via_exception", "threshold": { "gte": 1 } } },
+    { "flag": { "pattern": "throws", "message": "{{name}} throws", "severity": "info" } }
+  ]
+}
+```
+
+### Test-call coverage (`call_site` enrichment)
+
+Map every call inside a test to the test function and its literal arguments — useful for deriving "which production function is exercised by which test":
+
+```json
+{
+  "pipeline": "test_call_map",
+  "category": "tech_debt",
+  "graph": [
+    { "select": "call_site",
+      "where": { "and": [ { "is_test_file": true } ] } },
+    { "flag": {
+        "pattern": "test_call",
+        "message": "{{enclosing_test_name}} calls {{name}}({{arg_literals}})",
+        "severity": "info"
+    } }
+  ]
+}
+```
+
+`call_site` nodes are now materialised for every call expression in the workspace (previously only resource-acquisition calls were emitted).
+
+### Tree-sitter pattern with capture interpolation
+
+```json
+{
+  "pipeline": "calls_to_unsafe",
+  "category": "security",
+  "languages": ["rust"],
+  "graph": [
+    { "match_pattern": "(call_expression function: (identifier) @callee (#match? @callee \"^unsafe_\")) @call" },
+    { "flag": {
+        "pattern": "unsafe_call",
+        "message": "Calls {{@callee}} at {{file}}:{{line}}",
+        "severity": "warning"
+    } }
+  ]
+}
+```
+
+The query produces one finding per match. The `@callee` capture text is substituted into the message via `{{@callee}}`.
 
 ### Tree-sitter pattern: argument mutation
 
