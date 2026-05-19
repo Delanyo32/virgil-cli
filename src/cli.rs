@@ -218,13 +218,25 @@ pub enum ProjectCommand {
         #[arg(short, long)]
         exclude: Vec<String>,
 
-        /// Inline JSON query
+        /// Inline JSON query (legacy DSL; removed in the cozodb migration)
         #[arg(short, long)]
         q: Option<String>,
 
-        /// Path to a JSON query file
-        #[arg(short, long)]
+        /// Inline Cozoscript query
+        #[arg(long, conflicts_with_all = ["q", "template"])]
+        cozoscript: Option<String>,
+
+        /// Path to a Cozoscript file (.cozoql or any text file)
+        #[arg(short, long, conflicts_with_all = ["q", "template", "cozoscript"])]
         file: Option<PathBuf>,
+
+        /// Built-in template name (see `src/queries/builtin/`)
+        #[arg(long, conflicts_with_all = ["q", "cozoscript", "file"])]
+        template: Option<String>,
+
+        /// Parameter binding for Cozoscript / template (repeatable). Format: key=value
+        #[arg(long = "param", value_parser = parse_key_value)]
+        params: Vec<(String, String)>,
 
         /// Output format
         #[arg(short, long, default_value = "outline")]
@@ -238,6 +250,12 @@ pub enum ProjectCommand {
         #[arg(short, long, default_value = "100")]
         max: usize,
     },
+}
+
+fn parse_key_value(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .ok_or_else(|| format!("expected key=value, got '{s}'"))
 }
 
 #[derive(Debug, Clone, ValueEnum)]

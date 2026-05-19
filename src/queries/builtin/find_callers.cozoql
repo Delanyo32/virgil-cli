@@ -1,0 +1,17 @@
+# find_callers — transitive callers of a function up to max_depth.
+# Params:
+#   $target — name of the function whose callers to find.
+#   $max_depth — integer upper bound on hops (typical: 3).
+# Example:
+#   --template find_callers --param target=login --param max_depth=3
+
+caller[c, d] := d = 1,
+                *edge_calls{caller_id: c, callee_id: t},
+                *symbol{id: t, name: $target}
+caller[c, d] := caller[m, d_prev],
+                d_prev < $max_depth,
+                d = d_prev + 1,
+                *edge_calls{caller_id: c, callee_id: m}
+?[caller_name, caller_file, depth] :=
+    caller[c, depth], *symbol{id: c, name: caller_name, file_path: caller_file}
+:order depth, caller_file, caller_name

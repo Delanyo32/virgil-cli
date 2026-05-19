@@ -1,0 +1,16 @@
+# unused_symbols — symbols with no inbound `edge_calls`.
+# Heuristic: name-based call resolution is approximate (we can miss
+# indirect calls, dynamic dispatch, reflection), so an "unused" result
+# is a strong lead but not a proof of dead code.
+#
+# No params.
+# Output rows: (name, kind, file_path, start_line, end_line).
+# Example:
+#   --template unused_symbols
+
+called[id] := *edge_calls{callee_id: id}
+
+?[name, kind, file_path, start_line, end_line] :=
+    *symbol{id, name, kind, file_path, start_line, end_line},
+    not called[id]
+:order file_path, start_line

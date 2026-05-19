@@ -1,0 +1,17 @@
+# find_callees — transitive callees of a function up to max_depth.
+# Params:
+#   $target — name of the function whose callees to find.
+#   $max_depth — integer upper bound on hops (typical: 3).
+# Example:
+#   --template find_callees --param target=login --param max_depth=3
+
+callee[c, d] := d = 1,
+                *edge_calls{caller_id: s, callee_id: c},
+                *symbol{id: s, name: $target}
+callee[c, d] := callee[m, d_prev],
+                d_prev < $max_depth,
+                d = d_prev + 1,
+                *edge_calls{caller_id: m, callee_id: c}
+?[callee_name, callee_file, depth] :=
+    callee[c, depth], *symbol{id: c, name: callee_name, file_path: callee_file}
+:order depth, callee_file, callee_name

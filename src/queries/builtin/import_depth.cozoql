@@ -1,0 +1,21 @@
+# import_depth — longest known import chain ending at each file.
+# Output rows: (file, max_depth).
+#
+# NOTE: This uses Datalog recursion with a depth bound. In a workspace
+# with import cycles the recursion does not terminate, so callers should
+# either run find_cycles first to confirm acyclicity, or accept that the
+# result is upper-bounded by $max_depth.
+#
+# Params:
+#   $max_depth — depth cap (typical: 20).
+# Example:
+#   --template import_depth --param max_depth=20
+
+depth[f, d] := d = 0, *file{path: f}
+depth[f, d] := depth[g, d_prev],
+               d_prev < $max_depth,
+               *edge_imports{from_path: f, to_path: g},
+               d = d_prev + 1
+
+?[file, max_depth] := depth[file, d], max_depth = max(d)
+:order -max_depth, file

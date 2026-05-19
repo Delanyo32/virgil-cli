@@ -6,6 +6,7 @@ pub mod language;
 pub mod languages;
 pub mod models;
 pub mod parser;
+pub mod queries;
 pub mod query;
 pub mod server;
 pub mod signature;

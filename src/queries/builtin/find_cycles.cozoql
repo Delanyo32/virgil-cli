@@ -1,0 +1,10 @@
+# find_cycles — files that participate in an import cycle.
+# No params.
+# Output rows: (file, partner) for each pair (sorted, file < partner).
+# Example:
+#   --template find_cycles
+
+reach[a, b] := *edge_imports{from_path: a, to_path: b}
+reach[a, c] := reach[a, b], *edge_imports{from_path: b, to_path: c}
+?[file, partner] := reach[file, partner], reach[partner, file], file < partner
+:order file, partner

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -6,11 +7,19 @@ use clap::Parser;
 
 use virgil_cli::audit;
 use virgil_cli::cli::{Cli, Command, OutputFormat, ProjectCommand};
+use virgil_cli::cozo::{self, CozoStore};
 use virgil_cli::language::{self, Language};
+use virgil_cli::queries::{self, QueryRequest, QuerySource};
 use virgil_cli::server;
 use virgil_cli::storage::registry;
 use virgil_cli::storage::s3::S3Location;
 use virgil_cli::storage::workspace::Workspace;
+
+enum CozoSource {
+    Inline(String),
+    FilePath(PathBuf),
+    Template(String),
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -63,11 +72,34 @@ fn main() -> Result<()> {
                 lang,
                 exclude,
                 q,
+                cozoscript,
                 file,
+                template,
+                params,
                 out,
                 pretty,
                 max,
             } => {
+                // Cozoscript path (issue 05): when any of --cozoscript /
+                // --file / --template is set, the new runner handles it and
+                // the JSON DSL path is skipped entirely.
+                let cozo_source = match (cozoscript, file.as_ref(), template) {
+                    (Some(s), _, _) => Some(CozoSource::Inline(s)),
+                    (_, Some(p), _) => Some(CozoSource::FilePath(p.clone())),
+                    (_, _, Some(t)) => Some(CozoSource::Template(t)),
+                    _ => None,
+                };
+                if let Some(cozo_source) = cozo_source {
+                    return run_cozo_query(
+                        cozo_source,
+                        params,
+                        name,
+                        s3,
+                        lang,
+                        exclude,
+                        pretty,
+                    );
+                }
                 let query_json = match (q, file) {
                     (Some(inline), _) => inline,
                     (None, Some(path)) => std::fs::read_to_string(&path)
@@ -412,5 +444,71 @@ fn run_json_audit_file_ws(
     let elapsed = start.elapsed();
     eprintln!("Completed in {:.2}s", elapsed.as_secs_f64());
 
+    Ok(())
+}
+
+fn run_cozo_query(
+    source: CozoSource,
+    params: Vec<(String, String)>,
+    name: Option<String>,
+    s3: Option<String>,
+    lang: Option<String>,
+    exclude: Vec<String>,
+    pretty: bool,
+) -> Result<()> {
+    let (workspace, project_name) = if let Some(s3_uri) = s3 {
+        let languages = match &lang {
+            Some(f) => language::parse_language_filter(f),
+            None => Language::all().to_vec(),
+        };
+        let loc = S3Location::parse(&s3_uri)?;
+        let ws = Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &exclude, None)?;
+        (ws, s3_uri)
+    } else {
+        let name = name.ok_or_else(|| anyhow::anyhow!("provide a project name or --s3"))?;
+        let project = registry::get_project(&name)?;
+        let languages = match &project.languages {
+            Some(f) => language::parse_language_filter(f),
+            None => Language::all().to_vec(),
+        };
+        let ws = Workspace::load(&project.path, &languages, None)?;
+        (ws, name)
+    };
+
+    let languages = match &lang {
+        Some(f) => language::parse_language_filter(f),
+        None => Language::all().to_vec(),
+    };
+
+    let start = Instant::now();
+    let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
+    let store = CozoStore::open_in_memory()?;
+    cozo::populate(&store, &graph, Some(&workspace))?;
+
+    let source_ref = match &source {
+        CozoSource::Inline(s) => QuerySource::Inline(s.as_str()),
+        CozoSource::FilePath(p) => QuerySource::File(p.as_path()),
+        CozoSource::Template(t) => QuerySource::Template(t.as_str()),
+    };
+    let output = queries::run(QueryRequest {
+        source: source_ref,
+        params,
+        store: &store,
+        graph: &graph,
+        workspace: &workspace,
+    })?;
+    let elapsed = start.elapsed();
+
+    let envelope = serde_json::json!({
+        "project": project_name,
+        "query_ms": elapsed.as_millis(),
+        "result": output,
+    });
+    let s = if pretty {
+        serde_json::to_string_pretty(&envelope)?
+    } else {
+        serde_json::to_string(&envelope)?
+    };
+    println!("{s}");
     Ok(())
 }
