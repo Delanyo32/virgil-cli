@@ -88,18 +88,22 @@ impl ResourceAnalyzer {
         // Now add edges to the graph.
         for edge in edges_to_add {
             // Create a CallSite node to represent the resource operation.
-            let (file_path, line) = match &graph.graph[edge.function_node] {
+            let (file_path_spur, line) = match &graph.graph[edge.function_node] {
                 NodeWeight::Symbol {
                     file_path,
                     start_line,
                     ..
-                } => (file_path.clone(), *start_line),
+                } => (*file_path, *start_line),
                 _ => continue,
             };
 
+            let resource_spur = graph.symbols.intern(&edge.resource_type);
+            let acquire_name_spur = graph
+                .symbols
+                .intern(&format!("acquire:{}", edge.resource_type));
             let resource_node = graph.graph.add_node(NodeWeight::CallSite {
-                name: format!("acquire:{}", edge.resource_type),
-                file_path,
+                name: acquire_name_spur,
+                file_path: file_path_spur,
                 line,
                 arg_literals: Vec::new(),
                 enclosing_test_name: None,
@@ -111,7 +115,7 @@ impl ResourceAnalyzer {
                 edge.function_node,
                 resource_node,
                 EdgeWeight::Acquires {
-                    resource_type: edge.resource_type,
+                    resource_type: resource_spur,
                 },
             );
 

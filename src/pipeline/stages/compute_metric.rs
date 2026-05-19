@@ -49,11 +49,12 @@ pub(crate) fn execute_compute_metric(
     let mut result = Vec::new();
 
     for mut node in nodes {
-        let Some(lang) = workspace.file_language(&node.file_path) else {
+        let file_path_str = node.file_path_str(&graph.symbols).to_string();
+        let Some(lang) = workspace.file_language(&file_path_str) else {
             result.push(node);
             continue;
         };
-        let Some(source) = workspace.read_file(&node.file_path) else {
+        let Some(source) = workspace.read_file(&file_path_str) else {
             result.push(node);
             continue;
         };
@@ -64,7 +65,7 @@ pub(crate) fn execute_compute_metric(
             None => {
                 eprintln!(
                     "Warning: compute_metric: failed to parse {}",
-                    node.file_path
+                    file_path_str
                 );
                 result.push(node);
                 continue;
@@ -95,7 +96,7 @@ pub(crate) fn execute_compute_metric(
         let Some(body) = body_node else {
             eprintln!(
                 "Warning: compute_metric: no function body at line {} in {}",
-                node.line, node.file_path
+                node.line, file_path_str
             );
             result.push(node);
             continue;

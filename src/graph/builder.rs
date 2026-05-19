@@ -15,7 +15,7 @@ use crate::parser;
 use crate::storage::workspace::Workspace;
 
 use super::cfg::{CfgStatementKind, FunctionCfg};
-use super::{CfgExitKind, CodeGraph, EdgeWeight, NodeWeight};
+use super::{CfgExitKind, CodeGraph, EdgeWeight, NodeWeight, Spur};
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -177,12 +177,16 @@ impl<'a> GraphBuilder<'a> {
 
         // Resolve deferred imports now that every File node exists.
         for di in deferred_imports {
-            let Some(&from_file_idx) = graph.file_nodes.get(&di.from_file_path) else {
+            let Some(from_spur) = graph.symbols.get(&di.from_file_path) else {
+                continue;
+            };
+            let Some(&from_file_idx) = graph.file_nodes.get(&from_spur) else {
                 continue;
             };
             if let Some(resolved) =
                 resolve_import_to_file(&di.from_file_path, &di.import, di.language, &known_files)
-                && let Some(&to_file_idx) = graph.file_nodes.get(&resolved)
+                && let Some(to_spur) = graph.symbols.get(&resolved)
+                && let Some(&to_file_idx) = graph.file_nodes.get(&to_spur)
                 && from_file_idx != to_file_idx
             {
                 graph
@@ -193,7 +197,10 @@ impl<'a> GraphBuilder<'a> {
 
         // Resolve deferred Calls edges now that every Symbol is registered.
         for dc in deferred_calls {
-            if let Some(targets) = graph.symbols_by_name.get(&dc.callee_name) {
+            let Some(callee_spur) = graph.symbols.get(&dc.callee_name) else {
+                continue;
+            };
+            if let Some(targets) = graph.symbols_by_name.get(&callee_spur) {
                 for &target_idx in targets {
                     if target_idx != dc.caller_idx {
                         graph
@@ -295,18 +302,21 @@ fn absorb_file_data(
     } = data;
 
     // 5a: File node
+    let path_spur = graph.symbols.intern(&path);
     let file_idx = graph.graph.add_node(NodeWeight::File {
-        path: path.clone(),
+        path: path_spur,
         language,
     });
-    graph.file_nodes.insert(path.clone(), file_idx);
+    graph.file_nodes.insert(path_spur, file_idx);
 
     // 5b: Symbol nodes + DefinedIn/Contains/Exports
     for sym in &symbols {
+        let sym_file_spur = graph.symbols.intern(&sym.file_path);
+        let sym_name_spur = graph.symbols.intern(&sym.name);
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: sym.name.clone(),
+            name: sym_name_spur,
             kind: sym.kind,
-            file_path: sym.file_path.clone(),
+            file_path: sym_file_spur,
             start_line: sym.start_line,
             end_line: sym.end_line,
             exported: sym.is_exported,
@@ -322,10 +332,10 @@ fn absorb_file_data(
         }
         graph
             .symbol_nodes
-            .insert((sym.file_path.clone(), sym.start_line), sym_idx);
+            .insert((sym_file_spur, sym.start_line), sym_idx);
         graph
             .symbols_by_name
-            .entry(sym.name.clone())
+            .entry(sym_name_spur)
             .or_default()
             .push(sym_idx);
     }
@@ -342,15 +352,26 @@ fn absorb_file_data(
     // 5d: CallSite nodes + Contains edges. Calls edges are deferred until
     // every Symbol is registered.
     for cs in call_sites {
-        let caller_key = (cs.caller_file.clone(), cs.caller_symbol_line);
+        let caller_file_spur = graph.symbols.intern(&cs.caller_file);
+        let caller_key = (caller_file_spur, cs.caller_symbol_line);
         let caller_idx = graph.symbol_nodes.get(&caller_key).copied();
 
+        let callee_spur = graph.symbols.intern(&cs.callee_name);
+        let arg_literal_spurs: Vec<Spur> = cs
+            .arg_literals
+            .iter()
+            .map(|s| graph.symbols.intern(s))
+            .collect();
+        let enclosing_spur = cs
+            .enclosing_test_name
+            .as_deref()
+            .map(|s| graph.symbols.intern(s));
         let callsite_idx = graph.graph.add_node(NodeWeight::CallSite {
-            name: cs.callee_name.clone(),
-            file_path: cs.caller_file.clone(),
+            name: callee_spur,
+            file_path: caller_file_spur,
             line: cs.line,
-            arg_literals: cs.arg_literals.clone(),
-            enclosing_test_name: cs.enclosing_test_name.clone(),
+            arg_literals: arg_literal_spurs,
+            enclosing_test_name: enclosing_spur,
             caller_symbol: caller_idx,
         });
         if let Some(caller_idx) = caller_idx {
@@ -366,16 +387,17 @@ fn absorb_file_data(
 
     // 5e: ExitsVia edges from CFGs. CFGs are consumed here and dropped.
     for (start_line, cfg) in function_cfgs {
-        let Some(&sym_idx) = graph.symbol_nodes.get(&(path.clone(), start_line)) else {
+        let Some(&sym_idx) = graph.symbol_nodes.get(&(path_spur, start_line)) else {
             continue;
         };
         graph.function_cfg_indices.insert(sym_idx);
-        let function_name = match &graph.graph[sym_idx] {
-            NodeWeight::Symbol { name, .. } => name.clone(),
+        let function_name_spur = match &graph.graph[sym_idx] {
+            NodeWeight::Symbol { name, .. } => *name,
             _ => continue,
         };
         for &exit_block in &cfg.exits {
             let (exit_kind, exit_label) = classify_cfg_exit(&cfg, exit_block);
+            let exit_label_spur = exit_label.as_deref().map(|s| graph.symbols.intern(s));
             let exit_line = cfg.blocks[exit_block]
                 .statements
                 .last()
@@ -383,11 +405,11 @@ fn absorb_file_data(
                 .unwrap_or(start_line);
             let exit_idx = graph.graph.add_node(NodeWeight::CfgExit {
                 function_node: sym_idx,
-                function_name: function_name.clone(),
-                file_path: path.clone(),
+                function_name: function_name_spur,
+                file_path: path_spur,
                 line: exit_line,
                 exit_kind: exit_kind.clone(),
-                exit_label,
+                exit_label: exit_label_spur,
             });
             graph
                 .graph
@@ -785,20 +807,17 @@ fn bar(_a: &str, _b: i32) {}
             .find_map(|nw| match nw {
                 NodeWeight::CallSite {
                     name, arg_literals, ..
-                } if name == "bar" => Some(arg_literals.clone()),
+                } if graph.symbols.resolve(*name) == "bar" => Some(arg_literals.clone()),
                 _ => None,
             })
             .expect("bar callsite");
+        let resolved: Vec<&str> = bar_call.iter().map(|s| graph.symbols.resolve(*s)).collect();
         assert!(
-            bar_call.contains(&"hello".to_string()),
+            resolved.contains(&"hello"),
             "expected hello in {:?}",
-            bar_call
+            resolved
         );
-        assert!(
-            bar_call.iter().any(|s| s == "42"),
-            "expected 42 in {:?}",
-            bar_call
-        );
+        assert!(resolved.iter().any(|s| *s == "42"), "expected 42 in {:?}", resolved);
     }
 
     #[test]
@@ -818,7 +837,7 @@ fn bar(_z: i32) {}
             .find_map(|nw| match nw {
                 NodeWeight::CallSite {
                     name, arg_literals, ..
-                } if name == "bar" => Some(arg_literals.clone()),
+                } if graph.symbols.resolve(*name) == "bar" => Some(arg_literals.clone()),
                 _ => None,
             })
             .expect("bar callsite");
@@ -853,7 +872,9 @@ def user_login(name):
                     name,
                     enclosing_test_name,
                     ..
-                } if name == "user_login" => Some(enclosing_test_name.clone()),
+                } if graph.symbols.resolve(*name) == "user_login" => {
+                    Some(enclosing_test_name.map(|s| graph.symbols.resolve(s).to_string()))
+                }
                 _ => None,
             })
             .expect("user_login callsite");
@@ -906,11 +927,9 @@ def user_login(name):
         let foo_idx = graph
             .graph
             .node_indices()
-            .find(|&i| {
-                matches!(
-                    &graph.graph[i],
-                    NodeWeight::Symbol { name, .. } if name == "foo"
-                )
+            .find(|&i| match &graph.graph[i] {
+                NodeWeight::Symbol { name, .. } => graph.symbols.resolve(*name) == "foo",
+                _ => false,
             })
             .expect("foo symbol");
         let count = graph
@@ -943,7 +962,9 @@ def user_login(name):
                     name,
                     enclosing_test_name,
                     ..
-                } if name == "user_login" => Some(enclosing_test_name.clone()),
+                } if graph.symbols.resolve(*name) == "user_login" => {
+                    Some(enclosing_test_name.map(|s| graph.symbols.resolve(s).to_string()))
+                }
                 _ => None,
             })
             .expect("user_login callsite");

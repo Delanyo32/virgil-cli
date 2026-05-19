@@ -1,3 +1,4 @@
+use crate::graph::Symbols;
 use crate::language::Language;
 use crate::pipeline::dsl::{PipelineNode, WhereClause};
 use crate::storage::workspace::Workspace;
@@ -102,6 +103,7 @@ pub(crate) fn execute_match_pattern(
     query_str: &str,
     when: Option<&WhereClause>,
     workspace: &Workspace,
+    symbols: &Symbols,
     pipeline_languages: Option<&[String]>,
 ) -> anyhow::Result<Vec<PipelineNode>> {
     use streaming_iterator::StreamingIterator;
@@ -155,16 +157,19 @@ pub(crate) fn execute_match_pattern(
 
             // Build the capture map (capture_name -> matched text). When a
             // capture name appears multiple times in a single match, the
-            // last occurrence wins.
-            let mut captures: std::collections::HashMap<String, String> =
-                std::collections::HashMap::new();
+            // last occurrence wins. Both keys and values are interned to
+            // deduplicate across nodes — capture names repeat heavily.
+            let mut captures: std::collections::HashMap<
+                crate::graph::Spur,
+                crate::graph::Spur,
+            > = std::collections::HashMap::new();
             for cap in m.captures {
                 let cap_name = capture_names.get(cap.index as usize).copied().unwrap_or("");
                 if cap_name.is_empty() {
                     continue;
                 }
                 if let Ok(text) = cap.node.utf8_text(source.as_bytes()) {
-                    captures.insert(cap_name.to_string(), text.to_string());
+                    captures.insert(symbols.intern(cap_name), symbols.intern(text));
                 }
             }
 
@@ -187,10 +192,12 @@ pub(crate) fn execute_match_pattern(
             }
 
             let line = node.start_position().row as u32 + 1;
+            let file_spur = symbols.intern(rel_path);
+            let name_spur = symbols.intern(node.utf8_text(source.as_bytes()).unwrap_or(""));
             result.push(PipelineNode {
                 node_idx: petgraph::graph::NodeIndex::new(0),
-                file_path: rel_path.clone(),
-                name: node.utf8_text(source.as_bytes()).unwrap_or("").to_string(),
+                file_path: Some(file_spur),
+                name: Some(name_spur),
                 kind: node.kind().to_string(),
                 line,
                 exported: false,

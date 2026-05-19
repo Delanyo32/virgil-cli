@@ -34,15 +34,25 @@ mod tests {
 
     use super::*;
 
+    use std::sync::OnceLock;
+
+    use crate::graph::Symbols;
+
+    fn test_symbols() -> &'static Symbols {
+        static S: OnceLock<Symbols> = OnceLock::new();
+        S.get_or_init(Symbols::new)
+    }
+
     fn make_node(metrics: Vec<(&str, MetricValue)>) -> PipelineNode {
+        let symbols = test_symbols();
         let mut m = HashMap::new();
         for (k, v) in metrics {
             m.insert(k.to_string(), v);
         }
         PipelineNode {
             node_idx: NodeIndex::new(0),
-            file_path: "src/foo.rs".to_string(),
-            name: "my_func".to_string(),
+            file_path: Some(symbols.intern("src/foo.rs")),
+            name: Some(symbols.intern("my_func")),
             kind: "function".to_string(),
             line: 42,
             exported: true,
@@ -613,28 +623,28 @@ mod tests {
     #[test]
     fn test_interpolate_basic_fields() {
         let node = make_node(vec![]);
-        let result = interpolate_message("{{name}} at {{file}}:{{line}}", &node);
+        let result = interpolate_message("{{name}} at {{file}}:{{line}}", &node, test_symbols());
         assert_eq!(result, "my_func at src/foo.rs:42");
     }
 
     #[test]
     fn test_interpolate_kind_and_language() {
         let node = make_node(vec![]);
-        let result = interpolate_message("{{kind}} in {{language}}", &node);
+        let result = interpolate_message("{{kind}} in {{language}}", &node, test_symbols());
         assert_eq!(result, "function in rust");
     }
 
     #[test]
     fn test_interpolate_metric_int() {
         let node = make_node(vec![("count", MetricValue::Int(7))]);
-        let result = interpolate_message("count={{count}}", &node);
+        let result = interpolate_message("count={{count}}", &node, test_symbols());
         assert_eq!(result, "count=7");
     }
 
     #[test]
     fn test_interpolate_metric_float() {
         let node = make_node(vec![("ratio", MetricValue::Float(0.75))]);
-        let result = interpolate_message("ratio={{ratio}}", &node);
+        let result = interpolate_message("ratio={{ratio}}", &node, test_symbols());
         assert_eq!(result, "ratio=0.75");
     }
 
@@ -644,14 +654,14 @@ mod tests {
             "cycle_path",
             MetricValue::Text("a->b->a".to_string()),
         )]);
-        let result = interpolate_message("path={{cycle_path}}", &node);
+        let result = interpolate_message("path={{cycle_path}}", &node, test_symbols());
         assert_eq!(result, "path=a->b->a");
     }
 
     #[test]
     fn test_interpolate_no_placeholders() {
         let node = make_node(vec![]);
-        let result = interpolate_message("no placeholders here", &node);
+        let result = interpolate_message("no placeholders here", &node, test_symbols());
         assert_eq!(result, "no placeholders here");
     }
 
@@ -847,10 +857,11 @@ mod tests {
         let wc: WhereClause = serde_json::from_str(json).unwrap();
         assert!(wc.metrics.contains_key("cyclomatic_complexity"));
 
+        let symbols = test_symbols();
         let mut node = PipelineNode {
             node_idx: petgraph::graph::NodeIndex::new(0),
-            file_path: "test.rs".to_string(),
-            name: "foo".to_string(),
+            file_path: Some(symbols.intern("test.rs")),
+            name: Some(symbols.intern("foo")),
             kind: "function".to_string(),
             line: 1,
             exported: false,
@@ -957,17 +968,18 @@ mod tests {
 
     #[test]
     fn test_interpolate_capture() {
+        let symbols = test_symbols();
         let mut node = make_node(vec![]);
         node.captures
-            .insert("func".to_string(), "login".to_string());
-        let out = interpolate_message("calls {{@func}} now", &node);
+            .insert(symbols.intern("func"), symbols.intern("login"));
+        let out = interpolate_message("calls {{@func}} now", &node, symbols);
         assert_eq!(out, "calls login now");
     }
 
     #[test]
     fn test_capture_interpolation_unknown_capture_left_intact() {
         let node = make_node(vec![]);
-        let out = interpolate_message("hello {{@nonexistent}}", &node);
+        let out = interpolate_message("hello {{@nonexistent}}", &node, test_symbols());
         assert_eq!(out, "hello {{@nonexistent}}");
     }
 
@@ -976,7 +988,7 @@ mod tests {
         let mut node = make_node(vec![]);
         node.arg_literals = vec!["a".into(), "b".into()];
         node.enclosing_test_name = Some("test_login".to_string());
-        let out = interpolate_message("{{enclosing_test_name}} -> {{arg_literals}}", &node);
+        let out = interpolate_message("{{enclosing_test_name}} -> {{arg_literals}}", &node, test_symbols());
         assert_eq!(out, "test_login -> a, b");
     }
 
@@ -986,10 +998,11 @@ mod tests {
         let wc: WhereClause = serde_json::from_str(json).unwrap();
         assert!(wc.kind.is_some());
 
+        let symbols = test_symbols();
         let node_fn = PipelineNode {
             node_idx: petgraph::graph::NodeIndex::new(0),
-            file_path: "test.rs".to_string(),
-            name: "foo".to_string(),
+            file_path: Some(symbols.intern("test.rs")),
+            name: Some(symbols.intern("foo")),
             kind: "function".to_string(),
             line: 1,
             exported: false,
@@ -1000,12 +1013,12 @@ mod tests {
         let is_test = |_: &str| false;
         let is_gen = |_: &str| false;
         let is_barrel = |_: &str| false;
-        assert!(wc.eval(&node_fn, &is_test, &is_gen, &is_barrel));
+        assert!(wc.eval(&node_fn, symbols, &is_test, &is_gen, &is_barrel));
 
         let node_class = PipelineNode {
             node_idx: petgraph::graph::NodeIndex::new(0),
-            file_path: "test.rs".to_string(),
-            name: "Foo".to_string(),
+            file_path: Some(symbols.intern("test.rs")),
+            name: Some(symbols.intern("Foo")),
             kind: "class".to_string(),
             line: 1,
             exported: false,
@@ -1013,6 +1026,6 @@ mod tests {
             metrics: std::collections::HashMap::new(),
             ..Default::default()
         };
-        assert!(!wc.eval(&node_class, &is_test, &is_gen, &is_barrel));
+        assert!(!wc.eval(&node_class, symbols, &is_test, &is_gen, &is_barrel));
     }
 }

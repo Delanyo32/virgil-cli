@@ -35,10 +35,12 @@ pub(crate) fn execute_taint_with_config(
                 "source_description".to_string(),
                 MetricValue::Text(f.source_description.clone()),
             );
+            let file_spur = graph.symbols.intern(&f.file_path);
+            let name_spur = graph.symbols.intern(&f.function_name);
             PipelineNode {
                 node_idx: f.function_node,
-                file_path: f.file_path.clone(),
-                name: f.function_name.clone(),
+                file_path: Some(file_spur),
+                name: Some(name_spur),
                 kind: "taint_finding".to_string(),
                 line: f.sink_line,
                 exported: false,

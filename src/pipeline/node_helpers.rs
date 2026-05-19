@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use petgraph::graph::NodeIndex;
 
-use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
+use crate::graph::{CodeGraph, EdgeWeight, NodeWeight, Symbols};
 use crate::pipeline::dsl::{EdgeType, MetricValue, PipelineNode};
 
 /// Convert a `NodeIndex` to a `PipelineNode`, returning `None` for
@@ -13,8 +13,8 @@ pub fn pipeline_node_from_index(idx: NodeIndex, graph: &CodeGraph) -> Option<Pip
     match &graph.graph[idx] {
         NodeWeight::File { path, language } => Some(PipelineNode {
             node_idx: idx,
-            file_path: path.clone(),
-            name: path.clone(),
+            file_path: Some(*path),
+            name: Some(*path),
             kind: "file".to_string(),
             line: 1,
             exported: false,
@@ -40,8 +40,8 @@ pub fn pipeline_node_from_index(idx: NodeIndex, graph: &CodeGraph) -> Option<Pip
                 .unwrap_or_default();
             Some(PipelineNode {
                 node_idx: idx,
-                file_path: file_path.clone(),
-                name: name.clone(),
+                file_path: Some(*file_path),
+                name: Some(*name),
                 kind: kind.to_string(),
                 line: *start_line,
                 exported: *exported,
@@ -58,6 +58,7 @@ pub fn pipeline_node_from_index(idx: NodeIndex, graph: &CodeGraph) -> Option<Pip
             enclosing_test_name,
             ..
         } => {
+            let s = &graph.symbols;
             let language = graph
                 .file_nodes
                 .get(file_path)
@@ -68,15 +69,15 @@ pub fn pipeline_node_from_index(idx: NodeIndex, graph: &CodeGraph) -> Option<Pip
                 .unwrap_or_default();
             Some(PipelineNode {
                 node_idx: idx,
-                file_path: file_path.clone(),
-                name: name.clone(),
+                file_path: Some(*file_path),
+                name: Some(*name),
                 kind: "callsite".to_string(),
                 line: *line,
                 exported: false,
                 language,
                 metrics: HashMap::new(),
-                arg_literals: arg_literals.clone(),
-                enclosing_test_name: enclosing_test_name.clone(),
+                arg_literals: arg_literals.iter().map(|sp| s.resolve(*sp).to_string()).collect(),
+                enclosing_test_name: enclosing_test_name.map(|sp| s.resolve(sp).to_string()),
                 ..Default::default()
             })
         }
@@ -88,6 +89,7 @@ pub fn pipeline_node_from_index(idx: NodeIndex, graph: &CodeGraph) -> Option<Pip
             exit_label,
             ..
         } => {
+            let s = &graph.symbols;
             let language = graph
                 .file_nodes
                 .get(file_path)
@@ -103,12 +105,16 @@ pub fn pipeline_node_from_index(idx: NodeIndex, graph: &CodeGraph) -> Option<Pip
             );
             metrics.insert(
                 "exit_label".to_string(),
-                MetricValue::Text(exit_label.clone().unwrap_or_default()),
+                MetricValue::Text(
+                    exit_label
+                        .map(|sp| s.resolve(sp).to_string())
+                        .unwrap_or_default(),
+                ),
             );
             Some(PipelineNode {
                 node_idx: idx,
-                file_path: file_path.clone(),
-                name: function_name.clone(),
+                file_path: Some(*file_path),
+                name: Some(*function_name),
                 kind: "cfg_exit".to_string(),
                 line: *line,
                 exported: false,
@@ -157,13 +163,14 @@ pub(crate) fn edge_matches_type(ew: &EdgeWeight, et: &EdgeType) -> bool {
     )
 }
 
-/// Extract a display path from a `NodeWeight`.
-pub(crate) fn node_path(nw: &NodeWeight) -> String {
+/// Extract a display path from a `NodeWeight`, resolved via the graph's
+/// interner.
+pub(crate) fn node_path(nw: &NodeWeight, symbols: &Symbols) -> String {
     match nw {
-        NodeWeight::File { path, .. } => path.clone(),
-        NodeWeight::Symbol { file_path, .. } => file_path.clone(),
-        NodeWeight::CallSite { file_path, .. } => file_path.clone(),
-        NodeWeight::CfgExit { file_path, .. } => file_path.clone(),
+        NodeWeight::File { path, .. } => symbols.resolve(*path).to_string(),
+        NodeWeight::Symbol { file_path, .. } => symbols.resolve(*file_path).to_string(),
+        NodeWeight::CallSite { file_path, .. } => symbols.resolve(*file_path).to_string(),
+        NodeWeight::CfgExit { file_path, .. } => symbols.resolve(*file_path).to_string(),
         _ => String::new(),
     }
 }

@@ -570,15 +570,16 @@ fn traverse_via_graph(
                 end_line,
                 exported,
             } => {
-                let sig = workspace.read_file(file_path).and_then(|source| {
-                    let lang = workspace.file_language(file_path)?;
+                let file_path_str = graph.symbols.resolve(*file_path).to_string();
+                let sig = workspace.read_file(&file_path_str).and_then(|source| {
+                    let lang = workspace.file_language(&file_path_str)?;
                     signature::extract_signature(&source, *start_line, lang)
                 });
 
                 Some(QueryResult {
-                    name: name.clone(),
+                    name: graph.symbols.resolve(*name).to_string(),
                     kind: kind.to_string(),
-                    file: file_path.clone(),
+                    file: file_path_str,
                     line: *start_line,
                     end_line: *end_line,
                     column: 0,
@@ -665,22 +666,23 @@ mod tests {
 
         // Build a minimal CodeGraph with one file node and one symbol node
         let mut g = CodeGraph::new();
+        let big_spur = g.symbols.intern("src/big.rs");
+        let myfn_name = g.symbols.intern("my_fn");
         let file_idx = g.graph.add_node(NodeWeight::File {
-            path: "src/big.rs".to_string(),
+            path: big_spur,
             language: Language::Rust,
         });
-        g.file_nodes.insert("src/big.rs".to_string(), file_idx);
+        g.file_nodes.insert(big_spur, file_idx);
         let sym_idx = g.graph.add_node(NodeWeight::Symbol {
-            name: "my_fn".to_string(),
+            name: myfn_name,
             kind: crate::models::SymbolKind::Function,
-            file_path: "src/big.rs".to_string(),
+            file_path: big_spur,
             start_line: 1,
             end_line: 10,
             exported: true,
         });
         g.graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
-        g.symbol_nodes
-            .insert(("src/big.rs".to_string(), 1), sym_idx);
+        g.symbol_nodes.insert((big_spur, 1), sym_idx);
 
         // Build a graph pipeline: select(file) -> flag
         let stages = vec![
@@ -741,11 +743,12 @@ mod tests {
         use crate::pipeline::dsl::{GraphStage, NodeType};
 
         let mut g = CodeGraph::new();
+        let a_spur = g.symbols.intern("src/a.rs");
         let file_idx = g.graph.add_node(NodeWeight::File {
-            path: "src/a.rs".to_string(),
+            path: a_spur,
             language: Language::Rust,
         });
-        g.file_nodes.insert("src/a.rs".to_string(), file_idx);
+        g.file_nodes.insert(a_spur, file_idx);
 
         let stages = vec![GraphStage::Select {
             select: NodeType::File,

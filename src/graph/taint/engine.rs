@@ -86,7 +86,11 @@ impl TaintEngine {
             .filter_map(|&node_idx| match &graph.graph[node_idx] {
                 NodeWeight::Symbol {
                     name, file_path, ..
-                } => Some((node_idx, name.clone(), file_path.clone())),
+                } => Some((
+                    node_idx,
+                    graph.symbols.resolve(*name).to_string(),
+                    graph.symbols.resolve(*file_path).to_string(),
+                )),
                 _ => None,
             })
             .collect();
@@ -356,13 +360,13 @@ fn collect_parameter_names(graph: &CodeGraph, func_idx: NodeIndex) -> Vec<String
     let mut params = Vec::new();
     for edge in graph.graph.edges_directed(func_idx, Direction::Incoming) {
         if let NodeWeight::Parameter { name, .. } = &graph.graph[edge.source()] {
-            params.push(name.clone());
+            params.push(graph.symbols.resolve(*name).to_string());
         }
     }
     // Also check outgoing edges (some builders may use Contains direction).
     for edge in graph.graph.edges_directed(func_idx, Direction::Outgoing) {
         if let NodeWeight::Parameter { name, .. } = &graph.graph[edge.target()] {
-            params.push(name.clone());
+            params.push(graph.symbols.resolve(*name).to_string());
         }
     }
     params
@@ -622,26 +626,26 @@ mod tests {
     fn make_graph_with_cfg(func_name: &str, stmts: Vec<CfgStatement>) -> (CodeGraph, NodeIndex) {
         let mut graph = CodeGraph::new();
 
+        let file_spur = graph.symbols.intern("test.py");
+        let name_spur = graph.symbols.intern(func_name);
         let file_idx = graph.graph.add_node(NodeWeight::File {
-            path: "test.py".to_string(),
+            path: file_spur,
             language: Language::Python,
         });
-        graph.file_nodes.insert("test.py".to_string(), file_idx);
+        graph.file_nodes.insert(file_spur, file_idx);
 
         let func_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: func_name.to_string(),
+            name: name_spur,
             kind: SymbolKind::Function,
-            file_path: "test.py".to_string(),
+            file_path: file_spur,
             start_line: 1,
             end_line: 10,
             exported: true,
         });
-        graph
-            .symbol_nodes
-            .insert(("test.py".to_string(), 1), func_idx);
+        graph.symbol_nodes.insert((file_spur, 1), func_idx);
         graph
             .symbols_by_name
-            .entry(func_name.to_string())
+            .entry(name_spur)
             .or_default()
             .push(func_idx);
 
@@ -862,8 +866,9 @@ mod tests {
         let (mut graph, func_idx) = make_graph_with_cfg("handler", stmts);
 
         // Add a Parameter node.
+        let request_spur = graph.symbols.intern("request");
         let param_idx = graph.graph.add_node(NodeWeight::Parameter {
-            name: "request".to_string(),
+            name: request_spur,
             function_node: func_idx,
             position: 0,
             is_taint_source: false,
@@ -940,16 +945,18 @@ mod tests {
         };
 
         let mut graph = CodeGraph::new();
+        let file_spur = graph.symbols.intern("test.py");
+        let branchy_spur = graph.symbols.intern("branchy");
         let file_idx = graph.graph.add_node(NodeWeight::File {
-            path: "test.py".to_string(),
+            path: file_spur,
             language: Language::Python,
         });
-        graph.file_nodes.insert("test.py".to_string(), file_idx);
+        graph.file_nodes.insert(file_spur, file_idx);
 
         let func_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: "branchy".to_string(),
+            name: branchy_spur,
             kind: SymbolKind::Function,
-            file_path: "test.py".to_string(),
+            file_path: file_spur,
             start_line: 1,
             end_line: 10,
             exported: true,

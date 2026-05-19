@@ -86,9 +86,9 @@ pub fn run_pipeline(
             .iter()
             .filter_map(|node| {
                 let severity = flag.resolve_severity(node)?;
-                let message = interpolate_message(&flag.message, node);
+                let message = interpolate_message(&flag.message, node, &graph.symbols);
                 Some(AuditFinding {
-                    file_path: node.file_path.clone(),
+                    file_path: node.file_path_str(&graph.symbols).to_string(),
                     line: node.line,
                     column: 1,
                     severity,
@@ -103,7 +103,7 @@ pub fn run_pipeline(
     } else {
         let results = nodes
             .into_iter()
-            .map(pipeline_node_to_query_result)
+            .map(|n| pipeline_node_to_query_result(n, &graph.symbols))
             .collect();
         Ok(PipelineOutput::Results(results))
     }
@@ -140,9 +140,11 @@ fn execute_stage(
             is_generated_fn,
             is_barrel_fn,
         ),
-        GraphStage::GroupBy { group_by } => {
-            Ok(stages::aggregate::execute_group_by(group_by, nodes))
-        }
+        GraphStage::GroupBy { group_by } => Ok(stages::aggregate::execute_group_by(
+            group_by,
+            nodes,
+            &graph.symbols,
+        )),
         GraphStage::Count { count } => {
             Ok(stages::aggregate::execute_count(&count.threshold, nodes))
         }
@@ -155,6 +157,7 @@ fn execute_stage(
         GraphStage::Ratio { ratio } => stages::aggregate::execute_ratio(
             ratio,
             nodes,
+            &graph.symbols,
             is_test_fn,
             is_generated_fn,
             is_barrel_fn,
@@ -172,6 +175,7 @@ fn execute_stage(
                 match_pattern,
                 when.as_ref(),
                 ws,
+                &graph.symbols,
                 pipeline_languages,
             ),
             None => anyhow::bail!(
@@ -213,17 +217,22 @@ fn execute_stage(
             stages::taint::execute_taint_with_config(&config, graph, workspace, taint_sinks)
         }
         GraphStage::FindDuplicates { find_duplicates } => Ok(
-            stages::find_duplicates::execute_find_duplicates(find_duplicates, nodes),
+            stages::find_duplicates::execute_find_duplicates(find_duplicates, nodes, &graph.symbols),
         ),
     }
 }
 
 /// Convert a `PipelineNode` to a `QueryResult` for non-Flag pipeline output.
-fn pipeline_node_to_query_result(node: PipelineNode) -> QueryResult {
+fn pipeline_node_to_query_result(
+    node: PipelineNode,
+    symbols: &crate::graph::Symbols,
+) -> QueryResult {
+    let name = node.name_str(symbols).to_string();
+    let file = node.file_path_str(symbols).to_string();
     QueryResult {
-        name: node.name,
+        name,
         kind: node.kind,
-        file: node.file_path,
+        file,
         line: node.line,
         end_line: node.line,
         column: 1,
@@ -254,18 +263,23 @@ mod tests {
     fn make_file_graph(paths: &[&str]) -> CodeGraph {
         let mut g = CodeGraph::new();
         for path in paths {
+            let spur = g.symbols.intern(path);
             let idx = g.graph.add_node(NodeWeight::File {
-                path: path.to_string(),
+                path: spur,
                 language: Language::Rust,
             });
-            g.file_nodes.insert(path.to_string(), idx);
+            g.file_nodes.insert(spur, idx);
         }
         g
     }
 
+    fn file_spur(g: &CodeGraph, path: &str) -> crate::graph::Spur {
+        g.symbols.get(path).expect("file not interned")
+    }
+
     fn add_import(g: &mut CodeGraph, from: &str, to: &str) {
-        let from_idx = *g.file_nodes.get(from).unwrap();
-        let to_idx = *g.file_nodes.get(to).unwrap();
+        let from_idx = *g.file_nodes.get(&file_spur(g, from)).unwrap();
+        let to_idx = *g.file_nodes.get(&file_spur(g, to)).unwrap();
         g.graph.add_edge(from_idx, to_idx, EdgeWeight::Imports);
     }
 
@@ -435,14 +449,17 @@ mod tests {
         let mut graph = make_file_graph(&["src/a.rs", "src/b.rs"]);
 
         // Add 3 symbols to a.rs and 1 to b.rs
-        let a_idx = *graph.file_nodes.get("src/a.rs").unwrap();
-        let b_idx = *graph.file_nodes.get("src/b.rs").unwrap();
+        let a_idx = *graph.file_nodes.get(&file_spur(&graph, "src/a.rs")).unwrap();
+        let b_idx = *graph.file_nodes.get(&file_spur(&graph, "src/b.rs")).unwrap();
 
+        let a_path = graph.symbols.intern("src/a.rs");
+        let b_path = graph.symbols.intern("src/b.rs");
         for i in 0..3u32 {
+            let nm = graph.symbols.intern(&format!("fn_a_{}", i));
             let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-                name: format!("fn_a_{}", i),
+                name: nm,
                 kind: SymbolKind::Function,
-                file_path: "src/a.rs".to_string(),
+                file_path: a_path,
                 start_line: i + 1,
                 end_line: i + 5,
                 exported: true,
@@ -450,10 +467,11 @@ mod tests {
             graph.graph.add_edge(a_idx, sym_idx, EdgeWeight::Contains);
         }
 
+        let fn_b = graph.symbols.intern("fn_b");
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: "fn_b".to_string(),
+            name: fn_b,
             kind: SymbolKind::Function,
-            file_path: "src/b.rs".to_string(),
+            file_path: b_path,
             start_line: 1,
             end_line: 5,
             exported: true,
@@ -549,7 +567,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.len(), 1, "only c.rs should have depth >= 2");
-        assert_eq!(result[0].file_path, "c.rs");
+        assert_eq!(result[0].file_path_str(&graph.symbols), "c.rs");
         assert_eq!(result[0].metric_f64("depth") as usize, 2);
     }
 
@@ -627,9 +645,9 @@ mod tests {
             .iter()
             .filter_map(|node| {
                 let severity = flag_config.resolve_severity(node)?;
-                let message = interpolate_message(&flag_config.message, node);
+                let message = interpolate_message(&flag_config.message, node, &graph.symbols);
                 Some(AuditFinding {
-                    file_path: node.file_path.clone(),
+                    file_path: node.file_path_str(&graph.symbols).to_string(),
                     line: node.line,
                     column: 1,
                     severity,
@@ -890,24 +908,22 @@ fn bar() { println!("ok"); }
 
         // Build a graph with a symbol node at line 1 (the function start)
         let mut graph = CodeGraph::new();
+        let complex_spur = graph.symbols.intern("src/complex.rs");
+        let complex_name = graph.symbols.intern("complex");
         let file_idx = graph.graph.add_node(NodeWeight::File {
-            path: "src/complex.rs".to_string(),
+            path: complex_spur,
             language: Language::Rust,
         });
-        graph
-            .file_nodes
-            .insert("src/complex.rs".to_string(), file_idx);
+        graph.file_nodes.insert(complex_spur, file_idx);
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: "complex".to_string(),
+            name: complex_name,
             kind: crate::models::SymbolKind::Function,
-            file_path: "src/complex.rs".to_string(),
+            file_path: complex_spur,
             start_line: 1,
             end_line: 14,
             exported: false,
         });
-        graph
-            .symbol_nodes
-            .insert(("src/complex.rs".to_string(), 1), sym_idx);
+        graph.symbol_nodes.insert((complex_spur, 1), sym_idx);
 
         let stages = vec![
             GraphStage::Select {
@@ -970,24 +986,22 @@ fn bar() { println!("ok"); }
             .unwrap();
 
         let mut graph = CodeGraph::new();
+        let simple_spur = graph.symbols.intern("src/simple.rs");
+        let simple_name = graph.symbols.intern("simple");
         let file_idx = graph.graph.add_node(NodeWeight::File {
-            path: "src/simple.rs".to_string(),
+            path: simple_spur,
             language: Language::Rust,
         });
-        graph
-            .file_nodes
-            .insert("src/simple.rs".to_string(), file_idx);
+        graph.file_nodes.insert(simple_spur, file_idx);
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: "simple".to_string(),
+            name: simple_name,
             kind: crate::models::SymbolKind::Function,
-            file_path: "src/simple.rs".to_string(),
+            file_path: simple_spur,
             start_line: 1,
             end_line: 3,
             exported: false,
         });
-        graph
-            .symbol_nodes
-            .insert(("src/simple.rs".to_string(), 1), sym_idx);
+        graph.symbol_nodes.insert((simple_spur, 1), sym_idx);
 
         let stages = vec![
             GraphStage::Select {
@@ -1014,24 +1028,27 @@ fn bar() { println!("ok"); }
         use crate::models::SymbolKind;
 
         let mut graph = make_file_graph(&["src/a.rs"]);
-        let a_idx = *graph.file_nodes.get("src/a.rs").unwrap();
+        let a_idx = *graph.file_nodes.get(&file_spur(&graph, "src/a.rs")).unwrap();
+        let a_path = graph.symbols.intern("src/a.rs");
 
         // 3 exported, 1 not exported
         for i in 0..3u32 {
+            let nm = graph.symbols.intern(&format!("pub_fn_{}", i));
             let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-                name: format!("pub_fn_{}", i),
+                name: nm,
                 kind: SymbolKind::Function,
-                file_path: "src/a.rs".to_string(),
+                file_path: a_path,
                 start_line: i + 1,
                 end_line: i + 5,
                 exported: true,
             });
             graph.graph.add_edge(a_idx, sym_idx, EdgeWeight::Contains);
         }
+        let priv_name = graph.symbols.intern("priv_fn");
         let priv_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: "priv_fn".to_string(),
+            name: priv_name,
             kind: SymbolKind::Function,
-            file_path: "src/a.rs".to_string(),
+            file_path: a_path,
             start_line: 10,
             end_line: 15,
             exported: false,
@@ -1111,22 +1128,22 @@ fn bar() { println!("ok"); }
             .unwrap();
 
         let mut graph = CodeGraph::new();
+        let lib_spur = graph.symbols.intern("src/lib.rs");
+        let dn_name = graph.symbols.intern("deeply_nested");
         let file_idx = graph.graph.add_node(NodeWeight::File {
-            path: "src/lib.rs".to_string(),
+            path: lib_spur,
             language: Language::Rust,
         });
-        graph.file_nodes.insert("src/lib.rs".to_string(), file_idx);
+        graph.file_nodes.insert(lib_spur, file_idx);
         let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-            name: "deeply_nested".to_string(),
+            name: dn_name,
             kind: crate::models::SymbolKind::Function,
-            file_path: "src/lib.rs".to_string(),
+            file_path: lib_spur,
             start_line: 1,
             end_line: 13,
             exported: false,
         });
-        graph
-            .symbol_nodes
-            .insert(("src/lib.rs".to_string(), 1), sym_idx);
+        graph.symbol_nodes.insert((lib_spur, 1), sym_idx);
 
         let is_test_fn = |path: &str| is_test_file(path);
         let is_generated_fn = |path: &str| is_excluded_for_arch_analysis(path);

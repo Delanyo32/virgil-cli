@@ -1,5 +1,6 @@
 pub mod builder;
 pub mod cfg;
+pub mod intern;
 pub mod metrics;
 pub mod resource;
 pub mod taint;
@@ -10,6 +11,8 @@ use std::sync::Mutex;
 use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
+
+pub use intern::{Spur, Symbols};
 
 use crate::language::Language;
 use crate::models::SymbolKind;
@@ -67,48 +70,48 @@ impl CfgExitKind {
 #[derive(Debug, Clone)]
 pub enum NodeWeight {
     File {
-        path: String,
+        path: Spur,
         language: Language,
     },
     Symbol {
-        name: String,
+        name: Spur,
         kind: SymbolKind,
-        file_path: String,
+        file_path: Spur,
         start_line: u32,
         end_line: u32,
         exported: bool,
     },
     CallSite {
-        name: String,
-        file_path: String,
+        name: Spur,
+        file_path: Spur,
         line: u32,
         /// Literal arguments at this call site (strings/numbers/bools only).
-        arg_literals: Vec<String>,
+        arg_literals: Vec<Spur>,
         /// Name of the enclosing test function, when this call site sits
         /// inside a test (path matches `is_test_file` and the enclosing
         /// symbol's name follows a test naming convention).
-        enclosing_test_name: Option<String>,
+        enclosing_test_name: Option<Spur>,
         /// The Symbol node that contains this call site, if any.
         caller_symbol: Option<NodeIndex>,
     },
     Parameter {
-        name: String,
+        name: Spur,
         function_node: NodeIndex,
         position: usize,
         is_taint_source: bool,
     },
     ExternalSource {
         kind: SourceKind,
-        file_path: String,
+        file_path: Spur,
         line: u32,
     },
     CfgExit {
         function_node: NodeIndex,
-        function_name: String,
-        file_path: String,
+        function_name: Spur,
+        file_path: Spur,
         line: u32,
         exit_kind: CfgExitKind,
-        exit_label: Option<String>,
+        exit_label: Option<Spur>,
     },
 }
 
@@ -118,9 +121,9 @@ pub enum EdgeWeight {
     Calls,
     Imports,
     FlowsTo,
-    SanitizedBy { sanitizer: String },
+    SanitizedBy { sanitizer: Spur },
     Exports,
-    Acquires { resource_type: String },
+    Acquires { resource_type: Spur },
     ReleasedBy,
     Contains,
     ExitsVia(CfgExitKind),
@@ -128,12 +131,15 @@ pub enum EdgeWeight {
 
 pub struct CodeGraph {
     pub graph: DiGraph<NodeWeight, EdgeWeight>,
-    /// file_path -> NodeIndex
-    pub file_nodes: HashMap<String, NodeIndex>,
+    /// Shared string interner. Every interned `Spur` (file path, symbol name)
+    /// is resolvable through this handle.
+    pub symbols: Symbols,
+    /// file_path (interned) -> NodeIndex
+    pub file_nodes: HashMap<Spur, NodeIndex>,
     /// (file_path, start_line) -> NodeIndex
-    pub symbol_nodes: HashMap<(String, u32), NodeIndex>,
-    /// symbol name -> list of NodeIndex for all symbols with that name
-    pub symbols_by_name: HashMap<String, Vec<NodeIndex>>,
+    pub symbol_nodes: HashMap<(Spur, u32), NodeIndex>,
+    /// symbol name (interned) -> list of NodeIndex for all symbols with that name
+    pub symbols_by_name: HashMap<Spur, Vec<NodeIndex>>,
     /// Set of function NodeIndex values for which a CFG can be built. The CFGs
     /// themselves are NOT stored — they are rebuilt on demand by
     /// `cfg_for_function` to keep boot-time memory low.
@@ -156,6 +162,7 @@ impl CodeGraph {
     pub fn new() -> Self {
         Self {
             graph: DiGraph::new(),
+            symbols: Symbols::new(),
             file_nodes: HashMap::new(),
             symbol_nodes: HashMap::new(),
             symbols_by_name: HashMap::new(),
@@ -188,7 +195,11 @@ impl CodeGraph {
                 start_line,
                 end_line,
                 ..
-            } => (file_path.clone(), *start_line, *end_line),
+            } => (
+                self.symbols.resolve(*file_path).to_string(),
+                *start_line,
+                *end_line,
+            ),
             _ => return None,
         };
         let lang = workspace.file_language(&file_path)?;
@@ -272,15 +283,17 @@ impl CodeGraph {
 
     /// Find a symbol node by file path and start line.
     pub fn find_symbol(&self, file_path: &str, start_line: u32) -> Option<NodeIndex> {
-        self.symbol_nodes
-            .get(&(file_path.to_string(), start_line))
-            .copied()
+        let spur = self.symbols.get(file_path)?;
+        self.symbol_nodes.get(&(spur, start_line)).copied()
     }
 
     /// Find all symbol nodes with a given name.
     pub fn find_symbols_by_name(&self, name: &str) -> &[NodeIndex] {
+        let Some(spur) = self.symbols.get(name) else {
+            return &[];
+        };
         self.symbols_by_name
-            .get(name)
+            .get(&spur)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }

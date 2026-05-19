@@ -1,18 +1,20 @@
 use std::collections::HashMap;
 
+use crate::graph::Symbols;
 use crate::pipeline::dsl::{MetricValue, NumericPredicate, PipelineNode, RatioConfig};
 
 /// Tag each node with `metrics["_group"] = MetricValue::Text(group_key)`.
 pub(crate) fn execute_group_by(
     group_by_field: &str,
     mut nodes: Vec<PipelineNode>,
+    symbols: &Symbols,
 ) -> Vec<PipelineNode> {
     for node in &mut nodes {
         let group_key = match group_by_field {
-            "file_path" | "file" => node.file_path.clone(),
+            "file_path" | "file" => node.file_path_str(symbols).to_string(),
             "language" => node.language.clone(),
             "kind" => node.kind.clone(),
-            "name" => node.name.clone(),
+            "name" => node.name_str(symbols).to_string(),
             other => node
                 .metrics
                 .get(other)
@@ -61,6 +63,7 @@ pub(crate) fn execute_count(
 pub(crate) fn execute_ratio(
     config: &RatioConfig,
     nodes: Vec<PipelineNode>,
+    symbols: &Symbols,
     is_test_fn: &impl Fn(&str) -> bool,
     is_generated_fn: &impl Fn(&str) -> bool,
     is_barrel_fn: &impl Fn(&str) -> bool,
@@ -85,7 +88,7 @@ pub(crate) fn execute_ratio(
             .iter()
             .filter(|n| {
                 if let Some(wc) = &config.numerator.filter {
-                    wc.eval(n, is_test_fn, is_generated_fn, is_barrel_fn)
+                    wc.eval(n, symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                 } else {
                     true
                 }
@@ -96,7 +99,7 @@ pub(crate) fn execute_ratio(
             .iter()
             .filter(|n| {
                 if let Some(wc) = &config.denominator.filter {
-                    wc.eval(n, is_test_fn, is_generated_fn, is_barrel_fn)
+                    wc.eval(n, symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                 } else {
                     true
                 }

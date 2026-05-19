@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::graph::Symbols;
+
 use super::{NumericPredicate, PipelineNode};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -110,6 +112,7 @@ impl WhereClause {
     pub fn eval(
         &self,
         node: &PipelineNode,
+        symbols: &Symbols,
         is_test_fn: &impl Fn(&str) -> bool,
         is_generated_fn: &impl Fn(&str) -> bool,
         is_barrel_fn: &impl Fn(&str) -> bool,
@@ -117,7 +120,7 @@ impl WhereClause {
         if let Some(ref clauses) = self.and
             && !clauses
                 .iter()
-                .all(|c| c.eval(node, is_test_fn, is_generated_fn, is_barrel_fn))
+                .all(|c| c.eval(node, symbols, is_test_fn, is_generated_fn, is_barrel_fn))
         {
             return false;
         }
@@ -125,27 +128,28 @@ impl WhereClause {
             && !clauses.is_empty()
             && !clauses
                 .iter()
-                .any(|c| c.eval(node, is_test_fn, is_generated_fn, is_barrel_fn))
+                .any(|c| c.eval(node, symbols, is_test_fn, is_generated_fn, is_barrel_fn))
         {
             return false;
         }
         if let Some(ref clause) = self.not
-            && clause.eval(node, is_test_fn, is_generated_fn, is_barrel_fn)
+            && clause.eval(node, symbols, is_test_fn, is_generated_fn, is_barrel_fn)
         {
             return false;
         }
+        let file_path_str = node.file_path_str(symbols);
         if let Some(v) = self.is_test_file
-            && is_test_fn(&node.file_path) != v
+            && is_test_fn(file_path_str) != v
         {
             return false;
         }
         if let Some(v) = self.is_generated
-            && is_generated_fn(&node.file_path) != v
+            && is_generated_fn(file_path_str) != v
         {
             return false;
         }
         if let Some(v) = self.is_barrel_file
-            && is_barrel_fn(&node.file_path) != v
+            && is_barrel_fn(file_path_str) != v
         {
             return false;
         }

@@ -20,11 +20,11 @@ pub(crate) fn execute_select(
 
     match node_type {
         NodeType::File => {
-            for (path, &file_idx) in &graph.file_nodes {
+            for (&path_spur, &file_idx) in &graph.file_nodes {
                 let node = PipelineNode {
                     node_idx: file_idx,
-                    file_path: path.clone(),
-                    name: path.clone(),
+                    file_path: Some(path_spur),
+                    name: Some(path_spur),
                     kind: "file".to_string(),
                     line: 1,
                     exported: false,
@@ -36,12 +36,12 @@ pub(crate) fn execute_select(
                     ..Default::default()
                 };
                 if let Some(wc) = filter
-                    && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    && !wc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                 {
                     continue;
                 }
                 if let Some(exc) = exclude
-                    && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                    && exc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                 {
                     continue;
                 }
@@ -59,6 +59,7 @@ pub(crate) fn execute_select(
                     ..
                 } = &graph.graph[sym_idx]
                 {
+                    let file_path_str = graph.symbols.resolve(*file_path);
                     let language = graph
                         .file_nodes
                         .get(file_path)
@@ -77,7 +78,8 @@ pub(crate) fn execute_select(
                         .edges_directed(sym_idx, Direction::Incoming)
                         .filter(|e| {
                             matches!(e.weight(), EdgeWeight::Calls | EdgeWeight::Imports)
-                                && node_path(&graph.graph[e.source()]) != *file_path
+                                && node_path(&graph.graph[e.source()], &graph.symbols)
+                                    != file_path_str
                         })
                         .count();
                     metrics.insert(
@@ -87,7 +89,7 @@ pub(crate) fn execute_select(
 
                     const ENTRY_POINT_NAMES: &[&str] =
                         &["main", "lib", "mod", "index", "__init__", "__main__"];
-                    let stem = std::path::Path::new(file_path.as_str())
+                    let stem = std::path::Path::new(file_path_str)
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("");
@@ -99,8 +101,8 @@ pub(crate) fn execute_select(
 
                     let node = PipelineNode {
                         node_idx: sym_idx,
-                        file_path: file_path.clone(),
-                        name: name.clone(),
+                        file_path: Some(*file_path),
+                        name: Some(*name),
                         kind: kind.to_string(),
                         line: *start_line,
                         exported: *exported,
@@ -109,12 +111,12 @@ pub(crate) fn execute_select(
                         ..Default::default()
                     };
                     if let Some(wc) = filter
-                        && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                        && !wc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                     {
                         continue;
                     }
                     if let Some(exc) = exclude
-                        && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                        && exc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                     {
                         continue;
                     }
@@ -151,13 +153,17 @@ pub(crate) fn execute_select(
                     );
                     metrics.insert(
                         "exit_label".to_string(),
-                        MetricValue::Text(exit_label.clone().unwrap_or_default()),
+                        MetricValue::Text(
+                            exit_label
+                                .map(|sp| graph.symbols.resolve(sp).to_string())
+                                .unwrap_or_default(),
+                        ),
                     );
 
                     let node = PipelineNode {
                         node_idx: idx,
-                        file_path: file_path.clone(),
-                        name: function_name.clone(),
+                        file_path: Some(*file_path),
+                        name: Some(*function_name),
                         kind: "cfg_exit".to_string(),
                         line: *line,
                         exported: false,
@@ -166,12 +172,12 @@ pub(crate) fn execute_select(
                         ..Default::default()
                     };
                     if let Some(wc) = filter
-                        && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                        && !wc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                     {
                         continue;
                     }
                     if let Some(exc) = exclude
-                        && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                        && exc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                     {
                         continue;
                     }
@@ -203,24 +209,28 @@ pub(crate) fn execute_select(
 
                     let node = PipelineNode {
                         node_idx: idx,
-                        file_path: file_path.clone(),
-                        name: name.clone(),
+                        file_path: Some(*file_path),
+                        name: Some(*name),
                         kind: "callsite".to_string(),
                         line: *line,
                         exported: false,
                         language,
                         metrics: HashMap::new(),
-                        arg_literals: arg_literals.clone(),
-                        enclosing_test_name: enclosing_test_name.clone(),
+                        arg_literals: arg_literals
+                            .iter()
+                            .map(|sp| graph.symbols.resolve(*sp).to_string())
+                            .collect(),
+                        enclosing_test_name: enclosing_test_name
+                            .map(|sp| graph.symbols.resolve(sp).to_string()),
                         ..Default::default()
                     };
                     if let Some(wc) = filter
-                        && !wc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                        && !wc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                     {
                         continue;
                     }
                     if let Some(exc) = exclude
-                        && exc.eval(&node, is_test_fn, is_generated_fn, is_barrel_fn)
+                        && exc.eval(&node, &graph.symbols, is_test_fn, is_generated_fn, is_barrel_fn)
                     {
                         continue;
                     }

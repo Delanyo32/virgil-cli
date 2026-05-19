@@ -50,8 +50,10 @@ pub(crate) fn execute_find_cycles(
         let participants: Vec<String> = orig_indices
             .iter()
             .filter_map(|&idx| match &graph.graph[idx] {
-                NodeWeight::File { path, .. } => Some(path.clone()),
-                NodeWeight::Symbol { file_path, .. } => Some(file_path.clone()),
+                NodeWeight::File { path, .. } => Some(graph.symbols.resolve(*path).to_string()),
+                NodeWeight::Symbol { file_path, .. } => {
+                    Some(graph.symbols.resolve(*file_path).to_string())
+                }
                 _ => None,
             })
             .collect();
@@ -64,17 +66,22 @@ pub(crate) fn execute_find_cycles(
         let rep_node_idx = orig_indices
             .iter()
             .find(|&&idx| {
-                let path = node_path(&graph.graph[idx]);
+                let path = node_path(&graph.graph[idx], &graph.symbols);
                 path == representative_path
             })
             .copied()
             .unwrap_or(orig_indices[0]);
 
+        let rep_spur = if representative_path.is_empty() {
+            None
+        } else {
+            Some(graph.symbols.intern(&representative_path))
+        };
         let rep_base =
             pipeline_node_from_index(rep_node_idx, graph).unwrap_or_else(|| PipelineNode {
                 node_idx: rep_node_idx,
-                file_path: representative_path.clone(),
-                name: representative_path.clone(),
+                file_path: rep_spur,
+                name: rep_spur,
                 kind: "file".to_string(),
                 line: 1,
                 exported: false,
@@ -85,8 +92,8 @@ pub(crate) fn execute_find_cycles(
 
         let mut rep = PipelineNode {
             node_idx: rep_node_idx,
-            file_path: representative_path.clone(),
-            name: representative_path,
+            file_path: rep_spur,
+            name: rep_spur,
             kind: "cycle".to_string(),
             line: rep_base.line,
             exported: false,
@@ -177,7 +184,7 @@ pub(crate) fn execute_max_depth(
         let node_depth = depth_map.get(&node).copied().unwrap_or(0);
         let hop: usize = if skip_barrels {
             let path = match node_by_idx.get(&node) {
-                Some(n) => n.file_path.as_str(),
+                Some(n) => n.file_path_str(&graph.symbols),
                 None => "",
             };
             if is_barrel_file(path) { 0 } else { 1 }
@@ -253,7 +260,7 @@ fn ordered_cycle_path_for_edge(
         }
         let mut sorted: Vec<String> = members
             .iter()
-            .map(|&idx| node_path(&graph.graph[idx]))
+            .map(|&idx| node_path(&graph.graph[idx], &graph.symbols))
             .filter(|p| !p.is_empty())
             .collect();
         sorted.sort();
@@ -261,7 +268,7 @@ fn ordered_cycle_path_for_edge(
     }
 
     path.iter()
-        .map(|&idx| node_path(&graph.graph[idx]))
+        .map(|&idx| node_path(&graph.graph[idx], &graph.symbols))
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
         .join(" -> ")
