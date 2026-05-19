@@ -129,9 +129,12 @@ impl<'a> GraphBuilder<'a> {
         // Step 4 + 5: Parallel parse, single-threaded streaming absorption.
         //
         // Parse workers send each `FileGraphData` to the drainer over a
-        // channel. The drainer absorbs file-local edges (File/Symbol/CallSite
-        // nodes, ExitsVia) immediately and drops the message, so the
-        // intermediate `FunctionCfg`s and call-site metadata don't pile up.
+        // bounded channel — backpressure caps peak memory at roughly
+        // `2 * num_cpus` in-flight `FileGraphData` values, instead of letting
+        // a slow drainer accumulate the whole workspace in the queue. The
+        // drainer absorbs file-local edges (File/Symbol/CallSite nodes,
+        // ExitsVia) immediately and drops the message, so the intermediate
+        // `FunctionCfg`s and call-site metadata don't pile up.
         //
         // Cross-file references (imports, Calls edges) need every symbol to
         // be registered first, so they are buffered as small `Deferred*`
@@ -152,7 +155,11 @@ impl<'a> GraphBuilder<'a> {
         let build_cfgs = self.options.build_cfgs;
 
         thread::scope(|s| -> Result<()> {
-            let (tx, rx) = mpsc::channel::<FileGraphData>();
+            let parallelism = thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4);
+            let channel_bound = (parallelism * 2).max(4);
+            let (tx, rx) = mpsc::sync_channel::<FileGraphData>(channel_bound);
 
             s.spawn(move || {
                 pool.install(|| {
