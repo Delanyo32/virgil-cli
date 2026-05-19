@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::language::Language;
 use crate::storage::discovery;
-use crate::storage::file_source::{FileSource, MemoryFileSource};
+use crate::storage::file_source::{DiskFileSource, FileSource, MemoryFileSource};
 
 pub struct Workspace {
     root: PathBuf,
@@ -16,7 +16,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// Discover files, load into memory, return ready-to-use workspace.
+    /// Discover files, record sizes + languages, return ready-to-use workspace.
+    /// File content is read on demand by `DiskFileSource` and cached in a small LRU.
     pub fn load(root: &Path, languages: &[Language], max_file_size: Option<u64>) -> Result<Self> {
         let root = root
             .canonicalize()
@@ -24,26 +25,18 @@ impl Workspace {
 
         let files = discovery::discover_files(&root, languages)?;
 
-        let loaded: Vec<(String, Arc<str>, Language)> = files
+        let discovered: Vec<(String, u64, Language)> = files
             .par_iter()
             .filter_map(|path| {
                 let ext = path.extension()?.to_str()?;
                 let lang = Language::from_extension(ext)?;
 
+                let size = std::fs::metadata(path).ok()?.len();
                 if let Some(max_size) = max_file_size
-                    && let Ok(meta) = std::fs::metadata(path)
-                    && meta.len() > max_size
+                    && size > max_size
                 {
                     return None;
                 }
-
-                let content = match std::fs::read_to_string(path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Warning: failed to read {}: {e}", path.display());
-                        return None;
-                    }
-                };
 
                 let relative = path
                     .strip_prefix(&root)
@@ -51,22 +44,21 @@ impl Workspace {
                     .to_string_lossy()
                     .replace('\\', "/");
 
-                Some((relative, Arc::from(content.as_str()), lang))
+                Some((relative, size, lang))
             })
             .collect();
 
-        let mut file_map: HashMap<String, Arc<str>> = HashMap::with_capacity(loaded.len());
-        let mut size_map: HashMap<String, u64> = HashMap::with_capacity(loaded.len());
-        let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(loaded.len());
+        let mut size_map: HashMap<String, u64> = HashMap::with_capacity(discovered.len());
+        let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(discovered.len());
+        let mut file_list: Vec<String> = Vec::with_capacity(discovered.len());
 
-        for (rel_path, content, lang) in loaded {
-            let size = content.len() as u64;
+        for (rel_path, size, lang) in discovered {
             size_map.insert(rel_path.clone(), size);
             lang_map.insert(rel_path.clone(), lang);
-            file_map.insert(rel_path, content);
+            file_list.push(rel_path);
         }
 
-        let source = Box::new(MemoryFileSource::new(file_map, size_map));
+        let source = Box::new(DiskFileSource::new(root.clone(), file_list, size_map));
 
         Ok(Self {
             root,

@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::mpsc;
+use std::thread;
 
 use anyhow::Result;
+use petgraph::graph::NodeIndex;
 use rayon::prelude::*;
 use tree_sitter::Query;
 
@@ -38,9 +41,46 @@ struct CallSiteData {
     enclosing_test_name: Option<String>,
 }
 
+/// An import deferred until all File nodes are present.
+struct DeferredImport {
+    from_file_path: String,
+    language: Language,
+    import: ImportInfo,
+}
+
+/// A Calls-edge deferred until all Symbol nodes are present.
+struct DeferredCall {
+    caller_idx: NodeIndex,
+    callee_name: String,
+}
+
+/// Knobs for skipping passes the caller does not need. Defaults run every
+/// pass (current behaviour). Skipping a pass keeps the corresponding edges
+/// out of the graph entirely — any audit pipeline that depends on them will
+/// silently produce no findings.
+#[derive(Debug, Clone, Copy)]
+pub struct BuildOptions {
+    /// When false, per-function CFGs are not built. This disables `ExitsVia`
+    /// edges, taint analysis (no functions to walk), and the lifecycle pass.
+    pub build_cfgs: bool,
+    /// When false, the lifecycle pass that emits `Acquires` / `ReleasedBy`
+    /// edges is suppressed even on explicit `ensure_resource_graph` calls.
+    pub build_resource_graph: bool,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            build_cfgs: true,
+            build_resource_graph: true,
+        }
+    }
+}
+
 pub struct GraphBuilder<'a> {
     workspace: &'a Workspace,
     languages: &'a [Language],
+    options: BuildOptions,
 }
 
 impl<'a> GraphBuilder<'a> {
@@ -48,7 +88,13 @@ impl<'a> GraphBuilder<'a> {
         Self {
             workspace,
             languages,
+            options: BuildOptions::default(),
         }
+    }
+
+    pub fn with_options(mut self, options: BuildOptions) -> Self {
+        self.options = options;
+        self
     }
 
     pub fn build(&self) -> Result<CodeGraph> {
@@ -80,231 +126,276 @@ impl<'a> GraphBuilder<'a> {
             })
             .collect();
 
-        // Step 4: Parallel parse + extract per file
+        // Step 4 + 5: Parallel parse, single-threaded streaming absorption.
+        //
+        // Parse workers send each `FileGraphData` to the drainer over a
+        // channel. The drainer absorbs file-local edges (File/Symbol/CallSite
+        // nodes, ExitsVia) immediately and drops the message, so the
+        // intermediate `FunctionCfg`s and call-site metadata don't pile up.
+        //
+        // Cross-file references (imports, Calls edges) need every symbol to
+        // be registered first, so they are buffered as small `Deferred*`
+        // tuples and resolved after the channel drains.
         let pool = rayon::ThreadPoolBuilder::new()
             .stack_size(4 * 1024 * 1024)
             .build()
             .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
-        let file_data: Vec<FileGraphData> = pool.install(|| {
-            grouped_files
-                .par_iter()
-                .filter_map(|&(lang, rel_path)| {
-                    let sym_query = symbol_queries.get(&lang)?;
-                    let imp_query = import_queries.get(&lang)?;
-
-                    let mut ts_parser = parser::create_parser(lang).ok()?;
-                    let source = self.workspace.read_file(rel_path)?;
-                    let tree = ts_parser.parse(&*source, None)?;
-
-                    let symbols = languages::extract_symbols(
-                        &tree,
-                        source.as_bytes(),
-                        sym_query,
-                        rel_path,
-                        lang,
-                    );
-                    let imports = languages::extract_imports(
-                        &tree,
-                        source.as_bytes(),
-                        imp_query,
-                        rel_path,
-                        lang,
-                    );
-
-                    // Extract call sites within each symbol's line range
-                    let call_node_types = call_expression_types(lang);
-                    let is_test = crate::pipeline::helpers::is_test_file(rel_path);
-                    let mut call_sites = Vec::new();
-                    for sym in &symbols {
-                        let enclosing_test = if is_test && is_test_function_name(&sym.name) {
-                            Some(sym.name.clone())
-                        } else {
-                            None
-                        };
-                        collect_calls_in_range(
-                            tree.root_node(),
-                            source.as_bytes(),
-                            sym.start_line,
-                            sym.end_line,
-                            &call_node_types,
-                            lang,
-                            rel_path,
-                            sym.start_line,
-                            enclosing_test.as_deref(),
-                            &mut call_sites,
-                        );
-                    }
-
-                    // Build CFGs for functions in this file
-                    let function_cfgs =
-                        build_function_cfgs(&tree, source.as_bytes(), &symbols, lang);
-
-                    Some(FileGraphData {
-                        path: rel_path.to_string(),
-                        language: lang,
-                        symbols,
-                        imports,
-                        call_sites,
-                        function_cfgs,
-                    })
-                })
-                .collect()
-        });
-
-        // Step 5: Assemble graph (single-threaded — DiGraph is not Sync)
         let mut graph = CodeGraph::new();
+        let mut deferred_imports: Vec<DeferredImport> = Vec::new();
+        let mut deferred_calls: Vec<DeferredCall> = Vec::new();
 
-        // 5a: Add File nodes
-        for fd in &file_data {
-            let file_idx = graph.graph.add_node(NodeWeight::File {
-                path: fd.path.clone(),
-                language: fd.language,
+        let workspace = self.workspace;
+        let sym_q = Arc::clone(&symbol_queries);
+        let imp_q = Arc::clone(&import_queries);
+        let grouped_files_ref = &grouped_files;
+        let build_cfgs = self.options.build_cfgs;
+
+        thread::scope(|s| -> Result<()> {
+            let (tx, rx) = mpsc::channel::<FileGraphData>();
+
+            s.spawn(move || {
+                pool.install(|| {
+                    grouped_files_ref
+                        .par_iter()
+                        .for_each_with(tx, |tx, &(lang, rel_path)| {
+                            if let Some(data) = parse_one_file(
+                                lang, rel_path, workspace, &sym_q, &imp_q, build_cfgs,
+                            ) {
+                                let _ = tx.send(data);
+                            }
+                        });
+                });
             });
-            graph.file_nodes.insert(fd.path.clone(), file_idx);
-        }
 
-        // 5b: Add Symbol nodes + DefinedIn/Exports/Contains edges
-        for fd in &file_data {
-            let file_idx = graph.file_nodes[&fd.path];
-            for sym in &fd.symbols {
-                let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
-                    name: sym.name.clone(),
-                    kind: sym.kind,
-                    file_path: sym.file_path.clone(),
-                    start_line: sym.start_line,
-                    end_line: sym.end_line,
-                    exported: sym.is_exported,
-                });
+            while let Ok(data) = rx.recv() {
+                absorb_file_data(&mut graph, data, &mut deferred_imports, &mut deferred_calls);
+            }
 
-                // DefinedIn: Symbol -> File
+            Ok(())
+        })?;
+
+        // Resolve deferred imports now that every File node exists.
+        for di in deferred_imports {
+            let Some(&from_file_idx) = graph.file_nodes.get(&di.from_file_path) else {
+                continue;
+            };
+            if let Some(resolved) =
+                resolve_import_to_file(&di.from_file_path, &di.import, di.language, &known_files)
+                && let Some(&to_file_idx) = graph.file_nodes.get(&resolved)
+                && from_file_idx != to_file_idx
+            {
                 graph
                     .graph
-                    .add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
-
-                // Contains: File -> Symbol
-                graph
-                    .graph
-                    .add_edge(file_idx, sym_idx, EdgeWeight::Contains);
-
-                // Exports: File -> Symbol (if exported)
-                if sym.is_exported {
-                    graph.graph.add_edge(file_idx, sym_idx, EdgeWeight::Exports);
-                }
-
-                graph
-                    .symbol_nodes
-                    .insert((sym.file_path.clone(), sym.start_line), sym_idx);
-                graph
-                    .symbols_by_name
-                    .entry(sym.name.clone())
-                    .or_default()
-                    .push(sym_idx);
+                    .add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
             }
         }
 
-        // 5c: Resolve imports -> Imports edges between file nodes
-        for fd in &file_data {
-            let from_file_idx = graph.file_nodes[&fd.path];
-            for import in &fd.imports {
-                if let Some(resolved) =
-                    resolve_import_to_file(&fd.path, import, fd.language, &known_files)
-                    && let Some(&to_file_idx) = graph.file_nodes.get(&resolved)
-                    && from_file_idx != to_file_idx
-                {
-                    graph
-                        .graph
-                        .add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
-                }
-            }
-        }
-
-        // 5d: Materialise CallSite nodes + resolve calls via symbols_by_name -> Calls edges
-        for fd in &file_data {
-            for cs in &fd.call_sites {
-                // Find the caller symbol node
-                let caller_key = (cs.caller_file.clone(), cs.caller_symbol_line);
-                let caller_idx = graph.symbol_nodes.get(&caller_key).copied();
-
-                // Materialise a CallSite node for every call expression. We do
-                // this even if the caller symbol can't be resolved so that
-                // `select: "call_site"` returns the call.
-                let callsite_idx = graph.graph.add_node(NodeWeight::CallSite {
-                    name: cs.callee_name.clone(),
-                    file_path: cs.caller_file.clone(),
-                    line: cs.line,
-                    arg_literals: cs.arg_literals.clone(),
-                    enclosing_test_name: cs.enclosing_test_name.clone(),
-                    caller_symbol: caller_idx,
-                });
-                if let Some(caller_idx) = caller_idx {
-                    graph
-                        .graph
-                        .add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
-                }
-
-                let Some(caller_idx) = caller_idx else {
-                    continue;
-                };
-
-                // Find target symbols by name
-                if let Some(targets) = graph.symbols_by_name.get(&cs.callee_name) {
-                    for &target_idx in targets {
-                        if target_idx != caller_idx {
-                            graph
-                                .graph
-                                .add_edge(caller_idx, target_idx, EdgeWeight::Calls);
-                        }
+        // Resolve deferred Calls edges now that every Symbol is registered.
+        for dc in deferred_calls {
+            if let Some(targets) = graph.symbols_by_name.get(&dc.callee_name) {
+                for &target_idx in targets {
+                    if target_idx != dc.caller_idx {
+                        graph
+                            .graph
+                            .add_edge(dc.caller_idx, target_idx, EdgeWeight::Calls);
                     }
                 }
             }
         }
 
-        // 5e: Store function CFGs and emit one CfgExit node per exit block.
-        for fd in &file_data {
-            for (start_line, cfg) in &fd.function_cfgs {
-                let Some(&sym_idx) = graph.symbol_nodes.get(&(fd.path.clone(), *start_line)) else {
-                    continue;
-                };
-                graph.function_cfgs.insert(sym_idx, cfg.clone());
-
-                let function_name = match &graph.graph[sym_idx] {
-                    NodeWeight::Symbol { name, .. } => name.clone(),
-                    _ => continue,
-                };
-
-                for &exit_block in &cfg.exits {
-                    let (exit_kind, exit_label) = classify_cfg_exit(cfg, exit_block);
-                    let exit_line = cfg.blocks[exit_block]
-                        .statements
-                        .last()
-                        .map(|s| s.line)
-                        .unwrap_or(*start_line);
-                    let exit_idx = graph.graph.add_node(NodeWeight::CfgExit {
-                        function_node: sym_idx,
-                        function_name: function_name.clone(),
-                        file_path: fd.path.clone(),
-                        line: exit_line,
-                        exit_kind: exit_kind.clone(),
-                        exit_label,
-                    });
-                    graph
-                        .graph
-                        .add_edge(sym_idx, exit_idx, EdgeWeight::Contains);
-                    graph
-                        .graph
-                        .add_edge(sym_idx, exit_idx, EdgeWeight::ExitsVia(exit_kind));
-                }
-            }
-        }
-
-        // Step 6: Resource lifecycle analysis — compute Acquires/ReleasedBy edges
-        // Note: taint analysis is no longer run at build time. It is invoked by the
-        // executor when processing a GraphStage::Taint pipeline stage, using patterns
-        // supplied by the JSON pipeline file (TaintConfig).
-        super::resource::ResourceAnalyzer::analyze_all(&mut graph);
+        // Resource lifecycle analysis is no longer run here. Callers that need
+        // `Acquires` / `ReleasedBy` edges call `graph.ensure_resource_graph(workspace)`
+        // explicitly (CLI flows) or trigger the lazy populate path on `AppState`
+        // (serve flow). This keeps boot-time memory and CPU off the critical path
+        // for callers that never query lifecycle edges.
 
         Ok(graph)
+    }
+}
+
+/// Parse a single file and produce its `FileGraphData`. Runs on a rayon
+/// worker; the parser instance is local and dropped on return.
+fn parse_one_file(
+    lang: Language,
+    rel_path: &str,
+    workspace: &Workspace,
+    symbol_queries: &HashMap<Language, Arc<Query>>,
+    import_queries: &HashMap<Language, Arc<Query>>,
+    build_cfgs: bool,
+) -> Option<FileGraphData> {
+    let sym_query = symbol_queries.get(&lang)?;
+    let imp_query = import_queries.get(&lang)?;
+
+    let mut ts_parser = parser::create_parser(lang).ok()?;
+    let source = workspace.read_file(rel_path)?;
+    let tree = ts_parser.parse(&*source, None)?;
+
+    let symbols = languages::extract_symbols(&tree, source.as_bytes(), sym_query, rel_path, lang);
+    let imports = languages::extract_imports(&tree, source.as_bytes(), imp_query, rel_path, lang);
+
+    let call_node_types = call_expression_types(lang);
+    let is_test = crate::pipeline::helpers::is_test_file(rel_path);
+    let mut call_sites = Vec::new();
+    for sym in &symbols {
+        let enclosing_test = if is_test && is_test_function_name(&sym.name) {
+            Some(sym.name.clone())
+        } else {
+            None
+        };
+        collect_calls_in_range(
+            tree.root_node(),
+            source.as_bytes(),
+            sym.start_line,
+            sym.end_line,
+            &call_node_types,
+            lang,
+            rel_path,
+            sym.start_line,
+            enclosing_test.as_deref(),
+            &mut call_sites,
+        );
+    }
+
+    let function_cfgs = if build_cfgs {
+        build_function_cfgs(&tree, source.as_bytes(), &symbols, lang)
+    } else {
+        Vec::new()
+    };
+
+    Some(FileGraphData {
+        path: rel_path.to_string(),
+        language: lang,
+        symbols,
+        imports,
+        call_sites,
+        function_cfgs,
+    })
+}
+
+/// Absorb one `FileGraphData` into the graph: emit File/Symbol/CallSite
+/// nodes and ExitsVia edges, then drop `data` so its `FunctionCfg`s and
+/// call-site metadata are freed before the next message arrives.
+///
+/// Cross-file edges (Imports, Calls) are queued in `deferred_imports` and
+/// `deferred_calls` because they need every Symbol to be registered first.
+fn absorb_file_data(
+    graph: &mut CodeGraph,
+    data: FileGraphData,
+    deferred_imports: &mut Vec<DeferredImport>,
+    deferred_calls: &mut Vec<DeferredCall>,
+) {
+    let FileGraphData {
+        path,
+        language,
+        symbols,
+        imports,
+        call_sites,
+        function_cfgs,
+    } = data;
+
+    // 5a: File node
+    let file_idx = graph.graph.add_node(NodeWeight::File {
+        path: path.clone(),
+        language,
+    });
+    graph.file_nodes.insert(path.clone(), file_idx);
+
+    // 5b: Symbol nodes + DefinedIn/Contains/Exports
+    for sym in &symbols {
+        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+            name: sym.name.clone(),
+            kind: sym.kind,
+            file_path: sym.file_path.clone(),
+            start_line: sym.start_line,
+            end_line: sym.end_line,
+            exported: sym.is_exported,
+        });
+        graph
+            .graph
+            .add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
+        graph
+            .graph
+            .add_edge(file_idx, sym_idx, EdgeWeight::Contains);
+        if sym.is_exported {
+            graph.graph.add_edge(file_idx, sym_idx, EdgeWeight::Exports);
+        }
+        graph
+            .symbol_nodes
+            .insert((sym.file_path.clone(), sym.start_line), sym_idx);
+        graph
+            .symbols_by_name
+            .entry(sym.name.clone())
+            .or_default()
+            .push(sym_idx);
+    }
+
+    // 5c: queue imports for cross-file resolution
+    for import in imports {
+        deferred_imports.push(DeferredImport {
+            from_file_path: path.clone(),
+            language,
+            import,
+        });
+    }
+
+    // 5d: CallSite nodes + Contains edges. Calls edges are deferred until
+    // every Symbol is registered.
+    for cs in call_sites {
+        let caller_key = (cs.caller_file.clone(), cs.caller_symbol_line);
+        let caller_idx = graph.symbol_nodes.get(&caller_key).copied();
+
+        let callsite_idx = graph.graph.add_node(NodeWeight::CallSite {
+            name: cs.callee_name.clone(),
+            file_path: cs.caller_file.clone(),
+            line: cs.line,
+            arg_literals: cs.arg_literals.clone(),
+            enclosing_test_name: cs.enclosing_test_name.clone(),
+            caller_symbol: caller_idx,
+        });
+        if let Some(caller_idx) = caller_idx {
+            graph
+                .graph
+                .add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
+            deferred_calls.push(DeferredCall {
+                caller_idx,
+                callee_name: cs.callee_name,
+            });
+        }
+    }
+
+    // 5e: ExitsVia edges from CFGs. CFGs are consumed here and dropped.
+    for (start_line, cfg) in function_cfgs {
+        let Some(&sym_idx) = graph.symbol_nodes.get(&(path.clone(), start_line)) else {
+            continue;
+        };
+        graph.function_cfg_indices.insert(sym_idx);
+        let function_name = match &graph.graph[sym_idx] {
+            NodeWeight::Symbol { name, .. } => name.clone(),
+            _ => continue,
+        };
+        for &exit_block in &cfg.exits {
+            let (exit_kind, exit_label) = classify_cfg_exit(&cfg, exit_block);
+            let exit_line = cfg.blocks[exit_block]
+                .statements
+                .last()
+                .map(|s| s.line)
+                .unwrap_or(start_line);
+            let exit_idx = graph.graph.add_node(NodeWeight::CfgExit {
+                function_node: sym_idx,
+                function_name: function_name.clone(),
+                file_path: path.clone(),
+                line: exit_line,
+                exit_kind: exit_kind.clone(),
+                exit_label,
+            });
+            graph
+                .graph
+                .add_edge(sym_idx, exit_idx, EdgeWeight::Contains);
+            graph
+                .graph
+                .add_edge(sym_idx, exit_idx, EdgeWeight::ExitsVia(exit_kind));
+        }
     }
 }
 
@@ -430,7 +521,7 @@ fn higher_priority(a: CfgExitKind, b: CfgExitKind) -> CfgExitKind {
 }
 
 /// Find a tree-sitter node that matches the given line range.
-fn find_node_at_line(
+pub(crate) fn find_node_at_line(
     node: tree_sitter::Node,
     start_line: u32,
     end_line: u32,

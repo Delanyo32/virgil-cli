@@ -192,7 +192,7 @@ fn execute_stage(
                 sinks: taint.sinks.clone(),
                 sanitizers: taint.sanitizers.clone(),
             };
-            stages::taint::execute_taint_with_config(&config, graph, &taint.sinks)
+            stages::taint::execute_taint_with_config(&config, graph, workspace, &taint.sinks)
         }
         GraphStage::TaintSources { taint_sources } => {
             taint_ctx.sources.extend(taint_sources.iter().cloned());
@@ -210,7 +210,7 @@ fn execute_stage(
                 sinks: taint_sinks.clone(),
                 sanitizers: taint_ctx.sanitizers.clone(),
             };
-            stages::taint::execute_taint_with_config(&config, graph, taint_sinks)
+            stages::taint::execute_taint_with_config(&config, graph, workspace, taint_sinks)
         }
         GraphStage::FindDuplicates { find_duplicates } => Ok(
             stages::find_duplicates::execute_find_duplicates(find_duplicates, nodes),

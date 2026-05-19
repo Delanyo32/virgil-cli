@@ -4,7 +4,8 @@ pub mod metrics;
 pub mod resource;
 pub mod taint;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -12,6 +13,7 @@ use petgraph::visit::EdgeRef;
 
 use crate::language::Language;
 use crate::models::SymbolKind;
+use crate::storage::workspace::Workspace;
 
 /// A node in the import resolution result. Most languages resolve to a file;
 /// Go resolves to a package directory.
@@ -132,8 +134,16 @@ pub struct CodeGraph {
     pub symbol_nodes: HashMap<(String, u32), NodeIndex>,
     /// symbol name -> list of NodeIndex for all symbols with that name
     pub symbols_by_name: HashMap<String, Vec<NodeIndex>>,
-    /// function NodeIndex -> its CFG
-    pub function_cfgs: HashMap<NodeIndex, cfg::FunctionCfg>,
+    /// Set of function NodeIndex values for which a CFG can be built. The CFGs
+    /// themselves are NOT stored — they are rebuilt on demand by
+    /// `cfg_for_function` to keep boot-time memory low.
+    pub function_cfg_indices: HashSet<NodeIndex>,
+    /// Lazy CFG cache. Populated on first call to `cfg_for_function` for a
+    /// given function. Tests may pre-populate via `inject_cfg`.
+    cfg_cache: Mutex<HashMap<NodeIndex, cfg::FunctionCfg>>,
+    /// Sentinel for the resource-lifecycle pass. `ensure_resource_graph` runs
+    /// `ResourceAnalyzer::analyze_all` at most once.
+    resource_analyzed: bool,
 }
 
 impl Default for CodeGraph {
@@ -149,8 +159,69 @@ impl CodeGraph {
             file_nodes: HashMap::new(),
             symbol_nodes: HashMap::new(),
             symbols_by_name: HashMap::new(),
-            function_cfgs: HashMap::new(),
+            function_cfg_indices: HashSet::new(),
+            cfg_cache: Mutex::new(HashMap::new()),
+            resource_analyzed: false,
         }
+    }
+
+    /// Fetch or rebuild the CFG for a function node.
+    /// - Returns a cached CFG if one was previously built or injected.
+    /// - Otherwise, if `workspace` is provided, re-parses the function's source
+    ///   and constructs a fresh CFG, caches it, and returns it.
+    /// - Returns `None` if the node is not a function, the workspace cannot
+    ///   read its source, or the language has no CFG builder.
+    pub fn cfg_for_function(
+        &self,
+        workspace: Option<&Workspace>,
+        idx: NodeIndex,
+    ) -> Option<cfg::FunctionCfg> {
+        if let Ok(cache) = self.cfg_cache.lock()
+            && let Some(c) = cache.get(&idx)
+        {
+            return Some(c.clone());
+        }
+        let workspace = workspace?;
+        let (file_path, start_line, end_line) = match self.graph.node_weight(idx)? {
+            NodeWeight::Symbol {
+                file_path,
+                start_line,
+                end_line,
+                ..
+            } => (file_path.clone(), *start_line, *end_line),
+            _ => return None,
+        };
+        let lang = workspace.file_language(&file_path)?;
+        let builder = crate::languages::cfg::cfg_builder_for_language(lang)?;
+        let source = workspace.read_file(&file_path)?;
+        let mut parser = crate::parser::create_parser(lang).ok()?;
+        let tree = parser.parse(&*source, None)?;
+        let func_node = builder::find_node_at_line(tree.root_node(), start_line, end_line)?;
+        let cfg = builder.build_cfg(&func_node, source.as_bytes()).ok()?;
+        if let Ok(mut cache) = self.cfg_cache.lock() {
+            cache.insert(idx, cfg.clone());
+        }
+        Some(cfg)
+    }
+
+    /// Inject a CFG into the lazy cache. Used by tests that synthesise CFGs
+    /// without going through the builder, and by passes that want to share
+    /// already-built CFGs.
+    pub fn inject_cfg(&mut self, idx: NodeIndex, cfg: cfg::FunctionCfg) {
+        self.function_cfg_indices.insert(idx);
+        if let Ok(mut cache) = self.cfg_cache.lock() {
+            cache.insert(idx, cfg);
+        }
+    }
+
+    /// Run resource-lifecycle analysis (`Acquires` / `ReleasedBy` edges)
+    /// if it hasn't been run yet. Idempotent: subsequent calls are no-ops.
+    pub fn ensure_resource_graph(&mut self, workspace: Option<&Workspace>) {
+        if self.resource_analyzed {
+            return;
+        }
+        resource::ResourceAnalyzer::analyze_all(self, workspace);
+        self.resource_analyzed = true;
     }
 
     // --- Call graph traversal methods (Phase 3) ---

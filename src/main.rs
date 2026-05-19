@@ -129,8 +129,10 @@ fn main() -> Result<()> {
                     Some(f) => language::parse_language_filter(f),
                     None => Language::all().to_vec(),
                 };
-                let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages)
-                    .build()?;
+                let mut graph =
+                    virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages)
+                        .build()?;
+                graph.ensure_resource_graph(Some(&workspace));
                 let output =
                     virgil_cli::query::engine::execute(&project, &query, max, &workspace, &graph)?;
                 let elapsed = start.elapsed();
@@ -154,6 +156,9 @@ fn main() -> Result<()> {
             port,
             lang,
             exclude,
+            no_cfg,
+            no_resource_graph,
+            symbols_only,
         } => {
             let languages = match &lang {
                 Some(f) => language::parse_language_filter(f),
@@ -192,9 +197,20 @@ fn main() -> Result<()> {
                 }
             );
 
+            let build_options = virgil_cli::graph::builder::BuildOptions {
+                build_cfgs: !(no_cfg || symbols_only),
+                build_resource_graph: !(no_resource_graph || symbols_only),
+            };
+
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(server::run_server(
-                workspace, &source_id, &host, port, lang, languages,
+                workspace,
+                &source_id,
+                &host,
+                port,
+                lang,
+                languages,
+                build_options,
             ))?;
             Ok(())
         }
@@ -209,7 +225,14 @@ fn main() -> Result<()> {
             file,
             per_page,
             page,
+            no_cfg,
+            no_resource_graph,
+            symbols_only,
         } => {
+            let build_options = virgil_cli::graph::builder::BuildOptions {
+                build_cfgs: !(no_cfg || symbols_only),
+                build_resource_graph: !(no_resource_graph || symbols_only),
+            };
             let ws = resolve_audit_workspace(
                 dir.as_deref(),
                 s3.as_deref(),
@@ -227,8 +250,12 @@ fn main() -> Result<()> {
                 };
 
                 let start = Instant::now();
-                let index =
-                    virgil_cli::graph::builder::GraphBuilder::new(&ws, &languages).build()?;
+                let mut index = virgil_cli::graph::builder::GraphBuilder::new(&ws, &languages)
+                    .with_options(build_options)
+                    .build()?;
+                if build_options.build_resource_graph {
+                    index.ensure_resource_graph(Some(&ws));
+                }
 
                 let pb = create_audit_progress_bar();
                 let mut engine = audit::engine::AuditEngine::new()
@@ -326,7 +353,8 @@ fn run_json_audit_file_ws(
 
     let start = Instant::now();
 
-    let graph = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
+    let mut graph = virgil_cli::graph::builder::GraphBuilder::new(workspace, &languages).build()?;
+    graph.ensure_resource_graph(Some(workspace));
 
     eprintln!(
         "Running JSON audit pipeline '{}' ({})…",

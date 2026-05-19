@@ -10,6 +10,7 @@ use petgraph::visit::EdgeRef;
 use super::types::{TaintConfig, TaintFinding};
 use crate::graph::cfg::{CfgStatementKind, FunctionCfg};
 use crate::graph::{CodeGraph, NodeWeight};
+use crate::storage::workspace::Workspace;
 
 // ---------------------------------------------------------------------------
 // Taint state — per-variable tracking during analysis
@@ -70,12 +71,18 @@ pub struct TaintEngine;
 
 impl TaintEngine {
     /// Run taint analysis on all functions that have CFGs in the graph.
-    /// Returns all findings. Does not mutate the graph.
-    pub fn analyze_all(graph: &CodeGraph, config: &TaintConfig) -> Vec<TaintFinding> {
+    /// Returns all findings. Does not mutate the graph (other than the lazy
+    /// CFG cache populated via `cfg_for_function`). When `workspace` is None,
+    /// only CFGs already in the cache (e.g. injected by tests) are visible.
+    pub fn analyze_all(
+        graph: &CodeGraph,
+        workspace: Option<&Workspace>,
+        config: &TaintConfig,
+    ) -> Vec<TaintFinding> {
         // Collect the function nodes to analyze.
         let func_nodes: Vec<(NodeIndex, String, String)> = graph
-            .function_cfgs
-            .keys()
+            .function_cfg_indices
+            .iter()
             .filter_map(|&node_idx| match &graph.graph[node_idx] {
                 NodeWeight::Symbol {
                     name, file_path, ..
@@ -87,9 +94,8 @@ impl TaintEngine {
         let mut all_findings = Vec::new();
 
         for (func_idx, func_name, file_path) in &func_nodes {
-            // We need to clone the CFG to avoid borrow conflicts.
-            let cfg = match graph.function_cfgs.get(func_idx) {
-                Some(cfg) => cfg.clone(),
+            let cfg = match graph.cfg_for_function(workspace, *func_idx) {
+                Some(cfg) => cfg,
                 None => continue,
             };
 
@@ -652,7 +658,7 @@ mod tests {
             param_names: Vec::new(),
         };
 
-        graph.function_cfgs.insert(func_idx, cfg);
+        graph.inject_cfg(func_idx, cfg);
 
         (graph, func_idx)
     }
@@ -712,7 +718,7 @@ mod tests {
 
         let (graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].sink_name, "execute");
@@ -751,7 +757,7 @@ mod tests {
 
         let (graph, _func_idx) = make_graph_with_cfg("handle_request", stmts);
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         assert!(
             findings.is_empty(),
@@ -798,7 +804,7 @@ mod tests {
 
         let (graph, _func_idx) = make_graph_with_cfg("process", stmts);
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].tainted_var, "c");
@@ -828,7 +834,7 @@ mod tests {
 
         let (graph, _func_idx) = make_graph_with_cfg("safe_handler", stmts);
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         assert!(findings.is_empty());
     }
@@ -867,7 +873,7 @@ mod tests {
             .add_edge(param_idx, func_idx, EdgeWeight::FlowsTo);
 
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].sink_name, "eval");
@@ -948,10 +954,10 @@ mod tests {
             end_line: 10,
             exported: true,
         });
-        graph.function_cfgs.insert(func_idx, cfg);
+        graph.inject_cfg(func_idx, cfg);
 
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         // b is tainted on the true branch, so after merge it should still
         // be considered tainted (union semantics).
@@ -999,7 +1005,7 @@ mod tests {
 
         let (graph, _) = make_graph_with_cfg("phi_test", stmts);
         let config = test_config();
-        let findings = TaintEngine::analyze_all(&graph, &config);
+        let findings = TaintEngine::analyze_all(&graph, None, &config);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].tainted_var, "c");

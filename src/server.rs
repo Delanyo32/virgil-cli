@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -14,7 +14,7 @@ use tokio::time::timeout;
 
 use crate::audit::engine::AuditEngine;
 use crate::graph::CodeGraph;
-use crate::graph::builder::GraphBuilder;
+use crate::graph::builder::{BuildOptions, GraphBuilder};
 use crate::language::Language;
 use crate::pipeline::output::AuditFinding;
 use crate::query::engine;
@@ -28,7 +28,24 @@ struct AppState {
     workspace: Workspace,
     project: ProjectEntry,
     languages: Vec<Language>,
-    code_graph: CodeGraph,
+    build_options: BuildOptions,
+    /// Wrapped in RwLock so we can lazily run `ensure_resource_graph` from
+    /// audit endpoints on first use without re-running it on every request.
+    code_graph: RwLock<CodeGraph>,
+}
+
+impl AppState {
+    /// Run resource-lifecycle analysis exactly once. Subsequent calls are no-ops
+    /// (guarded by `CodeGraph::ensure_resource_graph`'s idempotency sentinel).
+    /// When the server was booted with `--no-resource-graph`, this is a no-op.
+    fn ensure_resource_graph(&self) {
+        if !self.build_options.build_resource_graph {
+            return;
+        }
+        if let Ok(mut g) = self.code_graph.write() {
+            g.ensure_resource_graph(Some(&self.workspace));
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -61,6 +78,7 @@ pub async fn run_server(
     port: u16,
     lang_string: Option<String>,
     languages: Vec<Language>,
+    build_options: BuildOptions,
 ) -> Result<()> {
     let project = ProjectEntry {
         name: source_id.to_string(),
@@ -72,13 +90,16 @@ pub async fn run_server(
         created_at: chrono::Utc::now(),
     };
 
-    let code_graph = GraphBuilder::new(&workspace, &languages).build()?;
+    let code_graph = GraphBuilder::new(&workspace, &languages)
+        .with_options(build_options)
+        .build()?;
 
     let state = Arc::new(AppState {
         workspace,
         project,
         languages,
-        code_graph,
+        build_options,
+        code_graph: RwLock::new(code_graph),
     });
 
     let app = Router::new()
@@ -161,13 +182,11 @@ async fn handle_query(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let start = Instant::now();
-            let output = engine::execute(
-                &state.project,
-                &query,
-                max,
-                &state.workspace,
-                &state.code_graph,
-            )?;
+            let graph = state
+                .code_graph
+                .read()
+                .map_err(|_| anyhow::anyhow!("code graph lock poisoned"))?;
+            let output = engine::execute(&state.project, &query, max, &state.workspace, &graph)?;
             let elapsed = start.elapsed();
 
             let formatted = crate::query::format::format_results(
@@ -211,6 +230,7 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
     let result = timeout(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
+            state.ensure_resource_graph();
             let user_languages = &state.languages;
 
             let categories: Vec<(&str, Vec<Language>)> = vec![
@@ -255,7 +275,8 @@ async fn handle_audit_summary(State(state): State<Arc<AppState>>) -> impl IntoRe
                 let engine = AuditEngine::new()
                     .languages(langs)
                     .categories(vec![name.to_string()]);
-                match engine.run(&state.workspace, Some(&state.code_graph)) {
+                let graph = state.code_graph.read().expect("code graph lock");
+                match engine.run(&state.workspace, Some(&graph)) {
                     Ok((findings, summary)) => {
                         total_scanned = total_scanned.max(summary.files_scanned);
                         for f in &findings {
@@ -335,6 +356,7 @@ async fn handle_audit_category(
     let result = timeout(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
+            state.ensure_resource_graph();
             let user_languages = &state.languages;
 
             if category == "code-quality" {
@@ -365,7 +387,8 @@ async fn handle_audit_category(
                 .languages(langs)
                 .categories(vec![cat.to_string()]);
 
-            match engine.run(&state.workspace, Some(&state.code_graph)) {
+            let graph = state.code_graph.read().expect("code graph lock");
+            match engine.run(&state.workspace, Some(&graph)) {
                 Ok((findings, _)) => {
                     let limited: Vec<&AuditFinding> = findings.iter().take(per_page).collect();
                     Ok(serde_json::to_value(&limited).unwrap_or_default())
@@ -419,7 +442,8 @@ fn run_code_quality_audit_blocking(state: &AppState, per_page: usize) -> Result<
         let engine = AuditEngine::new()
             .languages(langs)
             .categories(vec![cat.to_string()]);
-        if let Ok((findings, _)) = engine.run(&state.workspace, Some(&state.code_graph)) {
+        let graph = state.code_graph.read().expect("code graph lock");
+        if let Ok((findings, _)) = engine.run(&state.workspace, Some(&graph)) {
             all_findings.extend(findings);
         }
     }

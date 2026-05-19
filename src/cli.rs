@@ -45,6 +45,22 @@ pub enum Command {
         /// Glob patterns to exclude (repeatable)
         #[arg(short, long)]
         exclude: Vec<String>,
+
+        /// Skip per-function CFG construction. Disables ExitsVia edges,
+        /// taint, and resource-lifecycle analysis. Pipelines that depend on
+        /// these will silently produce no findings.
+        #[arg(long)]
+        no_cfg: bool,
+
+        /// Skip resource-lifecycle analysis. `Acquires` / `ReleasedBy` edges
+        /// will not be present even if the audit asks for them.
+        #[arg(long)]
+        no_resource_graph: bool,
+
+        /// Convenience shorthand: --no-cfg + --no-resource-graph. Smallest
+        /// possible index — symbols, imports, and Calls edges only.
+        #[arg(long)]
+        symbols_only: bool,
     },
 
     /// Static analysis and tech debt detection
@@ -84,6 +100,20 @@ pub enum Command {
         /// Page number (1-indexed)
         #[arg(long, default_value = "1")]
         page: usize,
+
+        /// Skip per-function CFG construction. Disables ExitsVia edges,
+        /// taint, and resource-lifecycle analysis.
+        #[arg(long)]
+        no_cfg: bool,
+
+        /// Skip resource-lifecycle analysis. `Acquires` / `ReleasedBy` edges
+        /// will not be present even if the audit asks for them.
+        #[arg(long)]
+        no_resource_graph: bool,
+
+        /// Convenience shorthand: --no-cfg + --no-resource-graph.
+        #[arg(long)]
+        symbols_only: bool,
     },
 }
 

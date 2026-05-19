@@ -6,6 +6,7 @@ use petgraph::visit::EdgeRef;
 
 use super::cfg::{CfgEdge, CfgStatementKind, FunctionCfg};
 use super::{CodeGraph, EdgeWeight, NodeWeight};
+use crate::storage::workspace::Workspace;
 
 /// Per-function analysis result: resources that need graph edges.
 struct ResourceEdge {
@@ -59,12 +60,16 @@ pub struct ResourceAnalyzer;
 
 impl ResourceAnalyzer {
     /// Walk every function CFG in the graph and add Acquires/ReleasedBy edges.
-    pub fn analyze_all(graph: &mut CodeGraph) {
+    /// CFGs are rebuilt on demand via `cfg_for_function` (pass the workspace).
+    /// When `workspace` is None, only CFGs already in the cache (e.g. injected
+    /// by tests) are used.
+    pub fn analyze_all(graph: &mut CodeGraph, workspace: Option<&Workspace>) {
         // Collect function nodes and their CFGs (we need to borrow graph mutably later).
         let function_entries: Vec<(NodeIndex, FunctionCfg)> = graph
-            .function_cfgs
+            .function_cfg_indices
             .iter()
-            .map(|(&node_idx, cfg)| (node_idx, cfg.clone()))
+            .copied()
+            .filter_map(|idx| graph.cfg_for_function(workspace, idx).map(|cfg| (idx, cfg)))
             .collect();
 
         let mut edges_to_add: Vec<ResourceEdge> = Vec::new();

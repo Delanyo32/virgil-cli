@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use crate::graph::CodeGraph;
 use crate::graph::taint::{TaintConfig, TaintEngine};
 use crate::pipeline::dsl::{MetricValue, PipelineNode, TaintSinkPattern};
+use crate::storage::workspace::Workspace;
 
 pub(crate) fn execute_taint_with_config(
     config: &TaintConfig,
     graph: &CodeGraph,
+    workspace: Option<&Workspace>,
     sinks: &[TaintSinkPattern],
 ) -> anyhow::Result<Vec<PipelineNode>> {
-    let findings = TaintEngine::analyze_all(graph, config);
+    let findings = TaintEngine::analyze_all(graph, workspace, config);
 
     let nodes = findings
         .into_iter()
