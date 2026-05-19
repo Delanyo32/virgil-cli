@@ -1,6 +1,6 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand and queries them with a composable JSON query language. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) via `--s3 s3://bucket/prefix`.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand and exposes them as CozoDB relations queryable via Cozoscript. No database to manage — projects are registered by name and parsed at query time into an in-memory Cozo store. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) via `--s3 s3://bucket/prefix`.
 
 ## Build & Run
 
@@ -9,76 +9,67 @@ cargo build
 cargo run -- projects create myapp --path ./src [--lang ts,tsx,js,jsx] [--exclude "vendor/**"]
 cargo run -- projects list
 cargo run -- projects delete myapp
-cargo run -- projects query myapp --q '{"find": "function", "name": "handle*"}' [--out outline|snippet|full|tree|locations|summary] [--pretty]
-cargo run -- projects query myapp --file query.json
+
+# Query — exactly one of --cozoscript / --file / --template required
+cargo run -- projects query myapp --template find_function_by_name --param name=login
+cargo run -- projects query myapp --cozoscript '?[name] := *symbol{name}'
+cargo run -- projects query myapp --file audit.cozoql --param target=x
+
 # S3/R2 (no registration needed)
-cargo run -- projects query --s3 s3://bucket/prefix --q '{"find": "function"}' [--lang rs]
-cargo run -- audit ./src [--language rs] [--category security] [--pipeline sql_injection_rust]
-cargo run -- audit --s3 s3://bucket/prefix [--language rs]
-# Serve mode
+cargo run -- projects query --s3 s3://bucket/prefix --template find_cycles [--lang rs]
+
+# Serve mode (HTTP). Routes: GET /health, POST /query {cozoscript|template, params}
 cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
-# Skip expensive passes (memory/CPU savings — pipelines depending on them
-# silently produce no findings):
+
+# Skip expensive passes (memory/CPU savings — templates depending on
+# CFG/resource analysis silently produce no findings):
 cargo run -- serve --s3 s3://bucket/prefix --no-cfg
 cargo run -- serve --s3 s3://bucket/prefix --no-resource-graph
 cargo run -- serve --s3 s3://bucket/prefix --symbols-only
-# Same flags are available on `audit`.
 ```
 
 ## Module Layout
 
-- `src/pipeline/` — JSON pipeline layer (single owner of the DSL, executor, and file loading)
-  - `dsl/` — DSL types split into `types`, `where_clause`, `stages` submodules
-  - `executor.rs` — `run_pipeline` entry point and `execute_stage` dispatch
-  - `stages/` — per-stage executors: `select`, `aggregate` (group_by/count/ratio), `cycles` (find_cycles/max_depth), `match_pattern`, `compute_metric`, `taint`, `find_duplicates`
-  - `output.rs` — `AuditFinding`, `QueryResult` (the contract pipelines produce)
-  - `node_helpers.rs` — shared helpers (`pipeline_node_from_index`, `edge_matches_type`, `node_path`)
-  - `loader.rs` — `load_json_audits` (project-local → user-global → built-ins)
-  - `helpers.rs` — `is_test_file`, `is_barrel_file`, `is_excluded_for_arch_analysis`
-- `src/audit/` — orchestration and output only (consumer of `pipeline/`)
-  - `engine.rs` — `AuditEngine` (discovers + runs JSON pipelines, collects findings)
-  - `format.rs` — finding output formatting (table/json/csv)
-  - `models.rs` — `AuditSummary` (`AuditFinding` lives in `pipeline::output`)
+- `src/cozo/` — fact store wrapper
+  - `schema.rs` — `:create` statements for the cross-function graph + `file_classification` + `nolint`
+  - `store.rs` — `CozoStore` thin wrapper over `cozo::DbInstance` (in-memory; on-disk lands in the persistence issue)
+  - `writer.rs` — `CozoWriter` batched row accumulator (~10k rows per transaction)
+  - `from_code_graph.rs` — walks a finished `CodeGraph` and emits the equivalent facts
+- `src/queries/` — user-facing query surface
+  - `runner.rs` — `run(QueryRequest)`: loads/dispatches, detects audit-shape output
+  - `templates.rs` — embeds `builtin/*.cozoql` via `include_dir`
+  - `rust_templates.rs` — handlers that need source access (complexity_hotspots, taint_paths, unreleased_resources)
+  - `builtin/*.cozoql` — 7 pure-Cozoscript templates (find_callers/callees/cycles, find_function_by_name, export_surface, import_depth, unused_symbols)
 - `src/graph/` — graph data structures and builder
   - `mod.rs` — `CodeGraph`, `NodeWeight`, `EdgeWeight`, `GraphNode`
   - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`)
-  - `taint/` — `TaintEngine`, `TaintConfig` and pattern types (split into `types.rs` + `engine.rs`)
-  - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.)
-  - `resource.rs` — `ResourceAnalyzer` (acquires/released_by edges)
-  - `cfg.rs` — control flow graph data structures
+  - `taint/` — `TaintEngine`, `TaintConfig` and pattern types (consumed by the Rust-side `taint_paths` template handler)
+  - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.) — called on-demand from `rust_templates::complexity_hotspots`
+  - `resource.rs` — `ResourceAnalyzer` (acquires/released_by edges; consumed by the Rust-side `unreleased_resources` handler)
+  - `cfg.rs` — control flow graph data structures (used by taint + resource analyses)
+- `src/classify.rs` — `is_test_file`, `is_barrel_file` — used at build time to populate `file_classification` facts
 - `src/languages/` — one deep module per language, plus shared facade
   - `mod.rs` — language-agnostic facade (`compile_*_query`, `extract_*`, `resolve_import`)
   - `cfg.rs` — `CfgBuilder` trait and `cfg_builder_for_language` dispatch
   - `<lang>/{queries.rs, cfg.rs, mod.rs}` — per-language: tree-sitter queries+extractors and CFG builder, one folder per language
 
-## JSON Query Language
+## Cozoscript query surface
 
-Queries are JSON objects. All fields are optional and composable:
+The `projects query` subcommand accepts Cozoscript via three flags
+(mutually exclusive):
 
-```json
-{
-  "files": "src/api/**",
-  "files_exclude": ["**/test/**"],
-  "find": "function",
-  "name": "handle*",
-  "visibility": "exported",
-  "inside": "AuthService",
-  "has": "@deprecated",
-  "lines": {"min": 10, "max": 100},
-  "body": true,
-  "preview": 5,
-  "calls": "down",
-  "depth": 2,
-  "read": "src/main.rs"
-}
-```
+- `--template <name>` — a built-in template under `src/queries/builtin/`
+- `--cozoscript '<inline>'` — power-user mode
+- `--file <path>` — load Cozoscript from a file
 
-- `name`: glob string, `{"contains": "auth"}`, or `{"regex": "^get[A-Z]"}`
-- `has`: string, array, or `{"not": "docstring"}` for inverse (symbols *without* doc comments)
-- `calls`: `"down"` (callees), `"up"` (callers), `"both"`; `depth` default 1, max 5
-- `read`: returns raw file content instead of symbols; combine with `lines` for range reads
-- `find: "function"` matches both `Function` and `ArrowFunction` kinds
-- `find: "constructor"` matches `Method` kind (post-filtered by name: "constructor", "__init__", "__construct", "new")
+User-supplied values bind via `--param key=value` (repeatable). Integers
+and booleans are auto-coerced; everything else binds as a string.
+Parameters reach Cozoscript through `BTreeMap<String, DataValue>` — never
+through string interpolation.
+
+**Audit-shape convention:** a query (or template handler) that returns
+columns `(file, line, severity, pattern, message)` is auto-formatted as
+audit findings instead of a raw row table. Extra columns are preserved.
 
 ## Non-obvious Implementation Notes
 
@@ -107,12 +98,6 @@ Critical gotchas and design decisions that are not obvious from reading the code
 **Python parsing**
 - `decorated_definition` nodes: unwrap to inner function/class; skip the bare `function_definition`/`class_definition` if its parent is a `decorated_definition`. This deduplication prevents double-reporting decorated symbols.
 
-**Audit pipelines**
-- `PipelineContext` and `GraphPipelineContext` are deleted — all analysis goes through `src/pipeline/executor.rs` via `run_pipeline`. The executor handles `select`, `compute_metric`, `taint_sources`/`taint_sanitizers`/`taint_sinks`, `flag`, and other stages directly.
-- `WhereClause.metrics` is a `HashMap<String, NumericPredicate>` — metric predicates use `{"metrics": {"name": {...}}}` nesting, not flat named fields.
-- `taint_sources` / `taint_sanitizers` / `taint_sinks` accumulate into a `TaintContext` per pipeline run. The old `taint` combined form desugars automatically.
-- Architecture audit thresholds (not in JSON files): oversized_module ≥ 30 symbols OR ≥ 1000 lines; monolithic_export_surface ≥ 20 exports; barrel_file_reexport ≥ 5 re-exports; hub_module_bidirectional ≥ 5 intra-project imports; deep_import_chain ≥ 4 path depth; excessive_public_api ≥ 20 symbols AND >80% exported.
-
 **Call graph**
 Name-based resolution via `symbols_by_name` lookup — heuristic only, no type info. BFS with configurable depth (max 5). Replaces old `call_graph.rs`.
 
@@ -126,48 +111,33 @@ For every entry in `FunctionCfg.exits`, the builder emits one `NodeWeight::CfgEx
 `CodeGraph` no longer carries a `function_cfgs: HashMap<NodeIndex, FunctionCfg>` map. Instead it exposes `function_cfg_indices: HashSet<NodeIndex>` (the function symbols whose CFGs *could* be built) plus a private `Mutex<HashMap<NodeIndex, FunctionCfg>>` lazy cache. `CodeGraph::cfg_for_function(workspace, idx)` re-parses the function's source and builds the CFG on demand, then caches it. Tests inject synthetic CFGs via `inject_cfg(idx, cfg)` and pass `workspace = None` to `TaintEngine::analyze_all` / `ResourceAnalyzer::analyze_all`. Production callers pass `Some(workspace)`.
 
 **Resource analysis is lazy**
-`GraphBuilder::build()` no longer calls `ResourceAnalyzer::analyze_all`. Call `graph.ensure_resource_graph(Some(&workspace))` (idempotent) to populate `Acquires`/`ReleasedBy` edges. CLI flows in `main.rs` call it eagerly after build. In `serve`, audit endpoints call `state.ensure_resource_graph()` once on first hit; query endpoints don't.
+`GraphBuilder::build()` no longer calls `ResourceAnalyzer::analyze_all`. Call `graph.ensure_resource_graph(Some(&workspace))` (idempotent) to populate `Acquires`/`ReleasedBy` edges. Callers that need lifecycle edges trigger this explicitly; query handlers that don't touch resources skip it entirely.
 
 **Streaming graph builder**
-`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over an `mpsc::channel` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). Per-file work — File/Symbol/CallSite nodes, `ExitsVia` edges, dropping the CFG — happens during absorption. Cross-file refs (`Imports`, `Calls` edges) are queued in `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains.
+`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). Per-file work — File/Symbol/CallSite nodes, `ExitsVia` edges, dropping the CFG — happens during absorption. Cross-file refs (`Imports`, `Calls` edges) are queued in `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains.
 
 **`BuildOptions` + skip flags**
-`GraphBuilder::with_options(BuildOptions { build_cfgs, build_resource_graph })` gates pass-by-pass work. `--no-cfg` clears `build_cfgs` (CFGs are not built at all, so `function_cfg_indices` stays empty and there are no `ExitsVia` / taint / lifecycle findings). `--no-resource-graph` clears `build_resource_graph` (suppresses `ensure_resource_graph`). `--symbols-only` is shorthand for both. Pipelines that depend on suppressed edges silently return no findings.
+`GraphBuilder::with_options(BuildOptions { build_cfgs, build_resource_graph })` gates pass-by-pass work. `--no-cfg` clears `build_cfgs` (CFGs are not built at all, so `function_cfg_indices` stays empty and there are no `ExitsVia` edges, taint findings, or lifecycle findings). `--no-resource-graph` clears `build_resource_graph` (suppresses `ensure_resource_graph`). `--symbols-only` is shorthand for both. Templates that depend on suppressed edges silently return no findings.
 
 **Local workspace is disk-backed**
 `Workspace::load` no longer reads file contents up front. It records sizes + language extensions only; `DiskFileSource` (`src/storage/file_source.rs`) reads on demand and caches in a small LRU (`lru` crate, cap 256). S3 workspaces still use the in-memory `MemoryFileSource` since fetches are batched at startup.
 
-**`PipelineNode` has new optional fields**
-`captures: HashMap<String,String>` (populated by `match_pattern`), `arg_literals: Vec<String>` and `enclosing_test_name: Option<String>` (populated by `select: call_site`). A `Default` impl exists so struct literals can use `..Default::default()` without listing every field.
-
-**`match_pattern` semantics changed**
-Each tree-sitter *match* produces one `PipelineNode` anchored at the largest capture (by byte span). The full capture map is attached, and `interpolate_message` recognises `{{@capture_name}}` placeholders. Prior behaviour was "one node per capture, capture name discarded".
-
 **S3 workspace**
-- S3 workspace root is a synthetic `s3://bucket/prefix` path. `execute_read()` disk fallback is guarded by `root.exists()` to prevent filesystem access on S3 workspaces.
+- S3 workspace root is a synthetic `s3://bucket/prefix` path.
 - `--s3` flag conflicts with positional `name`/`dir` args via `#[arg(conflicts_with)]`
 - Server mode (`serve`) is S3-only — no `--path` flag. Used by Virgil Live (cloud service).
 
-**Audit pipeline model (JSON-first)**
-All audit logic is JSON-driven. `src/pipeline/` owns the DSL, executor, and builtin file loading.
-`AuditEngine` in `src/audit/engine.rs` discovers JSON files and calls `run_pipeline`.
-No Rust pipeline code exists — `audit/pipeline.rs`, `audit/pipelines/`, and the legacy trait
-hierarchy (`Pipeline`, `NodePipeline`, `GraphPipeline`) have been deleted.
+**Cozo store lifecycle**
+The query pipeline builds the `CodeGraph` first, then calls `cozo::populate(&store, &graph, Some(&workspace))` to materialise the cross-function relations + `file_classification` + `nolint` into an in-memory `CozoStore`. `NodeIndex::index()` is used as the monotonic `Int` id for `symbol`/`callsite` rows. On-disk persistence is a separate follow-up issue.
 
-**DSL composability**
-`WhereClause` uses a generic `metrics: HashMap<String, NumericPredicate>` field — any metric
-computed by a `compute_metric` stage is filterable without changing the Rust schema:
-```json
-{"when": {"metrics": {"cyclomatic_complexity": {"gte": 15}}}}
-```
-The `taint` stage is decomposed into `taint_sources` + `taint_sanitizers` + `taint_sinks`
-stages that accumulate into a shared context. The old combined `taint` form continues to work
-(desugared by the executor) for backward compatibility with external pipeline files.
-Use `AuditEngine::categories(vec!["security".to_string()])` to filter by category.
+**Three Rust-side templates, not pure Cozoscript**
+`complexity_hotspots`, `taint_paths`, and `unreleased_resources` live in `src/queries/rust_templates.rs`. They escape Cozoscript because:
+- metrics aren't materialised as facts (re-derivable via `graph::metrics::compute_*`)
+- CFG isn't materialised as facts (re-derivable via `CodeGraph::cfg_for_function`)
+- `taint_paths` / `unreleased_resources` currently return empty findings; wiring them into `src/graph/taint/` + `src/graph/resource.rs` is a follow-up.
 
-**Audit CLI**
-`virgil audit <DIR>|--s3 <URI> [--language] [--category] [--pipeline] [--format] [--per-page] [--page] [--no-cfg] [--no-resource-graph] [--symbols-only]`
-DIR is positional (no `--dir` flag). No nested subcommands. Category values match the `category` field in JSON pipeline files: `security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability`. Skip flags also exist on `serve`.
+**Cozoscript rule-head gotcha**
+Cozo does not accept literals in rule-head positions. `caller[c, 1] := ...` fails to parse; bind the constant in the body instead: `caller[c, d] := d = 1, ...`. All recursive built-in templates use this pattern.
 
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills

@@ -249,7 +249,7 @@ fn parse_one_file(
     let imports = languages::extract_imports(&tree, source.as_bytes(), imp_query, rel_path, lang);
 
     let call_node_types = call_expression_types(lang);
-    let is_test = crate::pipeline::helpers::is_test_file(rel_path);
+    let is_test = crate::classify::is_test_file(rel_path);
     let mut call_sites = Vec::new();
     for sym in &symbols {
         let enclosing_test = if is_test && is_test_function_name(&sym.name) {
@@ -364,11 +364,17 @@ fn absorb_file_data(
         let caller_idx = graph.symbol_nodes.get(&caller_key).copied();
 
         let callee_spur = graph.symbols.intern(&cs.callee_name);
-        let arg_literal_spurs: Vec<Spur> = cs
-            .arg_literals
-            .iter()
-            .map(|s| graph.symbols.intern(s))
-            .collect();
+        let arg_literal_spurs: Option<Box<[Spur]>> = if cs.arg_literals.is_empty() {
+            None
+        } else {
+            Some(
+                cs.arg_literals
+                    .iter()
+                    .map(|s| graph.symbols.intern(s))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            )
+        };
         let enclosing_spur = cs
             .enclosing_test_name
             .as_deref()
@@ -818,7 +824,8 @@ fn bar(_a: &str, _b: i32) {}
                 _ => None,
             })
             .expect("bar callsite");
-        let resolved: Vec<&str> = bar_call.iter().map(|s| graph.symbols.resolve(*s)).collect();
+        let slice = bar_call.expect("bar should have arg literals");
+        let resolved: Vec<&str> = slice.iter().map(|s| graph.symbols.resolve(*s)).collect();
         assert!(
             resolved.contains(&"hello"),
             "expected hello in {:?}",
@@ -849,7 +856,7 @@ fn bar(_z: i32) {}
             })
             .expect("bar callsite");
         assert!(
-            bar_call.is_empty(),
+            bar_call.is_none(),
             "expected no literals, got {:?}",
             bar_call
         );

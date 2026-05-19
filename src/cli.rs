@@ -63,58 +63,6 @@ pub enum Command {
         symbols_only: bool,
     },
 
-    /// Static analysis and tech debt detection
-    Audit {
-        /// Root directory to analyze
-        #[arg(conflicts_with = "s3")]
-        dir: Option<PathBuf>,
-
-        /// S3 URI — reads codebase directly from S3
-        #[arg(long, conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Comma-separated language filter (rs,go,py,ts,js,java,php,cs,c,cpp)
-        #[arg(short, long)]
-        language: Option<String>,
-
-        /// Filter by category: security, architecture, code_style, tech_debt, complexity, scalability
-        #[arg(long)]
-        category: Option<String>,
-
-        /// Comma-separated pipeline name filter
-        #[arg(long)]
-        pipeline: Option<String>,
-
-        /// Output format
-        #[arg(long, default_value = "table")]
-        format: OutputFormat,
-
-        /// Run a specific JSON audit file instead of (or in addition to) built-ins
-        #[arg(long, value_name = "FILE")]
-        file: Option<PathBuf>,
-
-        /// Findings per page
-        #[arg(long, default_value = "20")]
-        per_page: usize,
-
-        /// Page number (1-indexed)
-        #[arg(long, default_value = "1")]
-        page: usize,
-
-        /// Skip per-function CFG construction. Disables ExitsVia edges,
-        /// taint, and resource-lifecycle analysis.
-        #[arg(long)]
-        no_cfg: bool,
-
-        /// Skip resource-lifecycle analysis. `Acquires` / `ReleasedBy` edges
-        /// will not be present even if the audit asks for them.
-        #[arg(long)]
-        no_resource_graph: bool,
-
-        /// Convenience shorthand: --no-cfg + --no-resource-graph.
-        #[arg(long)]
-        symbols_only: bool,
-    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -218,37 +166,25 @@ pub enum ProjectCommand {
         #[arg(short, long)]
         exclude: Vec<String>,
 
-        /// Inline JSON query (legacy DSL; removed in the cozodb migration)
-        #[arg(short, long)]
-        q: Option<String>,
-
         /// Inline Cozoscript query
-        #[arg(long, conflicts_with_all = ["q", "template"])]
+        #[arg(long, conflicts_with = "template")]
         cozoscript: Option<String>,
 
         /// Path to a Cozoscript file (.cozoql or any text file)
-        #[arg(short, long, conflicts_with_all = ["q", "template", "cozoscript"])]
+        #[arg(short, long, conflicts_with_all = ["template", "cozoscript"])]
         file: Option<PathBuf>,
 
         /// Built-in template name (see `src/queries/builtin/`)
-        #[arg(long, conflicts_with_all = ["q", "cozoscript", "file"])]
+        #[arg(long, conflicts_with_all = ["cozoscript", "file"])]
         template: Option<String>,
 
         /// Parameter binding for Cozoscript / template (repeatable). Format: key=value
         #[arg(long = "param", value_parser = parse_key_value)]
         params: Vec<(String, String)>,
 
-        /// Output format
-        #[arg(short, long, default_value = "outline")]
-        out: QueryOutputFormat,
-
         /// Pretty-print JSON output
         #[arg(long)]
         pretty: bool,
-
-        /// Maximum number of results
-        #[arg(short, long, default_value = "100")]
-        max: usize,
     },
 }
 

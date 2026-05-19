@@ -1,4 +1,4 @@
-pub mod audit;
+pub mod classify;
 pub mod cli;
 pub mod cozo;
 pub mod graph;
@@ -7,9 +7,6 @@ pub mod languages;
 pub mod models;
 pub mod parser;
 pub mod queries;
-pub mod query;
 pub mod server;
 pub mod signature;
 pub mod storage;
-
-pub mod pipeline;

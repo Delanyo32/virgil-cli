@@ -10,7 +10,7 @@ use anyhow::Result;
 use petgraph::visit::EdgeRef;
 
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
-use crate::pipeline::helpers::{is_barrel_file, is_test_file};
+use crate::classify::{is_barrel_file, is_test_file};
 use crate::storage::workspace::Workspace;
 
 use super::{CozoStore, CozoWriter};

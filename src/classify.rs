@@ -1,6 +1,9 @@
-// These three functions are the subset of audit/pipelines/helpers.rs used by the executor.
-// The full helpers.rs (with dead-code and taint helpers) will be deleted in Task 2
-// when audit/pipelines/ is removed.
+//! File-path classification helpers used at graph-build time.
+//!
+//! Moved out of the deleted `src/pipeline/helpers.rs` so the remaining
+//! consumers (`src/graph/builder.rs`, `src/cozo/from_code_graph.rs`) don't
+//! have to keep a vestigial pipeline module alive.
+
 pub fn is_test_file(file_path: &str) -> bool {
     let file_name = std::path::Path::new(file_path)
         .file_name()
@@ -59,31 +62,6 @@ pub fn is_test_file(file_path: &str) -> bool {
         || path.starts_with("testing/")
         || path.contains("/testdata/")
         || path.starts_with("testdata/")
-}
-
-pub fn is_excluded_for_arch_analysis(path: &str) -> bool {
-    if is_test_file(path) {
-        return true;
-    }
-    let p = path.replace('\\', "/");
-    if p.ends_with(".pb.go")
-        || p.ends_with("_gen.go")
-        || p.ends_with("_generated.go")
-        || p.ends_with(".pb.h")
-        || p.ends_with(".pb.cc")
-        || p.contains("/generated/")
-        || p.starts_with("generated/")
-    {
-        return true;
-    }
-    p.contains("/vendor/")
-        || p.starts_with("vendor/")
-        || p.contains("/third_party/")
-        || p.starts_with("third_party/")
-        || p.contains("/node_modules/")
-        || p.starts_with("node_modules/")
-        || p.contains("/_deps/")
-        || p.starts_with("_deps/")
 }
 
 pub fn is_barrel_file(path: &str) -> bool {
