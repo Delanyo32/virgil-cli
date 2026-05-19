@@ -22,6 +22,14 @@ pub fn create_statements() -> &'static [&'static str] {
         ":create edge_imports {from_path: String, to_path: String}",
         ":create edge_exports {file_path: String, symbol_id: Int}",
         ":create edge_contains {parent_id: Int, child_id: Int}",
+        // ---- Derived facts (issue 04) ----
+        // Metrics intentionally not stored — they're cheap to recompute via
+        // tree-sitter on demand, and storing them would just create stale-fact
+        // invalidation work. file_classification and nolint *are* stored
+        // because re-scanning every file's comments at query time is wasteful.
+        ":create file_classification {path: String => \
+            is_test: Bool, is_barrel: Bool, is_generated: Bool}",
+        ":create nolint {file_path: String, line: Int => suppressed_pattern: String}",
         // ---- Metadata ----
         ":create build_meta {key: String => value: String}",
         ":create build_meta_files {file_path: String => \

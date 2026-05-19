@@ -23,6 +23,10 @@ pub struct CozoWriter {
     edge_imports: Vec<Vec<DataValue>>,
     edge_exports: Vec<Vec<DataValue>>,
     edge_contains: Vec<Vec<DataValue>>,
+    // ---- Derived facts (issue 04) ----
+    file_classification: Vec<Vec<DataValue>>,
+    nolint: Vec<Vec<DataValue>>,
+    // ---- Metadata ----
     build_meta_files: Vec<Vec<DataValue>>,
 }
 
@@ -37,6 +41,8 @@ impl CozoWriter {
             edge_imports: Vec::new(),
             edge_exports: Vec::new(),
             edge_contains: Vec::new(),
+            file_classification: Vec::new(),
+            nolint: Vec::new(),
             build_meta_files: Vec::new(),
         }
     }
@@ -116,6 +122,29 @@ impl CozoWriter {
             .push(vec![DataValue::from(parent_id), DataValue::from(child_id)]);
     }
 
+    pub fn push_file_classification(
+        &mut self,
+        path: &str,
+        is_test: bool,
+        is_barrel: bool,
+        is_generated: bool,
+    ) {
+        self.file_classification.push(vec![
+            DataValue::from(path),
+            DataValue::from(is_test),
+            DataValue::from(is_barrel),
+            DataValue::from(is_generated),
+        ]);
+    }
+
+    pub fn push_nolint(&mut self, file_path: &str, line: i64, suppressed_pattern: &str) {
+        self.nolint.push(vec![
+            DataValue::from(file_path),
+            DataValue::from(line),
+            DataValue::from(suppressed_pattern),
+        ]);
+    }
+
     pub fn push_build_meta_file(&mut self, file_path: &str, hash: &str, size: i64, mtime: i64) {
         self.build_meta_files.push(vec![
             DataValue::from(file_path),
@@ -168,6 +197,18 @@ impl CozoWriter {
             store,
             "?[parent_id, child_id] <- $rows :put edge_contains {parent_id, child_id}",
             std::mem::take(&mut self.edge_contains),
+        )?;
+        flush(
+            store,
+            "?[path, is_test, is_barrel, is_generated] <- $rows \
+             :put file_classification {path => is_test, is_barrel, is_generated}",
+            std::mem::take(&mut self.file_classification),
+        )?;
+        flush(
+            store,
+            "?[file_path, line, suppressed_pattern] <- $rows \
+             :put nolint {file_path, line => suppressed_pattern}",
+            std::mem::take(&mut self.nolint),
         )?;
         flush(
             store,
