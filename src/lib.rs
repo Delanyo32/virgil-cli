@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod cli;
+pub mod cozo;
 pub mod graph;
 pub mod language;
 pub mod languages;
