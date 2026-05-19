@@ -1,4 +1,4 @@
-# 06 — The Deletion: remove pipeline, audit, taint, resource, CFG, JSON DSL
+# 06 — The Deletion: remove JSON pipeline + audit subcommand
 
 **Type:** AFK
 **Label:** ready-for-agent
@@ -15,21 +15,30 @@ surface.
 
 Delete:
 
-- `src/pipeline/` (entire dir): `dsl/`, `stages/`, `executor.rs`,
-  `helpers.rs`, `loader.rs`, `node_helpers.rs`, `output.rs`
+- `src/pipeline/dsl/` (entire dir)
+- `src/pipeline/stages/` (entire dir)
+- `src/pipeline/executor.rs`
+- `src/pipeline/loader.rs`, `src/pipeline/output.rs`,
+  `src/pipeline/node_helpers.rs`
 - `src/audit/` (entire dir): `engine.rs`, `models.rs`, `format.rs`, and
   the 297 audit JSON files under `builtin/`
-- `src/graph/taint/` (entire dir)
-- `src/graph/resource.rs`
-- `src/graph/cfg.rs` (the legacy in-memory data structures)
 - `src/main.rs` `audit` subcommand handler
 - JSON DSL parsing in the `projects query` subcommand
   (`--q '{json}'` goes away; `--cozoscript` / `--file` / `--template` are
   the only supported forms)
-- `CodeGraph` CFG-related fields/methods that the new fact pipeline made
-  redundant: `cfg_for_function`, `cfg_cache`, `inject_cfg`,
-  `function_cfg_indices`, `ensure_resource_graph` (and the lazy resource
-  pass it gates)
+
+Keep:
+
+- **`src/graph/taint/`**, **`src/graph/resource.rs`**, **`src/graph/cfg.rs`**,
+  and `CodeGraph::cfg_for_function` / `cfg_cache` / `inject_cfg` /
+  `function_cfg_indices` / `ensure_resource_graph`. After the CFG-facts
+  deprecation (issue 03), these are the only way taint and resource
+  analyses run. Issue 05's `taint_paths` and `unreleased_resources`
+  templates are Rust-side handlers that call into them.
+- **`src/pipeline/helpers.rs`** — `is_test_file` / `is_barrel_file` are
+  consumed by `src/cozo/from_code_graph.rs` for `file_classification`.
+  Move them to a small `src/classify.rs` (or similar) if you prefer not
+  to keep a `src/pipeline/` directory around just for two helpers.
 
 Update CLAUDE.md to drop references to deleted subsystems.
 
@@ -48,6 +57,11 @@ field: `security`, `architecture`, `code_style`, `tech_debt`,
 `complexity`, `scalability`) — at least one worked `--template`
 equivalent per category that previously had audits. The maintainer can
 expand to a usage-weighted guide post-merge if desired.
+
+**Scope narrowed** after issue 03 was deprecated: `src/graph/taint/`,
+`src/graph/resource.rs`, and `src/graph/cfg.rs` no longer go away.
+They're the runtime for the Rust-side `taint_paths` and
+`unreleased_resources` `--template` handlers in issue 05.
 
 ## Acceptance criteria
 

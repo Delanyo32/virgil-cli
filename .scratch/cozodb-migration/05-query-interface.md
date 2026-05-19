@@ -55,25 +55,26 @@ test but miss real findings, so each template needs a real-corpus smoke
 test (counts of rows returned on a representative project), and the
 results should be posted in the PR description for review.
 
-**`complexity_hotspots` is not a pure Cozoscript template.** Issue 04
-deprecated `metric_*` facts from the schema (see
-`04-metric-facts.md`'s Triage Notes), so the JOIN against
-`*metric_cyclomatic_complexity` in the proposal no longer works.
-Implement `complexity_hotspots` as a Rust-side `--template` handler
-that:
+**Three templates need Rust escape hatches**, not pure Cozoscript:
 
-1. Runs `?[id, name, file_path, start_line, end_line] := *symbol{...}`
-   with `*file_classification{path: file_path, is_test: false}` as a
-   guard.
-2. For each row, calls `crate::pipeline::stages::compute_metric::*` to
-   compute cyclomatic + length on demand (tree-sitter is fast enough
-   that this is a non-issue for typical workspaces).
-3. Filters by the `cc_threshold` / `length_threshold` `--param` values
-   and emits the audit-shaped `(file, line, severity, pattern, message)`
-   tuple.
+- **`complexity_hotspots`** — metric facts were deprecated in issue 04.
+  The handler queries `?[id, name, file_path, start_line, end_line] :=
+  *symbol{...}` filtered by `*file_classification{is_test: false}`,
+  calls `crate::pipeline::stages::compute_metric::*` to compute
+  cyclomatic + length on demand, then emits the audit-shape tuple.
 
-This is the only template that needs a Rust escape hatch — the rest are
-pure Cozoscript.
+- **`taint_paths`** — CFG facts were deprecated in issue 03. The handler
+  resolves source/sink patterns to symbols via Cozoscript, then calls
+  `src/graph/taint/` for the actual intra-function flow analysis, and
+  emits results as audit-shape tuples.
+
+- **`unreleased_resources`** — same reason as `taint_paths`. Handler
+  calls `src/graph/resource.rs` for the lifecycle check, formats
+  findings.
+
+The remaining 7 templates (`find_callers`, `find_callees`, `find_cycles`,
+`find_function_by_name`, `export_surface`, `import_depth`,
+`unused_symbols`) are pure Cozoscript over the cross-function graph.
 
 ## Acceptance criteria
 
@@ -93,6 +94,6 @@ pure Cozoscript.
 
 ## Blocked by
 
-- 02-cozo-schema-write-path
-- 03-cfg-fact-builder (taint_paths and unreleased_resources need CFG facts)
-- 04-metric-facts (complexity_hotspots needs metric_* facts)
+- 02-cozo-schema-write-path ✓
+- 04-metric-facts ✓ (narrowed scope; metrics stay on-demand)
+- 03-cfg-fact-builder was deprecated — no longer a dependency
