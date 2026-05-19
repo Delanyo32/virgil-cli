@@ -224,6 +224,9 @@ virgil-cli audit --s3 s3://bucket/prefix --language rs --category security
 | `--format` | Output format (table, json, csv) | `table` |
 | `--per-page` | Findings per page | `20` |
 | `--page` | Page number (1-indexed) | `1` |
+| `--no-cfg` | Skip per-function CFG construction. Disables `ExitsVia` edges, taint, and lifecycle analysis | false |
+| `--no-resource-graph` | Skip resource-lifecycle analysis (`Acquires` / `ReleasedBy` edges) | false |
+| `--symbols-only` | Shorthand: `--no-cfg` + `--no-resource-graph` | false |
 
 ### Categories
 
@@ -449,6 +452,9 @@ virgil-cli serve --s3 <URI> [OPTIONS]
 | `--port` | Port to bind (use `0` for OS-assigned) | `0` |
 | `-l`, `--lang` | Comma-separated language filter | all supported |
 | `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
+| `--no-cfg` | Skip per-function CFG construction. Disables `ExitsVia` edges, taint, and lifecycle analysis | false |
+| `--no-resource-graph` | Skip resource-lifecycle analysis (`Acquires` / `ReleasedBy` edges) | false |
+| `--symbols-only` | Shorthand: `--no-cfg` + `--no-resource-graph`. Smallest possible index | false |
 
 ### Lifecycle
 
@@ -534,7 +540,8 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 - **Static analysis** — 6 audit categories (security, architecture, tech_debt, code_style, scalability, complexity) with JSON-driven pipelines
 - **File reading** — read source files or specific line ranges via the `read` query field
 - **Multiple output formats** — outline, snippet, full, tree, locations, summary (all JSON)
-- **In-memory workspace** — files loaded upfront for fast repeated queries
+- **Bounded-memory workspace** — local directories use a disk-backed source with a small LRU; S3 workspaces load into memory at startup
+- **Lazy graph passes** — per-function CFGs and resource-lifecycle edges are built on demand; opt out entirely with `--no-cfg` / `--no-resource-graph` / `--symbols-only`
 - **S3 support** — query and audit codebases directly from AWS S3, Cloudflare R2, MinIO, or any S3-compatible storage
 - **Server mode** — persistent HTTP server that loads a codebase once and serves queries/audits over HTTP, avoiding repeated S3 downloads and re-parsing
 

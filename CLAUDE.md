@@ -17,6 +17,12 @@ cargo run -- audit ./src [--language rs] [--category security] [--pipeline sql_i
 cargo run -- audit --s3 s3://bucket/prefix [--language rs]
 # Serve mode
 cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
+# Skip expensive passes (memory/CPU savings — pipelines depending on them
+# silently produce no findings):
+cargo run -- serve --s3 s3://bucket/prefix --no-cfg
+cargo run -- serve --s3 s3://bucket/prefix --no-resource-graph
+cargo run -- serve --s3 s3://bucket/prefix --symbols-only
+# Same flags are available on `audit`.
 ```
 
 ## Module Layout
@@ -84,7 +90,7 @@ Critical gotchas and design decisions that are not obvious from reading the code
 **Threading constraints**
 - `tree_sitter::Parser` is `!Send` — create a fresh instance per rayon task (never share or pool)
 - `tree_sitter::Query` objects are `Arc`-shareable — compile once per language, share across threads
-- `CodeGraph` (`petgraph::DiGraph`) is `Send` but not `Sync` — share via `Arc<CodeGraph>` for read-only access
+- `CodeGraph` (`petgraph::DiGraph`) is `Send` but not `Sync` — share via `Arc<CodeGraph>` for read-only access. In `serve`, `AppState` wraps it in `Arc<RwLock<CodeGraph>>` so the lazy resource pass can take a brief write lock; queries hold the read lock.
 
 **File extension mapping**
 - `.h` files map to C (deliberate design choice). C++ headers must use `.hpp`/`.hxx`/`.hh`
@@ -116,6 +122,21 @@ Name-based resolution via `symbols_by_name` lookup — heuristic only, no type i
 **CfgExit nodes + `ExitsVia` edges (builder step 5e)**
 For every entry in `FunctionCfg.exits`, the builder emits one `NodeWeight::CfgExit` and a `Contains` edge plus an `EdgeWeight::ExitsVia(CfgExitKind)` edge from the symbol. `CfgExitKind` is picked from the inbound CFG edge with priority `Exception > Cleanup > TrueBranch > FalseBranch > Normal` (`classify_cfg_exit` in `builder.rs`). `exit_label`: branch-kind exits join the originating `Guard.condition_vars` with ` & `; exception-kind exits use the first `Call.name` in the exit block; normal/cleanup are `None`. The DSL exposes the edge as five flat `EdgeType` variants (`exits_via_normal/true/false/exception/cleanup`) — `EdgeType` itself is still a payload-free flat enum.
 
+**CFGs are not retained — they are rebuilt on demand**
+`CodeGraph` no longer carries a `function_cfgs: HashMap<NodeIndex, FunctionCfg>` map. Instead it exposes `function_cfg_indices: HashSet<NodeIndex>` (the function symbols whose CFGs *could* be built) plus a private `Mutex<HashMap<NodeIndex, FunctionCfg>>` lazy cache. `CodeGraph::cfg_for_function(workspace, idx)` re-parses the function's source and builds the CFG on demand, then caches it. Tests inject synthetic CFGs via `inject_cfg(idx, cfg)` and pass `workspace = None` to `TaintEngine::analyze_all` / `ResourceAnalyzer::analyze_all`. Production callers pass `Some(workspace)`.
+
+**Resource analysis is lazy**
+`GraphBuilder::build()` no longer calls `ResourceAnalyzer::analyze_all`. Call `graph.ensure_resource_graph(Some(&workspace))` (idempotent) to populate `Acquires`/`ReleasedBy` edges. CLI flows in `main.rs` call it eagerly after build. In `serve`, audit endpoints call `state.ensure_resource_graph()` once on first hit; query endpoints don't.
+
+**Streaming graph builder**
+`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over an `mpsc::channel` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). Per-file work — File/Symbol/CallSite nodes, `ExitsVia` edges, dropping the CFG — happens during absorption. Cross-file refs (`Imports`, `Calls` edges) are queued in `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains.
+
+**`BuildOptions` + skip flags**
+`GraphBuilder::with_options(BuildOptions { build_cfgs, build_resource_graph })` gates pass-by-pass work. `--no-cfg` clears `build_cfgs` (CFGs are not built at all, so `function_cfg_indices` stays empty and there are no `ExitsVia` / taint / lifecycle findings). `--no-resource-graph` clears `build_resource_graph` (suppresses `ensure_resource_graph`). `--symbols-only` is shorthand for both. Pipelines that depend on suppressed edges silently return no findings.
+
+**Local workspace is disk-backed**
+`Workspace::load` no longer reads file contents up front. It records sizes + language extensions only; `DiskFileSource` (`src/storage/file_source.rs`) reads on demand and caches in a small LRU (`lru` crate, cap 256). S3 workspaces still use the in-memory `MemoryFileSource` since fetches are batched at startup.
+
 **`PipelineNode` has new optional fields**
 `captures: HashMap<String,String>` (populated by `match_pattern`), `arg_literals: Vec<String>` and `enclosing_test_name: Option<String>` (populated by `select: call_site`). A `Default` impl exists so struct literals can use `..Default::default()` without listing every field.
 
@@ -145,8 +166,8 @@ stages that accumulate into a shared context. The old combined `taint` form cont
 Use `AuditEngine::categories(vec!["security".to_string()])` to filter by category.
 
 **Audit CLI**
-`virgil audit <DIR>|--s3 <URI> [--language] [--category] [--pipeline] [--format] [--per-page] [--page]`
-DIR is positional (no `--dir` flag). No nested subcommands. Category values match the `category` field in JSON pipeline files: `security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability`.
+`virgil audit <DIR>|--s3 <URI> [--language] [--category] [--pipeline] [--format] [--per-page] [--page] [--no-cfg] [--no-resource-graph] [--symbols-only]`
+DIR is positional (no `--dir` flag). No nested subcommands. Category values match the `category` field in JSON pipeline files: `security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability`. Skip flags also exist on `serve`.
 
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills
