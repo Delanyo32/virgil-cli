@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 use crate::cozo::{self, CozoStore};
-use crate::graph::builder::{BuildOptions, GraphBuilder};
+use crate::graph::builder::GraphBuilder;
 use crate::language::Language;
 use crate::queries::{QueryRequest, QuerySource, run as run_query};
 use crate::storage::workspace::Workspace;
@@ -57,14 +57,11 @@ pub async fn run_server(
     port: u16,
     _lang_string: Option<String>,
     languages: Vec<Language>,
-    build_options: BuildOptions,
 ) -> Result<()> {
     let cache_path = cozo::cache_dir_for(source_id)?;
     let store = CozoStore::open_persistent(&cache_path)?;
     if store.fresh() {
-        let code_graph = GraphBuilder::new(&workspace, &languages)
-            .with_options(build_options)
-            .build()?;
+        let code_graph = GraphBuilder::new(&workspace, &languages).build()?;
         cozo::populate(&store, &code_graph, Some(&workspace))?;
         cozo::resolve_cross_file_edges(&store)?;
     } else {

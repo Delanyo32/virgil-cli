@@ -4,18 +4,16 @@ use std::sync::mpsc;
 use std::thread;
 
 use anyhow::Result;
-use petgraph::graph::NodeIndex;
 use rayon::prelude::*;
 use tree_sitter::Query;
 
 use crate::language::Language;
 use crate::languages;
-use crate::models::{ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{ImportInfo, SymbolInfo};
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
-use super::cfg::{CfgStatementKind, FunctionCfg};
-use super::{CfgExitKind, CodeGraph, EdgeWeight, NodeWeight, Spur};
+use super::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight, Spur};
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -24,8 +22,6 @@ struct FileGraphData {
     symbols: Vec<SymbolInfo>,
     imports: Vec<ImportInfo>,
     call_sites: Vec<CallSiteData>,
-    /// CFGs built for functions in this file: (symbol start_line, cfg)
-    function_cfgs: Vec<(u32, FunctionCfg)>,
 }
 
 /// A call site extracted from within a symbol's line range.
@@ -54,33 +50,9 @@ struct DeferredCall {
     callee_name: String,
 }
 
-/// Knobs for skipping passes the caller does not need. Defaults run every
-/// pass (current behaviour). Skipping a pass keeps the corresponding edges
-/// out of the graph entirely — any audit pipeline that depends on them will
-/// silently produce no findings.
-#[derive(Debug, Clone, Copy)]
-pub struct BuildOptions {
-    /// When false, per-function CFGs are not built. This disables `ExitsVia`
-    /// edges, taint analysis (no functions to walk), and the lifecycle pass.
-    pub build_cfgs: bool,
-    /// When false, the lifecycle pass that emits `Acquires` / `ReleasedBy`
-    /// edges is suppressed even on explicit `ensure_resource_graph` calls.
-    pub build_resource_graph: bool,
-}
-
-impl Default for BuildOptions {
-    fn default() -> Self {
-        Self {
-            build_cfgs: true,
-            build_resource_graph: true,
-        }
-    }
-}
-
 pub struct GraphBuilder<'a> {
     workspace: &'a Workspace,
     languages: &'a [Language],
-    options: BuildOptions,
 }
 
 impl<'a> GraphBuilder<'a> {
@@ -88,13 +60,7 @@ impl<'a> GraphBuilder<'a> {
         Self {
             workspace,
             languages,
-            options: BuildOptions::default(),
         }
-    }
-
-    pub fn with_options(mut self, options: BuildOptions) -> Self {
-        self.options = options;
-        self
     }
 
     pub fn build(&self) -> Result<CodeGraph> {
@@ -131,10 +97,7 @@ impl<'a> GraphBuilder<'a> {
         // Parse workers send each `FileGraphData` to the drainer over a
         // bounded channel — backpressure caps peak memory at roughly
         // `2 * num_cpus` in-flight `FileGraphData` values, instead of letting
-        // a slow drainer accumulate the whole workspace in the queue. The
-        // drainer absorbs file-local edges (File/Symbol/CallSite nodes,
-        // ExitsVia) immediately and drops the message, so the intermediate
-        // `FunctionCfg`s and call-site metadata don't pile up.
+        // a slow drainer accumulate the whole workspace in the queue.
         //
         // Cross-file references (imports, Calls edges) need every symbol to
         // be registered first, so they are buffered as small `Deferred*`
@@ -152,7 +115,6 @@ impl<'a> GraphBuilder<'a> {
         let sym_q = Arc::clone(&symbol_queries);
         let imp_q = Arc::clone(&import_queries);
         let grouped_files_ref = &grouped_files;
-        let build_cfgs = self.options.build_cfgs;
 
         thread::scope(|s| -> Result<()> {
             let parallelism = thread::available_parallelism()
@@ -166,9 +128,9 @@ impl<'a> GraphBuilder<'a> {
                     grouped_files_ref
                         .par_iter()
                         .for_each_with(tx, |tx, &(lang, rel_path)| {
-                            if let Some(data) = parse_one_file(
-                                lang, rel_path, workspace, &sym_q, &imp_q, build_cfgs,
-                            ) {
+                            if let Some(data) =
+                                parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q)
+                            {
                                 let _ = tx.send(data);
                             }
                         });
@@ -196,9 +158,7 @@ impl<'a> GraphBuilder<'a> {
                 && let Some(&to_file_idx) = graph.file_nodes.get(&to_spur)
                 && from_file_idx != to_file_idx
             {
-                graph
-                    .graph
-                    .add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
+                graph.add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
             }
         }
 
@@ -207,22 +167,17 @@ impl<'a> GraphBuilder<'a> {
             let Some(callee_spur) = graph.symbols.get(&dc.callee_name) else {
                 continue;
             };
-            if let Some(targets) = graph.symbols_by_name.get(&callee_spur) {
-                for &target_idx in targets {
-                    if target_idx != dc.caller_idx {
-                        graph
-                            .graph
-                            .add_edge(dc.caller_idx, target_idx, EdgeWeight::Calls);
-                    }
+            let targets: Vec<NodeIndex> = graph
+                .symbols_by_name
+                .get(&callee_spur)
+                .cloned()
+                .unwrap_or_default();
+            for target_idx in targets {
+                if target_idx != dc.caller_idx {
+                    graph.add_edge(dc.caller_idx, target_idx, EdgeWeight::Calls);
                 }
             }
         }
-
-        // Resource lifecycle analysis is no longer run here. Callers that need
-        // `Acquires` / `ReleasedBy` edges call `graph.ensure_resource_graph(workspace)`
-        // explicitly (CLI flows) or trigger the lazy populate path on `AppState`
-        // (serve flow). This keeps boot-time memory and CPU off the critical path
-        // for callers that never query lifecycle edges.
 
         Ok(graph)
     }
@@ -236,7 +191,6 @@ fn parse_one_file(
     workspace: &Workspace,
     symbol_queries: &HashMap<Language, Arc<Query>>,
     import_queries: &HashMap<Language, Arc<Query>>,
-    build_cfgs: bool,
 ) -> Option<FileGraphData> {
     let sym_query = symbol_queries.get(&lang)?;
     let imp_query = import_queries.get(&lang)?;
@@ -271,28 +225,15 @@ fn parse_one_file(
         );
     }
 
-    let function_cfgs = if build_cfgs {
-        build_function_cfgs(&tree, source.as_bytes(), &symbols, lang)
-    } else {
-        Vec::new()
-    };
-
     Some(FileGraphData {
         path: rel_path.to_string(),
         language: lang,
         symbols,
         imports,
         call_sites,
-        function_cfgs,
     })
 }
 
-/// Absorb one `FileGraphData` into the graph: emit File/Symbol/CallSite
-/// nodes and ExitsVia edges, then drop `data` so its `FunctionCfg`s and
-/// call-site metadata are freed before the next message arrives.
-///
-/// Cross-file edges (Imports, Calls) are queued in `deferred_imports` and
-/// `deferred_calls` because they need every Symbol to be registered first.
 fn absorb_file_data(
     graph: &mut CodeGraph,
     data: FileGraphData,
@@ -305,22 +246,21 @@ fn absorb_file_data(
         symbols,
         imports,
         call_sites,
-        function_cfgs,
     } = data;
 
-    // 5a: File node
+    // File node
     let path_spur = graph.symbols.intern(&path);
-    let file_idx = graph.graph.add_node(NodeWeight::File {
+    let file_idx = graph.add_node(NodeWeight::File {
         path: path_spur,
         language,
     });
     graph.file_nodes.insert(path_spur, file_idx);
 
-    // 5b: Symbol nodes + DefinedIn/Contains/Exports
+    // Symbol nodes + DefinedIn/Contains/Exports
     for sym in &symbols {
         let sym_file_spur = graph.symbols.intern(&sym.file_path);
         let sym_name_spur = graph.symbols.intern(&sym.name);
-        let sym_idx = graph.graph.add_node(NodeWeight::Symbol {
+        let sym_idx = graph.add_node(NodeWeight::Symbol {
             name: sym_name_spur,
             kind: sym.kind,
             file_path: sym_file_spur,
@@ -328,14 +268,10 @@ fn absorb_file_data(
             end_line: sym.end_line,
             exported: sym.is_exported,
         });
-        graph
-            .graph
-            .add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
-        graph
-            .graph
-            .add_edge(file_idx, sym_idx, EdgeWeight::Contains);
+        graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
+        graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
         if sym.is_exported {
-            graph.graph.add_edge(file_idx, sym_idx, EdgeWeight::Exports);
+            graph.add_edge(file_idx, sym_idx, EdgeWeight::Exports);
         }
         graph
             .symbol_nodes
@@ -347,7 +283,7 @@ fn absorb_file_data(
             .push(sym_idx);
     }
 
-    // 5c: queue imports for cross-file resolution. Also stash them on the
+    // Queue imports for cross-file resolution. Also stash them on the
     // graph so the Cozo writer can persist raw_imports for incremental
     // refresh (issue 08).
     graph
@@ -363,7 +299,7 @@ fn absorb_file_data(
         });
     }
 
-    // 5d: CallSite nodes + Contains edges. Calls edges are deferred until
+    // CallSite nodes + Contains edges. Calls edges are deferred until
     // every Symbol is registered.
     for cs in call_sites {
         let caller_file_spur = graph.symbols.intern(&cs.caller_file);
@@ -386,7 +322,7 @@ fn absorb_file_data(
             .enclosing_test_name
             .as_deref()
             .map(|s| graph.symbols.intern(s));
-        let callsite_idx = graph.graph.add_node(NodeWeight::CallSite {
+        let callsite_idx = graph.add_node(NodeWeight::CallSite {
             name: callee_spur,
             file_path: caller_file_spur,
             line: cs.line,
@@ -395,48 +331,11 @@ fn absorb_file_data(
             caller_symbol: caller_idx,
         });
         if let Some(caller_idx) = caller_idx {
-            graph
-                .graph
-                .add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
+            graph.add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
             deferred_calls.push(DeferredCall {
                 caller_idx,
                 callee_name: cs.callee_name,
             });
-        }
-    }
-
-    // 5e: ExitsVia edges from CFGs. CFGs are consumed here and dropped.
-    for (start_line, cfg) in function_cfgs {
-        let Some(&sym_idx) = graph.symbol_nodes.get(&(path_spur, start_line)) else {
-            continue;
-        };
-        graph.function_cfg_indices.insert(sym_idx);
-        let function_name_spur = match &graph.graph[sym_idx] {
-            NodeWeight::Symbol { name, .. } => *name,
-            _ => continue,
-        };
-        for &exit_block in &cfg.exits {
-            let (exit_kind, exit_label) = classify_cfg_exit(&cfg, exit_block);
-            let exit_label_spur = exit_label.as_deref().map(|s| graph.symbols.intern(s));
-            let exit_line = cfg.blocks[exit_block]
-                .statements
-                .last()
-                .map(|s| s.line)
-                .unwrap_or(start_line);
-            let exit_idx = graph.graph.add_node(NodeWeight::CfgExit {
-                function_node: sym_idx,
-                function_name: function_name_spur,
-                file_path: path_spur,
-                line: exit_line,
-                exit_kind: exit_kind.clone(),
-                exit_label: exit_label_spur,
-            });
-            graph
-                .graph
-                .add_edge(sym_idx, exit_idx, EdgeWeight::Contains);
-            graph
-                .graph
-                .add_edge(sym_idx, exit_idx, EdgeWeight::ExitsVia(exit_kind));
         }
     }
 }
@@ -456,114 +355,9 @@ fn resolve_import_to_file(
     })
 }
 
-// --- CFG building ---
-
-/// Build CFGs for all function/method symbols in a parsed file.
-fn build_function_cfgs(
-    tree: &tree_sitter::Tree,
-    source: &[u8],
-    symbols: &[SymbolInfo],
-    language: Language,
-) -> Vec<(u32, FunctionCfg)> {
-    let builder = match crate::languages::cfg::cfg_builder_for_language(language) {
-        Some(b) => b,
-        None => return Vec::new(),
-    };
-
-    let mut cfgs = Vec::new();
-
-    for sym in symbols {
-        // Only build CFGs for function-like symbols
-        match sym.kind {
-            SymbolKind::Function | SymbolKind::Method | SymbolKind::ArrowFunction => {}
-            _ => continue,
-        }
-
-        // Find the tree-sitter node for this function by line range
-        if let Some(func_node) = find_node_at_line(tree.root_node(), sym.start_line, sym.end_line)
-            && let Ok(cfg) = builder.build_cfg(&func_node, source)
-        {
-            cfgs.push((sym.start_line, cfg));
-        }
-    }
-
-    cfgs
-}
-
-/// Classify how a function reaches `exit_block`. The kind comes from the
-/// edge weight on the (single) inbound edge — when an exit block has multiple
-/// inbound edges of different kinds, kinds are picked in priority order
-/// Exception > Cleanup > TrueBranch > FalseBranch > Normal.
-///
-/// `exit_label`:
-/// - branches: `condition_vars.join(" & ")` from the originating Guard, if any.
-/// - exception: callee name of any `Call` in the exit block.
-/// - normal/cleanup: `None`.
-fn classify_cfg_exit(
-    cfg: &FunctionCfg,
-    exit_block: petgraph::graph::NodeIndex,
-) -> (CfgExitKind, Option<String>) {
-    use petgraph::Direction;
-    use petgraph::visit::EdgeRef;
-
-    // Pick the highest-priority inbound edge kind.
-    let mut best: Option<CfgExitKind> = None;
-    for edge in cfg.blocks.edges_directed(exit_block, Direction::Incoming) {
-        let kind = CfgExitKind::from_cfg_edge(edge.weight());
-        best = Some(match (best.take(), kind) {
-            (None, k) => k,
-            (Some(prev), k) => higher_priority(prev, k),
-        });
-    }
-    let kind = best.unwrap_or(CfgExitKind::Normal);
-
-    let label = match &kind {
-        CfgExitKind::TrueBranch | CfgExitKind::FalseBranch => {
-            // Walk inbound edges, find the predecessor block whose Guard
-            // statement preceded this branch, and join its condition_vars.
-            let mut label = None;
-            for edge in cfg.blocks.edges_directed(exit_block, Direction::Incoming) {
-                let pred = edge.source();
-                for stmt in &cfg.blocks[pred].statements {
-                    if let CfgStatementKind::Guard { condition_vars } = &stmt.kind
-                        && !condition_vars.is_empty()
-                    {
-                        label = Some(condition_vars.join(" & "));
-                    }
-                }
-            }
-            label
-        }
-        CfgExitKind::Exception => {
-            cfg.blocks[exit_block]
-                .statements
-                .iter()
-                .find_map(|s| match &s.kind {
-                    CfgStatementKind::Call { name, .. } => Some(name.clone()),
-                    _ => None,
-                })
-        }
-        _ => None,
-    };
-
-    (kind, label)
-}
-
-fn higher_priority(a: CfgExitKind, b: CfgExitKind) -> CfgExitKind {
-    fn rank(k: &CfgExitKind) -> u8 {
-        match k {
-            CfgExitKind::Exception => 4,
-            CfgExitKind::Cleanup => 3,
-            CfgExitKind::TrueBranch => 2,
-            CfgExitKind::FalseBranch => 1,
-            CfgExitKind::Normal => 0,
-        }
-    }
-    if rank(&b) > rank(&a) { b } else { a }
-}
-
-/// Find a tree-sitter node that matches the given line range.
-pub(crate) fn find_node_at_line(
+/// Find a tree-sitter node that matches the given line range. Used by
+/// `complexity_hotspots` for on-demand metric computation.
+pub fn find_node_at_line(
     node: tree_sitter::Node,
     start_line: u32,
     end_line: u32,
@@ -575,7 +369,6 @@ pub(crate) fn find_node_at_line(
         return Some(node);
     }
 
-    // Skip nodes that don't contain the target
     if node_end < start_line || node_start > end_line {
         return None;
     }
@@ -589,8 +382,6 @@ pub(crate) fn find_node_at_line(
 
     None
 }
-
-// --- Call extraction (ported from call_graph.rs) ---
 
 fn call_expression_types(language: Language) -> Vec<&'static str> {
     match language {
@@ -659,10 +450,6 @@ fn collect_calls_in_range(
     }
 }
 
-/// Extract literal arguments (strings/numbers/bools) from a call expression node.
-/// Non-literal arguments are skipped. The list of node kinds matched is the union
-/// across all 10 supported tree-sitter grammars; per-language refinement is a
-/// follow-up.
 fn extract_call_args(node: tree_sitter::Node, source: &[u8]) -> Vec<String> {
     let args_node = match node
         .child_by_field_name("arguments")
@@ -782,8 +569,8 @@ mod tests {
 
     fn collect_callsites(graph: &CodeGraph) -> Vec<&NodeWeight> {
         graph
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
             .filter(|nw| matches!(nw, NodeWeight::CallSite { .. }))
             .collect()
     }
@@ -802,7 +589,6 @@ fn qux() {}
         .unwrap();
         let graph = build_graph(dir.path(), &[Language::Rust]);
         let callsites = collect_callsites(&graph);
-        // foo calls bar/baz/qux — three call expressions inside foo.
         assert!(
             callsites.len() >= 3,
             "expected >= 3 callsites, got {}",
@@ -822,8 +608,8 @@ fn bar(_a: &str, _b: i32) {}
         .unwrap();
         let graph = build_graph(dir.path(), &[Language::Rust]);
         let bar_call = graph
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
             .find_map(|nw| match nw {
                 NodeWeight::CallSite {
                     name, arg_literals, ..
@@ -838,7 +624,11 @@ fn bar(_a: &str, _b: i32) {}
             "expected hello in {:?}",
             resolved
         );
-        assert!(resolved.iter().any(|s| *s == "42"), "expected 42 in {:?}", resolved);
+        assert!(
+            resolved.iter().any(|s| *s == "42"),
+            "expected 42 in {:?}",
+            resolved
+        );
     }
 
     #[test]
@@ -853,8 +643,8 @@ fn bar(_z: i32) {}
         .unwrap();
         let graph = build_graph(dir.path(), &[Language::Rust]);
         let bar_call = graph
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
             .find_map(|nw| match nw {
                 NodeWeight::CallSite {
                     name, arg_literals, ..
@@ -862,11 +652,7 @@ fn bar(_z: i32) {}
                 _ => None,
             })
             .expect("bar callsite");
-        assert!(
-            bar_call.is_none(),
-            "expected no literals, got {:?}",
-            bar_call
-        );
+        assert!(bar_call.is_none(), "expected no literals, got {:?}", bar_call);
     }
 
     #[test]
@@ -886,8 +672,8 @@ def user_login(name):
         .unwrap();
         let graph = build_graph(dir.path(), &[Language::Python]);
         let cs = graph
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
             .find_map(|nw| match nw {
                 NodeWeight::CallSite {
                     name,
@@ -900,65 +686,6 @@ def user_login(name):
             })
             .expect("user_login callsite");
         assert_eq!(cs.as_deref(), Some("test_login"));
-    }
-
-    fn collect_cfg_exits(graph: &CodeGraph) -> Vec<&NodeWeight> {
-        graph
-            .graph
-            .node_weights()
-            .filter(|nw| matches!(nw, NodeWeight::CfgExit { .. }))
-            .collect()
-    }
-
-    #[test]
-    fn test_select_cfg_exit_normal_return_rust() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.rs"), "fn foo() { let _ = 1; }\n").unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
-        let exits = collect_cfg_exits(&graph);
-        assert!(!exits.is_empty(), "expected at least one CfgExit node");
-        assert!(exits.iter().any(|nw| matches!(
-            nw,
-            NodeWeight::CfgExit {
-                exit_kind: CfgExitKind::Normal,
-                ..
-            }
-        )));
-    }
-
-    #[test]
-    fn test_select_cfg_exit_no_cfg_for_non_function_symbol() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.rs"), "struct Foo;\n").unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
-        // No function -> no CfgExit nodes.
-        assert!(collect_cfg_exits(&graph).is_empty());
-    }
-
-    #[test]
-    fn test_exits_via_edge_emitted_for_each_exit() {
-        use petgraph::Direction;
-
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.rs"), "fn foo() { let _ = 1; }\n").unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
-
-        // Find the function symbol and assert it has at least one outgoing
-        // ExitsVia edge.
-        let foo_idx = graph
-            .graph
-            .node_indices()
-            .find(|&i| match &graph.graph[i] {
-                NodeWeight::Symbol { name, .. } => graph.symbols.resolve(*name) == "foo",
-                _ => false,
-            })
-            .expect("foo symbol");
-        let count = graph
-            .graph
-            .edges_directed(foo_idx, Direction::Outgoing)
-            .filter(|e| matches!(e.weight(), EdgeWeight::ExitsVia(_)))
-            .count();
-        assert!(count >= 1, "expected ExitsVia edge from foo");
     }
 
     #[test]
@@ -976,8 +703,8 @@ def user_login(name):
         .unwrap();
         let graph = build_graph(dir.path(), &[Language::Python]);
         let cs = graph
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
             .find_map(|nw| match nw {
                 NodeWeight::CallSite {
                     name,

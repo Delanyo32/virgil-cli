@@ -37,14 +37,12 @@ pub type Handler = fn(&Context<'_>) -> Result<QueryOutput>;
 pub fn lookup(name: &str) -> Option<Handler> {
     match name {
         "complexity_hotspots" => Some(complexity_hotspots),
-        "taint_paths" => Some(taint_paths),
-        "unreleased_resources" => Some(unreleased_resources),
         _ => None,
     }
 }
 
 pub fn names() -> &'static [&'static str] {
-    &["complexity_hotspots", "taint_paths", "unreleased_resources"]
+    &["complexity_hotspots"]
 }
 
 fn parse_int(params: &BTreeMap<String, String>, key: &str, default: i64) -> i64 {
@@ -151,17 +149,3 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
     Ok(QueryOutput::Findings(findings))
 }
 
-/// taint_paths — placeholder handler. The full taint analysis lives in
-/// `src/graph/taint/` and is configured via JSON pipelines today. The
-/// handler is wired up but currently returns an empty result; a follow-up
-/// PR will route `--param source=... --param sink=...` into a one-off
-/// `TaintConfig` and call `TaintEngine::analyze_all`.
-fn taint_paths(_ctx: &Context<'_>) -> Result<QueryOutput> {
-    Ok(QueryOutput::Findings(Vec::new()))
-}
-
-/// unreleased_resources — placeholder handler. Wires into
-/// `src/graph/resource.rs`; same follow-up note as `taint_paths`.
-fn unreleased_resources(_ctx: &Context<'_>) -> Result<QueryOutput> {
-    Ok(QueryOutput::Findings(Vec::new()))
-}

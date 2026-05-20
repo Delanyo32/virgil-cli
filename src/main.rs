@@ -105,9 +105,6 @@ fn main() -> Result<()> {
             port,
             lang,
             exclude,
-            no_cfg,
-            no_resource_graph,
-            symbols_only,
         } => {
             let languages = match &lang {
                 Some(f) => language::parse_language_filter(f),
@@ -146,11 +143,6 @@ fn main() -> Result<()> {
                 }
             );
 
-            let build_options = virgil_cli::graph::builder::BuildOptions {
-                build_cfgs: !(no_cfg || symbols_only),
-                build_resource_graph: !(no_resource_graph || symbols_only),
-            };
-
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(server::run_server(
                 workspace,
@@ -159,7 +151,6 @@ fn main() -> Result<()> {
                 port,
                 lang,
                 languages,
-                build_options,
             ))?;
             Ok(())
         }

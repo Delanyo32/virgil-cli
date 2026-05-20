@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use cozo::DataValue;
-use petgraph::visit::EdgeRef;
 
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 use crate::classify::{is_barrel_file, is_test_file};
@@ -45,9 +44,9 @@ pub fn populate_with_id_offset(
 ) -> Result<()> {
     let mut writer = CozoWriter::new();
 
-    for node_idx in graph.graph.node_indices() {
-        let id = id_offset + node_idx.index() as i64;
-        match &graph.graph[node_idx] {
+    for node_idx in graph.node_indices() {
+        let id = id_offset + node_idx as i64;
+        match &graph.nodes[node_idx] {
             NodeWeight::File { path, language } => {
                 let path = graph.symbols.resolve(*path);
                 writer.push_file(path, language.as_str());
@@ -111,54 +110,46 @@ pub fn populate_with_id_offset(
                     name,
                     file_path,
                     *line as i64,
-                    caller_symbol.map(|idx| id_offset + idx.index() as i64),
+                    caller_symbol.map(|idx| id_offset + idx as i64),
                     test_name,
                 );
             }
-            // Parameter / ExternalSource / CfgExit aren't part of the issue 02
-            // cross-function schema — they land with CFG facts in issue 03.
-            _ => {}
         }
     }
 
-    for edge_ref in graph.graph.edge_references() {
-        let from = id_offset + edge_ref.source().index() as i64;
-        let to = id_offset + edge_ref.target().index() as i64;
-        match edge_ref.weight() {
-            EdgeWeight::DefinedIn => {
-                // edge source is a Symbol, target is a File. Translate to the
-                // schema's (symbol_id, file_path) shape.
-                if let NodeWeight::File { path, .. } = &graph.graph[edge_ref.target()] {
-                    let path = graph.symbols.resolve(*path);
-                    writer.push_edge_defined_in(from, path);
+    for source_idx in graph.node_indices() {
+        for (target_idx, weight) in &graph.out_edges[source_idx] {
+            let from = id_offset + source_idx as i64;
+            let to = id_offset + *target_idx as i64;
+            match weight {
+                EdgeWeight::DefinedIn => {
+                    if let NodeWeight::File { path, .. } = &graph.nodes[*target_idx] {
+                        let path = graph.symbols.resolve(*path);
+                        writer.push_edge_defined_in(from, path);
+                    }
+                }
+                EdgeWeight::Calls => {
+                    writer.push_edge_calls(from, to);
+                }
+                EdgeWeight::Imports => {
+                    if let (NodeWeight::File { path: from_p, .. }, NodeWeight::File { path: to_p, .. }) =
+                        (&graph.nodes[source_idx], &graph.nodes[*target_idx])
+                    {
+                        let from_path = graph.symbols.resolve(*from_p);
+                        let to_path = graph.symbols.resolve(*to_p);
+                        writer.push_edge_imports(from_path, to_path);
+                    }
+                }
+                EdgeWeight::Exports => {
+                    if let NodeWeight::File { path, .. } = &graph.nodes[source_idx] {
+                        let file_path = graph.symbols.resolve(*path);
+                        writer.push_edge_exports(file_path, to);
+                    }
+                }
+                EdgeWeight::Contains => {
+                    writer.push_edge_contains(from, to);
                 }
             }
-            EdgeWeight::Calls => {
-                writer.push_edge_calls(from, to);
-            }
-            EdgeWeight::Imports => {
-                // File -> File. Schema wants (from_path, to_path).
-                if let (NodeWeight::File { path: from_p, .. }, NodeWeight::File { path: to_p, .. }) =
-                    (&graph.graph[edge_ref.source()], &graph.graph[edge_ref.target()])
-                {
-                    let from_path = graph.symbols.resolve(*from_p);
-                    let to_path = graph.symbols.resolve(*to_p);
-                    writer.push_edge_imports(from_path, to_path);
-                }
-            }
-            EdgeWeight::Exports => {
-                // File -> Symbol. Schema wants (file_path, symbol_id).
-                if let NodeWeight::File { path, .. } = &graph.graph[edge_ref.source()] {
-                    let file_path = graph.symbols.resolve(*path);
-                    writer.push_edge_exports(file_path, to);
-                }
-            }
-            EdgeWeight::Contains => {
-                writer.push_edge_contains(from, to);
-            }
-            // FlowsTo / SanitizedBy / Acquires / ReleasedBy / ExitsVia all
-            // belong to CFG / taint / resource passes and land in later issues.
-            _ => {}
         }
     }
 

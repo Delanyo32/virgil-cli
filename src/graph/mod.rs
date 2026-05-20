@@ -1,30 +1,16 @@
 pub mod builder;
-pub mod cfg;
 pub mod intern;
 pub mod metrics;
-pub mod resource;
-pub mod taint;
 
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
-use std::sync::Mutex;
-
-use lru::LruCache;
-use petgraph::Direction;
-use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::visit::EdgeRef;
+use std::collections::HashMap;
 
 pub use intern::{Spur, Symbols};
 
-/// Maximum number of `FunctionCfg`s held in the lazy cache. CFGs are heavy
-/// (per-function petgraph with statements + edges) and previously accumulated
-/// without bound on long-running `serve` sessions. The cap keeps the cache
-/// resident set bounded while still letting hot functions stay warm.
-const DEFAULT_CFG_CACHE_CAP: usize = 512;
-
 use crate::language::Language;
 use crate::models::{ImportInfo, SymbolKind};
-use crate::storage::workspace::Workspace;
+
+/// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
+pub type NodeIndex = usize;
 
 /// A node in the import resolution result. Most languages resolve to a file;
 /// Go resolves to a package directory.
@@ -32,47 +18,6 @@ use crate::storage::workspace::Workspace;
 pub enum GraphNode {
     File(String),
     Package(String),
-}
-
-#[derive(Debug, Clone)]
-pub enum SourceKind {
-    UserInput,
-    DatabaseRead,
-    FileRead,
-    EnvironmentVar,
-    NetworkRead,
-    Deserialization,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CfgExitKind {
-    Normal,
-    TrueBranch,
-    FalseBranch,
-    Exception,
-    Cleanup,
-}
-
-impl CfgExitKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::TrueBranch => "true_branch",
-            Self::FalseBranch => "false_branch",
-            Self::Exception => "exception",
-            Self::Cleanup => "cleanup",
-        }
-    }
-
-    pub fn from_cfg_edge(e: &cfg::CfgEdge) -> Self {
-        match e {
-            cfg::CfgEdge::Normal => Self::Normal,
-            cfg::CfgEdge::TrueBranch => Self::TrueBranch,
-            cfg::CfgEdge::FalseBranch => Self::FalseBranch,
-            cfg::CfgEdge::Exception => Self::Exception,
-            cfg::CfgEdge::Cleanup => Self::Cleanup,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -104,25 +49,6 @@ pub enum NodeWeight {
         /// The Symbol node that contains this call site, if any.
         caller_symbol: Option<NodeIndex>,
     },
-    Parameter {
-        name: Spur,
-        function_node: NodeIndex,
-        position: usize,
-        is_taint_source: bool,
-    },
-    ExternalSource {
-        kind: SourceKind,
-        file_path: Spur,
-        line: u32,
-    },
-    CfgExit {
-        function_node: NodeIndex,
-        function_name: Spur,
-        file_path: Spur,
-        line: u32,
-        exit_kind: CfgExitKind,
-        exit_label: Option<Spur>,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -130,17 +56,22 @@ pub enum EdgeWeight {
     DefinedIn,
     Calls,
     Imports,
-    FlowsTo,
-    SanitizedBy { sanitizer: Spur },
     Exports,
-    Acquires { resource_type: Spur },
-    ReleasedBy,
     Contains,
-    ExitsVia(CfgExitKind),
 }
 
+/// In-memory build-time graph. Lives for the duration of a cold or
+/// incremental build, then gets walked once by `cozo::populate` and
+/// dropped. Replaces the old `petgraph::DiGraph` with a flat
+/// adjacency-list — same operations, no external dependency.
 pub struct CodeGraph {
-    pub graph: DiGraph<NodeWeight, EdgeWeight>,
+    pub nodes: Vec<NodeWeight>,
+    /// Edges grouped by source node id. `out_edges[u]` lists every
+    /// outbound `(target, weight)` from node `u`.
+    pub out_edges: Vec<Vec<(NodeIndex, EdgeWeight)>>,
+    /// Edges grouped by target node id. Mirrors `out_edges` for
+    /// constant-time incoming-edge lookup.
+    pub in_edges: Vec<Vec<(NodeIndex, EdgeWeight)>>,
     /// Shared string interner. Every interned `Spur` (file path, symbol name)
     /// is resolvable through this handle.
     pub symbols: Symbols,
@@ -150,21 +81,10 @@ pub struct CodeGraph {
     pub symbol_nodes: HashMap<(Spur, u32), NodeIndex>,
     /// symbol name (interned) -> list of NodeIndex for all symbols with that name
     pub symbols_by_name: HashMap<Spur, Vec<NodeIndex>>,
-    /// Set of function NodeIndex values for which a CFG can be built. The CFGs
-    /// themselves are NOT stored — they are rebuilt on demand by
-    /// `cfg_for_function` to keep boot-time memory low.
-    pub function_cfg_indices: HashSet<NodeIndex>,
     /// Raw import-info per file, preserved so the Cozo writer can persist
     /// pre-resolution import data into `raw_import` for the incremental
     /// refresh path (issue 08). Keyed by source file path.
     pub raw_imports: HashMap<String, Vec<ImportInfo>>,
-    /// Lazy CFG cache, bounded LRU. Populated on first call to
-    /// `cfg_for_function` for a given function. Tests may pre-populate via
-    /// `inject_cfg`. Cap defaults to `DEFAULT_CFG_CACHE_CAP` (512).
-    cfg_cache: Mutex<LruCache<NodeIndex, cfg::FunctionCfg>>,
-    /// Sentinel for the resource-lifecycle pass. `ensure_resource_graph` runs
-    /// `ResourceAnalyzer::analyze_all` at most once.
-    resource_analyzed: bool,
 }
 
 impl Default for CodeGraph {
@@ -176,127 +96,42 @@ impl Default for CodeGraph {
 impl CodeGraph {
     pub fn new() -> Self {
         Self {
-            graph: DiGraph::new(),
+            nodes: Vec::new(),
+            out_edges: Vec::new(),
+            in_edges: Vec::new(),
             symbols: Symbols::new(),
             file_nodes: HashMap::new(),
             symbol_nodes: HashMap::new(),
             symbols_by_name: HashMap::new(),
-            function_cfg_indices: HashSet::new(),
             raw_imports: HashMap::new(),
-            cfg_cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(DEFAULT_CFG_CACHE_CAP).expect("cap > 0"),
-            )),
-            resource_analyzed: false,
         }
     }
 
-    /// Fetch or rebuild the CFG for a function node.
-    /// - Returns a cached CFG if one was previously built or injected.
-    /// - Otherwise, if `workspace` is provided, re-parses the function's source
-    ///   and constructs a fresh CFG, caches it, and returns it.
-    /// - Returns `None` if the node is not a function, the workspace cannot
-    ///   read its source, or the language has no CFG builder.
-    pub fn cfg_for_function(
-        &self,
-        workspace: Option<&Workspace>,
-        idx: NodeIndex,
-    ) -> Option<cfg::FunctionCfg> {
-        if let Ok(mut cache) = self.cfg_cache.lock()
-            && let Some(c) = cache.get(&idx)
-        {
-            return Some(c.clone());
-        }
-        let workspace = workspace?;
-        let (file_path, start_line, end_line) = match self.graph.node_weight(idx)? {
-            NodeWeight::Symbol {
-                file_path,
-                start_line,
-                end_line,
-                ..
-            } => (
-                self.symbols.resolve(*file_path).to_string(),
-                *start_line,
-                *end_line,
-            ),
-            _ => return None,
-        };
-        let lang = workspace.file_language(&file_path)?;
-        let builder = crate::languages::cfg::cfg_builder_for_language(lang)?;
-        let source = workspace.read_file(&file_path)?;
-        let mut parser = crate::parser::create_parser(lang).ok()?;
-        let tree = parser.parse(&*source, None)?;
-        let func_node = builder::find_node_at_line(tree.root_node(), start_line, end_line)?;
-        let cfg = builder.build_cfg(&func_node, source.as_bytes()).ok()?;
-        if let Ok(mut cache) = self.cfg_cache.lock() {
-            cache.put(idx, cfg.clone());
-        }
-        Some(cfg)
+    /// Allocate a fresh node and return its index. O(1) amortised.
+    pub fn add_node(&mut self, weight: NodeWeight) -> NodeIndex {
+        let id = self.nodes.len();
+        self.nodes.push(weight);
+        self.out_edges.push(Vec::new());
+        self.in_edges.push(Vec::new());
+        id
     }
 
-    /// Inject a CFG into the lazy cache. Used by tests that synthesise CFGs
-    /// without going through the builder, and by passes that want to share
-    /// already-built CFGs.
-    pub fn inject_cfg(&mut self, idx: NodeIndex, cfg: cfg::FunctionCfg) {
-        self.function_cfg_indices.insert(idx);
-        if let Ok(mut cache) = self.cfg_cache.lock() {
-            cache.put(idx, cfg);
-        }
+    /// Record a directed edge `from -> to` carrying `weight`. The same
+    /// weight is stored in both adjacency lists so traversals can read
+    /// edge metadata regardless of direction.
+    pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, weight: EdgeWeight) {
+        self.out_edges[from].push((to, weight.clone()));
+        self.in_edges[to].push((from, weight));
     }
 
-    /// Run resource-lifecycle analysis (`Acquires` / `ReleasedBy` edges)
-    /// if it hasn't been run yet. Idempotent: subsequent calls are no-ops.
-    pub fn ensure_resource_graph(&mut self, workspace: Option<&Workspace>) {
-        if self.resource_analyzed {
-            return;
-        }
-        resource::ResourceAnalyzer::analyze_all(self, workspace);
-        self.resource_analyzed = true;
+    /// Borrow the weight of `idx`, or `None` if out of range.
+    pub fn node_weight(&self, idx: NodeIndex) -> Option<&NodeWeight> {
+        self.nodes.get(idx)
     }
 
-    // --- Call graph traversal methods (Phase 3) ---
-
-    /// BFS traversal to find callees of seed symbols up to max_depth.
-    pub fn traverse_callees(&self, seeds: &[NodeIndex], max_depth: usize) -> Vec<NodeIndex> {
-        self.traverse_calls(seeds, max_depth, Direction::Outgoing)
-    }
-
-    /// BFS traversal to find callers of seed symbols up to max_depth.
-    pub fn traverse_callers(&self, seeds: &[NodeIndex], max_depth: usize) -> Vec<NodeIndex> {
-        self.traverse_calls(seeds, max_depth, Direction::Incoming)
-    }
-
-    fn traverse_calls(
-        &self,
-        seeds: &[NodeIndex],
-        max_depth: usize,
-        direction: Direction,
-    ) -> Vec<NodeIndex> {
-        use std::collections::{HashSet, VecDeque};
-
-        let mut visited: HashSet<NodeIndex> = seeds.iter().copied().collect();
-        let mut queue: VecDeque<(NodeIndex, usize)> = seeds.iter().map(|&s| (s, 0)).collect();
-        let mut results = Vec::new();
-
-        while let Some((node, depth)) = queue.pop_front() {
-            if depth >= max_depth {
-                continue;
-            }
-            for edge in self.graph.edges_directed(node, direction) {
-                if !matches!(edge.weight(), EdgeWeight::Calls) {
-                    continue;
-                }
-                let neighbor = match direction {
-                    Direction::Outgoing => edge.target(),
-                    Direction::Incoming => edge.source(),
-                };
-                if visited.insert(neighbor) {
-                    results.push(neighbor);
-                    queue.push_back((neighbor, depth + 1));
-                }
-            }
-        }
-
-        results
+    /// Iterator over every valid node index.
+    pub fn node_indices(&self) -> std::ops::Range<NodeIndex> {
+        0..self.nodes.len()
     }
 
     /// Find a symbol node by file path and start line.
