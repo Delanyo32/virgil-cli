@@ -347,7 +347,14 @@ fn absorb_file_data(
             .push(sym_idx);
     }
 
-    // 5c: queue imports for cross-file resolution
+    // 5c: queue imports for cross-file resolution. Also stash them on the
+    // graph so the Cozo writer can persist raw_imports for incremental
+    // refresh (issue 08).
+    graph
+        .raw_imports
+        .entry(path.clone())
+        .or_default()
+        .extend(imports.iter().cloned());
     for import in imports {
         deferred_imports.push(DeferredImport {
             from_file_path: path.clone(),

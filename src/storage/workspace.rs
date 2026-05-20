@@ -136,6 +136,56 @@ impl Workspace {
     pub fn file_count(&self) -> usize {
         self.source.list_files().len()
     }
+
+    /// Return a `Workspace` that exposes only the files matching `filter`.
+    /// Used by the incremental-refresh path so the builder re-parses just
+    /// the touched files. The underlying file content still flows through
+    /// the same on-disk LRU.
+    pub fn subset<F: FnMut(&str) -> bool>(&self, mut filter: F) -> Workspace {
+        let kept: Vec<String> = self
+            .source
+            .list_files()
+            .iter()
+            .filter(|p| filter(p.as_str()))
+            .cloned()
+            .collect();
+        let mut sizes: HashMap<String, u64> = HashMap::with_capacity(kept.len());
+        let mut langs: HashMap<String, Language> = HashMap::with_capacity(kept.len());
+        for p in &kept {
+            if let Some(s) = self.source.read_file(p) {
+                sizes.insert(p.clone(), s.len() as u64);
+            } else {
+                sizes.insert(p.clone(), 0);
+            }
+            if let Some(l) = self.languages.get(p) {
+                langs.insert(p.clone(), *l);
+            }
+        }
+
+        if self.root.exists() {
+            let source = Box::new(DiskFileSource::new(self.root.clone(), kept, sizes));
+            Workspace {
+                root: self.root.clone(),
+                source,
+                languages: langs,
+            }
+        } else {
+            // S3 workspace — pull file contents into memory for the
+            // subset so MemoryFileSource has them.
+            let mut files: HashMap<String, Arc<str>> = HashMap::with_capacity(kept.len());
+            for p in &kept {
+                if let Some(s) = self.source.read_file(p) {
+                    files.insert(p.clone(), s);
+                }
+            }
+            let source = Box::new(MemoryFileSource::new(files, sizes));
+            Workspace {
+                root: self.root.clone(),
+                source,
+                languages: langs,
+            }
+        }
+    }
 }
 
 #[cfg(test)]

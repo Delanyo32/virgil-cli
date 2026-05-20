@@ -22,6 +22,11 @@ pub fn create_statements() -> &'static [&'static str] {
         ":create edge_imports {from_path: String, to_path: String}",
         ":create edge_exports {file_path: String, symbol_id: Int}",
         ":create edge_contains {parent_id: Int, child_id: Int}",
+        // Raw imports per file (pre-resolution). Stored so incremental
+        // refresh can re-resolve edge_imports without re-parsing every
+        // unchanged file.
+        ":create raw_import {file_path: String, position: Int => \
+            raw_path: String, language: String, kind: String}",
         // ---- Derived facts (issue 04) ----
         // Metrics intentionally not stored — they're cheap to recompute via
         // tree-sitter on demand, and storing them would just create stale-fact

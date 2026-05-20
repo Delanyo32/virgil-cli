@@ -31,10 +31,22 @@ pub fn populate(
     graph: &CodeGraph,
     workspace: Option<&Workspace>,
 ) -> Result<()> {
+    populate_with_id_offset(store, graph, workspace, 0)
+}
+
+/// Same as [`populate`] but offsets every `symbol`/`callsite` id by
+/// `id_offset`. Used by the incremental refresh path so newly-parsed
+/// nodes get ids beyond the existing store's max, avoiding collisions.
+pub fn populate_with_id_offset(
+    store: &CozoStore,
+    graph: &CodeGraph,
+    workspace: Option<&Workspace>,
+    id_offset: i64,
+) -> Result<()> {
     let mut writer = CozoWriter::new();
 
     for node_idx in graph.graph.node_indices() {
-        let id = node_idx.index() as i64;
+        let id = id_offset + node_idx.index() as i64;
         match &graph.graph[node_idx] {
             NodeWeight::File { path, language } => {
                 let path = graph.symbols.resolve(*path);
@@ -99,7 +111,7 @@ pub fn populate(
                     name,
                     file_path,
                     *line as i64,
-                    caller_symbol.map(|idx| idx.index() as i64),
+                    caller_symbol.map(|idx| id_offset + idx.index() as i64),
                     test_name,
                 );
             }
@@ -110,8 +122,8 @@ pub fn populate(
     }
 
     for edge_ref in graph.graph.edge_references() {
-        let from = edge_ref.source().index() as i64;
-        let to = edge_ref.target().index() as i64;
+        let from = id_offset + edge_ref.source().index() as i64;
+        let to = id_offset + edge_ref.target().index() as i64;
         match edge_ref.weight() {
             EdgeWeight::DefinedIn => {
                 // edge source is a Symbol, target is a File. Translate to the
@@ -147,6 +159,26 @@ pub fn populate(
             // FlowsTo / SanitizedBy / Acquires / ReleasedBy / ExitsVia all
             // belong to CFG / taint / resource passes and land in later issues.
             _ => {}
+        }
+    }
+
+    // Persist raw imports per file so incremental refresh can re-resolve
+    // edge_imports without re-parsing every unchanged file. The language
+    // column is filled in from the workspace's `file_language` when we
+    // resolve, so we leave it empty here.
+    for (file_path, imports) in &graph.raw_imports {
+        let lang_str = workspace
+            .and_then(|ws| ws.file_language(file_path))
+            .map(|l| l.as_str())
+            .unwrap_or("");
+        for (idx, import) in imports.iter().enumerate() {
+            writer.push_raw_import(
+                file_path,
+                idx as i64,
+                &import.module_specifier,
+                lang_str,
+                &import.kind,
+            );
         }
     }
 

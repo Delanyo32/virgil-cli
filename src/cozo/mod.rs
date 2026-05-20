@@ -6,16 +6,21 @@
 //! land in later issues (03 and 04 respectively).
 
 pub mod from_code_graph;
+pub mod incremental;
 pub mod queries;
 pub mod schema;
 pub mod store;
 pub mod writer;
 
 pub use from_code_graph::{is_warm_compatible, populate, wipe_workspace_relations};
+pub use incremental::{
+    WorkspaceDiff, delete_file_facts, incremental_refresh, resolve_cross_file_edges,
+    workspace_diff,
+};
 pub use store::{CozoStore, cache_dir_for};
 pub use writer::CozoWriter;
 
 /// Bump when the schema in [`schema`] changes in a way that requires a
-/// rebuild from scratch. Persisted into `build_meta` so future issue 07
-/// can detect mismatches.
-pub const SCHEMA_VERSION: u32 = 1;
+/// rebuild from scratch. Persisted into `build_meta` and checked on open
+/// so a mismatch wipes the old store and triggers a clean repopulate.
+pub const SCHEMA_VERSION: u32 = 2;

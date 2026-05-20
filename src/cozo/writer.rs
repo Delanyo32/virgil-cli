@@ -23,6 +23,7 @@ pub struct CozoWriter {
     edge_imports: Vec<Vec<DataValue>>,
     edge_exports: Vec<Vec<DataValue>>,
     edge_contains: Vec<Vec<DataValue>>,
+    raw_import: Vec<Vec<DataValue>>,
     // ---- Derived facts (issue 04) ----
     file_classification: Vec<Vec<DataValue>>,
     nolint: Vec<Vec<DataValue>>,
@@ -41,6 +42,7 @@ impl CozoWriter {
             edge_imports: Vec::new(),
             edge_exports: Vec::new(),
             edge_contains: Vec::new(),
+            raw_import: Vec::new(),
             file_classification: Vec::new(),
             nolint: Vec::new(),
             build_meta_files: Vec::new(),
@@ -122,6 +124,23 @@ impl CozoWriter {
             .push(vec![DataValue::from(parent_id), DataValue::from(child_id)]);
     }
 
+    pub fn push_raw_import(
+        &mut self,
+        file_path: &str,
+        position: i64,
+        raw_path: &str,
+        language: &str,
+        kind: &str,
+    ) {
+        self.raw_import.push(vec![
+            DataValue::from(file_path),
+            DataValue::from(position),
+            DataValue::from(raw_path),
+            DataValue::from(language),
+            DataValue::from(kind),
+        ]);
+    }
+
     pub fn push_file_classification(
         &mut self,
         path: &str,
@@ -197,6 +216,12 @@ impl CozoWriter {
             store,
             "?[parent_id, child_id] <- $rows :put edge_contains {parent_id, child_id}",
             std::mem::take(&mut self.edge_contains),
+        )?;
+        flush(
+            store,
+            "?[file_path, position, raw_path, language, kind] <- $rows \
+             :put raw_import {file_path, position => raw_path, language, kind}",
+            std::mem::take(&mut self.raw_import),
         )?;
         flush(
             store,

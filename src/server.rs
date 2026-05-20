@@ -61,14 +61,17 @@ pub async fn run_server(
 ) -> Result<()> {
     let cache_path = cozo::cache_dir_for(source_id)?;
     let store = CozoStore::open_persistent(&cache_path)?;
-    if store.fresh() || !cozo::is_warm_compatible(&store, &workspace)? {
-        if !store.fresh() {
-            cozo::wipe_workspace_relations(&store)?;
-        }
+    if store.fresh() {
         let code_graph = GraphBuilder::new(&workspace, &languages)
             .with_options(build_options)
             .build()?;
         cozo::populate(&store, &code_graph, Some(&workspace))?;
+        cozo::resolve_cross_file_edges(&store)?;
+    } else {
+        let diff = cozo::workspace_diff(&store, &workspace)?;
+        if !diff.is_empty() {
+            cozo::incremental_refresh(&store, &workspace, &languages, &diff)?;
+        }
     }
 
     let state = Arc::new(AppState { workspace, store });

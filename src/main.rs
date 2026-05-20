@@ -207,14 +207,22 @@ fn run_cozo_query(
         std::fs::remove_file(&cache_path)?;
     }
     let store = CozoStore::open_persistent(&cache_path)?;
-    let needs_rebuild = store.fresh() || !cozo::is_warm_compatible(&store, &workspace)?;
-    if needs_rebuild {
-        if !store.fresh() {
-            cozo::wipe_workspace_relations(&store)?;
-        }
-        let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
+    let cache_state = if store.fresh() {
+        // Cold start — full build + populate.
+        let graph =
+            virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
         cozo::populate(&store, &graph, Some(&workspace))?;
-    }
+        cozo::resolve_cross_file_edges(&store)?;
+        "cold"
+    } else {
+        let diff = cozo::workspace_diff(&store, &workspace)?;
+        if diff.is_empty() {
+            "warm"
+        } else {
+            cozo::incremental_refresh(&store, &workspace, &languages, &diff)?;
+            "incremental"
+        }
+    };
 
     let source_ref = match &source {
         CozoSource::Inline(s) => QuerySource::Inline(s.as_str()),
@@ -232,7 +240,7 @@ fn run_cozo_query(
     let envelope = serde_json::json!({
         "project": project_name,
         "query_ms": elapsed.as_millis(),
-        "cache": if needs_rebuild { "cold" } else { "warm" },
+        "cache": cache_state,
         "result": output,
     });
     let s = if pretty {

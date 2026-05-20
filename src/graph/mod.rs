@@ -6,16 +6,24 @@ pub mod resource;
 pub mod taint;
 
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
+use lru::LruCache;
 use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 pub use intern::{Spur, Symbols};
 
+/// Maximum number of `FunctionCfg`s held in the lazy cache. CFGs are heavy
+/// (per-function petgraph with statements + edges) and previously accumulated
+/// without bound on long-running `serve` sessions. The cap keeps the cache
+/// resident set bounded while still letting hot functions stay warm.
+const DEFAULT_CFG_CACHE_CAP: usize = 512;
+
 use crate::language::Language;
-use crate::models::SymbolKind;
+use crate::models::{ImportInfo, SymbolKind};
 use crate::storage::workspace::Workspace;
 
 /// A node in the import resolution result. Most languages resolve to a file;
@@ -86,7 +94,9 @@ pub enum NodeWeight {
         file_path: Spur,
         line: u32,
         /// Literal arguments at this call site (strings/numbers/bools only).
-        arg_literals: Vec<Spur>,
+        /// `None` for the common case of a call with no literal arguments —
+        /// avoids the 24-byte `Vec` header on every CallSite.
+        arg_literals: Option<Box<[Spur]>>,
         /// Name of the enclosing test function, when this call site sits
         /// inside a test (path matches `is_test_file` and the enclosing
         /// symbol's name follows a test naming convention).
@@ -144,9 +154,14 @@ pub struct CodeGraph {
     /// themselves are NOT stored — they are rebuilt on demand by
     /// `cfg_for_function` to keep boot-time memory low.
     pub function_cfg_indices: HashSet<NodeIndex>,
-    /// Lazy CFG cache. Populated on first call to `cfg_for_function` for a
-    /// given function. Tests may pre-populate via `inject_cfg`.
-    cfg_cache: Mutex<HashMap<NodeIndex, cfg::FunctionCfg>>,
+    /// Raw import-info per file, preserved so the Cozo writer can persist
+    /// pre-resolution import data into `raw_import` for the incremental
+    /// refresh path (issue 08). Keyed by source file path.
+    pub raw_imports: HashMap<String, Vec<ImportInfo>>,
+    /// Lazy CFG cache, bounded LRU. Populated on first call to
+    /// `cfg_for_function` for a given function. Tests may pre-populate via
+    /// `inject_cfg`. Cap defaults to `DEFAULT_CFG_CACHE_CAP` (512).
+    cfg_cache: Mutex<LruCache<NodeIndex, cfg::FunctionCfg>>,
     /// Sentinel for the resource-lifecycle pass. `ensure_resource_graph` runs
     /// `ResourceAnalyzer::analyze_all` at most once.
     resource_analyzed: bool,
@@ -167,7 +182,10 @@ impl CodeGraph {
             symbol_nodes: HashMap::new(),
             symbols_by_name: HashMap::new(),
             function_cfg_indices: HashSet::new(),
-            cfg_cache: Mutex::new(HashMap::new()),
+            raw_imports: HashMap::new(),
+            cfg_cache: Mutex::new(LruCache::new(
+                NonZeroUsize::new(DEFAULT_CFG_CACHE_CAP).expect("cap > 0"),
+            )),
             resource_analyzed: false,
         }
     }
@@ -183,7 +201,7 @@ impl CodeGraph {
         workspace: Option<&Workspace>,
         idx: NodeIndex,
     ) -> Option<cfg::FunctionCfg> {
-        if let Ok(cache) = self.cfg_cache.lock()
+        if let Ok(mut cache) = self.cfg_cache.lock()
             && let Some(c) = cache.get(&idx)
         {
             return Some(c.clone());
@@ -210,7 +228,7 @@ impl CodeGraph {
         let func_node = builder::find_node_at_line(tree.root_node(), start_line, end_line)?;
         let cfg = builder.build_cfg(&func_node, source.as_bytes()).ok()?;
         if let Ok(mut cache) = self.cfg_cache.lock() {
-            cache.insert(idx, cfg.clone());
+            cache.put(idx, cfg.clone());
         }
         Some(cfg)
     }
@@ -221,7 +239,7 @@ impl CodeGraph {
     pub fn inject_cfg(&mut self, idx: NodeIndex, cfg: cfg::FunctionCfg) {
         self.function_cfg_indices.insert(idx);
         if let Ok(mut cache) = self.cfg_cache.lock() {
-            cache.insert(idx, cfg);
+            cache.put(idx, cfg);
         }
     }
 

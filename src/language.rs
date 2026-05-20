@@ -17,6 +17,27 @@ pub enum Language {
 }
 
 impl Language {
+    /// Inverse of [`Language::as_str`]. Used when round-tripping a
+    /// `Language` value through a serialised representation (e.g. the
+    /// Cozo `raw_import` relation).
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "typescript" => Some(Language::TypeScript),
+            "tsx" => Some(Language::Tsx),
+            "javascript" => Some(Language::JavaScript),
+            "jsx" => Some(Language::Jsx),
+            "c" => Some(Language::C),
+            "cpp" => Some(Language::Cpp),
+            "csharp" => Some(Language::CSharp),
+            "rust" => Some(Language::Rust),
+            "python" => Some(Language::Python),
+            "go" => Some(Language::Go),
+            "java" => Some(Language::Java),
+            "php" => Some(Language::Php),
+            _ => None,
+        }
+    }
+
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext {
             "ts" => Some(Language::TypeScript),
