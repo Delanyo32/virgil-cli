@@ -94,11 +94,100 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         }
     }
 
+    emit_comments(graph, &mut writer);
+
     if let Some(ws) = workspace {
         record_build_meta_files(ws, &mut writer);
     }
 
     writer.flush(store)
+}
+
+/// Build an index `(file_path, name) -> symbol id` for resolving
+/// `comment.documents_id` back to a concrete symbol when the comment
+/// extractor identified an associated symbol by name.
+fn build_name_index(graph: &CodeGraph) -> std::collections::HashMap<(String, String), String> {
+    let mut idx = std::collections::HashMap::new();
+    for node in &graph.nodes {
+        if let NodeWeight::Symbol {
+            name,
+            kind,
+            file_path,
+            start_line,
+            start_col,
+            ..
+        } = node
+        {
+            let name = graph.symbols.resolve(*name);
+            let fp = graph.symbols.resolve(*file_path);
+            let id = symbol_id(fp, *start_line, *start_col, name, *kind);
+            // Multiple symbols can share a name in a file; first wins for
+            // doc attachment — extractors emit the symbol the comment
+            // textually precedes, so the first match is the right one.
+            idx.entry((fp.to_string(), name.to_string()))
+                .or_insert(id);
+        }
+    }
+    idx
+}
+
+fn emit_comments(graph: &CodeGraph, writer: &mut CozoWriter) {
+    if graph.comments.is_empty() {
+        return;
+    }
+    let name_idx = build_name_index(graph);
+    for (file_path, comments) in &graph.comments {
+        for (i, c) in comments.iter().enumerate() {
+            let id = format!("{}|{}|{}|comment", file_path, c.start_byte, i);
+            let documents_id = c.associated_symbol.as_ref().and_then(|name| {
+                name_idx
+                    .get(&(file_path.clone(), name.clone()))
+                    .map(|s| s.as_str())
+            });
+            let is_doc = is_doc_comment(&c.kind, &c.text);
+            let todo_kind = detect_todo_kind(&c.text);
+            writer.push_comment(
+                &id,
+                documents_id,
+                file_path,
+                &c.kind,
+                is_doc,
+                &c.text,
+                todo_kind,
+                c.start_byte as i64,
+                c.end_byte as i64,
+            );
+        }
+    }
+}
+
+/// Heuristic doc-comment classification. Doxygen `/** … */`, Rust `///`
+/// and `//!`, Python triple-quoted strings extracted as `kind = "doc"`,
+/// JSDoc `/** … */`. Anything else is a non-doc line/block comment.
+fn is_doc_comment(kind: &str, text: &str) -> bool {
+    if kind == "doc" || kind == "docstring" {
+        return true;
+    }
+    let trimmed = text.trim_start();
+    trimmed.starts_with("///")
+        || trimmed.starts_with("//!")
+        || trimmed.starts_with("/**")
+        || trimmed.starts_with("/*!")
+}
+
+fn detect_todo_kind(text: &str) -> Option<&'static str> {
+    for kind in ["TODO", "FIXME", "XXX", "HACK"] {
+        if text.contains(kind) {
+            return Some(match kind {
+                "TODO" => "TODO",
+                "FIXME" => "FIXME",
+                "XXX" => "XXX",
+                "HACK" => "HACK",
+                _ => unreachable!(),
+            });
+        }
+    }
+    None
 }
 
 /// Build the canonical String id for a symbol per ADR-0002.
@@ -150,13 +239,17 @@ fn emit_node(
             name,
             kind,
             file_path,
+            start_byte,
+            end_byte,
             start_line,
+            start_col,
             end_line,
+            end_col,
             exported,
         } => {
             let name = graph.symbols.resolve(*name);
             let file_path = graph.symbols.resolve(*file_path);
-            let id = symbol_id(file_path, *start_line, 0, name, *kind);
+            let id = symbol_id(file_path, *start_line, *start_col, name, *kind);
             let kind_str = kind.to_string();
             let language = workspace
                 .and_then(|ws| ws.file_language(file_path))
@@ -182,12 +275,12 @@ fn emit_node(
             writer.push_span(
                 &id,
                 file_path,
-                0, // start_byte — Phase 2
-                0, // end_byte — Phase 2
+                *start_byte as i64,
+                *end_byte as i64,
                 *start_line as i64,
                 *end_line as i64,
-                0, // start_col — Phase 2
-                0, // end_col — Phase 2
+                *start_col as i64,
+                *end_col as i64,
             );
         }
         NodeWeight::CallSite { .. } => {
@@ -245,6 +338,7 @@ fn symbol_id_of(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
         kind,
         file_path,
         start_line,
+        start_col,
         ..
     } = &graph.nodes[idx]
     else {
@@ -252,7 +346,7 @@ fn symbol_id_of(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
     };
     let name = graph.symbols.resolve(*name);
     let file_path = graph.symbols.resolve(*file_path);
-    Some(symbol_id(file_path, *start_line, 0, name, *kind))
+    Some(symbol_id(file_path, *start_line, *start_col, name, *kind))
 }
 
 fn parent_symbol_id(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
@@ -281,13 +375,17 @@ fn first_call_site_location(
             continue;
         }
         if let NodeWeight::CallSite {
-            name, file_path, ..
+            name,
+            file_path,
+            start_byte,
+            end_byte,
+            ..
         } = &graph.nodes[*child_idx]
         {
             let cs_name = graph.symbols.resolve(*name);
             if cs_name == callee_name {
                 let file_path = graph.symbols.resolve(*file_path).to_string();
-                return Some((file_path, 0, 0));
+                return Some((file_path, *start_byte as i64, *end_byte as i64));
             }
         }
     }

@@ -30,14 +30,20 @@ pub enum NodeWeight {
         name: Spur,
         kind: SymbolKind,
         file_path: Spur,
+        start_byte: u32,
+        end_byte: u32,
         start_line: u32,
+        start_col: u32,
         end_line: u32,
+        end_col: u32,
         exported: bool,
     },
     CallSite {
         name: Spur,
         file_path: Spur,
         line: u32,
+        start_byte: u32,
+        end_byte: u32,
         /// Literal arguments at this call site (strings/numbers/bools only).
         /// `None` for the common case of a call with no literal arguments —
         /// avoids the 24-byte `Vec` header on every CallSite.
@@ -85,6 +91,10 @@ pub struct CodeGraph {
     /// pre-resolution import data into `raw_import` for the incremental
     /// refresh path (issue 08). Keyed by source file path.
     pub raw_imports: HashMap<String, Vec<ImportInfo>>,
+    /// Extracted comments per file. Populated by the builder when
+    /// comment queries succeed. Keyed by source file path. Empty for
+    /// languages whose extractor doesn't emit comments yet.
+    pub comments: HashMap<String, Vec<crate::models::CommentInfo>>,
 }
 
 impl Default for CodeGraph {
@@ -104,6 +114,7 @@ impl CodeGraph {
             symbol_nodes: HashMap::new(),
             symbols_by_name: HashMap::new(),
             raw_imports: HashMap::new(),
+            comments: HashMap::new(),
         }
     }
 

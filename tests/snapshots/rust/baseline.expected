@@ -1,0 +1,13 @@
+# Rust baseline snapshot — counts of populated rows.
+#
+# Generated against ../virgil-skills/benchmarks/rust/systems-cli/ (48 files,
+# Rust only). Rerun the snapshot harness if benchmark contents change.
+#
+# Columns: symbol_count, comment_count, call_count, doc_attached_count,
+#          file_count, span_count
+symbol_count=364
+comment_count=713
+call_count=94
+doc_attached_count=287
+file_count=48
+span_count=364

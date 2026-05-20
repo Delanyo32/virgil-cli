@@ -1,0 +1,20 @@
+?[
+    symbol_count,
+    comment_count,
+    call_count,
+    doc_attached_count,
+    file_count,
+    span_count
+] :=
+    symbol_count = count(s),
+    *symbol{id: s},
+    comment_count = count(c),
+    *comment{id: c},
+    call_count = count(ca),
+    *calls{caller_id: ca},
+    doc_attached_count = count(d),
+    *comment{documents_id: d, is_doc: true}, d != null,
+    file_count = count(f),
+    *file{path: f},
+    span_count = count(sp),
+    *span{entity_id: sp}

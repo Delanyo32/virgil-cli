@@ -9,7 +9,7 @@ use tree_sitter::Query;
 
 use crate::language::Language;
 use crate::languages;
-use crate::models::{ImportInfo, SymbolInfo};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo};
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
@@ -20,6 +20,7 @@ struct FileGraphData {
     path: String,
     language: Language,
     symbols: Vec<SymbolInfo>,
+    comments: Vec<CommentInfo>,
     imports: Vec<ImportInfo>,
     call_sites: Vec<CallSiteData>,
 }
@@ -31,6 +32,8 @@ struct CallSiteData {
     caller_symbol_line: u32,
     /// Line of the call expression itself (1-based).
     line: u32,
+    start_byte: u32,
+    end_byte: u32,
     /// Literal arguments (strings/numbers/bools) — non-literal args are skipped.
     arg_literals: Vec<String>,
     /// Name of the enclosing test function, when the caller is inside one.
@@ -71,12 +74,17 @@ impl<'a> GraphBuilder<'a> {
         // Step 1: Pre-compile queries per language
         let mut symbol_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         let mut import_queries: HashMap<Language, Arc<Query>> = HashMap::new();
+        let mut comment_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         for &lang in self.languages {
             symbol_queries.insert(lang, languages::compile_symbol_query(lang)?);
             import_queries.insert(lang, languages::compile_import_query(lang)?);
+            if let Ok(q) = languages::compile_comment_query(lang) {
+                comment_queries.insert(lang, q);
+            }
         }
         let symbol_queries = Arc::new(symbol_queries);
         let import_queries = Arc::new(import_queries);
+        let comment_queries = Arc::new(comment_queries);
 
         // Step 2: Build known_files set
         let known_files: HashSet<String> = self.workspace.files().iter().cloned().collect();
@@ -122,6 +130,7 @@ impl<'a> GraphBuilder<'a> {
         let workspace = self.workspace;
         let sym_q = Arc::clone(&symbol_queries);
         let imp_q = Arc::clone(&import_queries);
+        let com_q = Arc::clone(&comment_queries);
         let grouped_files_ref = &grouped_files;
 
         thread::scope(|s| -> Result<()> {
@@ -137,7 +146,7 @@ impl<'a> GraphBuilder<'a> {
                         .par_iter()
                         .for_each_with(tx, |tx, &(lang, rel_path)| {
                             if let Some(data) =
-                                parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q)
+                                parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q, &com_q)
                             {
                                 let _ = tx.send(data);
                             }
@@ -228,6 +237,7 @@ fn parse_one_file(
     workspace: &Workspace,
     symbol_queries: &HashMap<Language, Arc<Query>>,
     import_queries: &HashMap<Language, Arc<Query>>,
+    comment_queries: &HashMap<Language, Arc<Query>>,
 ) -> Option<FileGraphData> {
     let sym_query = symbol_queries.get(&lang)?;
     let imp_query = import_queries.get(&lang)?;
@@ -238,6 +248,11 @@ fn parse_one_file(
 
     let symbols = languages::extract_symbols(&tree, source.as_bytes(), sym_query, rel_path, lang);
     let imports = languages::extract_imports(&tree, source.as_bytes(), imp_query, rel_path, lang);
+    let comments = if let Some(cq) = comment_queries.get(&lang) {
+        languages::extract_comments(&tree, source.as_bytes(), cq, rel_path, lang)
+    } else {
+        Vec::new()
+    };
 
     let call_node_types = call_expression_types(lang);
     let is_test = crate::classify::is_test_file(rel_path);
@@ -266,6 +281,7 @@ fn parse_one_file(
         path: rel_path.to_string(),
         language: lang,
         symbols,
+        comments,
         imports,
         call_sites,
     })
@@ -283,6 +299,7 @@ fn absorb_file_data(
         path,
         language,
         symbols,
+        comments,
         imports,
         call_sites,
     } = data;
@@ -303,8 +320,12 @@ fn absorb_file_data(
             name: sym_name_spur,
             kind: sym.kind,
             file_path: sym_file_spur,
+            start_byte: sym.start_byte,
+            end_byte: sym.end_byte,
             start_line: sym.start_line,
+            start_col: sym.start_column,
             end_line: sym.end_line,
+            end_col: sym.end_column,
             exported: sym.is_exported,
         });
         graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
@@ -330,6 +351,15 @@ fn absorb_file_data(
                 .or_default()
                 .push(sym_idx);
         }
+    }
+
+    // Stash comments per file so the Cozo writer can emit `comment` rows.
+    if !comments.is_empty() {
+        graph
+            .comments
+            .entry(path.clone())
+            .or_default()
+            .extend(comments.into_iter());
     }
 
     // Queue imports for cross-file resolution. Also stash them on the
@@ -375,6 +405,8 @@ fn absorb_file_data(
             name: callee_spur,
             file_path: caller_file_spur,
             line: cs.line,
+            start_byte: cs.start_byte,
+            end_byte: cs.end_byte,
             arg_literals: arg_literal_spurs,
             enclosing_test_name: enclosing_spur,
             caller_symbol: caller_idx,
@@ -478,6 +510,8 @@ fn collect_calls_in_range(
             caller_file: file_path.to_string(),
             caller_symbol_line,
             line,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             arg_literals,
             enclosing_test_name: enclosing_test_name.map(|s| s.to_string()),
         });
