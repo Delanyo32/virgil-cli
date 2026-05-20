@@ -1,5 +1,16 @@
-//! Built-in template discovery. Templates live in `src/queries/builtin/`
-//! and are embedded into the binary at compile time via `include_dir`.
+//! Built-in template discovery.
+//!
+//! Phase 1 of the Datalog-model migration: the previous 7 pure-Cozoscript
+//! templates referenced the old `symbol` / `edge_*` shapes and have been
+//! removed (per [ADR-0004]). Templates are rebuilt against the new
+//! schema in Phase 7 (issue #17). Until then, this module returns an
+//! empty surface — `cozoscript_template_names()` returns `[]` and
+//! `load_cozoscript_template(_)` returns `None` for every name.
+//!
+//! The `include_dir!` machinery is kept so adding a new template back is
+//! a one-file drop without re-wiring the module.
+//!
+//! [ADR-0004]: docs/adr/0004-templates-dark-during-migration.md
 
 use include_dir::{Dir, include_dir};
 
@@ -30,28 +41,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_seven_pure_templates_are_discoverable() {
+    fn no_pure_templates_during_migration() {
         let names = cozoscript_template_names();
-        for expected in [
-            "find_callers",
-            "find_callees",
-            "find_cycles",
-            "find_function_by_name",
-            "export_surface",
-            "import_depth",
-            "unused_symbols",
-        ] {
-            assert!(
-                names.contains(&expected.to_string()),
-                "missing template {expected}; have: {names:?}"
-            );
-        }
+        assert!(
+            names.is_empty(),
+            "expected zero templates during migration (ADR-0004), got {names:?}"
+        );
     }
 
     #[test]
-    fn load_returns_body_for_known_template() {
-        let body = load_cozoscript_template("find_function_by_name").expect("body");
-        assert!(body.contains("?[name, kind, file_path"));
+    fn load_returns_none_for_any_name() {
+        assert!(load_cozoscript_template("find_function_by_name").is_none());
         assert!(load_cozoscript_template("nonexistent").is_none());
     }
 }

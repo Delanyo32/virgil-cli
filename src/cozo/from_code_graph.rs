@@ -1,10 +1,17 @@
 //! Populate a [`CozoStore`] from a finished [`CodeGraph`].
 //!
-//! For issue 02 this is the wiring between the legacy in-memory graph and
-//! the new fact store: both end up populated additively, so users can
-//! query either one. Later phases (06) delete the legacy graph and the
-//! absorber writes Cozo rows directly, at which point this module goes
-//! away.
+//! Phase 1 of the Datalog-model migration. The existing `CodeGraph`
+//! produces only a subset of the new schema's fields (line ranges, no
+//! byte offsets; visibility derived from `exported`; no qualified names,
+//! comments, types, references, or extends/implements). Unrendered
+//! relations exist in the schema but stay empty until per-language
+//! extractor enrichment lands in later phases.
+//!
+//! String IDs follow [ADR-0002]: `path|start_line|start_col|name|kind`.
+//! `start_col` is `0` until Phase 1.5 wires byte/column offsets through
+//! the graph builder.
+//!
+//! [ADR-0002]: docs/adr/0002-symbol-id-scheme.md
 
 use std::collections::BTreeMap;
 
@@ -13,40 +20,36 @@ use cozo::DataValue;
 use rayon::prelude::*;
 
 use crate::classify::{is_barrel_file, is_test_file};
-use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
+use crate::graph::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight};
+use crate::models::SymbolKind;
 use crate::storage::workspace::Workspace;
 
 use super::{CozoStore, CozoWriter};
 
 /// Walk every node and edge of `graph` and emit the corresponding Cozo
-/// rows, flushing at the end. Uses `NodeIndex::index()` as the monotonic
-/// integer id for `symbol`/`callsite` rows.
-///
-/// When `workspace` is provided, also populates `file_classification` and
-/// scans each file's source for `nolint` comments. Without a workspace
-/// those derived relations stay empty (relation still exists in the
-/// schema).
+/// rows, flushing at the end. When `workspace` is provided, also
+/// populates `file_classification`, scans each file's source for `nolint`
+/// comments, and writes `build_meta_files`.
 pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
-    populate_with_id_offset(store, graph, workspace, 0)
-}
+    // Derive repo_id from the workspace root's basename. S3 workspaces
+    // have synthetic `s3://bucket/prefix` roots — the last path segment
+    // is acceptable. Per ADR/Q9 Option A: real project names (when the
+    // user registered via `projects create <name>`) thread in here in a
+    // follow-up; Phase 1 uses path basename.
+    let repo_id = workspace
+        .and_then(|ws| {
+            ws.root()
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
 
-/// Same as [`populate`] but offsets every `symbol`/`callsite` id by
-/// `id_offset`. Used by the incremental refresh path so newly-parsed
-/// nodes get ids beyond the existing store's max, avoiding collisions.
-pub fn populate_with_id_offset(
-    store: &CozoStore,
-    graph: &CodeGraph,
-    workspace: Option<&Workspace>,
-    id_offset: i64,
-) -> Result<()> {
-    // Step 1: shard the node walk across rayon. Each thread produces a
-    // local `CozoWriter`; we merge them at the end. The work is pure-read
-    // on `graph`, so parallelism is straightforward — no locks, no
-    // contention. Cozo writes still happen serially in step 3.
+    // Step 1: per-node writers, in parallel.
     let node_writer: CozoWriter = (0..graph.nodes.len())
         .into_par_iter()
         .fold(CozoWriter::new, |mut writer, node_idx| {
-            emit_node(&mut writer, graph, workspace, id_offset, node_idx);
+            emit_node(&mut writer, graph, workspace, &repo_id, node_idx);
             writer
         })
         .reduce(CozoWriter::new, |mut a, mut b| {
@@ -54,20 +57,12 @@ pub fn populate_with_id_offset(
             a
         });
 
-    // Step 2: same trick for edges. We iterate `out_edges` per source node;
-    // every (source_idx, target_idx, weight) triple is independent.
+    // Step 2: per-edge writers, in parallel.
     let edge_writer: CozoWriter = (0..graph.nodes.len())
         .into_par_iter()
         .fold(CozoWriter::new, |mut writer, source_idx| {
             for (target_idx, weight) in &graph.out_edges[source_idx] {
-                emit_edge(
-                    &mut writer,
-                    graph,
-                    id_offset,
-                    source_idx,
-                    *target_idx,
-                    weight,
-                );
+                emit_edge(&mut writer, graph, source_idx, *target_idx, weight);
             }
             writer
         })
@@ -82,8 +77,7 @@ pub fn populate_with_id_offset(
         writer.merge(&mut e);
     }
 
-    // Step 3: sequential tail work (raw_imports + build_meta_files). These
-    // iterate per-file and don't dominate.
+    // Step 3: sequential tail work.
     for (file_path, imports) in &graph.raw_imports {
         let lang_str = workspace
             .and_then(|ws| ws.file_language(file_path))
@@ -104,23 +98,31 @@ pub fn populate_with_id_offset(
         record_build_meta_files(ws, &mut writer);
     }
 
-    // Step 4: single-threaded flush. Cozo serialises writes through its
-    // DbInstance regardless of how many threads call run_script.
     writer.flush(store)
+}
+
+/// Build the canonical String id for a symbol per ADR-0002.
+pub fn symbol_id(
+    file_path: &str,
+    start_line: u32,
+    start_col: u32,
+    name: &str,
+    kind: SymbolKind,
+) -> String {
+    format!("{file_path}|{start_line}|{start_col}|{name}|{kind}")
 }
 
 fn emit_node(
     writer: &mut CozoWriter,
     graph: &CodeGraph,
     workspace: Option<&Workspace>,
-    id_offset: i64,
+    repo_id: &str,
     node_idx: usize,
 ) {
-    let id = id_offset + node_idx as i64;
     match &graph.nodes[node_idx] {
         NodeWeight::File { path, language } => {
             let path = graph.symbols.resolve(*path);
-            writer.push_file(path, language.as_str());
+            writer.push_file(path, language.as_str(), repo_id);
             if let Some(ws) = workspace {
                 let is_generated = ws
                     .read_file(path)
@@ -154,36 +156,43 @@ fn emit_node(
         } => {
             let name = graph.symbols.resolve(*name);
             let file_path = graph.symbols.resolve(*file_path);
+            let id = symbol_id(file_path, *start_line, 0, name, *kind);
             let kind_str = kind.to_string();
+            let language = workspace
+                .and_then(|ws| ws.file_language(file_path))
+                .map(|l| l.as_str())
+                .unwrap_or("");
+            let visibility = if *exported { "public" } else { "private" };
+            let parent_id = parent_symbol_id(graph, node_idx);
             writer.push_symbol(
-                id,
-                name,
+                &id,
                 &kind_str,
+                name,
+                name, // qualified_name = name for Phase 1
+                language,
+                visibility,
                 file_path,
-                *start_line as i64,
-                *end_line as i64,
+                parent_id.as_deref(),
+                false, // is_async — Phase 3
+                false, // is_static — Phase 3
+                false, // is_abstract — Phase 3
+                false, // is_mutable — Phase 3
                 *exported,
             );
-        }
-        NodeWeight::CallSite {
-            name,
-            file_path,
-            line,
-            enclosing_test_name,
-            caller_symbol,
-            ..
-        } => {
-            let name = graph.symbols.resolve(*name);
-            let file_path = graph.symbols.resolve(*file_path);
-            let test_name = enclosing_test_name.map(|s| graph.symbols.resolve(s));
-            writer.push_callsite(
-                id,
-                name,
+            writer.push_span(
+                &id,
                 file_path,
-                *line as i64,
-                caller_symbol.map(|idx| id_offset + idx as i64),
-                test_name,
+                0, // start_byte — Phase 2
+                0, // end_byte — Phase 2
+                *start_line as i64,
+                *end_line as i64,
+                0, // start_col — Phase 2
+                0, // end_col — Phase 2
             );
+        }
+        NodeWeight::CallSite { .. } => {
+            // CallSite nodes are no longer emitted as their own relation;
+            // their location folds into `calls` rows at edge emit time.
         }
     }
 }
@@ -191,22 +200,30 @@ fn emit_node(
 fn emit_edge(
     writer: &mut CozoWriter,
     graph: &CodeGraph,
-    id_offset: i64,
     source_idx: usize,
     target_idx: usize,
     weight: &EdgeWeight,
 ) {
-    let from = id_offset + source_idx as i64;
-    let to = id_offset + target_idx as i64;
     match weight {
-        EdgeWeight::DefinedIn => {
-            if let NodeWeight::File { path, .. } = &graph.nodes[target_idx] {
-                let path = graph.symbols.resolve(*path);
-                writer.push_edge_defined_in(from, path);
-            }
-        }
+        EdgeWeight::DefinedIn => {}
         EdgeWeight::Calls => {
-            writer.push_edge_calls(from, to);
+            let (Some(caller_id), Some(callee_id)) = (
+                symbol_id_of(graph, source_idx),
+                symbol_id_of(graph, target_idx),
+            ) else {
+                return;
+            };
+            let (call_site_file, call_site_start_byte, call_site_end_byte) =
+                first_call_site_location(graph, source_idx, target_idx)
+                    .unwrap_or_else(|| (String::new(), 0, 0));
+            writer.push_calls(
+                &caller_id,
+                &callee_id,
+                &call_site_file,
+                call_site_start_byte,
+                call_site_end_byte,
+                true,
+            );
         }
         EdgeWeight::Imports => {
             if let (NodeWeight::File { path: from_p, .. }, NodeWeight::File { path: to_p, .. }) =
@@ -214,43 +231,101 @@ fn emit_edge(
             {
                 let from_path = graph.symbols.resolve(*from_p);
                 let to_path = graph.symbols.resolve(*to_p);
-                writer.push_edge_imports(from_path, to_path);
+                writer.push_imports(from_path, to_path);
             }
         }
-        EdgeWeight::Exports => {
-            if let NodeWeight::File { path, .. } = &graph.nodes[source_idx] {
-                let file_path = graph.symbols.resolve(*path);
-                writer.push_edge_exports(file_path, to);
-            }
-        }
-        EdgeWeight::Contains => {
-            writer.push_edge_contains(from, to);
-        }
+        EdgeWeight::Exports => {}
+        EdgeWeight::Contains => {}
     }
 }
 
-/// Wipe every relation populated by [`populate`] (plus build_meta_files
-/// and file_classification + nolint). Used before a rebuild so stale rows
-/// don't linger when the workspace has changed.
+fn symbol_id_of(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
+    let NodeWeight::Symbol {
+        name,
+        kind,
+        file_path,
+        start_line,
+        ..
+    } = &graph.nodes[idx]
+    else {
+        return None;
+    };
+    let name = graph.symbols.resolve(*name);
+    let file_path = graph.symbols.resolve(*file_path);
+    Some(symbol_id(file_path, *start_line, 0, name, *kind))
+}
+
+fn parent_symbol_id(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
+    graph.in_edges[idx].iter().find_map(|(src, edge)| {
+        if !matches!(edge, EdgeWeight::Contains) {
+            return None;
+        }
+        symbol_id_of(graph, *src)
+    })
+}
+
+fn first_call_site_location(
+    graph: &CodeGraph,
+    caller_idx: NodeIndex,
+    callee_idx: NodeIndex,
+) -> Option<(String, i64, i64)> {
+    let NodeWeight::Symbol {
+        name: callee_name, ..
+    } = &graph.nodes[callee_idx]
+    else {
+        return None;
+    };
+    let callee_name = graph.symbols.resolve(*callee_name);
+    for (child_idx, edge) in &graph.out_edges[caller_idx] {
+        if !matches!(edge, EdgeWeight::Contains) {
+            continue;
+        }
+        if let NodeWeight::CallSite {
+            name, file_path, ..
+        } = &graph.nodes[*child_idx]
+        {
+            let cs_name = graph.symbols.resolve(*name);
+            if cs_name == callee_name {
+                let file_path = graph.symbols.resolve(*file_path).to_string();
+                return Some((file_path, 0, 0));
+            }
+        }
+    }
+    None
+}
+
+/// Wipe every relation populated by [`populate`].
 pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
-    for stmt in [
+    let wipes: &[&str] = &[
         "?[path] := *file{path} :rm file {path}",
         "?[id] := *symbol{id} :rm symbol {id}",
-        "?[id] := *callsite{id} :rm callsite {id}",
-        "?[symbol_id, file_path] := *edge_defined_in{symbol_id, file_path} \
-         :rm edge_defined_in {symbol_id, file_path}",
-        "?[caller_id, callee_id] := *edge_calls{caller_id, callee_id} \
-         :rm edge_calls {caller_id, callee_id}",
-        "?[from_path, to_path] := *edge_imports{from_path, to_path} \
-         :rm edge_imports {from_path, to_path}",
-        "?[file_path, symbol_id] := *edge_exports{file_path, symbol_id} \
-         :rm edge_exports {file_path, symbol_id}",
-        "?[parent_id, child_id] := *edge_contains{parent_id, child_id} \
-         :rm edge_contains {parent_id, child_id}",
+        "?[entity_id, file_path] := *span{entity_id, file_path} \
+         :rm span {entity_id, file_path}",
+        "?[caller_id, callee_id] := *calls{caller_id, callee_id} \
+         :rm calls {caller_id, callee_id}",
+        "?[referrer_id, site_file, site_start_byte, match_index] := \
+         *references{referrer_id, site_file, site_start_byte, match_index} \
+         :rm references {referrer_id, site_file, site_start_byte, match_index}",
+        "?[child_id, parent_id] := *extends{child_id, parent_id} \
+         :rm extends {child_id, parent_id}",
+        "?[impl_id, interface_id] := *implements{impl_id, interface_id} \
+         :rm implements {impl_id, interface_id}",
+        "?[importer_file_id, imported_id] := *imports{importer_file_id, imported_id} \
+         :rm imports {importer_file_id, imported_id}",
+        "?[file_path, position] := *raw_import{file_path, position} \
+         :rm raw_import {file_path, position}",
+        "?[id] := *parameter{id} :rm parameter {id}",
+        "?[function_id] := *returns_type{function_id} :rm returns_type {function_id}",
+        "?[function_id, exception_type_id] := *throws{function_id, exception_type_id} \
+         :rm throws {function_id, exception_type_id}",
+        "?[symbol_id] := *field_type{symbol_id} :rm field_type {symbol_id}",
+        "?[id] := *type{id} :rm type {id}",
+        "?[id] := *comment{id} :rm comment {id}",
         "?[path] := *file_classification{path} :rm file_classification {path}",
         "?[file_path, line] := *nolint{file_path, line} :rm nolint {file_path, line}",
         "?[file_path] := *build_meta_files{file_path} :rm build_meta_files {file_path}",
-    ] {
+    ];
+    for stmt in wipes {
         store
             .run_script(stmt, BTreeMap::new())
             .map_err(|e| anyhow::anyhow!("wipe failed for `{stmt}`: {e}"))?;
@@ -258,10 +333,7 @@ pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
     Ok(())
 }
 
-/// Returns `true` when the stored `build_meta_files` rows match the
-/// workspace's current files (same set + same size + same mtime). When
-/// the workspace has no on-disk root (S3), only the file set is
-/// compared — sizes/mtimes aren't available there.
+/// Returns `true` when the stored `build_meta_files` rows match the workspace.
 pub fn is_warm_compatible(store: &CozoStore, workspace: &Workspace) -> Result<bool> {
     let rows = store
         .run_query(
@@ -303,8 +375,6 @@ pub fn is_warm_compatible(store: &CozoStore, workspace: &Workspace) -> Result<bo
             return Ok(false);
         };
         if !on_disk {
-            // S3 workspace — no mtime available. Trust the file set check
-            // we already did (count + path-by-path).
             continue;
         }
         let full = root.join(path);
@@ -347,10 +417,6 @@ fn record_build_meta_files(workspace: &Workspace, writer: &mut CozoWriter) {
     }
 }
 
-/// Heuristic: a file is "generated" if its first 20 lines contain a
-/// well-known marker. Matches the conventions of the major generators
-/// (rustfmt-skip @generated, protoc, prost, codegen, etc.) without
-/// claiming to be exhaustive.
 fn is_generated_marker(source: &str) -> bool {
     const MARKERS: &[&str] = &[
         "@generated",
@@ -372,11 +438,6 @@ fn is_generated_marker(source: &str) -> bool {
     false
 }
 
-/// Scan `source` for `nolint:<pattern>` directives and emit rows.
-/// Supports the two prefix styles in use across the supported languages:
-///
-/// - `// nolint:<pattern>` (C-family, Rust, JS/TS, Java, C#, Go, PHP)
-/// - `# nolint:<pattern>` (Python)
 fn extract_nolints(file_path: &str, source: &str, writer: &mut CozoWriter) {
     for (i, line) in source.lines().enumerate() {
         let line_no = (i + 1) as i64;
@@ -435,7 +496,7 @@ mod tests {
         let calls = store
             .run_query(
                 "?[caller, callee] := \
-                 *edge_calls{caller_id, callee_id}, \
+                 *calls{caller_id, callee_id}, \
                  *symbol{id: caller_id, name: caller}, \
                  *symbol{id: callee_id, name: callee}",
                 BTreeMap::new(),
@@ -455,6 +516,33 @@ mod tests {
             .expect("file query");
         assert_eq!(files.rows.len(), 1);
         assert_eq!(files.rows[0][0], cozo::DataValue::from("lib.rs"));
+    }
+
+    #[test]
+    fn populate_emits_span_rows_for_symbols() {
+        let dir = tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a.rs"), "fn alpha() {}\n").expect("write");
+        let workspace =
+            Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
+        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
+            .build()
+            .expect("build graph");
+        let store = CozoStore::open_in_memory().expect("open store");
+        populate(&store, &graph, Some(&workspace)).expect("populate");
+
+        let spans = store
+            .run_query(
+                "?[id, start_line] := *symbol{id, name: 'alpha'}, \
+                 *span{entity_id: id, start_line}",
+                BTreeMap::new(),
+            )
+            .expect("query");
+        assert_eq!(
+            spans.rows.len(),
+            1,
+            "expected 1 span row, got {:?}",
+            spans.rows
+        );
     }
 
     #[test]

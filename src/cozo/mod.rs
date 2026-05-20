@@ -22,4 +22,10 @@ pub use writer::CozoWriter;
 /// Bump when the schema in [`schema`] changes in a way that requires a
 /// rebuild from scratch. Persisted into `build_meta` and checked on open
 /// so a mismatch wipes the old store and triggers a clean repopulate.
-pub const SCHEMA_VERSION: u32 = 2;
+///
+/// 3: Datalog-model migration (Phase 1). Symbol IDs become String, edge
+/// relations renamed, `references` shape changed (match_index key,
+/// nullable `referent_id`), `field_type`/`type`/`extends`/`implements`/
+/// `throws`/`comment` relations added, per-language `*_attrs` tables
+/// declared (empty until Phase 4).
+pub const SCHEMA_VERSION: u32 = 3;
