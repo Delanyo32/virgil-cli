@@ -1,0 +1,6 @@
+# C# locals snapshot — counts of parameter + variable symbols.
+# parameter_count covers regular/params/lambda/catch parameters.
+# local_count covers local_declaration_statement + foreach binding.
+# See locals.cozoql for the conceptual query shape.
+parameter_count=685
+local_count=277

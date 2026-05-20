@@ -69,7 +69,8 @@ fn full_pipeline_typescript() {
     assert_eq!(meta.language, "typescript");
 
     let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(syms.len(), 10, "expected 10 symbols, got: {names:?}");
+    // Issue #11: parameter symbols (name, url) now extracted as well.
+    assert_eq!(syms.len(), 12, "expected 12 symbols, got: {names:?}");
 
     let expected = [
         "greet",
@@ -82,6 +83,8 @@ fn full_pipeline_typescript() {
         "helper",
         "getName",
         "internalHandler",
+        "name",
+        "url",
     ];
     for name in &expected {
         assert!(names.contains(name), "missing symbol: {name}");
@@ -92,7 +95,9 @@ fn full_pipeline_typescript() {
 fn full_pipeline_javascript() {
     let (_meta, syms) = parse_fixture("sample.js", Language::JavaScript);
     let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(syms.len(), 6, "expected 6 symbols, got: {names:?}");
+    // Issue #11: parameter symbols (a, b for add/multiply; x for square) now
+    // extracted too — 6 declared + 5 parameters = 11.
+    assert_eq!(syms.len(), 11, "expected 11 symbols, got: {names:?}");
 
     for sym in &syms {
         assert_ne!(sym.kind, SymbolKind::Interface);
@@ -100,7 +105,17 @@ fn full_pipeline_javascript() {
         assert_ne!(sym.kind, SymbolKind::Enum);
     }
 
-    let expected = ["add", "Calculator", "multiply", "PI", "square", "legacy"];
+    let expected = [
+        "add",
+        "Calculator",
+        "multiply",
+        "PI",
+        "square",
+        "legacy",
+        "a",
+        "b",
+        "x",
+    ];
     for name in &expected {
         assert!(names.contains(name), "missing symbol: {name}");
     }
@@ -110,10 +125,12 @@ fn full_pipeline_javascript() {
 fn full_pipeline_tsx() {
     let (_meta, syms) = parse_fixture("component.tsx", Language::Tsx);
     let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(syms.len(), 3, "expected 3 symbols, got: {names:?}");
+    // Issue #11: parameter symbol `props` (Header's prop arg) now extracted.
+    assert_eq!(syms.len(), 4, "expected 4 symbols, got: {names:?}");
     assert!(names.contains(&"App"));
     assert!(names.contains(&"Header"));
     assert!(names.contains(&"Props"));
+    assert!(names.contains(&"props"));
 }
 
 #[test]

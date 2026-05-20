@@ -47,6 +47,28 @@ const CSHARP_SYMBOL_QUERY: &str = r#"
   (variable_declaration
     (variable_declarator
       (identifier) @name))) @definition
+
+(parameter
+  name: (identifier) @name) @definition
+
+; `params int[] xs` — the grammar's `_parameter_array` rule is hidden, so
+; the trailing identifier appears as a direct child of `parameter_list`.
+(parameter_list
+  (identifier) @name) @definition
+
+(lambda_expression
+  parameters: (implicit_parameter) @name) @definition
+
+(catch_declaration
+  name: (identifier) @name) @definition
+
+(local_declaration_statement
+  (variable_declaration
+    (variable_declarator
+      name: (identifier) @name) @definition))
+
+(foreach_statement
+  left: (identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -150,6 +172,18 @@ fn determine_csharp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "property_declaration" => Some(SymbolKind::Property),
         "delegate_declaration" => Some(SymbolKind::TypeAlias),
         "field_declaration" => Some(SymbolKind::Variable),
+        // Parameters: regular `(parameter ...)`, `params int[] xs` varargs (the
+        // grammar's `_parameter_array` rule is hidden, so its trailing
+        // identifier appears directly under `parameter_list`), the
+        // single-identifier lambda shorthand (`x => x + 1`, aliased to
+        // `implicit_parameter`), and the catch-clause name. All bind a single
+        // name in a callable's scope, so they all map to Parameter.
+        "parameter" | "parameter_list" | "lambda_expression" | "catch_declaration" => {
+            Some(SymbolKind::Parameter)
+        }
+        // Locals (`var x = 1;` / `int x = 1;`) and foreach iteration variables
+        // are both ordinary stack-locals, mapped to Variable.
+        "variable_declarator" | "foreach_statement" => Some(SymbolKind::Variable),
         _ => None,
     }
 }
@@ -514,5 +548,65 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_method_parameters() {
+        let syms =
+            parse_and_extract("public class Foo { public void Bar(int x, string y) { } }");
+        let x = syms.iter().find(|s| s.name == "x");
+        let y = syms.iter().find(|s| s.name == "y");
+        assert!(x.is_some(), "expected parameter `x`");
+        assert!(y.is_some(), "expected parameter `y`");
+        assert_eq!(x.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(y.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_typed_local_variable() {
+        let syms = parse_and_extract(
+            "public class Foo { public void Bar() { int x = 1; } }",
+        );
+        let x = syms.iter().find(|s| s.name == "x");
+        assert!(x.is_some(), "expected local `x`");
+        assert_eq!(x.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_var_local_variable() {
+        let syms = parse_and_extract(
+            "public class Foo { public void Bar() { var y = 2; } }",
+        );
+        let y = syms.iter().find(|s| s.name == "y");
+        assert!(y.is_some(), "expected local `y`");
+        assert_eq!(y.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_params_varargs() {
+        let syms = parse_and_extract(
+            "public class Foo { public void Bar(params int[] xs) { } }",
+        );
+        let xs = syms.iter().find(|s| s.name == "xs");
+        assert!(xs.is_some(), "expected params varargs `xs`");
+        assert_eq!(xs.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_foreach_and_catch() {
+        let syms = parse_and_extract(
+            r#"public class Foo {
+                public void Bar() {
+                    foreach (var item in items) { }
+                    try { } catch (Exception ex) { }
+                }
+            }"#,
+        );
+        let item = syms.iter().find(|s| s.name == "item");
+        let ex = syms.iter().find(|s| s.name == "ex");
+        assert!(item.is_some(), "expected foreach var `item`");
+        assert_eq!(item.unwrap().kind, SymbolKind::Variable);
+        assert!(ex.is_some(), "expected catch param `ex`");
+        assert_eq!(ex.unwrap().kind, SymbolKind::Parameter);
     }
 }

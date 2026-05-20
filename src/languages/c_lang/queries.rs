@@ -51,6 +51,35 @@ const C_SYMBOL_QUERY: &str = r#"
 
 (preproc_function_def
   name: (identifier) @name) @definition
+
+(parameter_declaration
+  declarator: (identifier) @name) @definition
+
+(parameter_declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(parameter_declaration
+  declarator: (pointer_declarator
+    declarator: (pointer_declarator
+      declarator: (identifier) @name))) @definition
+
+(parameter_declaration
+  declarator: (array_declarator
+    declarator: (identifier) @name)) @definition
+
+(declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(declaration
+  declarator: (init_declarator
+    declarator: (pointer_declarator
+      declarator: (identifier) @name))) @definition
+
+(declaration
+  declarator: (array_declarator
+    declarator: (identifier) @name)) @definition
 "#;
 
 // ── Import queries ──
@@ -157,6 +186,7 @@ fn determine_c_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
             }
             Some(SymbolKind::Variable)
         }
+        "parameter_declaration" => Some(SymbolKind::Parameter),
         "struct_specifier" => Some(SymbolKind::Struct),
         "union_specifier" => Some(SymbolKind::Union),
         "enum_specifier" => Some(SymbolKind::Enum),
@@ -468,10 +498,12 @@ mod tests {
     #[test]
     fn extract_function_definition() {
         let syms = parse_and_extract("int main(int argc, char **argv) { return 0; }");
-        assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].name, "main");
-        assert_eq!(syms[0].kind, SymbolKind::Function);
-        assert!(syms[0].is_exported);
+        let main = syms
+            .iter()
+            .find(|s| s.name == "main")
+            .expect("main missing");
+        assert_eq!(main.kind, SymbolKind::Function);
+        assert!(main.is_exported);
     }
 
     #[test]
@@ -584,5 +616,49 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_function_parameters() {
+        let syms = parse_and_extract("int add(int a, int b) { return a + b; }");
+        let a = syms.iter().find(|s| s.name == "a");
+        let b = syms.iter().find(|s| s.name == "b");
+        assert!(a.is_some(), "parameter `a` missing");
+        assert!(b.is_some(), "parameter `b` missing");
+        assert_eq!(a.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(b.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_pointer_parameter() {
+        let syms = parse_and_extract("void set(int *p, char **argv) { }");
+        let p = syms.iter().find(|s| s.name == "p");
+        let argv = syms.iter().find(|s| s.name == "argv");
+        assert!(p.is_some(), "pointer parameter `p` missing");
+        assert!(argv.is_some(), "double-pointer parameter `argv` missing");
+        assert_eq!(p.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(argv.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_local_variable_in_function() {
+        let syms = parse_and_extract("int main() { int x = 1; int y; return x + y; }");
+        let x = syms.iter().find(|s| s.name == "x");
+        let y = syms.iter().find(|s| s.name == "y");
+        assert!(x.is_some(), "local `x` missing");
+        assert!(y.is_some(), "local `y` missing");
+        assert_eq!(x.unwrap().kind, SymbolKind::Variable);
+        assert_eq!(y.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_local_pointer_variable() {
+        let syms = parse_and_extract("void f() { int *ptr; int *q = 0; }");
+        let ptr = syms.iter().find(|s| s.name == "ptr");
+        let q = syms.iter().find(|s| s.name == "q");
+        assert!(ptr.is_some(), "pointer local `ptr` missing");
+        assert!(q.is_some(), "initialized pointer local `q` missing");
+        assert_eq!(ptr.unwrap().kind, SymbolKind::Variable);
+        assert_eq!(q.unwrap().kind, SymbolKind::Variable);
     }
 }

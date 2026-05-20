@@ -1,6 +1,11 @@
-symbol_count=762
+# C# baseline snapshot — counts of populated rows.
+#
+# Issue #11 Phase 2: parameters (regular, params/varargs, lambda,
+# catch), locals (typed + `var`), and foreach binding now extracted.
+# symbol_count grew from 762 → 1666; call_count from 23 → 25.
+symbol_count=1666
 comment_count=186
-call_count=23
+call_count=25
 doc_attached_count=2
 file_count=61
-span_count=762
+span_count=1666

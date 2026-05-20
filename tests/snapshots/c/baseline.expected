@@ -1,6 +1,13 @@
-symbol_count=708
+# C baseline snapshot — counts of populated rows.
+#
+# Issue #11 Phase 2: parameter symbols (incl. pointer/array declarators)
+# and local variable declarations (init + uninit, pointer/array variants)
+# now extracted. symbol_count grew from 708 → 1282; call_count is
+# unchanged (callable-only filter in builder.rs catches param/local
+# names that collide with function names).
+symbol_count=1282
 comment_count=235
 call_count=39
 doc_attached_count=16
 file_count=48
-span_count=708
+span_count=1282

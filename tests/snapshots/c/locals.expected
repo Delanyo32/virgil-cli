@@ -1,0 +1,5 @@
+# C locals snapshot — counts of parameter + variable symbols.
+# local_count counts all `declaration` symbols (top-level + function-scope).
+# See locals.cozoql for the conceptual query shape.
+parameter_count=510
+local_count=257

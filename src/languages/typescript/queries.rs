@@ -38,6 +38,18 @@ const TS_SYMBOL_QUERY: &str = r#"
 
 (enum_declaration
   name: (identifier) @name) @definition
+
+(required_parameter
+  pattern: (identifier) @name) @parameter
+
+(optional_parameter
+  pattern: (identifier) @name) @parameter
+
+(required_parameter
+  pattern: (rest_pattern (identifier) @name)) @parameter
+
+(arrow_function
+  parameter: (identifier) @name) @parameter
 "#;
 
 const JS_SYMBOL_QUERY: &str = r#"
@@ -59,6 +71,19 @@ const JS_SYMBOL_QUERY: &str = r#"
   (variable_declarator
     name: (identifier) @name
     value: (_) @value)) @definition
+
+(formal_parameters
+  (identifier) @name) @parameter
+
+(formal_parameters
+  (rest_pattern (identifier) @name)) @parameter
+
+(formal_parameters
+  (assignment_pattern
+    left: (identifier) @name)) @parameter
+
+(arrow_function
+  parameter: (identifier) @name) @parameter
 "#;
 
 /// Matches `exports.NAME = VALUE` and `module.exports.NAME = VALUE` assignments.
@@ -161,6 +186,7 @@ pub fn extract_symbols(
     let name_idx = query.capture_index_for_name("name");
     let definition_idx = query.capture_index_for_name("definition");
     let value_idx = query.capture_index_for_name("value");
+    let parameter_idx = query.capture_index_for_name("parameter");
 
     let mut symbols = Vec::new();
 
@@ -168,26 +194,32 @@ pub fn extract_symbols(
         let name_cap = name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let def_cap = definition_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let value_cap = value_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+        let param_cap = parameter_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
 
-        let (Some(name_cap), Some(def_cap)) = (name_cap, def_cap) else {
-            continue;
-        };
+        let Some(name_cap) = name_cap else { continue };
 
         let name_node = name_cap.node;
-        let def_node = def_cap.node;
-
         let name = name_node.utf8_text(source).unwrap_or("").to_string();
         if name.is_empty() {
             continue;
         }
 
-        let kind = determine_kind(def_node.kind(), value_cap.map(|c| c.node.kind()));
-        let Some(kind) = kind else { continue };
-
-        // Check if parent is an export_statement
-        let is_exported = def_node
-            .parent()
-            .is_some_and(|p| p.kind() == "export_statement");
+        // Parameter capture takes precedence — anchor the symbol on the identifier
+        // node itself (parameter containers in JS are formal_parameters, which spans
+        // every parameter; using the name node keeps the byte range per-parameter).
+        let (def_node, kind, is_exported) = if let Some(_param_cap) = param_cap {
+            (name_node, SymbolKind::Parameter, false)
+        } else {
+            let Some(def_cap) = def_cap else { continue };
+            let def_node = def_cap.node;
+            let kind = determine_kind(def_node.kind(), value_cap.map(|c| c.node.kind()));
+            let Some(kind) = kind else { continue };
+            // Check if parent is an export_statement
+            let is_exported = def_node
+                .parent()
+                .is_some_and(|p| p.kind() == "export_statement");
+            (def_node, kind, is_exported)
+        };
 
         let symbol = SymbolInfo {
             name,
@@ -1080,6 +1112,70 @@ module.exports.deleteItem = function(req, res) {
             "deleteItem should be Function/ArrowFunction kind, got {:?}",
             delete.kind
         );
+    }
+
+    #[test]
+    fn extract_ts_function_parameters() {
+        let source = "function greet(name: string, count?: number, ...rest: any[]) {}";
+        let syms = parse_and_extract(source, Language::TypeScript);
+        let params: Vec<&SymbolInfo> =
+            syms.iter().filter(|s| s.kind == SymbolKind::Parameter).collect();
+        let names: Vec<&str> = params.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"name"), "expected `name` param, got {:?}", names);
+        assert!(names.contains(&"count"), "expected `count` param, got {:?}", names);
+        assert!(names.contains(&"rest"), "expected `rest` param, got {:?}", names);
+    }
+
+    #[test]
+    fn extract_ts_arrow_parameters() {
+        // Both parenthesized arrows (formal_parameters) and bare-identifier arrows
+        // should emit Parameter symbols.
+        let source = "const a = (x: number) => x + 1;\nconst b = y => y * 2;";
+        let syms = parse_and_extract(source, Language::TypeScript);
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"x"), "expected `x` param, got {:?}", params);
+        assert!(params.contains(&"y"), "expected `y` param, got {:?}", params);
+    }
+
+    #[test]
+    fn extract_ts_method_parameters_and_local() {
+        // Method params + a local `let` inside the body. The local should already
+        // be picked up by the pre-existing lexical_declaration capture.
+        let source = "class C { run(a: number, b: number) { let total = a + b; return total; } }";
+        let syms = parse_and_extract(source, Language::TypeScript);
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"a"));
+        assert!(params.contains(&"b"));
+        let total = syms.iter().find(|s| s.name == "total");
+        assert!(total.is_some(), "expected local `total` symbol");
+        assert_eq!(total.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_js_function_parameters_and_local() {
+        // JS uses formal_parameters with bare identifier / rest_pattern children.
+        let source = "function add(a, b, ...rest) { let sum = a + b; var v = 0; return sum; }";
+        let syms = parse_and_extract(source, Language::JavaScript);
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"a"), "params: {:?}", params);
+        assert!(params.contains(&"b"), "params: {:?}", params);
+        assert!(params.contains(&"rest"), "params: {:?}", params);
+        let sum = syms.iter().find(|s| s.name == "sum").expect("local `sum`");
+        assert_eq!(sum.kind, SymbolKind::Variable);
+        let v = syms.iter().find(|s| s.name == "v").expect("local `v`");
+        assert_eq!(v.kind, SymbolKind::Variable);
     }
 
     #[test]

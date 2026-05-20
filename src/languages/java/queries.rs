@@ -35,6 +35,29 @@ const JAVA_SYMBOL_QUERY: &str = r#"
 (field_declaration
   declarator: (variable_declarator
     name: (identifier) @name)) @definition
+
+(formal_parameter
+  name: (identifier) @name) @definition
+
+(spread_parameter
+  (variable_declarator
+    name: (identifier) @name)) @definition
+
+(catch_formal_parameter
+  name: (identifier) @name) @definition
+
+(lambda_expression
+  parameters: (inferred_parameters (identifier) @name)) @definition
+
+(lambda_expression
+  parameters: (identifier) @name) @definition
+
+(local_variable_declaration
+  declarator: (variable_declarator
+    name: (identifier) @name)) @definition
+
+(resource
+  name: (identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -137,6 +160,11 @@ fn determine_java_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" | "constructor_declaration" => Some(SymbolKind::Method),
         "field_declaration" => Some(SymbolKind::Variable),
+        "formal_parameter"
+        | "spread_parameter"
+        | "catch_formal_parameter"
+        | "lambda_expression" => Some(SymbolKind::Parameter),
+        "local_variable_declaration" | "resource" => Some(SymbolKind::Variable),
         _ => None,
     }
 }
@@ -571,5 +599,66 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_method_parameters() {
+        let syms = parse_and_extract(
+            "public class Foo { public int add(int a, String b) { return 0; } }",
+        );
+        let a = syms
+            .iter()
+            .find(|s| s.name == "a" && s.kind == SymbolKind::Parameter);
+        let b = syms
+            .iter()
+            .find(|s| s.name == "b" && s.kind == SymbolKind::Parameter);
+        assert!(a.is_some(), "parameter `a` should be emitted");
+        assert!(b.is_some(), "parameter `b` should be emitted");
+    }
+
+    #[test]
+    fn extract_local_variable() {
+        let syms =
+            parse_and_extract("public class Foo { void bar() { int x = 1; } }");
+        let x = syms
+            .iter()
+            .find(|s| s.name == "x" && s.kind == SymbolKind::Variable);
+        assert!(x.is_some(), "local variable `x` should be emitted");
+    }
+
+    #[test]
+    fn extract_multi_local_variables() {
+        let syms =
+            parse_and_extract("public class Foo { void bar() { int a, b; } }");
+        let a = syms
+            .iter()
+            .find(|s| s.name == "a" && s.kind == SymbolKind::Variable);
+        let b = syms
+            .iter()
+            .find(|s| s.name == "b" && s.kind == SymbolKind::Variable);
+        assert!(a.is_some(), "local variable `a` should be emitted");
+        assert!(b.is_some(), "local variable `b` should be emitted");
+    }
+
+    #[test]
+    fn extract_varargs_parameter() {
+        let syms = parse_and_extract(
+            "public class Foo { public void log(String... args) { } }",
+        );
+        let args = syms
+            .iter()
+            .find(|s| s.name == "args" && s.kind == SymbolKind::Parameter);
+        assert!(args.is_some(), "varargs parameter `args` should be emitted");
+    }
+
+    #[test]
+    fn extract_catch_parameter() {
+        let syms = parse_and_extract(
+            "public class Foo { void bar() { try { } catch (Exception e) { } } }",
+        );
+        let e = syms
+            .iter()
+            .find(|s| s.name == "e" && s.kind == SymbolKind::Parameter);
+        assert!(e.is_some(), "catch parameter `e` should be emitted");
     }
 }

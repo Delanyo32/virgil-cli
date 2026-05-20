@@ -25,9 +25,18 @@ const GO_SYMBOL_QUERY: &str = r#"
   (const_spec
     name: (identifier) @name) @definition)
 
-(var_declaration
-  (var_spec
-    name: (identifier) @name) @definition)
+(var_spec
+  name: (identifier) @name) @definition
+
+(parameter_declaration
+  name: (identifier) @name) @definition
+
+(variadic_parameter_declaration
+  name: (identifier) @name) @definition
+
+(short_var_declaration
+  left: (expression_list
+    (identifier) @name)) @definition
 "#;
 
 // ── Import queries ──
@@ -100,7 +109,8 @@ pub fn extract_symbols(
         let def_node = def_cap.node;
 
         let name = name_node.utf8_text(source).unwrap_or("").to_string();
-        if name.is_empty() {
+        if name.is_empty() || name == "_" {
+            // Skip blank identifier — not a binding in Go.
             continue;
         }
 
@@ -142,6 +152,10 @@ fn determine_go_kind(def_node: tree_sitter::Node, source: &[u8]) -> Option<Symbo
         }
         "const_spec" => Some(SymbolKind::Constant),
         "var_spec" => Some(SymbolKind::Variable),
+        "parameter_declaration" | "variadic_parameter_declaration" => {
+            Some(SymbolKind::Parameter)
+        }
+        "short_var_declaration" => Some(SymbolKind::Variable),
         _ => {
             // For parent nodes like type_declaration, const_declaration, var_declaration
             // walk children to find spec nodes
@@ -531,5 +545,66 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("package main");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_function_parameters() {
+        let syms = parse_and_extract(
+            "package main\nfunc add(x int, y int, rest ...int) int { return x + y }",
+        );
+        let x = syms
+            .iter()
+            .find(|s| s.name == "x")
+            .expect("parameter x present");
+        assert_eq!(x.kind, SymbolKind::Parameter);
+        let y = syms
+            .iter()
+            .find(|s| s.name == "y")
+            .expect("parameter y present");
+        assert_eq!(y.kind, SymbolKind::Parameter);
+        let rest = syms
+            .iter()
+            .find(|s| s.name == "rest")
+            .expect("variadic parameter rest present");
+        assert_eq!(rest.kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_short_var_declaration_local() {
+        let syms = parse_and_extract("package main\nfunc f() { x := 1; _ = x }");
+        let x = syms
+            .iter()
+            .find(|s| s.name == "x" && s.kind == SymbolKind::Variable)
+            .expect("local x present as Variable");
+        assert!(!x.is_exported);
+        // Blank identifier `_` must not be emitted.
+        assert!(syms.iter().all(|s| s.name != "_"));
+    }
+
+    #[test]
+    fn extract_var_spec_local() {
+        let syms = parse_and_extract("package main\nfunc f() { var foo int = 1; _ = foo }");
+        let foo = syms
+            .iter()
+            .find(|s| s.name == "foo")
+            .expect("local foo present");
+        assert_eq!(foo.kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_method_receiver_parameter() {
+        let syms = parse_and_extract(
+            "package main\ntype Foo struct{}\nfunc (f Foo) Bar(arg int) {}",
+        );
+        let recv = syms
+            .iter()
+            .find(|s| s.name == "f" && s.kind == SymbolKind::Parameter)
+            .expect("receiver f present as Parameter");
+        assert!(!recv.is_exported);
+        let arg = syms
+            .iter()
+            .find(|s| s.name == "arg")
+            .expect("method arg present");
+        assert_eq!(arg.kind, SymbolKind::Parameter);
     }
 }

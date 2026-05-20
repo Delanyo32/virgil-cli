@@ -1,6 +1,11 @@
-symbol_count=808
+# Python baseline snapshot — counts of populated rows.
+#
+# Issue #11 Phase 2: parameter symbols + first-assignment locals now
+# extracted (dedupe keeps the earliest assignment per (function, name)).
+# symbol_count grew from 808 → 3102; call_count from 643 → 680.
+symbol_count=3102
 comment_count=1156
-call_count=643
+call_count=680
 doc_attached_count=342
 file_count=23
-span_count=808
+span_count=3102
