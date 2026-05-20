@@ -674,11 +674,7 @@ fn bar(_a: &str, _b: i32) {}
             "expected hello in {:?}",
             resolved
         );
-        assert!(
-            resolved.iter().any(|s| *s == "42"),
-            "expected 42 in {:?}",
-            resolved
-        );
+        assert!(resolved.contains(&"42"), "expected 42 in {:?}", resolved);
     }
 
     #[test]

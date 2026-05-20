@@ -65,15 +65,15 @@ pub struct AuditFinding {
 /// builtin) and executes it against the store.
 pub fn run(req: QueryRequest<'_>) -> Result<QueryOutput> {
     // Rust-side handlers short-circuit before we touch the store.
-    if let QuerySource::Template(name) = &req.source {
-        if let Some(handler) = rust_templates::lookup(name) {
-            let param_map = params_to_btree(&req.params);
-            return handler(&rust_templates::Context {
-                store: req.store,
-                workspace: req.workspace,
-                params: &param_map,
-            });
-        }
+    if let QuerySource::Template(name) = &req.source
+        && let Some(handler) = rust_templates::lookup(name)
+    {
+        let param_map = params_to_btree(&req.params);
+        return handler(&rust_templates::Context {
+            store: req.store,
+            workspace: req.workspace,
+            params: &param_map,
+        });
     }
 
     let script = match req.source {
@@ -187,6 +187,21 @@ fn data_value_to_i64(v: &DataValue) -> Option<i64> {
     }
 }
 
+pub fn data_value_to_json(v: &DataValue) -> serde_json::Value {
+    use serde_json::Value;
+    match v {
+        DataValue::Null => Value::Null,
+        DataValue::Bool(b) => Value::Bool(*b),
+        DataValue::Num(n) => match n {
+            cozo::Num::Int(i) => Value::from(*i),
+            cozo::Num::Float(f) => Value::from(*f),
+        },
+        DataValue::Str(s) => Value::String(s.to_string()),
+        DataValue::List(items) => Value::Array(items.iter().map(data_value_to_json).collect()),
+        other => Value::String(format!("{other:?}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,20 +264,5 @@ mod tests {
         };
         assert_eq!(findings[0].extras.len(), 1);
         assert_eq!(findings[0].extras[0].0, "extra1");
-    }
-}
-
-pub fn data_value_to_json(v: &DataValue) -> serde_json::Value {
-    use serde_json::Value;
-    match v {
-        DataValue::Null => Value::Null,
-        DataValue::Bool(b) => Value::Bool(*b),
-        DataValue::Num(n) => match n {
-            cozo::Num::Int(i) => Value::from(*i),
-            cozo::Num::Float(f) => Value::from(*f),
-        },
-        DataValue::Str(s) => Value::String(s.to_string()),
-        DataValue::List(items) => Value::Array(items.iter().map(data_value_to_json).collect()),
-        other => Value::String(format!("{other:?}")),
     }
 }

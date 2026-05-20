@@ -157,6 +157,7 @@ fn main() -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_cozo_query(
     source: CozoSource,
     params: Vec<(String, String)>,

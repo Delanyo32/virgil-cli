@@ -471,12 +471,11 @@ fn next_id_offset(store: &CozoStore) -> Result<i64> {
                 "?[m] := *symbol{id: s}, m = max(s)",
                 "?[m] := *callsite{id: c}, m = max(c)",
             ] {
-                if let Ok(r) = store.run_query(stmt, BTreeMap::new()) {
-                    if let Some(row) = r.rows.into_iter().next()
-                        && let Some(DataValue::Num(cozo::Num::Int(i))) = row.into_iter().next()
-                    {
-                        max_id = max_id.max(i);
-                    }
+                if let Ok(r) = store.run_query(stmt, BTreeMap::new())
+                    && let Some(row) = r.rows.into_iter().next()
+                    && let Some(DataValue::Num(cozo::Num::Int(i))) = row.into_iter().next()
+                {
+                    max_id = max_id.max(i);
                 }
             }
             // Build a synthetic NamedRows from max_id.

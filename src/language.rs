@@ -20,6 +20,7 @@ impl Language {
     /// Inverse of [`Language::as_str`]. Used when round-tripping a
     /// `Language` value through a serialised representation (e.g. the
     /// Cozo `raw_import` relation).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "typescript" => Some(Language::TypeScript),
