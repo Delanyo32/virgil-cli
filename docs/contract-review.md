@@ -140,6 +140,12 @@ Worth recording so future contributors don't relitigate:
 
 ---
 
+## Update — Datalog resolution pivot ([ADR-0005](adr/0005-datalog-resolution.md))
+
+After this review landed, a follow-up architectural decision moved **all symbol resolution out of per-language Rust extractors** and into Cozoscript rules over a new fact-emission factbase (`occurrence` / `scope` / `binding`). The 9 `references-<lang>.md` contracts get rewritten to describe **what facts to emit**, not **how to resolve names**. The Level-3 commitment from ADR-0003 is preserved — what changes is where the algorithm lives.
+
+Per-language items 3–6 from this review (pointer encoding, compound assignment policy, field-row policy, attrs-vs-symbol overlap) remain valid — they govern fact emission and types, which ADR-0005 does not affect.
+
 ## Outcome
 
 Once items 1–6 are resolved (schema-doc edits + 7-language contract amendments), Phase 0 documentation is locked. Phases 1–6 of the implementation plan can dispatch against these contracts without further policy churn.

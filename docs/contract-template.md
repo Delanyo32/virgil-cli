@@ -62,53 +62,76 @@ Pick examples that exercise *different* `kind` variants — at minimum one each 
 
 ## `references-<lang>.md` skeleton
 
+**Updated per [ADR-0005](adr/0005-datalog-resolution.md):** references contracts describe **fact emission** (`occurrence` / `scope` / `binding` rows), not resolution. Resolution lives in `docs/resolution.md` as Cozoscript rules that apply uniformly across all languages.
+
 ```md
 # References — <Language>
 
-## Lexical scope rules
+## Scope tree
 
-Describe the scoping model:
-- What scopes exist (block, function, class/impl, module, file).
-- How lookup walks outward.
-- Shadowing rules (later binding wins, earlier wins, error?).
-- Module-qualified names: how `a::b::c` is resolved against imports.
+Describe the language's lexical scopes that map to `scope` rows:
+- Which AST nodes open a new scope (function body, block, class body, namespace, file).
+- The `kind` value to emit for each: `"file"` / `"module"` / `"namespace"` / `"class"` / `"function"` / `"block"`.
+- Parent linkage: the `parent_id` of each emitted scope is the innermost enclosing scope.
+- Edge cases — single-statement blocks, comprehensions, lambdas, arrow functions: state whether each opens its own scope.
 
-## `ref_kind` decision tree
+## Bindings
 
-For each `ref_kind`, list the AST patterns that produce it.
+For each `binding_kind`, list the AST patterns the extractor must recognize:
+
+### `definition`
+Definition sites that introduce a name in their enclosing scope (functions, classes, methods, top-level variables, etc.). The `symbol_id` is the same id that the `symbol` extractor emits for the definition.
+
+### `parameter`
+Function/method parameters. `symbol_id` matches the parameter's `symbol` row (per Issue #11).
+
+### `import`
+Plain imports that introduce the imported name into the importing file's module scope. `symbol_id` is `null` when the target is external (unindexed crate, stdlib, etc.); otherwise it's the imported symbol's id in the target file.
+
+### `import_alias`
+Aliased imports (`import { foo as bar }`, `use foo::baz as qux`). `name` is the alias (`bar` / `qux`). `symbol_id` is the underlying symbol's id (transitive re-exports already chased during import resolution).
+
+### `wildcard_import`
+`use foo::*`, `from foo import *`, etc. Emit one row with `name = "*"` per wildcard. `symbol_id = null` (the resolver expands at materialise time using the `imports` graph).
+
+## Occurrence emission
+
+For each `occurrence_kind`, list the AST patterns the extractor emits:
+
+### `call`
+Every call expression — the identifier in callee position.
 
 ### `read`
-Every AST pattern where an identifier is *evaluated*. State exceptions (e.g. macro arguments, attribute paths).
+Every identifier in value position. State exceptions explicitly (e.g. macro arguments, attribute paths, format-string interpolation).
 
 ### `write`
-Every AST pattern where an identifier is *assigned to* or *mutated*. Include compound assignment (`+=`), increment/decrement, method calls that mutate by language convention.
+Every assignment LHS, compound assignment, increment/decrement. State which compound forms collapse to a single `write` per ADR-0003 (default: yes — single write row, no read row).
 
 ### `type_use`
-Where an identifier appears in a type position (parameter type annotation, return type, cast target, generic argument). Tie to the rows already emitted in `types-<lang>.md`.
+Identifiers in a type position. These should overlap exactly with the `type` rows your `types-<lang>.md` produces — each `type` mention is also a `type_use` occurrence.
 
 ### `import_use`
-Identifiers that appear inside an `import`/`use`/`require` statement. Tie to the existing `raw_import` / `imports` rows.
+Identifiers within an import declaration. State whether these are the module/package name, the imported names, or both.
 
-## `referent_id` resolution
+For every occurrence: `enclosing_symbol_id` is the innermost symbol containing the occurrence (`null` for file-level expressions). `enclosing_scope_id` is the innermost `scope` row.
 
-Algorithm to map an identifier occurrence → the `referent_id` of the symbol it names.
+## What this contract does NOT cover
 
-State precisely:
-- Lookup precedence (locals → enclosing function → enclosing class → module → imports → prelude).
-- Behavior when multiple candidates exist (record all matches? pick most-specific? skip?).
-- Behavior when no candidate exists (record `referent_id = null` or skip the row?).
-
-State whether the resolver uses the `symbols_by_name` index that already exists in `src/graph/builder.rs` or a fresh per-file scope tree.
+- **Resolution algorithm.** That's `docs/resolution.md`, applied uniformly. Per-language `references` contracts don't describe how `occurrence` → `referent_id` happens.
+- **`references` rows.** Worked examples below show the *inputs* to resolution (occurrences, scopes, bindings), not the resolver's output rows.
 
 ## Worked examples
 
 At least 5 examples from `../virgil-skills/benchmarks/<lang>/`. For each:
 
 1. The source snippet (full function or block) with file path + line range.
-2. Every `references` row that should be emitted (referrer_id, referent_id, ref_kind, site_file, site_start_byte).
-3. Cases that look ambiguous and how the resolver decides.
+2. Every `scope` row the extractor must emit for the snippet.
+3. Every `binding` row.
+4. Every `occurrence` row.
 
-Include at least one example with shadowing and at least one with a write to a non-local.
+Pick examples that exercise: shadowing, an aliased import, a wildcard import (or its absence), a `self`/`this` field access, and one call where the callee isn't statically resolvable.
+
+Do NOT enumerate expected `references` rows — those are the resolver's output and live in `docs/resolution.md`'s test suite.
 ```
 
 ---
