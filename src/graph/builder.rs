@@ -44,10 +44,14 @@ struct DeferredImport {
     import: ImportInfo,
 }
 
-/// A Calls-edge deferred until all Symbol nodes are present.
+/// A Calls-edge deferred until all Symbol nodes and cross-file edges are
+/// present. Resolution is scoped to the caller's file: same-file symbols
+/// always match; symbols in other files match only if the caller's file
+/// imports that file and the callee symbol is exported.
 struct DeferredCall {
     caller_idx: NodeIndex,
-    callee_name: String,
+    caller_file_spur: Spur,
+    callee_spur: Spur,
 }
 
 pub struct GraphBuilder<'a> {
@@ -110,6 +114,10 @@ impl<'a> GraphBuilder<'a> {
         let mut graph = CodeGraph::new();
         let mut deferred_imports: Vec<DeferredImport> = Vec::new();
         let mut deferred_calls: Vec<DeferredCall> = Vec::new();
+        // Per-file name lookups built during absorption. Used by the
+        // import-scoped Calls-edge resolver below.
+        let mut file_symbols_by_name: HashMap<(Spur, Spur), Vec<NodeIndex>> = HashMap::new();
+        let mut file_exports_by_name: HashMap<(Spur, Spur), Vec<NodeIndex>> = HashMap::new();
 
         let workspace = self.workspace;
         let sym_q = Arc::clone(&symbol_queries);
@@ -138,13 +146,23 @@ impl<'a> GraphBuilder<'a> {
             });
 
             while let Ok(data) = rx.recv() {
-                absorb_file_data(&mut graph, data, &mut deferred_imports, &mut deferred_calls);
+                absorb_file_data(
+                    &mut graph,
+                    data,
+                    &mut deferred_imports,
+                    &mut deferred_calls,
+                    &mut file_symbols_by_name,
+                    &mut file_exports_by_name,
+                );
             }
 
             Ok(())
         })?;
 
-        // Resolve deferred imports now that every File node exists.
+        // Resolve deferred imports now that every File node exists. Track
+        // each resolved import in `file_imports` so the call resolver below
+        // can scope name lookups to the caller's import set.
+        let mut file_imports: HashMap<Spur, Vec<Spur>> = HashMap::new();
         for di in deferred_imports {
             let Some(from_spur) = graph.symbols.get(&di.from_file_path) else {
                 continue;
@@ -159,20 +177,39 @@ impl<'a> GraphBuilder<'a> {
                 && from_file_idx != to_file_idx
             {
                 graph.add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
+                file_imports.entry(from_spur).or_default().push(to_spur);
             }
         }
 
-        // Resolve deferred Calls edges now that every Symbol is registered.
+        // Resolve deferred Calls edges with import-scoped name lookup:
+        //
+        //   - Same-file: any symbol in the caller's file with a matching name.
+        //   - Cross-file: only symbols whose file the caller imports, and
+        //     which are themselves exported.
+        //
+        // Drops the global name-collision noise that the old resolver
+        // produced (one Calls edge per same-named symbol anywhere in the
+        // workspace). Method calls and otherwise-unresolved names simply
+        // don't get a cross-file edge — that's the intended behaviour.
+        let mut targets: Vec<NodeIndex> = Vec::new();
         for dc in deferred_calls {
-            let Some(callee_spur) = graph.symbols.get(&dc.callee_name) else {
-                continue;
-            };
-            let targets: Vec<NodeIndex> = graph
-                .symbols_by_name
-                .get(&callee_spur)
-                .cloned()
-                .unwrap_or_default();
-            for target_idx in targets {
+            targets.clear();
+
+            if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur)) {
+                targets.extend(syms.iter().copied());
+            }
+
+            if let Some(imp_files) = file_imports.get(&dc.caller_file_spur) {
+                for &imp_file in imp_files {
+                    if let Some(syms) = file_exports_by_name.get(&(imp_file, dc.callee_spur)) {
+                        targets.extend(syms.iter().copied());
+                    }
+                }
+            }
+
+            targets.sort_unstable();
+            targets.dedup();
+            for &target_idx in &targets {
                 if target_idx != dc.caller_idx {
                     graph.add_edge(dc.caller_idx, target_idx, EdgeWeight::Calls);
                 }
@@ -239,6 +276,8 @@ fn absorb_file_data(
     data: FileGraphData,
     deferred_imports: &mut Vec<DeferredImport>,
     deferred_calls: &mut Vec<DeferredCall>,
+    file_symbols_by_name: &mut HashMap<(Spur, Spur), Vec<NodeIndex>>,
+    file_exports_by_name: &mut HashMap<(Spur, Spur), Vec<NodeIndex>>,
 ) {
     let FileGraphData {
         path,
@@ -281,6 +320,16 @@ fn absorb_file_data(
             .entry(sym_name_spur)
             .or_default()
             .push(sym_idx);
+        file_symbols_by_name
+            .entry((sym_file_spur, sym_name_spur))
+            .or_default()
+            .push(sym_idx);
+        if sym.is_exported {
+            file_exports_by_name
+                .entry((sym_file_spur, sym_name_spur))
+                .or_default()
+                .push(sym_idx);
+        }
     }
 
     // Queue imports for cross-file resolution. Also stash them on the
@@ -334,7 +383,8 @@ fn absorb_file_data(
             graph.add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
             deferred_calls.push(DeferredCall {
                 caller_idx,
-                callee_name: cs.callee_name,
+                caller_file_spur,
+                callee_spur,
             });
         }
     }
@@ -686,6 +736,103 @@ def user_login(name):
             })
             .expect("user_login callsite");
         assert_eq!(cs.as_deref(), Some("test_login"));
+    }
+
+    fn count_calls_edges(graph: &CodeGraph) -> usize {
+        graph
+            .out_edges
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter(|(_, w)| matches!(w, EdgeWeight::Calls))
+            .count()
+    }
+
+    #[test]
+    fn test_call_resolution_scoped_to_imports_same_name_different_files() {
+        // Two files each define `init`; a third file calls `init` and
+        // imports only one of them. The call must resolve to the imported
+        // `init` and not the unrelated one.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "pub fn init() {}\n").unwrap();
+        std::fs::write(dir.path().join("b.rs"), "pub fn init() {}\n").unwrap();
+        std::fs::write(
+            dir.path().join("c.rs"),
+            "use self::a::init;\nfn run() { init(); }\n",
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+
+        // Exactly one Calls edge: c.rs::run -> a.rs::init. No b.rs::init edge.
+        let run_idx = graph.find_symbols_by_name("run")[0];
+        let calls_from_run: Vec<&NodeWeight> = graph.out_edges[run_idx]
+            .iter()
+            .filter(|(_, w)| matches!(w, EdgeWeight::Calls))
+            .map(|(t, _)| &graph.nodes[*t])
+            .collect();
+        assert_eq!(
+            calls_from_run.len(),
+            1,
+            "expected 1 Calls edge from run, got {}: {:?}",
+            calls_from_run.len(),
+            calls_from_run
+        );
+        let target_file = match calls_from_run[0] {
+            NodeWeight::Symbol { file_path, .. } => graph.symbols.resolve(*file_path),
+            _ => panic!("Calls edge target was not a Symbol"),
+        };
+        assert_eq!(target_file, "a.rs");
+    }
+
+    #[test]
+    fn test_call_resolution_drops_cross_file_edge_without_import() {
+        // Caller calls `beta` defined in another file, with no import.
+        // Old global-lookup behavior would produce a Calls edge; the
+        // import-scoped resolver must produce none.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn alpha() { beta(); }\n").unwrap();
+        std::fs::write(dir.path().join("b.rs"), "pub fn beta() {}\n").unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        assert_eq!(
+            count_calls_edges(&graph),
+            0,
+            "expected 0 Calls edges without an import"
+        );
+    }
+
+    #[test]
+    fn test_call_resolution_skips_non_exported_imported_target() {
+        // The caller imports `beta`, but `beta` is not pub. With no export,
+        // the cross-file edge must not be emitted.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "use self::b::beta;\nfn alpha() { beta(); }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("b.rs"), "fn beta() {}\n").unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        assert_eq!(
+            count_calls_edges(&graph),
+            0,
+            "expected 0 Calls edges when target is not exported"
+        );
+    }
+
+    #[test]
+    fn test_call_resolution_same_file_does_not_need_import() {
+        // Two symbols in the same file: caller -> callee should connect
+        // regardless of import or export status.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "fn caller() { callee(); }\nfn callee() {}\n",
+        )
+        .unwrap();
+        let graph = build_graph(dir.path(), &[Language::Rust]);
+        assert!(
+            count_calls_edges(&graph) >= 1,
+            "expected at least 1 same-file Calls edge"
+        );
     }
 
     #[test]

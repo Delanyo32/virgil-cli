@@ -254,54 +254,9 @@ fn collect_callsite_ids_for_file(store: &CozoStore, file_path: &str) -> Result<V
 /// `*symbol`, `*callsite`, `*raw_import`, and `*file` rows. Idempotent —
 /// always replaces the entire edge set, no incremental edge math.
 pub fn resolve_cross_file_edges(store: &CozoStore) -> Result<()> {
-    // edge_calls: for each callsite with a known caller symbol, find every
-    // symbol whose name matches the callsite's name (excluding self-calls).
-    // Pull rows in Rust to avoid Cozo's Null-aware semantics being awkward
-    // in a :replace head.
-    let pairs_rows = store
-        .run_query(
-            "?[caller_id, callee_id] := \
-             *callsite{caller_symbol_id: caller_id, name}, \
-             *symbol{id: callee_id, name}, \
-             caller_id != callee_id",
-            BTreeMap::new(),
-        )
-        .map_err(|e| anyhow!("collect edge_calls candidates: {e}"))?;
-
-    let mut pair_rows: Vec<DataValue> = Vec::with_capacity(pairs_rows.rows.len());
-    for r in pairs_rows.rows {
-        let (caller, callee) = match (&r[0], &r[1]) {
-            (DataValue::Num(cozo::Num::Int(c)), DataValue::Num(cozo::Num::Int(d))) => (*c, *d),
-            _ => continue,
-        };
-        pair_rows.push(DataValue::List(vec![
-            DataValue::from(caller),
-            DataValue::from(callee),
-        ]));
-    }
-    // Wipe + put. `:replace` requires the full schema in some Cozo
-    // versions and is finicky; explicit two-step is simpler.
-    store
-        .run_script(
-            "?[caller_id, callee_id] := *edge_calls{caller_id, callee_id} \
-             :rm edge_calls {caller_id, callee_id}",
-            BTreeMap::new(),
-        )
-        .map_err(|e| anyhow!("wipe edge_calls: {e}"))?;
-    if !pair_rows.is_empty() {
-        let mut p = BTreeMap::new();
-        p.insert("rows".to_string(), DataValue::List(pair_rows));
-        store
-            .run_script(
-                "?[caller_id, callee_id] <- $rows \
-                 :put edge_calls {caller_id, callee_id}",
-                p,
-            )
-            .map_err(|e| anyhow!("put edge_calls: {e}"))?;
-    }
-
-    // edge_imports: pull raw imports, resolve each via the language-specific
-    // resolver, then :replace.
+    // edge_imports must be rebuilt BEFORE edge_calls: the new import-scoped
+    // call resolver below joins against `*edge_imports`, so any staleness
+    // there directly drops cross-file Calls edges.
     let raw = store
         .run_query(
             "?[from_path, raw_path, language] := \
@@ -384,6 +339,59 @@ pub fn resolve_cross_file_edges(store: &CozoStore) -> Result<()> {
                 p,
             )
             .map_err(|e| anyhow!("put edge_imports: {e}"))?;
+    }
+
+    // edge_calls: for each callsite with a known caller symbol, resolve the
+    // callee with import-scoped lookup — same-file matches always; cross-file
+    // matches require an `edge_imports` row plus an exported target.
+    // Pull rows in Rust to avoid Cozo's Null-aware semantics being awkward
+    // in a :replace head.
+    let pairs_rows = store
+        .run_query(
+            "edge[caller_id, callee_id] := \
+                *callsite{caller_symbol_id: caller_id, name, file_path: f}, \
+                *symbol{id: callee_id, name, file_path: f}, \
+                caller_id != callee_id\n\
+             edge[caller_id, callee_id] := \
+                *callsite{caller_symbol_id: caller_id, name, file_path: cf}, \
+                *edge_imports{from_path: cf, to_path: tf}, \
+                *symbol{id: callee_id, name, file_path: tf, exported: true}, \
+                caller_id != callee_id\n\
+             ?[caller_id, callee_id] := edge[caller_id, callee_id]",
+            BTreeMap::new(),
+        )
+        .map_err(|e| anyhow!("collect edge_calls candidates: {e}"))?;
+
+    let mut pair_rows: Vec<DataValue> = Vec::with_capacity(pairs_rows.rows.len());
+    for r in pairs_rows.rows {
+        let (caller, callee) = match (&r[0], &r[1]) {
+            (DataValue::Num(cozo::Num::Int(c)), DataValue::Num(cozo::Num::Int(d))) => (*c, *d),
+            _ => continue,
+        };
+        pair_rows.push(DataValue::List(vec![
+            DataValue::from(caller),
+            DataValue::from(callee),
+        ]));
+    }
+    // Wipe + put. `:replace` requires the full schema in some Cozo
+    // versions and is finicky; explicit two-step is simpler.
+    store
+        .run_script(
+            "?[caller_id, callee_id] := *edge_calls{caller_id, callee_id} \
+             :rm edge_calls {caller_id, callee_id}",
+            BTreeMap::new(),
+        )
+        .map_err(|e| anyhow!("wipe edge_calls: {e}"))?;
+    if !pair_rows.is_empty() {
+        let mut p = BTreeMap::new();
+        p.insert("rows".to_string(), DataValue::List(pair_rows));
+        store
+            .run_script(
+                "?[caller_id, callee_id] <- $rows \
+                 :put edge_calls {caller_id, callee_id}",
+                p,
+            )
+            .map_err(|e| anyhow!("put edge_calls: {e}"))?;
     }
 
     Ok(())
@@ -540,9 +548,15 @@ mod tests {
 
     #[test]
     fn incremental_round_trip_add_modify_delete() {
+        // beta is pub (exported) and the callers explicitly `use` it —
+        // required for the import-scoped resolver to connect the call.
         let dir = tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("a.rs"), "fn alpha() { beta(); }\n").expect("a");
-        std::fs::write(dir.path().join("b.rs"), "fn beta() {}\n").expect("b");
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "use self::b::beta;\nfn alpha() { beta(); }\n",
+        )
+        .expect("a");
+        std::fs::write(dir.path().join("b.rs"), "pub fn beta() {}\n").expect("b");
 
         let ws = Workspace::load(dir.path(), &[Language::Rust], None).expect("load");
         let graph = GraphBuilder::new(&ws, &[Language::Rust]).build().expect("build");
@@ -568,7 +582,11 @@ mod tests {
 
         // delete a.rs and add c.rs that calls beta
         std::fs::remove_file(dir.path().join("a.rs")).expect("rm a");
-        std::fs::write(dir.path().join("c.rs"), "fn gamma() { beta(); }\n").expect("c");
+        std::fs::write(
+            dir.path().join("c.rs"),
+            "use self::b::beta;\nfn gamma() { beta(); }\n",
+        )
+        .expect("c");
 
         let ws2 = Workspace::load(dir.path(), &[Language::Rust], None).expect("reload");
         let d = workspace_diff(&store, &ws2).expect("diff");
