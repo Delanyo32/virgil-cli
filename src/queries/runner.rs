@@ -12,7 +12,6 @@ use cozo::DataValue;
 use serde::Serialize;
 
 use crate::cozo::CozoStore;
-use crate::graph::CodeGraph;
 use crate::storage::workspace::Workspace;
 
 use super::rust_templates;
@@ -33,7 +32,6 @@ pub struct QueryRequest<'a> {
     pub source: QuerySource<'a>,
     pub params: Vec<(String, String)>,
     pub store: &'a CozoStore,
-    pub graph: &'a CodeGraph,
     pub workspace: &'a Workspace,
 }
 
@@ -72,7 +70,6 @@ pub fn run(req: QueryRequest<'_>) -> Result<QueryOutput> {
             let param_map = params_to_btree(&req.params);
             return handler(&rust_templates::Context {
                 store: req.store,
-                graph: req.graph,
                 workspace: req.workspace,
                 params: &param_map,
             });

@@ -182,6 +182,12 @@ pub enum ProjectCommand {
         #[arg(long = "param", value_parser = parse_key_value)]
         params: Vec<(String, String)>,
 
+        /// Force a fresh rebuild of the cached fact store, even if the
+        /// workspace appears unchanged. Useful when the schema-version
+        /// check misses a semantic change.
+        #[arg(long)]
+        rebuild: bool,
+
         /// Pretty-print JSON output
         #[arg(long)]
         pretty: bool,

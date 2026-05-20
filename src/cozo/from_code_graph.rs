@@ -6,7 +6,10 @@
 //! absorber writes Cozo rows directly, at which point this module goes
 //! away.
 
+use std::collections::BTreeMap;
+
 use anyhow::Result;
+use cozo::DataValue;
 use petgraph::visit::EdgeRef;
 
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
@@ -147,7 +150,129 @@ pub fn populate(
         }
     }
 
+    if let Some(ws) = workspace {
+        record_build_meta_files(ws, &mut writer);
+    }
+
     writer.flush(store)
+}
+
+/// Wipe every relation populated by [`populate`] (plus build_meta_files
+/// and file_classification + nolint). Used before a rebuild so stale rows
+/// don't linger when the workspace has changed.
+pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
+    for stmt in [
+        "?[path] := *file{path} :rm file {path}",
+        "?[id] := *symbol{id} :rm symbol {id}",
+        "?[id] := *callsite{id} :rm callsite {id}",
+        "?[symbol_id, file_path] := *edge_defined_in{symbol_id, file_path} \
+         :rm edge_defined_in {symbol_id, file_path}",
+        "?[caller_id, callee_id] := *edge_calls{caller_id, callee_id} \
+         :rm edge_calls {caller_id, callee_id}",
+        "?[from_path, to_path] := *edge_imports{from_path, to_path} \
+         :rm edge_imports {from_path, to_path}",
+        "?[file_path, symbol_id] := *edge_exports{file_path, symbol_id} \
+         :rm edge_exports {file_path, symbol_id}",
+        "?[parent_id, child_id] := *edge_contains{parent_id, child_id} \
+         :rm edge_contains {parent_id, child_id}",
+        "?[path] := *file_classification{path} :rm file_classification {path}",
+        "?[file_path, line] := *nolint{file_path, line} :rm nolint {file_path, line}",
+        "?[file_path] := *build_meta_files{file_path} :rm build_meta_files {file_path}",
+    ] {
+        store
+            .run_script(stmt, BTreeMap::new())
+            .map_err(|e| anyhow::anyhow!("wipe failed for `{stmt}`: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Returns `true` when the stored `build_meta_files` rows match the
+/// workspace's current files (same set + same size + same mtime). When
+/// the workspace has no on-disk root (S3), only the file set is
+/// compared — sizes/mtimes aren't available there.
+pub fn is_warm_compatible(store: &CozoStore, workspace: &Workspace) -> Result<bool> {
+    let rows = store
+        .run_query(
+            "?[path, hash, size, mtime] := \
+             *build_meta_files{file_path: path, hash, size, mtime}",
+            BTreeMap::new(),
+        )
+        .map_err(|e| anyhow::anyhow!("warm-check query failed: {e}"))?;
+
+    let stored: std::collections::HashMap<String, (i64, i64)> = rows
+        .rows
+        .into_iter()
+        .filter_map(|r| {
+            let path = match &r[0] {
+                DataValue::Str(s) => s.to_string(),
+                _ => return None,
+            };
+            let size = match &r[2] {
+                DataValue::Num(cozo::Num::Int(i)) => *i,
+                _ => return None,
+            };
+            let mtime = match &r[3] {
+                DataValue::Num(cozo::Num::Int(i)) => *i,
+                _ => return None,
+            };
+            Some((path, (size, mtime)))
+        })
+        .collect();
+
+    let current = workspace.files();
+    if current.len() != stored.len() {
+        return Ok(false);
+    }
+
+    let root = workspace.root();
+    let on_disk = root.exists();
+    for path in current {
+        let Some(&(prev_size, prev_mtime)) = stored.get(path) else {
+            return Ok(false);
+        };
+        if !on_disk {
+            // S3 workspace — no mtime available. Trust the file set check
+            // we already did (count + path-by-path).
+            continue;
+        }
+        let full = root.join(path);
+        let meta = match std::fs::metadata(&full) {
+            Ok(m) => m,
+            Err(_) => return Ok(false),
+        };
+        let size_now = meta.len() as i64;
+        let mtime_now = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if size_now != prev_size || mtime_now != prev_mtime {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn record_build_meta_files(workspace: &Workspace, writer: &mut CozoWriter) {
+    let root = workspace.root();
+    let on_disk = root.exists();
+    for path in workspace.files() {
+        let (size, mtime) = if on_disk {
+            let full = root.join(path);
+            let meta = std::fs::metadata(&full).ok();
+            (
+                meta.as_ref().map(|m| m.len() as i64).unwrap_or(0),
+                meta.and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
+            )
+        } else {
+            (0, 0)
+        };
+        writer.push_build_meta_file(path, "", size, mtime);
+    }
 }
 
 /// Heuristic: a file is "generated" if its first 20 lines contain a

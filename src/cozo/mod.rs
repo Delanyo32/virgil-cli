@@ -11,8 +11,8 @@ pub mod schema;
 pub mod store;
 pub mod writer;
 
-pub use from_code_graph::populate;
-pub use store::CozoStore;
+pub use from_code_graph::{is_warm_compatible, populate, wipe_workspace_relations};
+pub use store::{CozoStore, cache_dir_for};
 pub use writer::CozoWriter;
 
 /// Bump when the schema in [`schema`] changes in a way that requires a

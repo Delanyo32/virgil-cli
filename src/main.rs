@@ -73,6 +73,7 @@ fn main() -> Result<()> {
                 file,
                 template,
                 params,
+                rebuild,
                 pretty,
             } => {
                 let cozo_source = match (cozoscript, file, template) {
@@ -84,7 +85,16 @@ fn main() -> Result<()> {
                          --file <path>, or --template <name>"
                     ),
                 };
-                run_cozo_query(cozo_source, params, name, s3, lang, exclude, pretty)
+                run_cozo_query(
+                    cozo_source,
+                    params,
+                    name,
+                    s3,
+                    lang,
+                    exclude,
+                    rebuild,
+                    pretty,
+                )
             }
         },
 
@@ -164,6 +174,7 @@ fn run_cozo_query(
     s3: Option<String>,
     lang: Option<String>,
     exclude: Vec<String>,
+    rebuild: bool,
     pretty: bool,
 ) -> Result<()> {
     let (workspace, project_name) = if let Some(s3_uri) = s3 {
@@ -191,9 +202,19 @@ fn run_cozo_query(
     };
 
     let start = Instant::now();
-    let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
-    let store = CozoStore::open_in_memory()?;
-    cozo::populate(&store, &graph, Some(&workspace))?;
+    let cache_path = cozo::cache_dir_for(&project_name)?;
+    if rebuild && cache_path.exists() {
+        std::fs::remove_file(&cache_path)?;
+    }
+    let store = CozoStore::open_persistent(&cache_path)?;
+    let needs_rebuild = store.fresh() || !cozo::is_warm_compatible(&store, &workspace)?;
+    if needs_rebuild {
+        if !store.fresh() {
+            cozo::wipe_workspace_relations(&store)?;
+        }
+        let graph = virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
+        cozo::populate(&store, &graph, Some(&workspace))?;
+    }
 
     let source_ref = match &source {
         CozoSource::Inline(s) => QuerySource::Inline(s.as_str()),
@@ -204,7 +225,6 @@ fn run_cozo_query(
         source: source_ref,
         params,
         store: &store,
-        graph: &graph,
         workspace: &workspace,
     })?;
     let elapsed = start.elapsed();
@@ -212,6 +232,7 @@ fn run_cozo_query(
     let envelope = serde_json::json!({
         "project": project_name,
         "query_ms": elapsed.as_millis(),
+        "cache": if needs_rebuild { "cold" } else { "warm" },
         "result": output,
     });
     let s = if pretty {

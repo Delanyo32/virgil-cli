@@ -16,16 +16,15 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
+use cozo::DataValue;
 
 use crate::cozo::CozoStore;
-use crate::graph::CodeGraph;
 use crate::storage::workspace::Workspace;
 
 use super::runner::{AuditFinding, QueryOutput};
 
 pub struct Context<'a> {
     pub store: &'a CozoStore,
-    pub graph: &'a CodeGraph,
     pub workspace: &'a Workspace,
     pub params: &'a BTreeMap<String, String>,
 }
@@ -60,36 +59,41 @@ fn parse_int(params: &BTreeMap<String, String>, key: &str, default: i64) -> i64 
 ///   $cc_threshold   — default 10
 ///   $length_threshold — default 50
 fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
-    use crate::graph::NodeWeight;
-    use crate::models::SymbolKind;
-
     let cc_threshold = parse_int(ctx.params, "cc_threshold", 10);
     let length_threshold = parse_int(ctx.params, "length_threshold", 50);
 
-    // Pull test files from the store; cheap and avoids re-classifying.
-    let test_files = collect_test_files(ctx.store)?;
+    // Pull function/method symbols and exclude test files in a single
+    // Cozoscript query — no in-memory graph walk required, so this works
+    // off a warm store without rebuilding the workspace.
+    let rows = ctx
+        .store
+        .run_query(
+            "?[name, kind, file, start_line, end_line] := \
+             *symbol{name, kind, file_path: file, start_line, end_line}, \
+             kind in ['function', 'method', 'arrow_function'], \
+             *file_classification{path: file, is_test: false}",
+            BTreeMap::new(),
+        )
+        .map_err(|e| anyhow!("failed to query symbols: {e}"))?;
 
     let mut findings = Vec::new();
-    for node_idx in ctx.graph.graph.node_indices() {
-        let NodeWeight::Symbol {
-            name,
-            kind,
-            file_path,
-            start_line,
-            end_line,
-            ..
-        } = &ctx.graph.graph[node_idx]
-        else {
-            continue;
+    for row in rows.rows {
+        let name = match &row[0] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
         };
-        if !matches!(kind, SymbolKind::Function | SymbolKind::Method | SymbolKind::ArrowFunction)
-        {
-            continue;
-        }
-        let file = ctx.graph.symbols.resolve(*file_path).to_string();
-        if test_files.contains(&file) {
-            continue;
-        }
+        let file = match &row[2] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
+        };
+        let start_line = match &row[3] {
+            DataValue::Num(cozo::Num::Int(i)) => *i as u32,
+            _ => continue,
+        };
+        let end_line = match &row[4] {
+            DataValue::Num(cozo::Num::Int(i)) => *i as u32,
+            _ => continue,
+        };
 
         let Some(lang) = ctx.workspace.file_language(&file) else {
             continue;
@@ -106,8 +110,8 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
         };
         let Some(func_node) = crate::graph::builder::find_node_at_line(
             tree.root_node(),
-            *start_line,
-            *end_line,
+            start_line,
+            end_line,
         ) else {
             continue;
         };
@@ -131,10 +135,9 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
         } else {
             "info"
         };
-        let name = ctx.graph.symbols.resolve(*name).to_string();
         findings.push(AuditFinding {
             file: file.clone(),
-            line: *start_line as i64,
+            line: start_line as i64,
             severity: severity.to_string(),
             pattern: "high_complexity".to_string(),
             message: format!("{name}: cyclomatic={cc}, length={length}"),
@@ -146,24 +149,6 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
     }
     findings.sort_by(|a, b| b.line.cmp(&a.line).then(a.file.cmp(&b.file)));
     Ok(QueryOutput::Findings(findings))
-}
-
-fn collect_test_files(store: &CozoStore) -> Result<std::collections::HashSet<String>> {
-    use cozo::DataValue;
-    let rows = store
-        .run_query(
-            "?[p] := *file_classification{path: p, is_test: true}",
-            BTreeMap::new(),
-        )
-        .map_err(|e| anyhow!("failed to query test files: {e}"))?;
-    Ok(rows
-        .rows
-        .into_iter()
-        .filter_map(|r| match r.into_iter().next() {
-            Some(DataValue::Str(s)) => Some(s.to_string()),
-            _ => None,
-        })
-        .collect())
 }
 
 /// taint_paths — placeholder handler. The full taint analysis lives in

@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -12,7 +12,6 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 use crate::cozo::{self, CozoStore};
-use crate::graph::CodeGraph;
 use crate::graph::builder::{BuildOptions, GraphBuilder};
 use crate::language::Language;
 use crate::queries::{QueryRequest, QuerySource, run as run_query};
@@ -22,26 +21,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct AppState {
     workspace: Workspace,
-    /// Wrapped in RwLock so we can lazily run `ensure_resource_graph` from
-    /// query handlers (e.g. the `unreleased_resources` template) on first
-    /// use without re-running it on every request.
-    code_graph: RwLock<CodeGraph>,
     store: CozoStore,
-    build_options: BuildOptions,
-}
-
-impl AppState {
-    /// Run resource-lifecycle analysis exactly once. Subsequent calls are no-ops.
-    /// When the server was booted with `--no-resource-graph`, this is a no-op.
-    #[allow(dead_code)]
-    fn ensure_resource_graph(&self) {
-        if !self.build_options.build_resource_graph {
-            return;
-        }
-        if let Ok(mut g) = self.code_graph.write() {
-            g.ensure_resource_graph(Some(&self.workspace));
-        }
-    }
 }
 
 /// POST /query body.
@@ -72,26 +52,26 @@ struct ReadySignal {
 
 pub async fn run_server(
     workspace: Workspace,
-    _source_id: &str,
+    source_id: &str,
     host: &str,
     port: u16,
     _lang_string: Option<String>,
     languages: Vec<Language>,
     build_options: BuildOptions,
 ) -> Result<()> {
-    let code_graph = GraphBuilder::new(&workspace, &languages)
-        .with_options(build_options)
-        .build()?;
+    let cache_path = cozo::cache_dir_for(source_id)?;
+    let store = CozoStore::open_persistent(&cache_path)?;
+    if store.fresh() || !cozo::is_warm_compatible(&store, &workspace)? {
+        if !store.fresh() {
+            cozo::wipe_workspace_relations(&store)?;
+        }
+        let code_graph = GraphBuilder::new(&workspace, &languages)
+            .with_options(build_options)
+            .build()?;
+        cozo::populate(&store, &code_graph, Some(&workspace))?;
+    }
 
-    let store = CozoStore::open_in_memory()?;
-    cozo::populate(&store, &code_graph, Some(&workspace))?;
-
-    let state = Arc::new(AppState {
-        workspace,
-        code_graph: RwLock::new(code_graph),
-        store,
-        build_options,
-    });
+    let state = Arc::new(AppState { workspace, store });
 
     let app = Router::new()
         .route("/health", get(health))
@@ -172,10 +152,6 @@ async fn handle_query(
         REQUEST_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let start = Instant::now();
-            let graph = state
-                .code_graph
-                .read()
-                .map_err(|_| anyhow::anyhow!("code graph lock poisoned"))?;
             let source = if source_kind == 0 {
                 QuerySource::Inline(req.cozoscript.as_deref().unwrap_or(""))
             } else {
@@ -185,7 +161,6 @@ async fn handle_query(
                 source,
                 params,
                 store: &state.store,
-                graph: &graph,
                 workspace: &state.workspace,
             })?;
             let elapsed = start.elapsed();
