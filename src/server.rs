@@ -63,7 +63,6 @@ pub async fn run_server(
     if store.fresh() {
         let code_graph = GraphBuilder::new(&workspace, &languages).build()?;
         cozo::populate(&store, &code_graph, Some(&workspace))?;
-        cozo::resolve_cross_file_edges(&store)?;
     } else {
         let diff = cozo::workspace_diff(&store, &workspace)?;
         if !diff.is_empty() {

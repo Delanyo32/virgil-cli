@@ -205,10 +205,14 @@ fn run_cozo_query(
     let store = CozoStore::open_persistent(&cache_path)?;
     let cache_state = if store.fresh() {
         // Cold start — full build + populate.
+        // `populate` already writes edge_calls + edge_imports from the
+        // graph's deferred-resolution pass, so we DON'T run
+        // `resolve_cross_file_edges` here. That function is for the
+        // incremental path where cross-file edges must be rebuilt from
+        // facts after per-file changes.
         let graph =
             virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?;
         cozo::populate(&store, &graph, Some(&workspace))?;
-        cozo::resolve_cross_file_edges(&store)?;
         "cold"
     } else {
         let diff = cozo::workspace_diff(&store, &workspace)?;
