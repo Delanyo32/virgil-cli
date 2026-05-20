@@ -29,6 +29,7 @@ pub enum SymbolKind {
     Trait,
     Constant,
     Module,
+    Parameter,
 }
 
 impl SymbolKind {
@@ -52,6 +53,7 @@ impl SymbolKind {
             "trait" => Some(SymbolKind::Trait),
             "constant" => Some(SymbolKind::Constant),
             "module" => Some(SymbolKind::Module),
+            "parameter" => Some(SymbolKind::Parameter),
             _ => None,
         }
     }
@@ -77,6 +79,7 @@ impl fmt::Display for SymbolKind {
             SymbolKind::Trait => "trait",
             SymbolKind::Constant => "constant",
             SymbolKind::Module => "module",
+            SymbolKind::Parameter => "parameter",
         };
         f.write_str(s)
     }
@@ -181,5 +184,6 @@ mod tests {
         assert_eq!(SymbolKind::Trait.to_string(), "trait");
         assert_eq!(SymbolKind::Constant.to_string(), "constant");
         assert_eq!(SymbolKind::Module.to_string(), "module");
+        assert_eq!(SymbolKind::Parameter.to_string(), "parameter");
     }
 }

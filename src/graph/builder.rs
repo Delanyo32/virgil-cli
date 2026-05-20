@@ -9,7 +9,7 @@ use tree_sitter::Query;
 
 use crate::language::Language;
 use crate::languages;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
@@ -216,6 +216,23 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
+            // Filter out non-callable targets (parameters, locals, types) —
+            // a name match on a parameter or `let` binding is never a real
+            // call edge. Constants are kept because some Rust constants
+            // can be function pointers, but the heuristic stays
+            // intentionally conservative.
+            targets.retain(|&idx| {
+                matches!(
+                    &graph.nodes[idx],
+                    NodeWeight::Symbol {
+                        kind: SymbolKind::Function
+                            | SymbolKind::Method
+                            | SymbolKind::ArrowFunction
+                            | SymbolKind::Macro,
+                        ..
+                    }
+                )
+            });
             targets.sort_unstable();
             targets.dedup();
             for &target_idx in &targets {
@@ -258,6 +275,19 @@ fn parse_one_file(
     let is_test = crate::classify::is_test_file(rel_path);
     let mut call_sites = Vec::new();
     for sym in &symbols {
+        // Only function-like symbols can be call-site owners. Parameters
+        // and locals never enclose calls (or shouldn't, semantically) —
+        // attributing calls to them creates phantom caller_ids that
+        // explode the calls relation.
+        if !matches!(
+            sym.kind,
+            SymbolKind::Function
+                | SymbolKind::Method
+                | SymbolKind::ArrowFunction
+                | SymbolKind::Macro
+        ) {
+            continue;
+        }
         let enclosing_test = if is_test && is_test_function_name(&sym.name) {
             Some(sym.name.clone())
         } else {

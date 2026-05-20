@@ -3,11 +3,12 @@
 # Generated against ../virgil-skills/benchmarks/rust/systems-cli/ (48 files,
 # Rust only). Rerun the snapshot harness if benchmark contents change.
 #
-# Columns: symbol_count, comment_count, call_count, doc_attached_count,
-#          file_count, span_count
-symbol_count=364
+# Symbol count includes parameter + local-variable symbols (Issue #11).
+# Call count is filtered to callable kinds (Function/Method/ArrowFunction/
+# Macro) — parameters and locals matching a callee name don't create edges.
+symbol_count=958
 comment_count=713
-call_count=94
+call_count=103
 doc_attached_count=287
 file_count=48
-span_count=364
+span_count=958

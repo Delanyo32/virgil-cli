@@ -40,6 +40,15 @@ const RUST_SYMBOL_QUERY: &str = r#"
 
 (macro_definition
   name: (identifier) @name) @definition
+
+(parameter
+  pattern: (identifier) @name) @definition
+
+(let_declaration
+  pattern: (identifier) @name) @definition
+
+(let_declaration
+  pattern: (mut_pattern (identifier) @name)) @definition
 "#;
 
 // ── Import queries ──
@@ -155,6 +164,8 @@ fn determine_rust_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "union_item" => Some(SymbolKind::Union),
         "mod_item" => Some(SymbolKind::Module),
         "macro_definition" => Some(SymbolKind::Macro),
+        "parameter" => Some(SymbolKind::Parameter),
+        "let_declaration" => Some(SymbolKind::Variable),
         _ => None,
     }
 }
