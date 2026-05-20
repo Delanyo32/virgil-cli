@@ -13,19 +13,16 @@ cargo run -- projects delete myapp
 # Query — exactly one of --cozoscript / --file / --template required
 cargo run -- projects query myapp --template find_function_by_name --param name=login
 cargo run -- projects query myapp --cozoscript '?[name] := *symbol{name}'
-cargo run -- projects query myapp --file audit.cozoql --param target=x
+cargo run -- projects query myapp --file query.cozoql --param target=x
+
+# Force a cold rebuild of the persisted fact store
+cargo run -- projects query myapp --template find_cycles --rebuild
 
 # S3/R2 (no registration needed)
 cargo run -- projects query --s3 s3://bucket/prefix --template find_cycles [--lang rs]
 
 # Serve mode (HTTP). Routes: GET /health, POST /query {cozoscript|template, params}
 cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang rs]
-
-# Skip expensive passes (memory/CPU savings — templates depending on
-# CFG/resource analysis silently produce no findings):
-cargo run -- serve --s3 s3://bucket/prefix --no-cfg
-cargo run -- serve --s3 s3://bucket/prefix --no-resource-graph
-cargo run -- serve --s3 s3://bucket/prefix --symbols-only
 ```
 
 ## Module Layout
@@ -40,18 +37,14 @@ cargo run -- serve --s3 s3://bucket/prefix --symbols-only
   - `templates.rs` — embeds `builtin/*.cozoql` via `include_dir`
   - `rust_templates.rs` — handlers that need source access (complexity_hotspots, taint_paths, unreleased_resources)
   - `builtin/*.cozoql` — 7 pure-Cozoscript templates (find_callers/callees/cycles, find_function_by_name, export_surface, import_depth, unused_symbols)
-- `src/graph/` — graph data structures and builder
-  - `mod.rs` — `CodeGraph`, `NodeWeight`, `EdgeWeight`, `GraphNode`
-  - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`)
-  - `taint/` — `TaintEngine`, `TaintConfig` and pattern types (consumed by the Rust-side `taint_paths` template handler)
+- `src/graph/` — build-time graph data structures and builder
+  - `mod.rs` — `CodeGraph` (Vec-backed adjacency lists; no petgraph), `NodeWeight`, `EdgeWeight`, `NodeIndex = usize`
+  - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`); `find_node_at_line` used by `complexity_hotspots`
   - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.) — called on-demand from `rust_templates::complexity_hotspots`
-  - `resource.rs` — `ResourceAnalyzer` (acquires/released_by edges; consumed by the Rust-side `unreleased_resources` handler)
-  - `cfg.rs` — control flow graph data structures (used by taint + resource analyses)
 - `src/classify.rs` — `is_test_file`, `is_barrel_file` — used at build time to populate `file_classification` facts
 - `src/languages/` — one deep module per language, plus shared facade
   - `mod.rs` — language-agnostic facade (`compile_*_query`, `extract_*`, `resolve_import`)
-  - `cfg.rs` — `CfgBuilder` trait and `cfg_builder_for_language` dispatch
-  - `<lang>/{queries.rs, cfg.rs, mod.rs}` — per-language: tree-sitter queries+extractors and CFG builder, one folder per language
+  - `<lang>/{queries.rs, mod.rs}` — per-language tree-sitter queries + extractors
 
 ## Cozoscript query surface
 
@@ -81,7 +74,7 @@ Critical gotchas and design decisions that are not obvious from reading the code
 **Threading constraints**
 - `tree_sitter::Parser` is `!Send` — create a fresh instance per rayon task (never share or pool)
 - `tree_sitter::Query` objects are `Arc`-shareable — compile once per language, share across threads
-- `CodeGraph` (`petgraph::DiGraph`) is `Send` but not `Sync` — share via `Arc<CodeGraph>` for read-only access. In `serve`, `AppState` wraps it in `Arc<RwLock<CodeGraph>>` so the lazy resource pass can take a brief write lock; queries hold the read lock.
+- `CodeGraph` lives only during a cold/incremental build; it's not shared with queries. Queries hit the `CozoStore` directly.
 
 **File extension mapping**
 - `.h` files map to C (deliberate design choice). C++ headers must use `.hpp`/`.hxx`/`.hh`
@@ -101,23 +94,11 @@ Critical gotchas and design decisions that are not obvious from reading the code
 **Call graph**
 Name-based resolution via `symbols_by_name` lookup — heuristic only, no type info. BFS with configurable depth (max 5). Replaces old `call_graph.rs`.
 
-**CallSite nodes are materialised at builder step 5d**
-`NodeWeight::CallSite` is emitted for *every* call expression encountered inside a symbol's line range — not just resource-tracking calls. The node carries `arg_literals` (string/number/bool literals only), `enclosing_test_name` (set when `is_test_file(path) && is_test_function_name(symbol)`), and `caller_symbol`. A `Contains` edge from the caller `Symbol` to the `CallSite` is added. Resource analysis still creates synthetic `acquire:<resource>` CallSites at `src/graph/resource.rs:95` — those have empty `arg_literals` and `caller_symbol = Some(function_node)`. Literal extraction uses a single union node-kind whitelist across grammars (`is_literal_kind` in `builder.rs`); per-language refinement is a follow-up.
-
-**CfgExit nodes + `ExitsVia` edges (builder step 5e)**
-For every entry in `FunctionCfg.exits`, the builder emits one `NodeWeight::CfgExit` and a `Contains` edge plus an `EdgeWeight::ExitsVia(CfgExitKind)` edge from the symbol. `CfgExitKind` is picked from the inbound CFG edge with priority `Exception > Cleanup > TrueBranch > FalseBranch > Normal` (`classify_cfg_exit` in `builder.rs`). `exit_label`: branch-kind exits join the originating `Guard.condition_vars` with ` & `; exception-kind exits use the first `Call.name` in the exit block; normal/cleanup are `None`. The DSL exposes the edge as five flat `EdgeType` variants (`exits_via_normal/true/false/exception/cleanup`) — `EdgeType` itself is still a payload-free flat enum.
-
-**CFGs are not retained — they are rebuilt on demand**
-`CodeGraph` no longer carries a `function_cfgs: HashMap<NodeIndex, FunctionCfg>` map. Instead it exposes `function_cfg_indices: HashSet<NodeIndex>` (the function symbols whose CFGs *could* be built) plus a private `Mutex<HashMap<NodeIndex, FunctionCfg>>` lazy cache. `CodeGraph::cfg_for_function(workspace, idx)` re-parses the function's source and builds the CFG on demand, then caches it. Tests inject synthetic CFGs via `inject_cfg(idx, cfg)` and pass `workspace = None` to `TaintEngine::analyze_all` / `ResourceAnalyzer::analyze_all`. Production callers pass `Some(workspace)`.
-
-**Resource analysis is lazy**
-`GraphBuilder::build()` no longer calls `ResourceAnalyzer::analyze_all`. Call `graph.ensure_resource_graph(Some(&workspace))` (idempotent) to populate `Acquires`/`ReleasedBy` edges. Callers that need lifecycle edges trigger this explicitly; query handlers that don't touch resources skip it entirely.
+**CallSite nodes are materialised during absorption**
+`NodeWeight::CallSite` is emitted for *every* call expression encountered inside a symbol's line range. The node carries `arg_literals` (string/number/bool literals only), `enclosing_test_name` (set when `is_test_file(path) && is_test_function_name(symbol)`), and `caller_symbol`. A `Contains` edge from the caller `Symbol` to the `CallSite` is added. Literal extraction uses a single union node-kind whitelist across grammars (`is_literal_kind` in `builder.rs`); per-language refinement is a follow-up.
 
 **Streaming graph builder**
-`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). Per-file work — File/Symbol/CallSite nodes, `ExitsVia` edges, dropping the CFG — happens during absorption. Cross-file refs (`Imports`, `Calls` edges) are queued in `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains.
-
-**`BuildOptions` + skip flags**
-`GraphBuilder::with_options(BuildOptions { build_cfgs, build_resource_graph })` gates pass-by-pass work. `--no-cfg` clears `build_cfgs` (CFGs are not built at all, so `function_cfg_indices` stays empty and there are no `ExitsVia` edges, taint findings, or lifecycle findings). `--no-resource-graph` clears `build_resource_graph` (suppresses `ensure_resource_graph`). `--symbols-only` is shorthand for both. Templates that depend on suppressed edges silently return no findings.
+`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). Per-file work — File/Symbol/CallSite nodes plus DefinedIn/Contains/Exports edges — happens during absorption. Cross-file refs (`Imports`, `Calls` edges) are queued in `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains.
 
 **Local workspace is disk-backed**
 `Workspace::load` no longer reads file contents up front. It records sizes + language extensions only; `DiskFileSource` (`src/storage/file_source.rs`) reads on demand and caches in a small LRU (`lru` crate, cap 256). S3 workspaces still use the in-memory `MemoryFileSource` since fetches are batched at startup.
@@ -131,10 +112,13 @@ For every entry in `FunctionCfg.exits`, the builder emits one `NodeWeight::CfgEx
 The query pipeline builds the `CodeGraph` first, then calls `cozo::populate(&store, &graph, Some(&workspace))` to materialise the cross-function relations + `file_classification` + `nolint` into an in-memory `CozoStore`. `NodeIndex::index()` is used as the monotonic `Int` id for `symbol`/`callsite` rows. On-disk persistence is a separate follow-up issue.
 
 **Three Rust-side templates, not pure Cozoscript**
-`complexity_hotspots`, `taint_paths`, and `unreleased_resources` live in `src/queries/rust_templates.rs`. They escape Cozoscript because:
-- metrics aren't materialised as facts (re-derivable via `graph::metrics::compute_*`)
-- CFG isn't materialised as facts (re-derivable via `CodeGraph::cfg_for_function`)
-- `taint_paths` / `unreleased_resources` currently return empty findings; wiring them into `src/graph/taint/` + `src/graph/resource.rs` is a follow-up.
+`complexity_hotspots` lives in `src/queries/rust_templates.rs`. It escapes Cozoscript because metrics aren't materialised as facts — the handler queries `*symbol` + `*file_classification` from Cozo, then calls `graph::metrics::compute_*` on demand for each function. All other built-in templates are pure Cozoscript.
+
+**Persistence + warm-start**
+`CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.cozo`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold ~850ms, warm ~17ms on the reference workspace.
+
+**Schema-version bumps**
+`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically.
 
 **Cozoscript rule-head gotcha**
 Cozo does not accept literals in rule-head positions. `caller[c, 1] := ...` fails to parse; bind the constant in the body instead: `caller[c, d] := d = 1, ...`. All recursive built-in templates use this pattern.
@@ -146,7 +130,7 @@ Cozo does not accept literals in rule-head positions. `caller[c, 1] := ...` fail
 |-------|-------------|------|
 | grill-me | Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions "grill me". | `.agents/skills/grill-me/SKILL.md` |
 | skill-creator | Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations. | `.agents/skills/skill-creator/SKILL.md` |
-| virgil | > Explore and query codebases using virgil-cli. Covers project registration, JSON query language for symbol search, call graph traversal, file reading, and static audit. Use when asked to analyze a codebase, understand architecture, find symbols, trace callers/callees, onboard to a project, investigate bugs, or map the API surface of any TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebase. | `.agents/skills/virgil/SKILL.md` |
+| virgil | > Explore and query codebases using virgil-cli. Covers project registration, Cozoscript templates for symbol search and call graph traversal, file reading. Use when asked to analyze a codebase, understand architecture, find symbols, trace callers/callees, onboard to a project, investigate bugs, or map the API surface of any TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebase. | `.agents/skills/virgil/SKILL.md` |
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

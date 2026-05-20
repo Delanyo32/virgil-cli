@@ -1,6 +1,6 @@
 # virgil-cli
 
-A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/) and queries them via a composable JSON query language. Includes static analysis auditing across 6 categories. No database, no pre-indexing — projects are registered by name and parsed at query time. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying and auditing remote codebases directly.
+A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/), materialises them into a [CozoDB](https://www.cozodb.org/) fact store, and answers queries via Cozoscript. Persistent on-disk cache with warm-start in tens of milliseconds. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying remote codebases directly.
 
 ## Installation
 
@@ -40,19 +40,12 @@ Copy the `virgil/` skill directory to your skills folder:
 cp -r .agents/skills/virgil ~/.claude/skills/
 ```
 
-### What the skill provides
-
-- **Core workflow**: Register → Query → Drill-down exploration pattern
-- **6 strategic playbooks**: Architecture understanding, symbol tracing, onboarding, bug investigation, dependency mapping, API surface mapping
-- **Full command reference**: 4 project commands + audit commands
-
 ## Usage
 
-Three top-level command groups:
+Two top-level command groups:
 
 ```bash
 virgil-cli projects <COMMAND>
-virgil-cli audit <DIR|--s3 URI> [OPTIONS]
 virgil-cli serve --s3 <URI> [OPTIONS]
 ```
 
@@ -65,7 +58,7 @@ All project commands are nested under `virgil-cli projects`:
 | `create` | Register a project for querying (scans files, saves to `~/.virgil-cli/projects.json`) |
 | `list` | List registered projects with file counts |
 | `delete` | Remove a registered project |
-| `query` | Query a project using inline JSON (`--q`), a file (`--file`), or stdin |
+| `query` | Run a Cozoscript template, file, or inline query against the project's fact store |
 
 ### `projects create`
 
@@ -94,21 +87,17 @@ No arguments. Lists all registered projects with file counts.
 virgil-cli projects delete <NAME>
 ```
 
-| Option | Description |
-|--------|-------------|
-| `<NAME>` | Project name to delete |
-
 ### `projects query`
 
 ```bash
-# Query a registered project
-virgil-cli projects query <NAME> [OPTIONS]
+# Query a registered project — exactly one of --template / --cozoscript / --file required
+virgil-cli projects query <NAME> --template <name> [--param k=v ...] [OPTIONS]
+virgil-cli projects query <NAME> --cozoscript '<inline>' [--param k=v ...] [OPTIONS]
+virgil-cli projects query <NAME> --file <path.cozoql> [--param k=v ...] [OPTIONS]
 
 # Query an S3/R2 codebase directly (no registration needed)
-virgil-cli projects query --s3 s3://bucket/prefix [OPTIONS]
+virgil-cli projects query --s3 s3://bucket/prefix --template <name> [OPTIONS]
 ```
-
-Pass a query via `--q` (inline JSON), `--file` (path to JSON file), or pipe JSON to stdin.
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -116,237 +105,84 @@ Pass a query via `--q` (inline JSON), `--file` (path to JSON file), or pipe JSON
 | `--s3` | S3 URI — query codebase directly from S3/R2 | — |
 | `-l`, `--lang` | Comma-separated language filter (used with `--s3`) | all supported |
 | `-e`, `--exclude` | Glob patterns to exclude (used with `--s3`, repeatable) | none |
-| `-q`, `--q` | Inline JSON query | — |
-| `-f`, `--file` | Path to a JSON query file | — |
-| `-o`, `--out` | Output format (outline, snippet, full, tree, locations, summary) | `outline` |
+| `--template` | Built-in template name (see list below) | — |
+| `--cozoscript` | Inline Cozoscript query | — |
+| `-f`, `--file` | Path to a Cozoscript file | — |
+| `--param` | Parameter binding for `$param` references in the script (repeatable; `key=value`) | none |
+| `--rebuild` | Force a fresh rebuild of the cached fact store | false |
 | `--pretty` | Pretty-print JSON output | false |
-| `-m`, `--max` | Maximum number of results | `100` |
 
-## JSON Query Language
+Parameter values bind via `BTreeMap<String, DataValue>` — integers and `true`/`false` are auto-coerced, everything else binds as a string. User input is never interpolated into the script body.
 
-Queries are JSON objects with composable filters:
+## Built-in Templates
 
-```json
-{
-  "files": "src/api/**",
-  "files_exclude": ["**/test/**"],
-  "find": "function",
-  "name": "handle*",
-  "visibility": "exported",
-  "inside": "AuthService",
-  "has": "@deprecated",
-  "lines": {"min": 10, "max": 100},
-  "body": true,
-  "preview": 5,
-  "calls": "down",
-  "depth": 2,
-  "format": "full",
-  "read": "src/main.rs"
-}
-```
+Templates live under `src/queries/builtin/` (pure Cozoscript) and `src/queries/rust_templates.rs` (Rust-side handlers that need source-level access).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `files` | string or [strings] | Glob pattern(s) to filter files |
-| `files_exclude` | [strings] | Glob pattern(s) to exclude files |
-| `find` | string or [strings] | Symbol kind(s): function, method, class, interface, type, enum, struct, trait, variable, constant, property, namespace, module, macro, union, arrow_function, constructor, import, any |
-| `name` | string or {contains, regex} | Name filter: glob string, `{"contains": "auth"}`, or `{"regex": "^get[A-Z]"}` |
-| `visibility` | string | Filter by visibility: exported, public, private, protected, internal |
-| `inside` | string | Only symbols inside a parent with this name |
-| `has` | string, [strings], or {not: string} | Filter by associated comment/decorator text; `{"not": "docstring"}` for inverse |
-| `lines` | {min, max} | Filter by line count |
-| `body` | bool | Include full source body in results |
-| `preview` | number | Number of preview lines to include |
-| `calls` | string | Call graph traversal: "down" (callees), "up" (callers), "both" |
-| `depth` | number | Call graph depth (default 1, max 5) |
-| `format` | string | Override output format from within query JSON |
-| `read` | string | File path to read (returns content instead of symbols). Combine with `lines` for a specific range |
-| `graph` | [stages] | Embedded audit pipeline. Runs after symbol filtering. See [Audit Pipeline DSL](#audit-pipeline-dsl) below. |
+| Template | Params | What it returns |
+|---|---|---|
+| `find_function_by_name` | `name` | Symbols with an exact-name match |
+| `find_callers` | `target`, `max_depth` | Transitive callers of `$target` up to `$max_depth` hops |
+| `find_callees` | `target`, `max_depth` | Transitive callees of `$target` |
+| `find_cycles` | — | Files participating in an import cycle |
+| `import_depth` | `max_depth` | Longest known import chain ending at each file (depth-bounded) |
+| `export_surface` | — | Per-file `(file, exported_count, total_count)` |
+| `unused_symbols` | — | Symbols with no inbound `edge_calls` (heuristic; name-based) |
+| `complexity_hotspots` | `cc_threshold`, `length_threshold` | Functions exceeding cyclomatic or length thresholds; excludes tests |
 
-**`find` notes:** `function` matches both function declarations and arrow functions; `type` matches both type aliases and C-style typedefs; `constructor` matches methods named `constructor`, `__init__`, `__construct`, or `new`.
+`complexity_hotspots` is a Rust-side handler — it queries `*symbol` + `*file_classification` from Cozo, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
 
-## Query Output Formats
+## Audit-shape Output
 
-`--out` flag controls result format (all output is JSON):
+A query (or template handler) returning columns `(file, line, severity, pattern, message)` is auto-formatted as audit findings. Extra columns are preserved alongside as `extras`. Other column shapes return raw row tables.
 
-| Format | Content |
-|--------|---------|
-| `outline` | name, kind, file, line, signature (default) |
-| `snippet` | outline + preview lines + docstring |
-| `full` | outline + full body |
-| `tree` | hierarchical: file -> class -> methods |
-| `locations` | `file:line` only |
-| `summary` | counts by kind and file |
-
-Wrapping structure:
+## Output Shape
 
 ```json
 {
   "project": "myapp",
-  "query_ms": 42,
-  "files_parsed": 8,
-  "total": 3,
-  "results": [ ... ]
+  "query_ms": 17,
+  "cache": "warm",
+  "result": {
+    "headers": ["name", "kind", "file_path", "start_line", "end_line"],
+    "rows": [ ... ]
+  }
 }
 ```
 
-## Audit
+`cache` is one of:
 
-Static analysis across 6 categories (security, architecture, code_style, tech_debt, complexity, scalability). All audit logic is JSON-driven — pipelines are loaded from built-in files and optionally supplemented with custom JSON files.
+- `cold` — full parse + populate (first run on a fresh workspace)
+- `warm` — reused the persistent SQLite store without any rebuild
+- `incremental` — re-parsed only the changed files since last build
 
-```bash
-# Local directory
-virgil-cli audit ./src                                        # All categories
-virgil-cli audit ./src --category security                    # Security only
-virgil-cli audit ./src --category architecture                # Architecture only
-virgil-cli audit ./src --category tech_debt                   # Tech debt only
-virgil-cli audit ./src --category code_style                  # Code style only
-virgil-cli audit ./src --category scalability                 # Scalability only
+## Cozoscript Schema (queryable relations)
 
-# Multiple categories
-virgil-cli audit ./src --category "security,architecture"
+Authored queries can reach into any of these relations. See `src/cozo/schema.rs` for the canonical definitions.
 
-# S3/R2 (no registration needed)
-virgil-cli audit --s3 s3://bucket/prefix
-virgil-cli audit --s3 s3://bucket/prefix --language rs --category security
-```
+| Relation | Keys / Values |
+|---|---|
+| `file` | `{path: String => language: String}` |
+| `symbol` | `{id: Int => name, kind, file_path, start_line, end_line, exported}` |
+| `callsite` | `{id: Int => name, file_path, line, caller_symbol_id, enclosing_test_name}` |
+| `edge_defined_in` | `{symbol_id, file_path}` |
+| `edge_calls` | `{caller_id, callee_id}` |
+| `edge_imports` | `{from_path, to_path}` |
+| `edge_exports` | `{file_path, symbol_id}` |
+| `edge_contains` | `{parent_id, child_id}` |
+| `file_classification` | `{path => is_test, is_barrel, is_generated}` |
+| `nolint` | `{file_path, line => suppressed_pattern}` |
+| `raw_import` | `{file_path, position => raw_path, language, kind}` (pre-resolution imports for incremental refresh) |
+| `build_meta` | `{key => value}` — includes `schema_version` |
+| `build_meta_files` | `{file_path => hash, size, mtime}` |
 
-### Options
+## Persistence
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<DIR>` | Root directory to analyze | — |
-| `--s3` | S3 URI — audit codebase directly from S3/R2 (replaces `<DIR>`) | — |
-| `--category` | Comma-separated category filter | all |
-| `-l`, `--language` | Comma-separated language filter | all supported |
-| `--pipeline` | Comma-separated pipeline name filter | all pipelines |
-| `--file` | Path to a custom JSON audit pipeline file | — |
-| `--format` | Output format (table, json, csv) | `table` |
-| `--per-page` | Findings per page | `20` |
-| `--page` | Page number (1-indexed) | `1` |
-| `--no-cfg` | Skip per-function CFG construction. Disables `ExitsVia` edges, taint, and lifecycle analysis | false |
-| `--no-resource-graph` | Skip resource-lifecycle analysis (`Acquires` / `ReleasedBy` edges) | false |
-| `--symbols-only` | Shorthand: `--no-cfg` + `--no-resource-graph` | false |
+The fact store is persisted to `~/.cache/virgil/<hash>.cozo` (a single SQLite file). Subsequent invocations against the same workspace warm-start by reopening the existing store.
 
-### Categories
-
-| Category | Description | Example Pipelines |
-|----------|-------------|-------------------|
-| `security` | Vulnerability detection | SQL injection, unsafe memory, race conditions, hardcoded secrets |
-| `architecture` | Structural analysis | Circular dependencies, module size, API surface area |
-| `tech_debt` | Tech debt patterns | Panic usage, deprecated APIs |
-| `code_style` | Style issues | Dead code, duplicate code, coupling |
-| `scalability` | Scalability risks | N+1 queries, sync blocking in async, memory leaks |
-| `complexity` | Complexity metrics | Cyclomatic complexity, function length, cognitive complexity |
-
-## Audit Pipeline DSL
-
-All audit logic is JSON. Each pipeline is a standalone `.json` file. The loader's discovery order is project-local (`.virgil/audits/*.json`) → user-global (`~/.virgil-cli/audits/*.json`) → built-ins bundled in the binary (`src/audit/builtin/*.json`); files with the same pipeline name and language filter deduplicate, project-local wins. A custom file can also be passed via `--file`. The same DSL works embedded in a query under the `graph` field.
-
-### File shape
-
-```json
-{
-  "pipeline": "my_rule",
-  "category": "security",
-  "description": "What this rule detects",
-  "languages": ["rust", "typescript"],
-  "graph": [ /* stages */ ]
-}
-```
-
-Stages in `graph` execute left-to-right, each reading and writing a shared node list. A pipeline ending in `flag` emits audit findings; otherwise it produces a filtered node list usable from the query DSL.
-
-### Stages
-
-| Stage | Purpose | Minimal form |
-|---|---|---|
-| `select` | Seed the pipeline with graph nodes of a type, optionally filtered | `{"select": "symbol", "where": {"kind": ["function"]}, "exclude": {"is_test_file": true}}` |
-| `match_pattern` | Match a tree-sitter query against source; post-filter via optional `when` | `{"match_pattern": "(call_expression ...)", "when": {"lhs_is_parameter": true}}` |
-| `compute_metric` | Compute a named metric on each node (stored in `node.metrics`) | `{"compute_metric": "cyclomatic_complexity"}` |
-| `group_by` | Tag each node with a `_group` metric | `{"group_by": "file"}` |
-| `count` | Count members per group, filter by `NumericPredicate` | `{"count": {"threshold": {"gte": 30}}}` |
-| `ratio` | Compute numerator/denominator ratio with optional threshold | `{"ratio": {"numerator": {"where": {"exported": true}}, "denominator": {}, "threshold": {"metrics": {"ratio": {"gte": 0.8}}}}}` |
-| `max_depth` | Traverse an edge kind to find the longest chain; filter by threshold | `{"max_depth": {"edge": "imports", "threshold": {"gte": 4}}}` |
-| `find_cycles` | Detect strongly-connected components on an edge kind | `{"find_cycles": {"edge": "imports"}}` |
-| `find_duplicates` | Detect duplicate blocks keyed by a property | `{"find_duplicates": {"by": "body", "min_count": 2}}` |
-| `taint_sources` | Register taint sources (accumulate into shared context) | `{"taint_sources": [{"pattern": "req.body", "kind": "user_input"}]}` |
-| `taint_sanitizers` | Register sanitizers that clear taint | `{"taint_sanitizers": [{"pattern": "escape_html"}]}` |
-| `taint_sinks` | Register sinks; emits findings for unsanitized flows | `{"taint_sinks": [{"pattern": "query", "vulnerability": "sql_injection"}]}` |
-| `taint` | Combined form (desugars to sources + sanitizers + sinks) for backward compat | `{"taint": {"sources": [...], "sanitizers": [...], "sinks": [...]}}` |
-| `flag` | Emit a finding for each remaining node | `{"flag": {"pattern": "oversized_module", "message": "Module `{{name}}` is oversized", "severity": "warning"}}` |
-
-`group_by` accepts the special keys `file` (alias `file_path`), `language`, `kind`, `name`, or any metric name produced upstream.
-
-### `select` — `NodeType` values
-
-`file`, `symbol`, `call_site`, `cfg_exit`.
-
-`call_site` nodes carry `arg_literals`, `enclosing_test_name`, and a back-pointer to the calling `Symbol`. `cfg_exit` nodes are emitted one-per-CFG-exit-block of every function and expose `exit_kind` / `exit_label` as metrics.
-
-### Edge kinds (used by `max_depth`, `find_cycles`)
-
-`calls`, `imports`, `flows_to`, `acquires`, `released_by`, `contains`, `exports`, `defined_in`,
-`exits_via_normal`, `exits_via_true`, `exits_via_false`, `exits_via_exception`, `exits_via_cleanup`.
-
-### `where` / `exclude` / `when` — `WhereClause`
-
-All three accept the same predicate object. Empty = always true.
-
-| Field | Type | Notes |
-|---|---|---|
-| `and` / `or` / `not` | nested `WhereClause`(s) | Logical composition |
-| `is_test_file`, `is_generated`, `is_barrel_file` | bool | Path-based heuristics |
-| `exported` | bool | Node visibility |
-| `kind` | [string] | Matches symbol kind (case-insensitive) |
-| `unreferenced`, `is_entry_point` | bool | Graph-context checks |
-| `lhs_is_parameter` | bool | Only inside a `match_pattern` `when` — asserts the match's LHS member-expression object is a named parameter |
-| `metrics` | `{name: NumericPredicate}` | Filter by any metric produced by `compute_metric`. Also matches built-in per-node fields that the executor surfaces as metrics. |
-
-### `NumericPredicate`
-
-Any subset of `gte`, `lte`, `gt`, `lt`, `eq`. Combined with AND.
-
-```json
-{"metrics": {"cyclomatic_complexity": {"gt": 10, "lt": 20}}}
-```
-
-### `flag` config
-
-| Field | Type | Notes |
-|---|---|---|
-| `pattern` | string | Finding pattern name (reported verbatim in output) |
-| `message` | string | Human-readable message; supports `{{var}}` interpolation |
-| `severity` | string | Default severity if no `severity_map` entry matches |
-| `severity_map` | [entries] | Ordered list; first matching `when` wins. An entry with no `when` (or empty `when`) is the catch-all default. |
-
-Template variables usable in `message`: `{{name}}`, `{{kind}}`, `{{file}}`, `{{line}}`, `{{language}}`, plus any metric name stored on the node (e.g. `{{cyclomatic_complexity}}`, `{{count}}`, `{{depth}}`, `{{cycle_size}}`, `{{edge_count}}`, `{{ratio}}`).
-
-Per-node-type extras: `{{@capture_name}}` for `match_pattern` captures, `{{arg_literals}}` and `{{enclosing_test_name}}` on `call_site` nodes, `{{exit_kind}}` and `{{exit_label}}` on `cfg_exit` nodes. See [docs/dsl.md](docs/dsl.md#message-interpolation) for the full table.
-
-### Worked example
-
-```json
-{
-  "pipeline": "cyclomatic_complexity",
-  "category": "complexity",
-  "languages": ["rust", "typescript"],
-  "graph": [
-    {"select": "symbol", "where": {"kind": ["function", "method"]}, "exclude": {"is_test_file": true}},
-    {"compute_metric": "cyclomatic_complexity"},
-    {"flag": {
-      "pattern": "cyclomatic_complexity",
-      "message": "`{{name}}` has complexity {{cyclomatic_complexity}}",
-      "severity_map": [
-        {"when": {"metrics": {"cyclomatic_complexity": {"gte": 20}}}, "severity": "error"},
-        {"when": {"metrics": {"cyclomatic_complexity": {"gt": 10}}}, "severity": "warning"}
-      ]
-    }}
-  ]
-}
-```
-
-See `src/audit/builtin/*.json` for hundreds of worked examples across every supported language.
+- **Schema version check**: `build_meta.schema_version` is compared on open; mismatch wipes the file and triggers a clean rebuild.
+- **Warm-start check**: each file's `(size, mtime)` is compared against `build_meta_files`. Unchanged workspace → skip parsing entirely.
+- **Incremental refresh**: when files change, only the touched ones re-parse; deletions cascade-delete owned facts; cross-file edges (`edge_calls`, `edge_imports`) are re-resolved from facts.
+- **Force a cold rebuild** with `--rebuild`.
 
 ## Examples
 
@@ -354,92 +190,44 @@ See `src/audit/builtin/*.json` for hundreds of worked examples across every supp
 # Register a project
 virgil-cli projects create myapp --path ./src
 
-# Register with language filter and exclusions
-virgil-cli projects create myapp --path ./src --lang ts,tsx,js,jsx --exclude "vendor/**"
+# Find every function named `login`
+virgil-cli projects query myapp --template find_function_by_name --param name=login
 
-# List registered projects
-virgil-cli projects list
+# Who calls `authenticate`? (up to depth 2)
+virgil-cli projects query myapp --template find_callers \
+    --param target=authenticate --param max_depth=2
 
-# Find all exported functions
-virgil-cli projects query myapp --q '{"find": "function", "visibility": "exported"}'
+# Import cycles
+virgil-cli projects query myapp --template find_cycles --pretty
 
-# Search by name pattern with preview
-virgil-cli projects query myapp --q '{"name": "handle*", "preview": 5}' --pretty
+# Complexity hotspots above threshold
+virgil-cli projects query myapp --template complexity_hotspots \
+    --param cc_threshold=15 --param length_threshold=100
 
-# Methods inside a specific class
-virgil-cli projects query myapp --q '{"find": "method", "inside": "AuthService"}'
+# Custom Cozoscript inline
+virgil-cli projects query myapp --cozoscript \
+    '?[name, file] := *symbol{name, file_path: file, exported: true}'
 
-# Large functions (50+ lines) in a directory
-virgil-cli projects query myapp --q '{"files": "src/api/**", "find": "function", "lines": {"min": 50}}'
+# Cozoscript from a file
+virgil-cli projects query myapp --file my_query.cozoql --param target=login
 
-# Functions missing docstrings
-virgil-cli projects query myapp --q '{"find": "function", "has": {"not": "docstring"}}'
+# Force a fresh rebuild
+virgil-cli projects query myapp --template find_cycles --rebuild
 
-# Name regex — all getters
-virgil-cli projects query myapp --q '{"name": {"regex": "^get[A-Z]"}}'
+# S3 / Cloudflare R2 (no project registration)
+virgil-cli projects query --s3 s3://bucket/my-repo --template find_cycles --pretty
+virgil-cli projects query --s3 s3://bucket/my-repo --template find_function_by_name \
+    --param name=handle --lang rs
 
-# Call graph — what does authenticate() call?
-virgil-cli projects query myapp --q '{"name": "authenticate", "calls": "down", "depth": 2}'
-
-# Summary of an entire project
-virgil-cli projects query myapp --q '{}' --out summary --pretty
-
-# Read a file
-virgil-cli projects query myapp --q '{"read": "src/main.rs"}' --pretty
-
-# Read specific lines from a file
-virgil-cli projects query myapp --q '{"read": "src/main.rs", "lines": {"min": 10, "max": 25}}'
-
-# File:line locations only
-virgil-cli projects query myapp --q '{"find": "class"}' --out locations
-
-# Query from a file
-virgil-cli projects query myapp --file query.json
-
-# Run all audit categories
-virgil-cli audit ./src
-
-# Run security audit with JSON output
-virgil-cli audit ./src --category security --format json
-
-# Run complexity analysis filtered to Rust
-virgil-cli audit ./src --category complexity --language rs
-
-# Run a specific architecture pipeline
-virgil-cli audit ./src --pipeline circular_dependencies
-
-# Delete a project
-virgil-cli projects delete myapp
-
-# --- S3 / Cloudflare R2 ---
-
-# Query an S3 codebase directly (no project registration)
-virgil-cli projects query --s3 s3://bucket/my-repo --q '{"find": "function"}' --out summary --pretty
-
-# Query with language filter
-virgil-cli projects query --s3 s3://bucket/my-repo --q '{}' --out summary --lang rs
-
-# Audit an S3 codebase
-virgil-cli audit --s3 s3://bucket/my-repo --language rs
-
-# Security audit on S3 codebase
-virgil-cli audit --s3 s3://bucket/my-repo --language rs --category security
-
-# --- Server Mode ---
-
-# Start a persistent HTTP server (loads codebase once, serves queries/audits over HTTP)
+# Server mode (Virgil Live)
 virgil-cli serve --s3 s3://bucket/my-repo
-
-# With language filter and custom port
 virgil-cli serve --s3 s3://bucket/my-repo --lang rs --port 8080
-
-# Expose on all interfaces (default is 127.0.0.1)
 virgil-cli serve --s3 s3://bucket/my-repo --host 0.0.0.0 --port 8080
 ```
 
 ## Serve (Server Mode)
 
-Persistent HTTP server that loads a codebase from S3 once and serves queries and audits over HTTP. Designed for use by orchestrators (e.g. AI agents) that make many queries against the same codebase — avoids re-downloading and re-parsing on every request.
+Persistent HTTP server that loads a codebase from S3 once and serves Cozoscript queries over HTTP. The same persistence and warm-start logic as the CLI — the cached SQLite store is shared.
 
 ```bash
 virgil-cli serve --s3 <URI> [OPTIONS]
@@ -447,47 +235,43 @@ virgil-cli serve --s3 <URI> [OPTIONS]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--s3` | S3 URI — load codebase at startup | required |
+| `--s3` | S3 URI — load codebase at startup | required (unless `--dir`) |
+| `--dir` | Local directory (alternative to `--s3`) | — |
 | `--host` | Host to bind (use `0.0.0.0` for all interfaces) | `127.0.0.1` |
 | `--port` | Port to bind (use `0` for OS-assigned) | `0` |
 | `-l`, `--lang` | Comma-separated language filter | all supported |
 | `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
-| `--no-cfg` | Skip per-function CFG construction. Disables `ExitsVia` edges, taint, and lifecycle analysis | false |
-| `--no-resource-graph` | Skip resource-lifecycle analysis (`Acquires` / `ReleasedBy` edges) | false |
-| `--symbols-only` | Shorthand: `--no-cfg` + `--no-resource-graph`. Smallest possible index | false |
 
 ### Lifecycle
 
-1. Downloads codebase from S3 into memory
-2. Prints ready signal to stdout: `{"ready": true, "port": <actual_port>}`
-3. Serves HTTP requests until killed (SIGTERM/SIGINT)
+1. Loads codebase (S3 download or local read) and builds / opens the fact store.
+2. Prints ready signal to stdout: `{"ready": true, "port": <actual_port>}`.
+3. Serves HTTP requests until killed (SIGTERM/SIGINT).
 
 ### HTTP API
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check — returns `{"status": "ok"}` |
-| `/query` | POST | Codebase query (same JSON query language as `projects query`) |
-| `/audit/summary` | POST | Audit summary (files scanned, files with findings) |
-| `/audit/{category}` | POST | Audit by category: `security`, `architecture`, `code_style`, `tech_debt`, `complexity`, `scalability` |
+| `/query` | POST | Runs a Cozoscript template or inline body against the store |
 
-**Query request body:**
+**Query request body** — exactly one of `cozoscript` or `template`:
 
 ```json
 {
-  "query": {"find": "function", "name": "*handle*"},
-  "format": "outline",
-  "max": 50
+  "template": "find_callers",
+  "params": {"target": "authenticate", "max_depth": "2"}
 }
 ```
-
-**Audit category request body (optional):**
 
 ```json
 {
-  "per_page": 100000
+  "cozoscript": "?[name, file] := *symbol{name, file_path: file, exported: true}",
+  "params": {}
 }
 ```
+
+Response shape mirrors the CLI's `result` envelope.
 
 ## S3 Configuration
 
@@ -529,21 +313,15 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 
 ## Features
 
-- **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP with language-specific parsers
-- **Fast** — parallel file processing with rayon
-- **Accurate** — tree-sitter parsing (same parsers used by editors like Neovim and Zed)
-- **Gitignore-aware** — automatically skips `node_modules`, `dist`, `build`, and anything in `.gitignore`
-- **On-demand parsing** — no pre-indexing or database, projects are parsed at query time
-- **JSON query language** — composable filters for symbols, files, visibility, call graphs, and more
-- **Call graph** — name-based callee/caller traversal with configurable depth
-- **Export detection** — tracks whether symbols are exported (ES exports, C linkage, C#/Java access modifiers, Rust visibility, Go capitalization, Python underscore convention, PHP visibility)
-- **Static analysis** — 6 audit categories (security, architecture, tech_debt, code_style, scalability, complexity) with JSON-driven pipelines
-- **File reading** — read source files or specific line ranges via the `read` query field
-- **Multiple output formats** — outline, snippet, full, tree, locations, summary (all JSON)
-- **Bounded-memory workspace** — local directories use a disk-backed source with a small LRU; S3 workspaces load into memory at startup
-- **Lazy graph passes** — per-function CFGs and resource-lifecycle edges are built on demand; opt out entirely with `--no-cfg` / `--no-resource-graph` / `--symbols-only`
-- **S3 support** — query and audit codebases directly from AWS S3, Cloudflare R2, MinIO, or any S3-compatible storage
-- **Server mode** — persistent HTTP server that loads a codebase once and serves queries/audits over HTTP, avoiding repeated S3 downloads and re-parsing
+- **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP via tree-sitter
+- **Cozoscript query language** — Datalog over a fact store, far more expressive than the previous JSON DSL
+- **Persistent fact store** — SQLite-backed Cozo store cached at `~/.cache/virgil/<hash>.cozo`
+- **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely; ~17ms on the reference workspace vs ~850ms cold
+- **Incremental refresh** — modifying / adding / removing one file re-parses only that file and re-resolves cross-file edges
+- **Audit-shape output convention** — `(file, line, severity, pattern, message)` columns auto-format as findings
+- **Parameter binding** — `--param key=value`; user input never interpolated into the script body
+- **S3 support** — AWS S3, Cloudflare R2, MinIO, or any S3-compatible storage
+- **Server mode** — persistent HTTP server that loads a codebase once and serves Cozoscript queries
 
 ## License
 
