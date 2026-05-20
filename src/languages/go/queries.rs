@@ -6,7 +6,36 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Go visibility is determined by the first rune of the identifier:
+/// uppercase → Public (exported), lowercase → Private (package-private).
+/// Computed directly from the name rather than the boolean cache so the
+/// rule is self-contained and survives any future divergence between
+/// `is_exported` and visibility classification.
+fn visibility_go(name: &str) -> SymbolVisibility {
+    if name.chars().next().is_some_and(|c| c.is_uppercase()) {
+        SymbolVisibility::Public
+    } else {
+        SymbolVisibility::Private
+    }
+}
+
+/// True iff `def_node` sits inside an `interface_type` body. Go interface
+/// method-set entries (parsed as `method_elem` in tree-sitter-go) have no
+/// implementation, so they are conceptually abstract. Concrete
+/// `method_declaration` nodes are never nested inside `interface_type`
+/// and so always return `false` here.
+fn is_abstract_go(def_node: tree_sitter::Node) -> bool {
+    let mut current = def_node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "interface_type" {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -117,7 +146,13 @@ pub fn extract_symbols(
         let kind = determine_go_kind(def_node, source);
         let Some(kind) = kind else { continue };
 
-        let is_exported = name.chars().next().is_some_and(|c| c.is_uppercase());
+        let visibility = visibility_go(&name);
+        let is_exported = visibility == SymbolVisibility::Public;
+        // Go has no symbol-level async marker (`go` launches goroutines
+        // at call sites, not at definition sites) and no `static`
+        // keyword. Pointer- vs value-receiver methods are not modeled as
+        // symbol-level mutability.
+        let is_abstract = is_abstract_go(def_node);
 
         let symbol = SymbolInfo {
             name,
@@ -130,6 +165,11 @@ pub fn extract_symbols(
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            is_async: false,
+            is_static: false,
+            is_abstract,
+            is_mutable: false,
         };
         symbols.push(symbol);
     }

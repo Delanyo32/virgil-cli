@@ -66,6 +66,24 @@ pub fn compile_comment_query(language: Language) -> Result<Arc<Query>> {
     }
 }
 
+/// Per-language separator used to join parent-chain segments in
+/// `symbol.qualified_name`. Rust / C / C++ use the scope-resolution
+/// operator `::`; PHP class-internal qualification also uses `::`. All
+/// other supported languages use the dotted convention.
+pub fn qname_separator(language: Language) -> &'static str {
+    match language {
+        Language::Rust | Language::C | Language::Cpp | Language::Php => "::",
+        Language::TypeScript
+        | Language::Tsx
+        | Language::JavaScript
+        | Language::Jsx
+        | Language::CSharp
+        | Language::Go
+        | Language::Java
+        | Language::Python => ".",
+    }
+}
+
 pub fn extract_symbols(
     tree: &Tree,
     source: &[u8],

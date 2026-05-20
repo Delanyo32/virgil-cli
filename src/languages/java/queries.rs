@@ -6,7 +6,94 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a Java definition by walking its
+/// `modifiers` child for the literal access keyword.
+///
+/// - `public` → Public
+/// - `private` → Private
+/// - `protected` → Protected
+/// - none of the above (package-private) → Internal
+///
+/// Parameters, catch parameters, lambda parameters, local variables,
+/// and resources have no source-level visibility — they classify as
+/// Private regardless of any modifiers.
+fn visibility_java(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "formal_parameter"
+        | "spread_parameter"
+        | "catch_formal_parameter"
+        | "lambda_expression"
+        | "local_variable_declaration"
+        | "resource" => return SymbolVisibility::Private,
+        _ => {}
+    }
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut mod_cursor = child.walk();
+        for modifier in child.children(&mut mod_cursor) {
+            match modifier.utf8_text(source).unwrap_or("") {
+                "public" => return SymbolVisibility::Public,
+                "private" => return SymbolVisibility::Private,
+                "protected" => return SymbolVisibility::Protected,
+                _ => {}
+            }
+        }
+    }
+    SymbolVisibility::Internal
+}
+
+/// True if `def_node` carries the `static` keyword in its `modifiers`
+/// child. Only meaningful for nested classes, methods, and fields;
+/// returns `false` for kinds where `static` can't appear.
+fn is_static_java(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    has_modifier_keyword(def_node, source, "static")
+}
+
+/// True if `def_node` is `abstract`. Explicit `abstract` keyword on a
+/// class or method counts, and any method declared inside an
+/// `interface_declaration` body is implicitly abstract.
+fn is_abstract_java(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    if has_modifier_keyword(def_node, source, "abstract") {
+        return true;
+    }
+    if def_node.kind() == "method_declaration" {
+        let mut current = def_node.parent();
+        while let Some(parent) = current {
+            match parent.kind() {
+                "interface_declaration" => return true,
+                "class_declaration"
+                | "enum_declaration"
+                | "record_declaration"
+                | "annotation_type_declaration"
+                | "method_declaration"
+                | "constructor_declaration" => return false,
+                _ => current = parent.parent(),
+            }
+        }
+    }
+    false
+}
+
+fn has_modifier_keyword(def_node: tree_sitter::Node, source: &[u8], keyword: &str) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut mod_cursor = child.walk();
+        for modifier in child.children(&mut mod_cursor) {
+            if modifier.utf8_text(source).unwrap_or("") == keyword {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -134,6 +221,9 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_java(def_node, source);
+        let visibility = visibility_java(def_node, source);
+        let is_static = is_static_java(def_node, source);
+        let is_abstract = is_abstract_java(def_node, source);
 
         let symbol = SymbolInfo {
             name,
@@ -146,6 +236,14 @@ pub fn extract_symbols(
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // Java has no async keyword on methods.
+            is_async: false,
+            is_static,
+            is_abstract,
+            // Java has no language-level mutability marker — `final`
+            // lives in `java_attrs.is_final`, not on the core symbol.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }

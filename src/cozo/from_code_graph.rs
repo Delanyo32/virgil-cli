@@ -237,6 +237,7 @@ fn emit_node(
         }
         NodeWeight::Symbol {
             name,
+            qualified_name,
             kind,
             file_path,
             start_byte,
@@ -246,8 +247,14 @@ fn emit_node(
             end_line,
             end_col,
             exported,
+            visibility,
+            is_async,
+            is_static,
+            is_abstract,
+            is_mutable,
         } => {
             let name = graph.symbols.resolve(*name);
+            let qualified_name = graph.symbols.resolve(*qualified_name);
             let file_path = graph.symbols.resolve(*file_path);
             let id = symbol_id(file_path, *start_line, *start_col, name, *kind);
             let kind_str = kind.to_string();
@@ -255,21 +262,20 @@ fn emit_node(
                 .and_then(|ws| ws.file_language(file_path))
                 .map(|l| l.as_str())
                 .unwrap_or("");
-            let visibility = if *exported { "public" } else { "private" };
             let parent_id = parent_symbol_id(graph, node_idx);
             writer.push_symbol(
                 &id,
                 &kind_str,
                 name,
-                name, // qualified_name = name for Phase 1
+                qualified_name,
                 language,
-                visibility,
+                visibility.as_str(),
                 file_path,
                 parent_id.as_deref(),
-                false, // is_async — Phase 3
-                false, // is_static — Phase 3
-                false, // is_abstract — Phase 3
-                false, // is_mutable — Phase 3
+                *is_async,
+                *is_static,
+                *is_abstract,
+                *is_mutable,
                 *exported,
             );
             writer.push_span(

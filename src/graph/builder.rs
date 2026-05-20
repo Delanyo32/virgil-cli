@@ -342,12 +342,19 @@ fn absorb_file_data(
     });
     graph.file_nodes.insert(path_spur, file_idx);
 
-    // Symbol nodes + DefinedIn/Contains/Exports
+    // Pass 1: allocate Symbol nodes in original extraction order. This
+    // preserves the baseline behaviour where `symbol_nodes[(f, line)]`
+    // resolves to whichever same-line symbol the extractor emitted *last*
+    // — existing call-site attribution and baseline snapshot counts
+    // depend on that mapping. `qualified_name` defaults to the leaf name
+    // here; pass 2 rewrites it with the parent-chain join.
+    let mut sym_indices: Vec<NodeIndex> = Vec::with_capacity(symbols.len());
     for sym in &symbols {
         let sym_file_spur = graph.symbols.intern(&sym.file_path);
         let sym_name_spur = graph.symbols.intern(&sym.name);
         let sym_idx = graph.add_node(NodeWeight::Symbol {
             name: sym_name_spur,
+            qualified_name: sym_name_spur,
             kind: sym.kind,
             file_path: sym_file_spur,
             start_byte: sym.start_byte,
@@ -357,6 +364,11 @@ fn absorb_file_data(
             end_line: sym.end_line,
             end_col: sym.end_column,
             exported: sym.is_exported,
+            visibility: sym.visibility,
+            is_async: sym.is_async,
+            is_static: sym.is_static,
+            is_abstract: sym.is_abstract,
+            is_mutable: sym.is_mutable,
         });
         graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
         graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
@@ -380,6 +392,65 @@ fn absorb_file_data(
                 .entry((sym_file_spur, sym_name_spur))
                 .or_default()
                 .push(sym_idx);
+        }
+        sym_indices.push(sym_idx);
+    }
+
+    // Pass 2: derive parent-symbol containment via byte ranges and
+    // compute `qualified_name` from the parent chain.
+    //
+    // Walk symbols in outer-first order (start_byte ASC, end_byte DESC
+    // tie-break) so an enclosing scope is seen before any nested symbol.
+    // Maintain a stack of currently-open containers; the innermost open
+    // one whose range covers the current symbol is its parent.
+    let mut order: Vec<usize> = (0..symbols.len()).collect();
+    order.sort_by(|&a, &b| {
+        symbols[a]
+            .start_byte
+            .cmp(&symbols[b].start_byte)
+            .then_with(|| symbols[b].end_byte.cmp(&symbols[a].end_byte))
+    });
+    let sep = languages::qname_separator(language);
+    let mut open: Vec<(usize, u32)> = Vec::new();
+    let mut parent_of: Vec<Option<usize>> = vec![None; symbols.len()];
+    for &i in &order {
+        let sym = &symbols[i];
+        while let Some(&(_, end)) = open.last() {
+            if end <= sym.start_byte {
+                open.pop();
+            } else {
+                break;
+            }
+        }
+        parent_of[i] = open
+            .iter()
+            .rev()
+            .find_map(|&(idx, end)| if sym.end_byte <= end { Some(idx) } else { None });
+        open.push((i, sym.end_byte));
+    }
+
+    // Compute qualified_name in outer-first order and add Symbol→Symbol
+    // Contains edges between each child and its parent.
+    let mut qnames: Vec<String> = vec![String::new(); symbols.len()];
+    for &i in &order {
+        let sym = &symbols[i];
+        qnames[i] = match parent_of[i] {
+            Some(p) => format!("{}{}{}", &qnames[p], sep, sym.name),
+            None => sym.name.clone(),
+        };
+        if let Some(p) = parent_of[i] {
+            graph.add_edge(sym_indices[p], sym_indices[i], EdgeWeight::Contains);
+        }
+    }
+
+    // Patch each symbol node's qualified_name spur.
+    for (i, qname) in qnames.into_iter().enumerate() {
+        let qname_spur = graph.symbols.intern(&qname);
+        if let NodeWeight::Symbol {
+            qualified_name, ..
+        } = &mut graph.nodes[sym_indices[i]]
+        {
+            *qualified_name = qname_spur;
         }
     }
 

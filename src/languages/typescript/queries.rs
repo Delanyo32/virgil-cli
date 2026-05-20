@@ -6,7 +6,130 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a TS/JS definition.
+///
+/// - Parameters → Private.
+/// - Class members (`method_definition`, `public_field_definition`):
+///   read the `accessibility_modifier` child. `public`/`private`/
+///   `protected` map directly; absent modifier → Public (TS default).
+/// - Top-level symbols: Public iff `is_exported`, else Private.
+fn visibility_ts(
+    def_node: tree_sitter::Node,
+    kind: SymbolKind,
+    is_exported: bool,
+    source: &[u8],
+) -> SymbolVisibility {
+    if kind == SymbolKind::Parameter {
+        return SymbolVisibility::Private;
+    }
+    if is_class_member(def_node) {
+        if let Some(modifier) = find_accessibility_modifier(def_node, source) {
+            return match modifier.as_str() {
+                "private" => SymbolVisibility::Private,
+                "protected" => SymbolVisibility::Protected,
+                _ => SymbolVisibility::Public,
+            };
+        }
+        return SymbolVisibility::Public;
+    }
+    if is_exported {
+        SymbolVisibility::Public
+    } else {
+        SymbolVisibility::Private
+    }
+}
+
+/// True when `def_node` is a class-body member: `method_definition`,
+/// `public_field_definition`, `method_signature`, or `abstract_method_signature`.
+/// Excludes object-literal methods (parent is `object`, not `class_body`).
+fn is_class_member(def_node: tree_sitter::Node) -> bool {
+    let kind_ok = matches!(
+        def_node.kind(),
+        "method_definition"
+            | "public_field_definition"
+            | "method_signature"
+            | "abstract_method_signature"
+    );
+    if !kind_ok {
+        return false;
+    }
+    matches!(
+        def_node.parent().map(|p| p.kind()),
+        Some("class_body") | Some("interface_body")
+    )
+}
+
+/// Read the literal text of the `accessibility_modifier` child, if any.
+fn find_accessibility_modifier(def_node: tree_sitter::Node, source: &[u8]) -> Option<String> {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "accessibility_modifier" {
+            return Some(child.utf8_text(source).unwrap_or("").trim().to_string());
+        }
+    }
+    None
+}
+
+/// True if any direct child is an `async` anonymous keyword token.
+fn has_keyword_child(node: tree_sitter::Node, keyword: &str) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !child.is_named() && child.kind() == keyword {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if the symbol carries the `async` keyword. Checks the def node
+/// itself (function/method declarations) and, for variable bindings,
+/// the bound value (e.g. `const f = async () => ...`).
+fn is_async_ts(def_node: tree_sitter::Node, value_node: Option<tree_sitter::Node>) -> bool {
+    let async_targets = [
+        "function_declaration",
+        "function_expression",
+        "arrow_function",
+        "method_definition",
+        "method_signature",
+        "generator_function",
+        "generator_function_declaration",
+    ];
+    if async_targets.contains(&def_node.kind()) && has_keyword_child(def_node, "async") {
+        return true;
+    }
+    if let Some(v) = value_node {
+        if async_targets.contains(&v.kind()) && has_keyword_child(v, "async") {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if the class member has a `static` keyword child.
+fn is_static_ts(def_node: tree_sitter::Node) -> bool {
+    if !is_class_member(def_node) {
+        return false;
+    }
+    has_keyword_child(def_node, "static")
+}
+
+/// True if the def is an `abstract_class_declaration`, or a class
+/// member with the `abstract` keyword.
+fn is_abstract_ts(def_node: tree_sitter::Node) -> bool {
+    if def_node.kind() == "abstract_class_declaration" {
+        return true;
+    }
+    if is_class_member(def_node) && has_keyword_child(def_node, "abstract") {
+        return true;
+    }
+    // tree-sitter-typescript also exposes `abstract_method_signature`.
+    if def_node.kind() == "abstract_method_signature" {
+        return true;
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -221,6 +344,12 @@ pub fn extract_symbols(
             (def_node, kind, is_exported)
         };
 
+        let value_node = value_cap.map(|c| c.node);
+        let visibility = visibility_ts(def_node, kind, is_exported, source);
+        let is_async = is_async_ts(def_node, value_node);
+        let is_static = is_static_ts(def_node);
+        let is_abstract = is_abstract_ts(def_node);
+
         let symbol = SymbolInfo {
             name,
             kind,
@@ -232,6 +361,12 @@ pub fn extract_symbols(
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            is_async,
+            is_static,
+            is_abstract,
+            // TS `readonly` lives in `typescript_attrs.is_readonly`, not here.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -332,6 +467,11 @@ pub fn extract_symbols(
                         end_line,
                         end_column: name_cap.node.end_position().column as u32,
                         is_exported: true,
+                        visibility: SymbolVisibility::Public,
+                        is_async: false,
+                        is_static: false,
+                        is_abstract: false,
+                        is_mutable: false,
                     });
                 }
             }

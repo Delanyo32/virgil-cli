@@ -6,7 +6,120 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a C++ definition.
+///
+/// - Parameters, optional parameters, range-for variables, and
+///   declarations inside a function body: always `Private` (locals).
+/// - Declarations inside a `field_declaration_list` (class/struct/union
+///   body): walk backwards through previous siblings looking for the
+///   most recent `access_specifier`. `public:` → Public, `private:` →
+///   Private, `protected:` → Protected. If no `access_specifier`
+///   precedes the member, fall back to the class default: `class` →
+///   Private, `struct`/`union` → Public.
+/// - File-scope / namespace-scope symbols: `static` storage class →
+///   Private; otherwise Public.
+fn visibility_cpp(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    // Parameters and locals are always Private.
+    match def_node.kind() {
+        "parameter_declaration" | "optional_parameter_declaration" | "for_range_loop" => {
+            return SymbolVisibility::Private;
+        }
+        _ => {}
+    }
+    if def_node.kind() == "declaration" && is_inside_function_body(def_node) {
+        return SymbolVisibility::Private;
+    }
+
+    // Class/struct/union member? Look for the enclosing field_declaration_list.
+    if let Some(member_vis) = class_member_visibility(def_node, source) {
+        return member_vis;
+    }
+
+    // File-scope / namespace-scope: `static` storage class → Private.
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier"
+            && child.utf8_text(source).unwrap_or("") == "static"
+        {
+            return SymbolVisibility::Private;
+        }
+    }
+    SymbolVisibility::Public
+}
+
+/// If `def_node` sits inside a `field_declaration_list` (i.e. it's a
+/// class/struct/union member), return its access-specifier-derived
+/// visibility. Otherwise `None`.
+fn class_member_visibility(
+    def_node: tree_sitter::Node,
+    source: &[u8],
+) -> Option<SymbolVisibility> {
+    // Find the field_declaration_list ancestor and the immediate child
+    // of that list which contains def_node (we'll scan its previous
+    // siblings for the most recent access_specifier).
+    let mut anchor = def_node;
+    let mut parent = def_node.parent();
+    while let Some(p) = parent {
+        if p.kind() == "field_declaration_list" {
+            break;
+        }
+        anchor = p;
+        parent = p.parent();
+    }
+    let field_list = parent?;
+
+    // Walk previous siblings of `anchor` looking for the most recent
+    // access_specifier.
+    let mut sibling = anchor.prev_named_sibling();
+    while let Some(s) = sibling {
+        if s.kind() == "access_specifier" {
+            let text = s.utf8_text(source).unwrap_or("").trim();
+            return Some(match text {
+                "public" => SymbolVisibility::Public,
+                "protected" => SymbolVisibility::Protected,
+                _ => SymbolVisibility::Private,
+            });
+        }
+        sibling = s.prev_named_sibling();
+    }
+
+    // No access_specifier seen — default depends on the enclosing
+    // class/struct/union keyword.
+    let class_kind = field_list.parent().map(|n| n.kind()).unwrap_or("");
+    Some(match class_kind {
+        "class_specifier" => SymbolVisibility::Private,
+        // struct_specifier and union_specifier default to public.
+        _ => SymbolVisibility::Public,
+    })
+}
+
+/// True if `def_node` carries a `static` storage class specifier.
+fn is_static_cpp(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier"
+            && child.utf8_text(source).unwrap_or("") == "static"
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if `def_node` is a pure-virtual function declaration (e.g.
+/// `virtual void foo() = 0;`). Detected by the presence of a
+/// `pure_virtual_clause` child in the tree-sitter-cpp grammar.
+fn is_abstract_cpp(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "pure_virtual_clause" {
+            return true;
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 // C++ extends C with classes, namespaces, and qualified identifiers
@@ -200,6 +313,9 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_cpp(def_node, source);
+        let visibility = visibility_cpp(def_node, source);
+        let is_static = is_static_cpp(def_node, source);
+        let is_abstract = is_abstract_cpp(def_node);
 
         let symbol = SymbolInfo {
             name,
@@ -212,6 +328,14 @@ pub fn extract_symbols(
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // C++ has no async keyword at the symbol level; coroutines
+            // are expression-level (`co_await`).
+            is_async: false,
+            is_static,
+            is_abstract,
+            // `mutable` on class members is rare; deferred.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }

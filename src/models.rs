@@ -85,6 +85,46 @@ impl fmt::Display for SymbolKind {
     }
 }
 
+/// Coarse-grained visibility classifier shared across all 9 languages.
+///
+/// Cross-language mapping (per docs/attrs-<lang>.md):
+/// - Rust: `pub` → Public; `pub(crate)` / `pub(super)` / `pub(in …)` → Internal;
+///   absent or `pub(self)` → Private.
+/// - TypeScript: `export` or `public` modifier → Public; `protected` → Protected;
+///   no modifier on top-level → Public; no modifier on class member → Private.
+/// - Python: all symbols → Public (no language-level access control).
+/// - Go: capitalised first rune → Public, else Private.
+/// - Java / C#: `public` / `private` / `protected` keywords map directly;
+///   absent → Internal (package-private) for Java; Private for C# class members.
+/// - PHP: `public` / `private` / `protected` keywords map directly; absent → Public.
+/// - C: `static` at file scope → Private; otherwise Public.
+/// - C++: explicit class-scope keywords map directly; `static` at file scope → Private;
+///   otherwise Public.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SymbolVisibility {
+    Public,
+    Private,
+    Protected,
+    Internal,
+}
+
+impl SymbolVisibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SymbolVisibility::Public => "public",
+            SymbolVisibility::Private => "private",
+            SymbolVisibility::Protected => "protected",
+            SymbolVisibility::Internal => "internal",
+        }
+    }
+}
+
+impl fmt::Display for SymbolVisibility {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
     pub name: String,
@@ -97,6 +137,11 @@ pub struct SymbolInfo {
     pub end_line: u32,
     pub end_column: u32,
     pub is_exported: bool,
+    pub visibility: SymbolVisibility,
+    pub is_async: bool,
+    pub is_static: bool,
+    pub is_abstract: bool,
+    pub is_mutable: bool,
 }
 
 #[derive(Debug, Clone)]

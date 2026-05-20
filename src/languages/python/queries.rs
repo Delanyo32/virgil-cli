@@ -6,7 +6,62 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Python has no language-level access modifiers — every symbol is
+/// Public. The "leading underscore is private" convention surfaces
+/// through `is_exported` and stays independent of `visibility` per
+/// issue #12 acceptance criteria.
+fn visibility_python(_def_node: tree_sitter::Node) -> SymbolVisibility {
+    SymbolVisibility::Public
+}
+
+/// True if `def_node` is an `async def` function/method. Tree-sitter's
+/// Python grammar represents this as a `function_definition` carrying an
+/// `async` keyword child (the grammar does not have a separate
+/// `async_function_definition` node).
+fn is_async_python(def_node: tree_sitter::Node) -> bool {
+    if def_node.kind() != "function_definition" {
+        return false;
+    }
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "async" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Walk up to the wrapping `decorated_definition` (if any) and scan its
+/// `decorator` children for one whose expression text matches any of
+/// `targets` (the bare name after `@`, ignoring any call arguments and
+/// any dotted prefix like `abc.`).
+fn has_decorator(def_node: tree_sitter::Node, source: &[u8], targets: &[&str]) -> bool {
+    let Some(parent) = def_node.parent() else {
+        return false;
+    };
+    if parent.kind() != "decorated_definition" {
+        return false;
+    }
+    let mut cursor = parent.walk();
+    for child in parent.children(&mut cursor) {
+        if child.kind() != "decorator" {
+            continue;
+        }
+        let text = child.utf8_text(source).unwrap_or("").trim();
+        // Strip leading `@` and any call args / whitespace.
+        let body = text.trim_start_matches('@').trim();
+        let head = body.split('(').next().unwrap_or(body).trim();
+        // Last dotted segment matches the bare decorator name
+        // (e.g. `abc.abstractmethod` → `abstractmethod`).
+        let bare = head.rsplit('.').next().unwrap_or(head);
+        if targets.iter().any(|t| *t == bare) {
+            return true;
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -178,6 +233,20 @@ pub fn extract_symbols(
 
         let is_exported = !name.starts_with('_');
 
+        let is_async = is_async_python(def_node);
+        // `@staticmethod` / `@abstractmethod` are only meaningful on
+        // function/method defs; helper short-circuits on non-decorated
+        // nodes anyway, but skip the parent walk entirely for assignments
+        // and parameters to keep the cost off the hot path.
+        let (is_static, is_abstract) = if def_node.kind() == "function_definition" {
+            (
+                has_decorator(def_node, source, &["staticmethod"]),
+                has_decorator(def_node, source, &["abstractmethod"]),
+            )
+        } else {
+            (false, false)
+        };
+
         let symbol = SymbolInfo {
             name,
             kind,
@@ -189,6 +258,12 @@ pub fn extract_symbols(
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility: visibility_python(def_node),
+            is_async,
+            is_static,
+            is_abstract,
+            // Python has no symbol-level mutability marker.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }

@@ -6,7 +6,55 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Visibility for C symbols, per `docs/attrs-c.md`.
+///
+/// - Parameters and block-scope locals are always `Private`.
+/// - File-scope declarations carrying `static` storage class get `Private`
+///   (translation-unit local linkage).
+/// - Everything else is `Public`. C has no scoped visibility keywords.
+fn visibility_c(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "parameter_declaration" => return SymbolVisibility::Private,
+        _ => {}
+    }
+    if is_block_scope(def_node) {
+        return SymbolVisibility::Private;
+    }
+    if has_storage_class(def_node, source, "static") {
+        return SymbolVisibility::Private;
+    }
+    SymbolVisibility::Public
+}
+
+/// True if `def_node` is nested inside a function body — i.e. block scope
+/// rather than file scope. Used to classify locals as Private regardless
+/// of their storage class.
+fn is_block_scope(def_node: tree_sitter::Node) -> bool {
+    let mut current = def_node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "compound_statement" | "function_definition" => return true,
+            _ => current = parent.parent(),
+        }
+    }
+    false
+}
+
+/// True if `def_node` has a direct child `storage_class_specifier` whose
+/// text matches `keyword` (e.g. `"static"`, `"extern"`).
+fn has_storage_class(def_node: tree_sitter::Node, source: &[u8], keyword: &str) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier"
+            && child.utf8_text(source).unwrap_or("") == keyword
+        {
+            return true;
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -154,6 +202,11 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_c(def_node, source);
+        let visibility = visibility_c(def_node, source);
+        // `static` storage class — applies at both file scope and block
+        // scope. Parameters cannot carry storage class specifiers.
+        let is_static = matches!(def_node.kind(), "function_definition" | "declaration")
+            && has_storage_class(def_node, source, "static");
 
         let symbol = SymbolInfo {
             name,
@@ -166,6 +219,14 @@ pub fn extract_symbols(
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // C has no async concept.
+            is_async: false,
+            is_static,
+            // C has no abstract concept.
+            is_abstract: false,
+            // C `const`-ness is tracked in `c_attrs.is_const`, not here.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub use intern::{Spur, Symbols};
 
 use crate::language::Language;
-use crate::models::{ImportInfo, SymbolKind};
+use crate::models::{ImportInfo, SymbolKind, SymbolVisibility};
 
 /// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
 pub type NodeIndex = usize;
@@ -28,6 +28,11 @@ pub enum NodeWeight {
     },
     Symbol {
         name: Spur,
+        /// Scope-qualified name. Computed in `absorb_file_data` by walking
+        /// the chain of containing symbols and joining their names with the
+        /// language-specific separator. Top-level symbols have
+        /// `qualified_name == name`.
+        qualified_name: Spur,
         kind: SymbolKind,
         file_path: Spur,
         start_byte: u32,
@@ -37,6 +42,11 @@ pub enum NodeWeight {
         end_line: u32,
         end_col: u32,
         exported: bool,
+        visibility: SymbolVisibility,
+        is_async: bool,
+        is_static: bool,
+        is_abstract: bool,
+        is_mutable: bool,
     },
     CallSite {
         name: Spur,

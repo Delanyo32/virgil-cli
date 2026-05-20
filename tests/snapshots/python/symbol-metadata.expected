@@ -1,0 +1,14 @@
+# Python symbol-metadata snapshot — counts of populated `symbol` columns
+# (issue #12). Probed on python/technical-debt; update only alongside
+# intentional extractor changes. Python has no access modifiers, so
+# every symbol classifies Public.
+public_count=3102
+private_count=0
+internal_count=0
+protected_count=0
+qualified_name_count=2565
+parent_id_count=2565
+is_async_count=3
+is_static_count=0
+is_abstract_count=0
+is_mutable_count=0

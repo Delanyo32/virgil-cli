@@ -6,7 +6,72 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a PHP definition.
+///
+/// - Class members (`method_declaration`, `property_declaration`,
+///   `const_declaration`): read the literal text of the
+///   `visibility_modifier` child. `public` → Public, `private` →
+///   Private, `protected` → Protected, absent → Public (PHP default).
+/// - Top-level definitions (functions, classes, interfaces, traits,
+///   enums, namespaces): always Public — PHP has no module-level
+///   visibility keyword.
+/// - Parameters and function-local variables: Private (no external
+///   visibility, mirrors the Rust pilot).
+fn visibility_php(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "simple_parameter"
+        | "variadic_parameter"
+        | "property_promotion_parameter"
+        | "assignment_expression" => return SymbolVisibility::Private,
+        "method_declaration" | "property_declaration" | "const_declaration" => {
+            let mut cursor = def_node.walk();
+            for child in def_node.children(&mut cursor) {
+                if child.kind() == "visibility_modifier" {
+                    let text = child.utf8_text(source).unwrap_or("").trim();
+                    return match text {
+                        "public" => SymbolVisibility::Public,
+                        "private" => SymbolVisibility::Private,
+                        "protected" => SymbolVisibility::Protected,
+                        _ => SymbolVisibility::Public,
+                    };
+                }
+            }
+            // No explicit modifier → PHP default is Public.
+            SymbolVisibility::Public
+        }
+        _ => SymbolVisibility::Public,
+    }
+}
+
+/// True if `def_node` carries a `static_modifier` child (or a bare
+/// `static` keyword token in its modifiers). PHP method/property
+/// staticness is encoded on the declaration node itself.
+fn is_static_php(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        match child.kind() {
+            "static_modifier" | "static" => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// True if `def_node` carries an `abstract_modifier` (or a bare
+/// `abstract` keyword token). Applies to class and method
+/// declarations.
+fn is_abstract_php(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        match child.kind() {
+            "abstract_modifier" | "abstract" => return true,
+            _ => {}
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -182,6 +247,9 @@ pub fn extract_symbols(
         }
 
         let is_exported = is_exported_php(def_node, source);
+        let visibility = visibility_php(def_node, source);
+        let is_static = is_static_php(def_node);
+        let is_abstract = is_abstract_php(def_node);
 
         let symbol = SymbolInfo {
             name,
@@ -194,6 +262,16 @@ pub fn extract_symbols(
             end_line: (def_node.end_position().row + 1) as u32,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // PHP has no async keyword on functions; fibers/coroutines
+            // are not symbol-level markers.
+            is_async: false,
+            is_static,
+            is_abstract,
+            // PHP has no per-symbol mutability marker (no `let mut`,
+            // no `final` propagation here — `final` lives in
+            // `php_attrs.is_final` per docs/attrs-php.md).
+            is_mutable: false,
         };
         symbols.push(symbol);
     }

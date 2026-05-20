@@ -1,0 +1,24 @@
+# Rust symbol-metadata snapshot — counts of populated `symbol` columns
+# (issue #12: visibility, qualified_name, parent_id, is_async, is_static,
+# is_abstract, is_mutable).
+#
+# The runner uses inline queries equivalent to the shapes below; this
+# file documents the canonical Cozoscript.
+
+# Visibility distribution
+?[count(s)] := *symbol{id: s, visibility: "public"}
+?[count(s)] := *symbol{id: s, visibility: "private"}
+?[count(s)] := *symbol{id: s, visibility: "internal"}
+?[count(s)] := *symbol{id: s, visibility: "protected"}
+
+# Symbols carrying a non-trivial qualified_name (parent::name form)
+?[count(s)] := *symbol{id: s, name: n, qualified_name: q}, n != q
+
+# Symbols with a non-null parent_id (nested under a containing symbol)
+?[count(s)] := *symbol{id: s, parent_id: p}, p != null
+
+# Flag counts
+?[count(s)] := *symbol{id: s, is_async: true}
+?[count(s)] := *symbol{id: s, is_static: true}
+?[count(s)] := *symbol{id: s, is_mutable: true}
+?[count(s)] := *symbol{id: s, is_abstract: true}
