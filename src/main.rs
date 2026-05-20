@@ -150,16 +150,10 @@ fn main() -> Result<()> {
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(server::run_server(
-                workspace,
-                &source_id,
-                &host,
-                port,
-                lang,
-                languages,
+                workspace, &source_id, &host, port, lang, languages,
             ))?;
             Ok(())
         }
-
     }
 }
 

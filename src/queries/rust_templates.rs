@@ -46,7 +46,10 @@ pub fn names() -> &'static [&'static str] {
 }
 
 fn parse_int(params: &BTreeMap<String, String>, key: &str, default: i64) -> i64 {
-    params.get(key).and_then(|v| v.parse().ok()).unwrap_or(default)
+    params
+        .get(key)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 /// complexity_hotspots — flag functions whose cyclomatic complexity OR
@@ -106,11 +109,9 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
         let Some(tree) = parser.parse(source.as_bytes(), None) else {
             continue;
         };
-        let Some(func_node) = crate::graph::builder::find_node_at_line(
-            tree.root_node(),
-            start_line,
-            end_line,
-        ) else {
+        let Some(func_node) =
+            crate::graph::builder::find_node_at_line(tree.root_node(), start_line, end_line)
+        else {
             continue;
         };
         let body_field = crate::graph::metrics::body_field_for_language(lang);
@@ -148,4 +149,3 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
     findings.sort_by(|a, b| b.line.cmp(&a.line).then(a.file.cmp(&b.file)));
     Ok(QueryOutput::Findings(findings))
 }
-

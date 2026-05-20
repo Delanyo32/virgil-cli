@@ -93,11 +93,7 @@ impl CozoStore {
             .and_then(|r| r.into_iter().next())
             .map(|v| v == DataValue::from(SCHEMA_VERSION.to_string()))
             .unwrap_or(false);
-        if matches {
-            Ok(Some(store))
-        } else {
-            Ok(None)
-        }
+        if matches { Ok(Some(store)) } else { Ok(None) }
     }
 
     /// Whether the store was just created (or recreated). When `true` the
@@ -120,10 +116,7 @@ impl CozoStore {
 
     fn record_schema_version(&self) -> Result<()> {
         let mut params = BTreeMap::new();
-        params.insert(
-            "v".to_string(),
-            DataValue::from(SCHEMA_VERSION.to_string()),
-        );
+        params.insert("v".to_string(), DataValue::from(SCHEMA_VERSION.to_string()));
         self.run_script(
             "?[key, value] <- [['schema_version', $v]] :put build_meta {key => value}",
             params,
@@ -193,10 +186,7 @@ mod tests {
             )
             .expect("query");
         assert_eq!(rows.rows.len(), 1);
-        assert_eq!(
-            rows.rows[0][0],
-            DataValue::from(SCHEMA_VERSION.to_string())
-        );
+        assert_eq!(rows.rows[0][0], DataValue::from(SCHEMA_VERSION.to_string()));
     }
 
     #[test]
@@ -220,10 +210,7 @@ mod tests {
         let store = CozoStore::open_persistent(&path).expect("reopen");
         assert!(!store.fresh(), "expected warm reopen");
         let rows = store
-            .run_query(
-                "?[name] := *symbol{name}",
-                BTreeMap::new(),
-            )
+            .run_query("?[name] := *symbol{name}", BTreeMap::new())
             .expect("query");
         assert_eq!(rows.rows.len(), 1);
         assert_eq!(rows.rows[0][0], DataValue::from("login"));

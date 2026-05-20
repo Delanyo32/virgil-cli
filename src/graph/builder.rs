@@ -702,7 +702,11 @@ fn bar(_z: i32) {}
                 _ => None,
             })
             .expect("bar callsite");
-        assert!(bar_call.is_none(), "expected no literals, got {:?}", bar_call);
+        assert!(
+            bar_call.is_none(),
+            "expected no literals, got {:?}",
+            bar_call
+        );
     }
 
     #[test]

@@ -34,7 +34,10 @@ impl WorkspaceDiff {
 
     /// Files that need re-parsing on this incremental pass.
     pub fn touched(&self) -> impl Iterator<Item = &str> {
-        self.added.iter().chain(self.modified.iter()).map(|s| s.as_str())
+        self.added
+            .iter()
+            .chain(self.modified.iter())
+            .map(|s| s.as_str())
     }
 }
 
@@ -72,8 +75,7 @@ pub fn workspace_diff(store: &CozoStore, workspace: &Workspace) -> Result<Worksp
     let mut diff = WorkspaceDiff::default();
     let root = workspace.root();
     let on_disk = root.exists();
-    let current_paths: HashSet<&str> =
-        workspace.files().iter().map(|s| s.as_str()).collect();
+    let current_paths: HashSet<&str> = workspace.files().iter().map(|s| s.as_str()).collect();
 
     // Removed: in stored but not in current
     for path in stored.keys() {
@@ -160,16 +162,31 @@ pub fn delete_file_facts(store: &CozoStore, file_path: &str) -> Result<()> {
 
     // 2. Wipe per-file facts via the file_path key.
     for stmt in [
-        ("?[file_path, position] := *raw_import{file_path, position}, file_path = $p \
-          :rm raw_import {file_path, position}", "raw_import"),
-        ("?[symbol_id, file_path] := *edge_defined_in{symbol_id, file_path}, file_path = $p \
-          :rm edge_defined_in {symbol_id, file_path}", "edge_defined_in"),
-        ("?[file_path, line] := *nolint{file_path, line}, file_path = $p \
-          :rm nolint {file_path, line}", "nolint"),
-        ("?[path] := *file_classification{path}, path = $p \
-          :rm file_classification {path}", "file_classification"),
-        ("?[file_path] := *build_meta_files{file_path}, file_path = $p \
-          :rm build_meta_files {file_path}", "build_meta_files"),
+        (
+            "?[file_path, position] := *raw_import{file_path, position}, file_path = $p \
+          :rm raw_import {file_path, position}",
+            "raw_import",
+        ),
+        (
+            "?[symbol_id, file_path] := *edge_defined_in{symbol_id, file_path}, file_path = $p \
+          :rm edge_defined_in {symbol_id, file_path}",
+            "edge_defined_in",
+        ),
+        (
+            "?[file_path, line] := *nolint{file_path, line}, file_path = $p \
+          :rm nolint {file_path, line}",
+            "nolint",
+        ),
+        (
+            "?[path] := *file_classification{path}, path = $p \
+          :rm file_classification {path}",
+            "file_classification",
+        ),
+        (
+            "?[file_path] := *build_meta_files{file_path}, file_path = $p \
+          :rm build_meta_files {file_path}",
+            "build_meta_files",
+        ),
     ] {
         let mut p = BTreeMap::new();
         p.insert("p".to_string(), DataValue::from(file_path));
@@ -184,10 +201,7 @@ pub fn delete_file_facts(store: &CozoStore, file_path: &str) -> Result<()> {
         let mut p = BTreeMap::new();
         p.insert("ids".to_string(), DataValue::List(ids));
         store
-            .run_script(
-                "?[id] := *symbol{id}, id in $ids :rm symbol {id}",
-                p,
-            )
+            .run_script("?[id] := *symbol{id}, id in $ids :rm symbol {id}", p)
             .map_err(|e| anyhow!("delete symbol rows for {file_path}: {e}"))?;
     }
     if !callsite_ids.is_empty() {
@@ -195,19 +209,13 @@ pub fn delete_file_facts(store: &CozoStore, file_path: &str) -> Result<()> {
         let mut p = BTreeMap::new();
         p.insert("ids".to_string(), DataValue::List(ids));
         store
-            .run_script(
-                "?[id] := *callsite{id}, id in $ids :rm callsite {id}",
-                p,
-            )
+            .run_script("?[id] := *callsite{id}, id in $ids :rm callsite {id}", p)
             .map_err(|e| anyhow!("delete callsite rows for {file_path}: {e}"))?;
     }
 
     // 4. Finally, delete the file row.
     store
-        .run_script(
-            "?[path] := *file{path}, path = $p :rm file {path}",
-            params,
-        )
+        .run_script("?[path] := *file{path}, path = $p :rm file {path}", params)
         .map_err(|e| anyhow!("delete file row for {file_path}: {e}"))?;
     Ok(())
 }
@@ -216,10 +224,7 @@ fn collect_symbol_ids_for_file(store: &CozoStore, file_path: &str) -> Result<Vec
     let mut p = BTreeMap::new();
     p.insert("p".to_string(), DataValue::from(file_path));
     let rows = store
-        .run_query(
-            "?[id] := *symbol{id, file_path}, file_path = $p",
-            p,
-        )
+        .run_query("?[id] := *symbol{id, file_path}, file_path = $p", p)
         .map_err(|e| anyhow!("query symbol ids for {file_path}: {e}"))?;
     Ok(rows
         .rows
@@ -235,10 +240,7 @@ fn collect_callsite_ids_for_file(store: &CozoStore, file_path: &str) -> Result<V
     let mut p = BTreeMap::new();
     p.insert("p".to_string(), DataValue::from(file_path));
     let rows = store
-        .run_query(
-            "?[id] := *callsite{id, file_path}, file_path = $p",
-            p,
-        )
+        .run_query("?[id] := *callsite{id, file_path}, file_path = $p", p)
         .map_err(|e| anyhow!("query callsite ids for {file_path}: {e}"))?;
     Ok(rows
         .rows
@@ -266,10 +268,7 @@ pub fn resolve_cross_file_edges(store: &CozoStore) -> Result<()> {
         .map_err(|e| anyhow!("query raw_imports: {e}"))?;
     let known_files: HashSet<String> = {
         let rows = store
-            .run_query(
-                "?[p] := *file{path: p}",
-                BTreeMap::new(),
-            )
+            .run_query("?[p] := *file{path: p}", BTreeMap::new())
             .map_err(|e| anyhow!("query files: {e}"))?;
         rows.rows
             .into_iter()
@@ -481,10 +480,8 @@ fn next_id_offset(store: &CozoStore) -> Result<i64> {
                 }
             }
             // Build a synthetic NamedRows from max_id.
-            let nr = cozo::NamedRows::new(
-                vec!["m".to_string()],
-                vec![vec![DataValue::from(max_id)]],
-            );
+            let nr =
+                cozo::NamedRows::new(vec!["m".to_string()], vec![vec![DataValue::from(max_id)]]);
             Ok::<_, anyhow::Error>(nr)
         })?;
     let max_existing = rows
@@ -523,7 +520,9 @@ mod tests {
         std::fs::write(dir.path().join("b.rs"), "fn b() {}\n").expect("b");
 
         let ws = Workspace::load(dir.path(), &[Language::Rust], None).expect("load");
-        let graph = GraphBuilder::new(&ws, &[Language::Rust]).build().expect("build");
+        let graph = GraphBuilder::new(&ws, &[Language::Rust])
+            .build()
+            .expect("build");
         let store = CozoStore::open_in_memory().expect("store");
         super::super::populate(&store, &graph, Some(&ws)).expect("populate");
 
@@ -559,7 +558,9 @@ mod tests {
         std::fs::write(dir.path().join("b.rs"), "pub fn beta() {}\n").expect("b");
 
         let ws = Workspace::load(dir.path(), &[Language::Rust], None).expect("load");
-        let graph = GraphBuilder::new(&ws, &[Language::Rust]).build().expect("build");
+        let graph = GraphBuilder::new(&ws, &[Language::Rust])
+            .build()
+            .expect("build");
         let store = CozoStore::open_in_memory().expect("store");
         super::super::populate(&store, &graph, Some(&ws)).expect("populate");
         resolve_cross_file_edges(&store).expect("resolve edges");
@@ -575,8 +576,10 @@ mod tests {
             )
             .expect("query");
         assert!(
-            calls.rows.iter().any(|r| r[0] == DataValue::from("alpha")
-                && r[1] == DataValue::from("beta")),
+            calls
+                .rows
+                .iter()
+                .any(|r| r[0] == DataValue::from("alpha") && r[1] == DataValue::from("beta")),
             "baseline alpha->beta missing"
         );
 
@@ -611,8 +614,10 @@ mod tests {
             calls.rows
         );
         assert!(
-            calls.rows.iter().any(|r| r[0] == DataValue::from("gamma")
-                && r[1] == DataValue::from("beta")),
+            calls
+                .rows
+                .iter()
+                .any(|r| r[0] == DataValue::from("gamma") && r[1] == DataValue::from("beta")),
             "expected gamma->beta after incremental, got {:?}",
             calls.rows
         );

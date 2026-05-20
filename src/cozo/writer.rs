@@ -62,7 +62,8 @@ impl CozoWriter {
         self.edge_exports.append(&mut other.edge_exports);
         self.edge_contains.append(&mut other.edge_contains);
         self.raw_import.append(&mut other.raw_import);
-        self.file_classification.append(&mut other.file_classification);
+        self.file_classification
+            .append(&mut other.file_classification);
         self.nolint.append(&mut other.nolint);
         self.build_meta_files.append(&mut other.build_meta_files);
     }
@@ -328,10 +329,7 @@ mod tests {
         writer.flush(&store).expect("flush");
 
         let rows = store
-            .run_query(
-                "?[name, line] := *callsite{name, line}",
-                BTreeMap::new(),
-            )
+            .run_query("?[name, line] := *callsite{name, line}", BTreeMap::new())
             .expect("query");
         assert_eq!(rows.rows.len(), 2);
     }

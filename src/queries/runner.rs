@@ -78,8 +78,9 @@ pub fn run(req: QueryRequest<'_>) -> Result<QueryOutput> {
 
     let script = match req.source {
         QuerySource::Inline(s) => s.to_string(),
-        QuerySource::File(path) => std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?,
+        QuerySource::File(path) => {
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
+        }
         QuerySource::Template(name) => templates::load_cozoscript_template(name)
             .ok_or_else(|| anyhow!("unknown template '{name}'"))?
             .to_string(),
@@ -261,9 +262,7 @@ pub fn data_value_to_json(v: &DataValue) -> serde_json::Value {
             cozo::Num::Float(f) => Value::from(*f),
         },
         DataValue::Str(s) => Value::String(s.to_string()),
-        DataValue::List(items) => {
-            Value::Array(items.iter().map(data_value_to_json).collect())
-        }
+        DataValue::List(items) => Value::Array(items.iter().map(data_value_to_json).collect()),
         other => Value::String(format!("{other:?}")),
     }
 }

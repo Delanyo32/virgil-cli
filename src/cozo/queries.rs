@@ -9,8 +9,7 @@ use std::collections::BTreeMap;
 
 use cozo::DataValue;
 
-pub const FIND_SYMBOL_BY_NAME: &str =
-    "?[id, name, file_path, start_line, end_line] := \
+pub const FIND_SYMBOL_BY_NAME: &str = "?[id, name, file_path, start_line, end_line] := \
      *symbol{id, name, file_path, start_line, end_line}, name = $name";
 
 pub fn find_symbol_by_name_params(name: &str) -> BTreeMap<String, DataValue> {

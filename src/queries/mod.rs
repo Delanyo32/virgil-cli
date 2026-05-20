@@ -10,8 +10,8 @@
 //! cannot be expressed as pure Cozoscript (complexity_hotspots,
 //! taint_paths, unreleased_resources).
 
-pub mod rust_templates;
 pub mod runner;
+pub mod rust_templates;
 pub mod templates;
 
 pub use runner::{QueryRequest, QuerySource, run};

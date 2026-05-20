@@ -12,8 +12,8 @@ use anyhow::Result;
 use cozo::DataValue;
 use rayon::prelude::*;
 
-use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 use crate::classify::{is_barrel_file, is_test_file};
+use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 use crate::storage::workspace::Workspace;
 
 use super::{CozoStore, CozoWriter};
@@ -26,11 +26,7 @@ use super::{CozoStore, CozoWriter};
 /// scans each file's source for `nolint` comments. Without a workspace
 /// those derived relations stay empty (relation still exists in the
 /// schema).
-pub fn populate(
-    store: &CozoStore,
-    graph: &CodeGraph,
-    workspace: Option<&Workspace>,
-) -> Result<()> {
+pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
     populate_with_id_offset(store, graph, workspace, 0)
 }
 
@@ -64,7 +60,14 @@ pub fn populate_with_id_offset(
         .into_par_iter()
         .fold(CozoWriter::new, |mut writer, source_idx| {
             for (target_idx, weight) in &graph.out_edges[source_idx] {
-                emit_edge(&mut writer, graph, id_offset, source_idx, *target_idx, weight);
+                emit_edge(
+                    &mut writer,
+                    graph,
+                    id_offset,
+                    source_idx,
+                    *target_idx,
+                    weight,
+                );
             }
             writer
         })
@@ -206,10 +209,8 @@ fn emit_edge(
             writer.push_edge_calls(from, to);
         }
         EdgeWeight::Imports => {
-            if let (
-                NodeWeight::File { path: from_p, .. },
-                NodeWeight::File { path: to_p, .. },
-            ) = (&graph.nodes[source_idx], &graph.nodes[target_idx])
+            if let (NodeWeight::File { path: from_p, .. }, NodeWeight::File { path: to_p, .. }) =
+                (&graph.nodes[source_idx], &graph.nodes[target_idx])
             {
                 let from_path = graph.symbols.resolve(*from_p);
                 let to_path = graph.symbols.resolve(*to_p);
@@ -461,11 +462,8 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         std::fs::write(dir.path().join("mod.rs"), "pub mod inner;\n").expect("write mod");
         std::fs::create_dir(dir.path().join("inner")).expect("dir");
-        std::fs::write(
-            dir.path().join("inner").join("mod.rs"),
-            "pub fn ok() {}\n",
-        )
-        .expect("write inner mod");
+        std::fs::write(dir.path().join("inner").join("mod.rs"), "pub fn ok() {}\n")
+            .expect("write inner mod");
         std::fs::create_dir(dir.path().join("tests")).expect("test dir");
         std::fs::write(
             dir.path().join("tests").join("user_flow_test.rs"),

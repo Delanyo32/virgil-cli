@@ -14,8 +14,7 @@ pub mod writer;
 
 pub use from_code_graph::{is_warm_compatible, populate, wipe_workspace_relations};
 pub use incremental::{
-    WorkspaceDiff, delete_file_facts, incremental_refresh, resolve_cross_file_edges,
-    workspace_diff,
+    WorkspaceDiff, delete_file_facts, incremental_refresh, resolve_cross_file_edges, workspace_diff,
 };
 pub use store::{CozoStore, cache_dir_for};
 pub use writer::CozoWriter;

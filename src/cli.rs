@@ -46,7 +46,6 @@ pub enum Command {
         #[arg(short, long)]
         exclude: Vec<String>,
     },
-
 }
 
 #[derive(Subcommand, Debug)]
