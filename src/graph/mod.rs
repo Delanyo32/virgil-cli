@@ -7,7 +7,10 @@ use std::collections::HashMap;
 pub use intern::{Spur, Symbols};
 
 use crate::language::Language;
-use crate::models::{ImportInfo, SymbolKind, SymbolVisibility};
+use crate::models::{
+    ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, SymbolVisibility,
+    TypeRow,
+};
 
 /// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
 pub type NodeIndex = usize;
@@ -105,6 +108,19 @@ pub struct CodeGraph {
     /// comment queries succeed. Keyed by source file path. Empty for
     /// languages whose extractor doesn't emit comments yet.
     pub comments: HashMap<String, Vec<crate::models::CommentInfo>>,
+    /// Per-file type-expression rows (issue #13). One row per unique
+    /// `(file_path, display_name)`; the emitter dedups + assigns
+    /// `type.id`.
+    pub types: HashMap<String, Vec<TypeRow>>,
+    /// Per-file parameter→type bindings (issue #13). The emitter joins
+    /// these to `types` by `display_name` to populate `parameter.type_id`.
+    pub param_types: HashMap<String, Vec<ParameterTypeRow>>,
+    /// Per-file function→return-type bindings (issue #13).
+    pub returns_types: HashMap<String, Vec<ReturnsTypeRow>>,
+    /// Per-file class/trait inheritance edges (issue #13). The emitter
+    /// resolves both endpoints to symbol IDs where possible and writes
+    /// `extends` or `implements` rows.
+    pub inheritance: HashMap<String, Vec<InheritanceRow>>,
 }
 
 impl Default for CodeGraph {
@@ -125,6 +141,10 @@ impl CodeGraph {
             symbols_by_name: HashMap::new(),
             raw_imports: HashMap::new(),
             comments: HashMap::new(),
+            types: HashMap::new(),
+            param_types: HashMap::new(),
+            returns_types: HashMap::new(),
+            inheritance: HashMap::new(),
         }
     }
 

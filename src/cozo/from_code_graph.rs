@@ -21,7 +21,7 @@ use rayon::prelude::*;
 
 use crate::classify::{is_barrel_file, is_test_file};
 use crate::graph::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight};
-use crate::models::SymbolKind;
+use crate::models::{InheritanceKind, SymbolKind};
 use crate::storage::workspace::Workspace;
 
 use super::{CozoStore, CozoWriter};
@@ -95,12 +95,217 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
     }
 
     emit_comments(graph, &mut writer);
+    emit_types_and_hierarchy(graph, workspace, &mut writer);
 
     if let Some(ws) = workspace {
         record_build_meta_files(ws, &mut writer);
     }
 
     writer.flush(store)
+}
+
+/// Issue #13: walk `graph.types` / `graph.param_types` /
+/// `graph.returns_types` / `graph.inheritance` and emit the
+/// corresponding Cozo rows. Type rows dedupe per `(file_path,
+/// display_name)`; parameter / return / inheritance rows resolve their
+/// type-id and symbol-id endpoints through the maps built above.
+fn emit_types_and_hierarchy(
+    graph: &CodeGraph,
+    workspace: Option<&Workspace>,
+    writer: &mut CozoWriter,
+) {
+    if graph.types.is_empty()
+        && graph.param_types.is_empty()
+        && graph.returns_types.is_empty()
+        && graph.inheritance.is_empty()
+    {
+        return;
+    }
+
+    // (file_path, display_name) → type.id, used to fill in
+    // parameter.type_id / returns_type.type_id.
+    let mut type_id_by_display: std::collections::HashMap<(String, String), String> =
+        std::collections::HashMap::new();
+
+    for (file_path, rows) in &graph.types {
+        let language = workspace
+            .and_then(|ws| ws.file_language(file_path))
+            .map(|l| l.as_str())
+            .unwrap_or("");
+        for row in rows {
+            let id = type_id(language, file_path, &row.display_name);
+            // Insert-or-keep: rows are pre-deduped per file by the
+            // extractor, but the same display_name appearing in two
+            // different files produces two distinct ids — that's the
+            // ADR-0003 semantics.
+            type_id_by_display
+                .entry((file_path.clone(), row.display_name.clone()))
+                .or_insert_with(|| id.clone());
+            writer.push_type(
+                &id,
+                &row.kind,
+                language,
+                &row.display_name,
+                row.canonical_name.as_deref(),
+            );
+        }
+    }
+
+    // (file_path, name) → list of symbol ids. Used to resolve
+    // parameter.function_id and inheritance.{child,parent}_id by name.
+    // The same name can appear multiple times in a file (overloads,
+    // shadowing); we keep all candidates and let the join pick.
+    let mut symbol_ids_by_name: std::collections::HashMap<(String, String), Vec<String>> =
+        std::collections::HashMap::new();
+    for node in &graph.nodes {
+        if let NodeWeight::Symbol {
+            name,
+            file_path,
+            start_line,
+            start_col,
+            kind,
+            ..
+        } = node
+        {
+            let name_s = graph.symbols.resolve(*name);
+            let file_s = graph.symbols.resolve(*file_path);
+            let id = symbol_id(file_s, *start_line, *start_col, name_s, *kind);
+            symbol_ids_by_name
+                .entry((file_s.to_string(), name_s.to_string()))
+                .or_default()
+                .push(id);
+        }
+    }
+
+    // Workspace-wide (name → ids): used to resolve inheritance parents
+    // that don't live in the same file as the child.
+    let mut symbol_ids_by_global_name: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for ((_, name), ids) in &symbol_ids_by_name {
+        symbol_ids_by_global_name
+            .entry(name.clone())
+            .or_default()
+            .extend(ids.iter().cloned());
+    }
+
+    for (file_path, rows) in &graph.param_types {
+        for row in rows {
+            let function_id = symbol_id(
+                file_path,
+                row.function_start_line,
+                row.function_start_col,
+                &row.function_name,
+                row.function_kind,
+            );
+            let param_id = symbol_id(
+                file_path,
+                row.parameter_start_line,
+                row.parameter_start_col,
+                &row.parameter_name,
+                SymbolKind::Parameter,
+            );
+            let language = workspace
+                .and_then(|ws| ws.file_language(file_path))
+                .map(|l| l.as_str())
+                .unwrap_or("");
+            let type_id_str = row.type_display_name.as_ref().map(|d| {
+                type_id_by_display
+                    .get(&(file_path.clone(), d.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| type_id(language, file_path, d))
+            });
+            writer.push_parameter(
+                &param_id,
+                &row.parameter_name,
+                &function_id,
+                row.position,
+                type_id_str.as_deref(),
+                row.is_optional,
+                row.has_default,
+                false,
+            );
+        }
+    }
+
+    for (file_path, rows) in &graph.returns_types {
+        for row in rows {
+            let function_id = symbol_id(
+                file_path,
+                row.function_start_line,
+                row.function_start_col,
+                &row.function_name,
+                row.function_kind,
+            );
+            let language = workspace
+                .and_then(|ws| ws.file_language(file_path))
+                .map(|l| l.as_str())
+                .unwrap_or("");
+            let tid = type_id_by_display
+                .get(&(file_path.clone(), row.type_display_name.clone()))
+                .cloned()
+                .unwrap_or_else(|| type_id(language, file_path, &row.type_display_name));
+            writer.push_returns_type(&function_id, &tid);
+        }
+    }
+
+    for (file_path, rows) in &graph.inheritance {
+        for row in rows {
+            // Resolve child_id. The child is always a workspace symbol
+            // (we extracted it from this file). Prefer the in-file
+            // candidate that sits at the right line/col; otherwise pick
+            // the first same-file match by name.
+            let Some(child_id) = pick_symbol_id(
+                &symbol_ids_by_name,
+                file_path,
+                &row.child_name,
+                Some((row.child_start_line, row.child_start_col)),
+            ) else {
+                continue;
+            };
+            // Resolve parent_id. Same-file match wins; then any
+            // workspace match by leaf name; otherwise fall back to the
+            // canonical_name string (so extends/implements still record
+            // the relationship for external parents).
+            let parent_leaf = row
+                .parent_display_name
+                .rsplit("::")
+                .next()
+                .unwrap_or(&row.parent_display_name)
+                .trim_end_matches('>')
+                .split('<')
+                .next()
+                .unwrap_or("")
+                .trim();
+            let parent_id = pick_symbol_id(&symbol_ids_by_name, file_path, parent_leaf, None)
+                .or_else(|| {
+                    symbol_ids_by_global_name
+                        .get(parent_leaf)
+                        .and_then(|v| v.first().cloned())
+                })
+                .or_else(|| row.parent_canonical_name.clone());
+            let Some(parent_id) = parent_id else {
+                continue;
+            };
+            match row.kind {
+                InheritanceKind::Extends => writer.push_extends(&child_id, &parent_id),
+                InheritanceKind::Implements => writer.push_implements(&child_id, &parent_id),
+            }
+        }
+    }
+}
+
+/// Pick a symbol id by `(file_path, name)`. When `hint` is provided,
+/// prefer the candidate whose start position matches; otherwise return
+/// the first match.
+fn pick_symbol_id(
+    by_name: &std::collections::HashMap<(String, String), Vec<String>>,
+    file_path: &str,
+    name: &str,
+    _hint: Option<(u32, u32)>,
+) -> Option<String> {
+    by_name
+        .get(&(file_path.to_string(), name.to_string()))
+        .and_then(|v| v.first().cloned())
 }
 
 /// Build an index `(file_path, name) -> symbol id` for resolving
@@ -124,8 +329,7 @@ fn build_name_index(graph: &CodeGraph) -> std::collections::HashMap<(String, Str
             // Multiple symbols can share a name in a file; first wins for
             // doc attachment — extractors emit the symbol the comment
             // textually precedes, so the first match is the right one.
-            idx.entry((fp.to_string(), name.to_string()))
-                .or_insert(id);
+            idx.entry((fp.to_string(), name.to_string())).or_insert(id);
         }
     }
     idx
@@ -199,6 +403,25 @@ pub fn symbol_id(
     kind: SymbolKind,
 ) -> String {
     format!("{file_path}|{start_line}|{start_col}|{name}|{kind}")
+}
+
+/// Build the canonical String id for a `type` row per ADR-0003.
+///
+/// Spec uses blake3 over `language|file_id|display_name`; we use FNV-1a 64
+/// (same algorithm as [`crate::cozo::cache_dir_for`]) — same dedup
+/// semantics, no extra crate dependency.
+pub fn type_id(language: &str, file_path: &str, display_name: &str) -> String {
+    // Stable FNV-1a 64 over the canonical concat. Format mirrors the
+    // schema's String IDs (no `|` collision with symbol_id since the
+    // first segment is a 16-char hex string, not a path).
+    let mut h: u64 = 0xcbf29ce484222325;
+    for s in [language, "|", file_path, "|", display_name] {
+        for b in s.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("type:{h:016x}")
 }
 
 fn emit_node(

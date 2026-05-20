@@ -9,7 +9,10 @@ use tree_sitter::Query;
 
 use crate::language::Language;
 use crate::languages;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{
+    CommentInfo, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolInfo,
+    SymbolKind, TypeRow,
+};
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
@@ -23,6 +26,13 @@ struct FileGraphData {
     comments: Vec<CommentInfo>,
     imports: Vec<ImportInfo>,
     call_sites: Vec<CallSiteData>,
+    /// Issue #13: type/parameter/return/inheritance rows from the
+    /// per-language type extractor. Empty for languages whose extractor
+    /// hasn't been wired yet.
+    types: Vec<TypeRow>,
+    param_types: Vec<ParameterTypeRow>,
+    returns_types: Vec<ReturnsTypeRow>,
+    inheritance: Vec<InheritanceRow>,
 }
 
 /// A call site extracted from within a symbol's line range.
@@ -307,6 +317,11 @@ fn parse_one_file(
         );
     }
 
+    // Issue #13: per-language type / inheritance extraction. Languages
+    // without a wired extractor leave all four vectors empty.
+    let (types, param_types, returns_types, inheritance) =
+        languages::extract_types(&tree, source.as_bytes(), rel_path, lang);
+
     Some(FileGraphData {
         path: rel_path.to_string(),
         language: lang,
@@ -314,6 +329,10 @@ fn parse_one_file(
         comments,
         imports,
         call_sites,
+        types,
+        param_types,
+        returns_types,
+        inheritance,
     })
 }
 
@@ -332,6 +351,10 @@ fn absorb_file_data(
         comments,
         imports,
         call_sites,
+        types,
+        param_types,
+        returns_types,
+        inheritance,
     } = data;
 
     // File node
@@ -446,10 +469,7 @@ fn absorb_file_data(
     // Patch each symbol node's qualified_name spur.
     for (i, qname) in qnames.into_iter().enumerate() {
         let qname_spur = graph.symbols.intern(&qname);
-        if let NodeWeight::Symbol {
-            qualified_name, ..
-        } = &mut graph.nodes[sym_indices[i]]
-        {
+        if let NodeWeight::Symbol { qualified_name, .. } = &mut graph.nodes[sym_indices[i]] {
             *qualified_name = qname_spur;
         }
     }
@@ -477,6 +497,34 @@ fn absorb_file_data(
             language,
             import,
         });
+    }
+
+    // Issue #13: stash per-file type / signature / inheritance rows so
+    // `from_code_graph` can emit them. Empty vectors carry no cost; we
+    // only insert when something is actually there.
+    if !types.is_empty() {
+        graph.types.entry(path.clone()).or_default().extend(types);
+    }
+    if !param_types.is_empty() {
+        graph
+            .param_types
+            .entry(path.clone())
+            .or_default()
+            .extend(param_types);
+    }
+    if !returns_types.is_empty() {
+        graph
+            .returns_types
+            .entry(path.clone())
+            .or_default()
+            .extend(returns_types);
+    }
+    if !inheritance.is_empty() {
+        graph
+            .inheritance
+            .entry(path.clone())
+            .or_default()
+            .extend(inheritance);
     }
 
     // CallSite nodes + Contains edges. Calls edges are deferred until

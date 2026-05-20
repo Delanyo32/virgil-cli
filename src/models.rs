@@ -171,6 +171,73 @@ pub struct CommentInfo {
     pub associated_symbol_kind: Option<String>,
 }
 
+/// A type-expression occurrence extracted from one file. Maps to one row
+/// in the Cozo `type` relation; rows dedupe per `(file_path, display_name)`
+/// per ADR-0003.
+#[derive(Debug, Clone)]
+pub struct TypeRow {
+    pub file_path: String,
+    /// One of the 7 schema variants: primitive | named | generic |
+    /// union | intersection | function | tuple | array.
+    pub kind: String,
+    pub display_name: String,
+    pub canonical_name: Option<String>,
+}
+
+/// One per function parameter. `type_display_name` is `None` for untyped
+/// parameters (Python, JS, dynamic PHP). The emitter joins this row to a
+/// `TypeRow` of the same `(file_path, display_name)` to fill in
+/// `parameter.type_id`.
+#[derive(Debug, Clone)]
+pub struct ParameterTypeRow {
+    pub file_path: String,
+    pub function_start_line: u32,
+    pub function_start_col: u32,
+    pub function_name: String,
+    pub function_kind: SymbolKind,
+    pub parameter_start_line: u32,
+    pub parameter_start_col: u32,
+    pub parameter_name: String,
+    pub position: i64,
+    pub type_display_name: Option<String>,
+    pub is_optional: bool,
+    pub has_default: bool,
+}
+
+/// One per annotated function return. Languages without explicit return
+/// annotations (Python without `-> T`, JS without TS, etc.) emit no row
+/// for that function.
+#[derive(Debug, Clone)]
+pub struct ReturnsTypeRow {
+    pub file_path: String,
+    pub function_start_line: u32,
+    pub function_start_col: u32,
+    pub function_name: String,
+    pub function_kind: SymbolKind,
+    pub type_display_name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InheritanceKind {
+    Extends,
+    Implements,
+}
+
+/// One per inheritance edge. `parent` is identified by the parent type's
+/// `display_name` (joined to a `TypeRow` for `canonical_name`). The
+/// emitter resolves both endpoints to symbol IDs when possible.
+#[derive(Debug, Clone)]
+pub struct InheritanceRow {
+    pub file_path: String,
+    pub child_start_line: u32,
+    pub child_start_col: u32,
+    pub child_name: String,
+    pub child_kind: SymbolKind,
+    pub parent_display_name: String,
+    pub parent_canonical_name: Option<String>,
+    pub kind: InheritanceKind,
+}
+
 #[derive(Debug, Clone)]
 pub struct ParseError {
     pub file_path: String,
