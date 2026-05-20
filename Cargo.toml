@@ -34,7 +34,7 @@ axum = "0.8"
 include_dir = "0.7"
 lru = "0.12"
 lasso = { version = "0.7", features = ["multi-threaded"] }
-cozo = { package = "cozo-ce", version = "0.7.13-alpha.3", default-features = false, features = ["storage-sqlite", "rayon"] }
+cozo = { package = "cozo-ce", version = "0.7.13-alpha.3", default-features = false, features = ["storage-sqlite", "storage-new-rocksdb", "rayon"] }
 
 [dev-dependencies]
 tempfile = "3"

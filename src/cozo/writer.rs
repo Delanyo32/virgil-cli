@@ -49,6 +49,24 @@ impl CozoWriter {
         }
     }
 
+    /// Append every row from `other` into `self`, leaving `other` empty.
+    /// Used by the parallel populate path so per-thread writers can be
+    /// merged before a single flush call.
+    pub fn merge(&mut self, other: &mut CozoWriter) {
+        self.file.append(&mut other.file);
+        self.symbol.append(&mut other.symbol);
+        self.callsite.append(&mut other.callsite);
+        self.edge_defined_in.append(&mut other.edge_defined_in);
+        self.edge_calls.append(&mut other.edge_calls);
+        self.edge_imports.append(&mut other.edge_imports);
+        self.edge_exports.append(&mut other.edge_exports);
+        self.edge_contains.append(&mut other.edge_contains);
+        self.raw_import.append(&mut other.raw_import);
+        self.file_classification.append(&mut other.file_classification);
+        self.nolint.append(&mut other.nolint);
+        self.build_meta_files.append(&mut other.build_meta_files);
+    }
+
     pub fn push_file(&mut self, path: &str, language: &str) {
         self.file
             .push(vec![DataValue::from(path), DataValue::from(language)]);

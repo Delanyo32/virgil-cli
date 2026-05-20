@@ -41,6 +41,10 @@ impl CozoStore {
     /// Returns the store + a flag indicating whether the caller still needs
     /// to populate it (via [`fresh`](Self::fresh)).
     pub fn open_persistent(path: &Path) -> Result<Self> {
+        // RocksDB stores its data in a directory, not a single file.
+        // cache_dir_for() returns a `<hash>.rocksdb/` path. Make sure the
+        // parent of that directory exists; RocksDB creates the directory
+        // itself on first open.
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating cache dir {}", parent.display()))?;
@@ -51,7 +55,7 @@ impl CozoStore {
                 Some(store) => return Ok(store),
                 None => {
                     // Schema mismatch — wipe and recreate.
-                    std::fs::remove_file(path)
+                    std::fs::remove_dir_all(path)
                         .with_context(|| format!("removing stale store {}", path.display()))?;
                 }
             }
@@ -60,8 +64,8 @@ impl CozoStore {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("non-utf8 cache path: {}", path.display()))?;
-        let db = DbInstance::new("sqlite", path_str, Default::default())
-            .map_err(|e| anyhow!("failed to open cozo sqlite store: {e}"))?;
+        let db = DbInstance::new("newrocksdb", path_str, Default::default())
+            .map_err(|e| anyhow!("failed to open cozo rocksdb store: {e}"))?;
         let store = Self { db, fresh: true };
         store.apply_schema()?;
         store.record_schema_version()?;
@@ -75,8 +79,8 @@ impl CozoStore {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("non-utf8 cache path: {}", path.display()))?;
-        let db = DbInstance::new("sqlite", path_str, Default::default())
-            .map_err(|e| anyhow!("failed to reopen cozo sqlite store: {e}"))?;
+        let db = DbInstance::new("newrocksdb", path_str, Default::default())
+            .map_err(|e| anyhow!("failed to reopen cozo rocksdb store: {e}"))?;
         let store = Self { db, fresh: false };
         let version = store
             .run_query(
@@ -151,7 +155,7 @@ impl CozoStore {
 }
 
 /// Cache file path for a workspace identified by `id`. Returns
-/// `~/.cache/virgil/<hash>.cozo` (or the platform cache dir equivalent).
+/// `~/.cache/virgil/<hash>.rocksdb/` (or the platform cache dir equivalent).
 ///
 /// `id` should uniquely and stably identify the workspace — for registered
 /// projects, the project name; for S3, the full URI; for ad-hoc paths, the
@@ -161,7 +165,7 @@ pub fn cache_dir_for(id: &str) -> Result<PathBuf> {
         .context("could not determine OS cache directory")?
         .join("virgil");
     let hash = stable_hash(id);
-    Ok(base.join(format!("{hash:016x}.cozo")))
+    Ok(base.join(format!("{hash:016x}.rocksdb")))
 }
 
 fn stable_hash(s: &str) -> u64 {
@@ -198,7 +202,7 @@ mod tests {
     #[test]
     fn persistent_store_round_trips_through_disk() {
         let dir = tempdir().expect("tempdir");
-        let path = dir.path().join("test.cozo");
+        let path = dir.path().join("test.rocksdb");
 
         let store = CozoStore::open_persistent(&path).expect("open fresh");
         assert!(store.fresh(), "expected fresh open");
@@ -228,7 +232,7 @@ mod tests {
     #[test]
     fn schema_version_mismatch_triggers_clean_rebuild() {
         let dir = tempdir().expect("tempdir");
-        let path = dir.path().join("test.cozo");
+        let path = dir.path().join("test.rocksdb");
 
         // Open + write a bogus schema_version row that doesn't match.
         let store = CozoStore::open_persistent(&path).expect("open fresh");
@@ -253,6 +257,6 @@ mod tests {
         let b = cache_dir_for("project-b").unwrap();
         assert_eq!(a, a_again);
         assert_ne!(a, b);
-        assert!(a.to_str().unwrap().ends_with(".cozo"));
+        assert!(a.to_str().unwrap().ends_with(".rocksdb"));
     }
 }

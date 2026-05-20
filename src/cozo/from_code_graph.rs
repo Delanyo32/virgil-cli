@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use cozo::DataValue;
+use rayon::prelude::*;
 
 use crate::graph::{CodeGraph, EdgeWeight, NodeWeight};
 use crate::classify::{is_barrel_file, is_test_file};
@@ -42,121 +43,44 @@ pub fn populate_with_id_offset(
     workspace: Option<&Workspace>,
     id_offset: i64,
 ) -> Result<()> {
-    let mut writer = CozoWriter::new();
+    // Step 1: shard the node walk across rayon. Each thread produces a
+    // local `CozoWriter`; we merge them at the end. The work is pure-read
+    // on `graph`, so parallelism is straightforward — no locks, no
+    // contention. Cozo writes still happen serially in step 3.
+    let node_writer: CozoWriter = (0..graph.nodes.len())
+        .into_par_iter()
+        .fold(CozoWriter::new, |mut writer, node_idx| {
+            emit_node(&mut writer, graph, workspace, id_offset, node_idx);
+            writer
+        })
+        .reduce(CozoWriter::new, |mut a, mut b| {
+            a.merge(&mut b);
+            a
+        });
 
-    for node_idx in graph.node_indices() {
-        let id = id_offset + node_idx as i64;
-        match &graph.nodes[node_idx] {
-            NodeWeight::File { path, language } => {
-                let path = graph.symbols.resolve(*path);
-                writer.push_file(path, language.as_str());
-                if let Some(ws) = workspace {
-                    let is_generated = ws
-                        .read_file(path)
-                        .map(|src| is_generated_marker(&src))
-                        .unwrap_or(false);
-                    writer.push_file_classification(
-                        path,
-                        is_test_file(path),
-                        is_barrel_file(path),
-                        is_generated,
-                    );
-                    if let Some(src) = ws.read_file(path) {
-                        extract_nolints(path, &src, &mut writer);
-                    }
-                } else {
-                    writer.push_file_classification(
-                        path,
-                        is_test_file(path),
-                        is_barrel_file(path),
-                        false,
-                    );
-                }
+    // Step 2: same trick for edges. We iterate `out_edges` per source node;
+    // every (source_idx, target_idx, weight) triple is independent.
+    let edge_writer: CozoWriter = (0..graph.nodes.len())
+        .into_par_iter()
+        .fold(CozoWriter::new, |mut writer, source_idx| {
+            for (target_idx, weight) in &graph.out_edges[source_idx] {
+                emit_edge(&mut writer, graph, id_offset, source_idx, *target_idx, weight);
             }
-            NodeWeight::Symbol {
-                name,
-                kind,
-                file_path,
-                start_line,
-                end_line,
-                exported,
-            } => {
-                let name = graph.symbols.resolve(*name);
-                let file_path = graph.symbols.resolve(*file_path);
-                let kind_str = kind.to_string();
-                writer.push_symbol(
-                    id,
-                    name,
-                    &kind_str,
-                    file_path,
-                    *start_line as i64,
-                    *end_line as i64,
-                    *exported,
-                );
-            }
-            NodeWeight::CallSite {
-                name,
-                file_path,
-                line,
-                enclosing_test_name,
-                caller_symbol,
-                ..
-            } => {
-                let name = graph.symbols.resolve(*name);
-                let file_path = graph.symbols.resolve(*file_path);
-                let test_name = enclosing_test_name.map(|s| graph.symbols.resolve(s));
-                writer.push_callsite(
-                    id,
-                    name,
-                    file_path,
-                    *line as i64,
-                    caller_symbol.map(|idx| id_offset + idx as i64),
-                    test_name,
-                );
-            }
-        }
+            writer
+        })
+        .reduce(CozoWriter::new, |mut a, mut b| {
+            a.merge(&mut b);
+            a
+        });
+
+    let mut writer = node_writer;
+    {
+        let mut e = edge_writer;
+        writer.merge(&mut e);
     }
 
-    for source_idx in graph.node_indices() {
-        for (target_idx, weight) in &graph.out_edges[source_idx] {
-            let from = id_offset + source_idx as i64;
-            let to = id_offset + *target_idx as i64;
-            match weight {
-                EdgeWeight::DefinedIn => {
-                    if let NodeWeight::File { path, .. } = &graph.nodes[*target_idx] {
-                        let path = graph.symbols.resolve(*path);
-                        writer.push_edge_defined_in(from, path);
-                    }
-                }
-                EdgeWeight::Calls => {
-                    writer.push_edge_calls(from, to);
-                }
-                EdgeWeight::Imports => {
-                    if let (NodeWeight::File { path: from_p, .. }, NodeWeight::File { path: to_p, .. }) =
-                        (&graph.nodes[source_idx], &graph.nodes[*target_idx])
-                    {
-                        let from_path = graph.symbols.resolve(*from_p);
-                        let to_path = graph.symbols.resolve(*to_p);
-                        writer.push_edge_imports(from_path, to_path);
-                    }
-                }
-                EdgeWeight::Exports => {
-                    if let NodeWeight::File { path, .. } = &graph.nodes[source_idx] {
-                        let file_path = graph.symbols.resolve(*path);
-                        writer.push_edge_exports(file_path, to);
-                    }
-                }
-                EdgeWeight::Contains => {
-                    writer.push_edge_contains(from, to);
-                }
-            }
-        }
-    }
-
-    // Persist raw imports per file so incremental refresh can re-resolve
-    // edge_imports without re-parsing every unchanged file. The language
-    // column is filled in from the workspace's `file_language` when we
-    // resolve, so we leave it empty here.
+    // Step 3: sequential tail work (raw_imports + build_meta_files). These
+    // iterate per-file and don't dominate.
     for (file_path, imports) in &graph.raw_imports {
         let lang_str = workspace
             .and_then(|ws| ws.file_language(file_path))
@@ -177,7 +101,131 @@ pub fn populate_with_id_offset(
         record_build_meta_files(ws, &mut writer);
     }
 
+    // Step 4: single-threaded flush. Cozo serialises writes through its
+    // DbInstance regardless of how many threads call run_script.
     writer.flush(store)
+}
+
+fn emit_node(
+    writer: &mut CozoWriter,
+    graph: &CodeGraph,
+    workspace: Option<&Workspace>,
+    id_offset: i64,
+    node_idx: usize,
+) {
+    let id = id_offset + node_idx as i64;
+    match &graph.nodes[node_idx] {
+        NodeWeight::File { path, language } => {
+            let path = graph.symbols.resolve(*path);
+            writer.push_file(path, language.as_str());
+            if let Some(ws) = workspace {
+                let is_generated = ws
+                    .read_file(path)
+                    .map(|src| is_generated_marker(&src))
+                    .unwrap_or(false);
+                writer.push_file_classification(
+                    path,
+                    is_test_file(path),
+                    is_barrel_file(path),
+                    is_generated,
+                );
+                if let Some(src) = ws.read_file(path) {
+                    extract_nolints(path, &src, writer);
+                }
+            } else {
+                writer.push_file_classification(
+                    path,
+                    is_test_file(path),
+                    is_barrel_file(path),
+                    false,
+                );
+            }
+        }
+        NodeWeight::Symbol {
+            name,
+            kind,
+            file_path,
+            start_line,
+            end_line,
+            exported,
+        } => {
+            let name = graph.symbols.resolve(*name);
+            let file_path = graph.symbols.resolve(*file_path);
+            let kind_str = kind.to_string();
+            writer.push_symbol(
+                id,
+                name,
+                &kind_str,
+                file_path,
+                *start_line as i64,
+                *end_line as i64,
+                *exported,
+            );
+        }
+        NodeWeight::CallSite {
+            name,
+            file_path,
+            line,
+            enclosing_test_name,
+            caller_symbol,
+            ..
+        } => {
+            let name = graph.symbols.resolve(*name);
+            let file_path = graph.symbols.resolve(*file_path);
+            let test_name = enclosing_test_name.map(|s| graph.symbols.resolve(s));
+            writer.push_callsite(
+                id,
+                name,
+                file_path,
+                *line as i64,
+                caller_symbol.map(|idx| id_offset + idx as i64),
+                test_name,
+            );
+        }
+    }
+}
+
+fn emit_edge(
+    writer: &mut CozoWriter,
+    graph: &CodeGraph,
+    id_offset: i64,
+    source_idx: usize,
+    target_idx: usize,
+    weight: &EdgeWeight,
+) {
+    let from = id_offset + source_idx as i64;
+    let to = id_offset + target_idx as i64;
+    match weight {
+        EdgeWeight::DefinedIn => {
+            if let NodeWeight::File { path, .. } = &graph.nodes[target_idx] {
+                let path = graph.symbols.resolve(*path);
+                writer.push_edge_defined_in(from, path);
+            }
+        }
+        EdgeWeight::Calls => {
+            writer.push_edge_calls(from, to);
+        }
+        EdgeWeight::Imports => {
+            if let (
+                NodeWeight::File { path: from_p, .. },
+                NodeWeight::File { path: to_p, .. },
+            ) = (&graph.nodes[source_idx], &graph.nodes[target_idx])
+            {
+                let from_path = graph.symbols.resolve(*from_p);
+                let to_path = graph.symbols.resolve(*to_p);
+                writer.push_edge_imports(from_path, to_path);
+            }
+        }
+        EdgeWeight::Exports => {
+            if let NodeWeight::File { path, .. } = &graph.nodes[source_idx] {
+                let file_path = graph.symbols.resolve(*path);
+                writer.push_edge_exports(file_path, to);
+            }
+        }
+        EdgeWeight::Contains => {
+            writer.push_edge_contains(from, to);
+        }
+    }
 }
 
 /// Wipe every relation populated by [`populate`] (plus build_meta_files

@@ -60,6 +60,11 @@ fn main() -> Result<()> {
 
             ProjectCommand::Delete { name } => {
                 registry::delete_project(&name)?;
+                if let Ok(cache_path) = cozo::cache_dir_for(&name)
+                    && cache_path.exists()
+                {
+                    let _ = std::fs::remove_dir_all(&cache_path);
+                }
                 eprintln!("Deleted project '{name}'");
                 Ok(())
             }
@@ -195,7 +200,7 @@ fn run_cozo_query(
     let start = Instant::now();
     let cache_path = cozo::cache_dir_for(&project_name)?;
     if rebuild && cache_path.exists() {
-        std::fs::remove_file(&cache_path)?;
+        std::fs::remove_dir_all(&cache_path)?;
     }
     let store = CozoStore::open_persistent(&cache_path)?;
     let cache_state = if store.fresh() {
