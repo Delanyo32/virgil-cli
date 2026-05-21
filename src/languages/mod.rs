@@ -5,11 +5,8 @@ mod go;
 mod java;
 mod php;
 mod python;
-mod refs_common;
 mod rust_lang;
 mod typescript;
-
-pub(crate) use refs_common::{LangRefs, emit_minimal_references};
 
 use std::collections::HashSet;
 use std::sync::Arc;
