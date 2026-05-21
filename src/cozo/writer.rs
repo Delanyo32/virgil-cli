@@ -43,6 +43,16 @@ pub struct CozoWriter {
     nolint: Vec<Vec<DataValue>>,
     build_meta: Vec<Vec<DataValue>>,
     build_meta_files: Vec<Vec<DataValue>>,
+    // Issue #15 — per-language attribute tables.
+    rust_attrs: Vec<Vec<DataValue>>,
+    python_attrs: Vec<Vec<DataValue>>,
+    typescript_attrs: Vec<Vec<DataValue>>,
+    cpp_attrs: Vec<Vec<DataValue>>,
+    csharp_attrs: Vec<Vec<DataValue>>,
+    go_attrs: Vec<Vec<DataValue>>,
+    php_attrs: Vec<Vec<DataValue>>,
+    c_attrs: Vec<Vec<DataValue>>,
+    java_attrs: Vec<Vec<DataValue>>,
 }
 
 impl CozoWriter {
@@ -74,6 +84,15 @@ impl CozoWriter {
         self.nolint.append(&mut other.nolint);
         self.build_meta.append(&mut other.build_meta);
         self.build_meta_files.append(&mut other.build_meta_files);
+        self.rust_attrs.append(&mut other.rust_attrs);
+        self.python_attrs.append(&mut other.python_attrs);
+        self.typescript_attrs.append(&mut other.typescript_attrs);
+        self.cpp_attrs.append(&mut other.cpp_attrs);
+        self.csharp_attrs.append(&mut other.csharp_attrs);
+        self.go_attrs.append(&mut other.go_attrs);
+        self.php_attrs.append(&mut other.php_attrs);
+        self.c_attrs.append(&mut other.c_attrs);
+        self.java_attrs.append(&mut other.java_attrs);
     }
 
     pub fn push_file(&mut self, path: &str, language: &str, repo_id: &str) {
@@ -186,8 +205,10 @@ impl CozoWriter {
     }
 
     pub fn push_implements(&mut self, impl_id: &str, interface_id: &str) {
-        self.implements
-            .push(vec![DataValue::from(impl_id), DataValue::from(interface_id)]);
+        self.implements.push(vec![
+            DataValue::from(impl_id),
+            DataValue::from(interface_id),
+        ]);
     }
 
     pub fn push_imports(&mut self, importer_file_id: &str, imported_id: &str) {
@@ -337,6 +358,167 @@ impl CozoWriter {
         ]);
     }
 
+    // ── Issue #15: per-language *_attrs push methods ────────────────────
+
+    pub fn push_rust_attrs(
+        &mut self,
+        symbol_id: &str,
+        is_unsafe: bool,
+        is_const: bool,
+        derives: &[String],
+    ) {
+        self.rust_attrs.push(vec![
+            DataValue::from(symbol_id),
+            DataValue::from(is_unsafe),
+            DataValue::from(is_const),
+            list_of_strings(derives),
+        ]);
+    }
+
+    pub fn push_python_attrs(
+        &mut self,
+        symbol_id: &str,
+        decorators: &[String],
+        is_generator: bool,
+        is_coroutine: bool,
+        docstring_style: Option<&str>,
+    ) {
+        self.python_attrs.push(vec![
+            DataValue::from(symbol_id),
+            list_of_strings(decorators),
+            DataValue::from(is_generator),
+            DataValue::from(is_coroutine),
+            docstring_style
+                .map(DataValue::from)
+                .unwrap_or(DataValue::Null),
+        ]);
+    }
+
+    pub fn push_typescript_attrs(
+        &mut self,
+        symbol_id: &str,
+        is_readonly: bool,
+        is_optional: bool,
+        type_parameters: &[String],
+    ) {
+        self.typescript_attrs.push(vec![
+            DataValue::from(symbol_id),
+            DataValue::from(is_readonly),
+            DataValue::from(is_optional),
+            list_of_strings(type_parameters),
+        ]);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_cpp_attrs(
+        &mut self,
+        symbol_id: &str,
+        is_virtual: bool,
+        is_const: bool,
+        is_noexcept: bool,
+        is_template: bool,
+        is_constexpr: bool,
+        is_override: bool,
+        is_final: bool,
+    ) {
+        self.cpp_attrs.push(vec![
+            DataValue::from(symbol_id),
+            DataValue::from(is_virtual),
+            DataValue::from(is_const),
+            DataValue::from(is_noexcept),
+            DataValue::from(is_template),
+            DataValue::from(is_constexpr),
+            DataValue::from(is_override),
+            DataValue::from(is_final),
+        ]);
+    }
+
+    pub fn push_csharp_attrs(
+        &mut self,
+        symbol_id: &str,
+        attributes: &[String],
+        is_partial: bool,
+        is_sealed: bool,
+    ) {
+        self.csharp_attrs.push(vec![
+            DataValue::from(symbol_id),
+            list_of_strings(attributes),
+            DataValue::from(is_partial),
+            DataValue::from(is_sealed),
+        ]);
+    }
+
+    pub fn push_go_attrs(
+        &mut self,
+        symbol_id: &str,
+        is_exported: bool,
+        has_receiver: bool,
+        build_tags: &[String],
+    ) {
+        self.go_attrs.push(vec![
+            DataValue::from(symbol_id),
+            DataValue::from(is_exported),
+            DataValue::from(has_receiver),
+            list_of_strings(build_tags),
+        ]);
+    }
+
+    pub fn push_php_attrs(
+        &mut self,
+        symbol_id: &str,
+        is_final: bool,
+        uses_traits: &[String],
+        attributes: &[String],
+    ) {
+        self.php_attrs.push(vec![
+            DataValue::from(symbol_id),
+            DataValue::from(is_final),
+            list_of_strings(uses_traits),
+            list_of_strings(attributes),
+        ]);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_c_attrs(
+        &mut self,
+        symbol_id: &str,
+        is_file_static: bool,
+        is_extern: bool,
+        is_inline: bool,
+        is_const: bool,
+        is_volatile: bool,
+        is_restrict: bool,
+        gcc_attributes: &[String],
+    ) {
+        self.c_attrs.push(vec![
+            DataValue::from(symbol_id),
+            DataValue::from(is_file_static),
+            DataValue::from(is_extern),
+            DataValue::from(is_inline),
+            DataValue::from(is_const),
+            DataValue::from(is_volatile),
+            DataValue::from(is_restrict),
+            list_of_strings(gcc_attributes),
+        ]);
+    }
+
+    pub fn push_java_attrs(
+        &mut self,
+        symbol_id: &str,
+        annotations: &[String],
+        is_final: bool,
+        is_synchronized: bool,
+        throws_clause: &[String],
+    ) {
+        self.java_attrs.push(vec![
+            DataValue::from(symbol_id),
+            list_of_strings(annotations),
+            DataValue::from(is_final),
+            DataValue::from(is_synchronized),
+            list_of_strings(throws_clause),
+        ]);
+    }
+
     /// Flush every buffered relation to `store`. Empty buffers are skipped.
     pub fn flush(&mut self, store: &CozoStore) -> Result<()> {
         flush(
@@ -461,8 +643,73 @@ impl CozoWriter {
              :put build_meta_files {file_path => hash, size, mtime}",
             std::mem::take(&mut self.build_meta_files),
         )?;
+        flush(
+            store,
+            "?[symbol_id, is_unsafe, is_const, derives] <- $rows \
+             :put rust_attrs {symbol_id => is_unsafe, is_const, derives}",
+            std::mem::take(&mut self.rust_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, decorators, is_generator, is_coroutine, docstring_style] <- $rows \
+             :put python_attrs {symbol_id => decorators, is_generator, is_coroutine, \
+                                docstring_style}",
+            std::mem::take(&mut self.python_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, is_readonly, is_optional, type_parameters] <- $rows \
+             :put typescript_attrs {symbol_id => is_readonly, is_optional, type_parameters}",
+            std::mem::take(&mut self.typescript_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, is_virtual, is_const, is_noexcept, is_template, \
+              is_constexpr, is_override, is_final] <- $rows \
+             :put cpp_attrs {symbol_id => is_virtual, is_const, is_noexcept, \
+                             is_template, is_constexpr, is_override, is_final}",
+            std::mem::take(&mut self.cpp_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, attributes, is_partial, is_sealed] <- $rows \
+             :put csharp_attrs {symbol_id => attributes, is_partial, is_sealed}",
+            std::mem::take(&mut self.csharp_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, is_exported, has_receiver, build_tags] <- $rows \
+             :put go_attrs {symbol_id => is_exported, has_receiver, build_tags}",
+            std::mem::take(&mut self.go_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, is_final, uses_traits, attributes] <- $rows \
+             :put php_attrs {symbol_id => is_final, uses_traits, attributes}",
+            std::mem::take(&mut self.php_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, is_file_static, is_extern, is_inline, is_const, \
+              is_volatile, is_restrict, gcc_attributes] <- $rows \
+             :put c_attrs {symbol_id => is_file_static, is_extern, is_inline, \
+                           is_const, is_volatile, is_restrict, gcc_attributes}",
+            std::mem::take(&mut self.c_attrs),
+        )?;
+        flush(
+            store,
+            "?[symbol_id, annotations, is_final, is_synchronized, throws_clause] <- $rows \
+             :put java_attrs {symbol_id => annotations, is_final, is_synchronized, \
+                              throws_clause}",
+            std::mem::take(&mut self.java_attrs),
+        )?;
         Ok(())
     }
+}
+
+/// Render a `&[String]` as a Cozo `DataValue::List` of strings.
+fn list_of_strings(items: &[String]) -> DataValue {
+    DataValue::List(items.iter().map(|s| DataValue::from(s.as_str())).collect())
 }
 
 fn flush(store: &CozoStore, script: &str, rows: Vec<Vec<DataValue>>) -> Result<()> {

@@ -1,0 +1,5 @@
+# Issue #15 Rust pilot baseline against benchmarks/rust/systems-cli.
+rust_attrs_total = 958
+rust_attrs_unsafe = 0
+rust_attrs_const = 7
+rust_attrs_with_derives = 39

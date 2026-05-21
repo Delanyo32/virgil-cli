@@ -10,8 +10,8 @@ use tree_sitter::Query;
 use crate::language::Language;
 use crate::languages;
 use crate::models::{
-    CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow,
-    SymbolInfo, SymbolKind, TypeRow,
+    AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolInfo, SymbolKind, TypeRow,
 };
 use crate::parser;
 use crate::storage::workspace::Workspace;
@@ -35,6 +35,9 @@ struct FileGraphData {
     inheritance: Vec<InheritanceRow>,
     /// Issue #14: typed field/property declarations.
     field_types: Vec<FieldTypeRow>,
+    /// Issue #15: per-language attribute rows. Only this file's
+    /// language bucket is populated.
+    attrs: AttrsBucket,
 }
 
 /// A call site extracted from within a symbol's line range.
@@ -325,6 +328,9 @@ fn parse_one_file(
     let (types, param_types, returns_types, inheritance, field_types) =
         languages::extract_types(&tree, source.as_bytes(), rel_path, lang);
 
+    // Issue #15: per-language attribute extraction.
+    let attrs = languages::extract_attrs(&tree, source.as_bytes(), rel_path, lang, &symbols);
+
     Some(FileGraphData {
         path: rel_path.to_string(),
         language: lang,
@@ -337,6 +343,7 @@ fn parse_one_file(
         returns_types,
         inheritance,
         field_types,
+        attrs,
     })
 }
 
@@ -360,6 +367,7 @@ fn absorb_file_data(
         returns_types,
         inheritance,
         field_types,
+        attrs,
     } = data;
 
     // File node
@@ -537,6 +545,22 @@ fn absorb_file_data(
             .entry(path.clone())
             .or_default()
             .extend(field_types);
+    }
+    // Issue #15: stash per-file attrs bucket. Each language's extractor
+    // populates only its own variant; the bucket as a whole has no
+    // "is empty" check because rust_attrs et al. are expected 1:1 with
+    // the file's symbols.
+    let attrs_nonempty = !attrs.rust.is_empty()
+        || !attrs.python.is_empty()
+        || !attrs.typescript.is_empty()
+        || !attrs.cpp.is_empty()
+        || !attrs.csharp.is_empty()
+        || !attrs.go.is_empty()
+        || !attrs.php.is_empty()
+        || !attrs.c.is_empty()
+        || !attrs.java.is_empty();
+    if attrs_nonempty {
+        graph.attrs.insert(path.clone(), attrs);
     }
 
     // CallSite nodes + Contains edges. Calls edges are deferred until

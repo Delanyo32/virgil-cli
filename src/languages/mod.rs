@@ -17,8 +17,8 @@ use tree_sitter::{Query, Tree};
 use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::models::{
-    CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow,
-    SymbolInfo, TypeRow,
+    AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolInfo, TypeRow,
 };
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
@@ -184,6 +184,38 @@ pub fn extract_types(
         Language::Cpp => cpp::extract_types(tree, source, file_path),
         Language::CSharp => csharp::extract_types(tree, source, file_path),
     }
+}
+
+/// Issue #15 per-language attribute facade. Each language returns an
+/// `AttrsBucket` with only its own variant populated. Symbols are
+/// passed in so the extractor can synthesize stable symbol_ids per
+/// ADR-0002 (`path|line|col|name|kind`).
+pub fn extract_attrs(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+    symbols: &[SymbolInfo],
+) -> AttrsBucket {
+    let mut bucket = AttrsBucket::default();
+    match language {
+        Language::Rust => {
+            bucket.rust = rust_lang::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            // Wired in fan-out follow-up.
+        }
+        Language::Python
+        | Language::Go
+        | Language::Java
+        | Language::Php
+        | Language::C
+        | Language::Cpp
+        | Language::CSharp => {
+            // Wired in fan-out follow-up.
+        }
+    }
+    bucket
 }
 
 /// Resolve an internal import to a graph node within the project.

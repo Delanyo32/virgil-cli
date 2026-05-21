@@ -241,6 +241,110 @@ pub struct FieldTypeRow {
     pub type_display_name: String,
 }
 
+/// Issue #15 attribute rows. One per applicable symbol per the
+/// language's `docs/attrs-<lang>.md` contract. Columns mirror the
+/// schema declared in `src/cozo/schema.rs` (additive — no `symbol`
+/// columns duplicated per contract review policy 4).
+///
+/// `AttrsBucket` is the per-file output from each language's attrs
+/// extractor: only the language's own variant is populated; the rest
+/// are `None`. The emitter walks each variant and pushes via the
+/// matching `CozoWriter::push_*_attrs` method.
+#[derive(Debug, Clone, Default)]
+pub struct AttrsBucket {
+    pub rust: Vec<RustAttrsRow>,
+    pub python: Vec<PythonAttrsRow>,
+    pub typescript: Vec<TypescriptAttrsRow>,
+    pub cpp: Vec<CppAttrsRow>,
+    pub csharp: Vec<CsharpAttrsRow>,
+    pub go: Vec<GoAttrsRow>,
+    pub php: Vec<PhpAttrsRow>,
+    pub c: Vec<CAttrsRow>,
+    pub java: Vec<JavaAttrsRow>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RustAttrsRow {
+    pub symbol_id: String,
+    pub is_unsafe: bool,
+    pub is_const: bool,
+    pub derives: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PythonAttrsRow {
+    pub symbol_id: String,
+    pub decorators: Vec<String>,
+    pub is_generator: bool,
+    pub is_coroutine: bool,
+    pub docstring_style: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypescriptAttrsRow {
+    pub symbol_id: String,
+    pub is_readonly: bool,
+    pub is_optional: bool,
+    pub type_parameters: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CppAttrsRow {
+    pub symbol_id: String,
+    pub is_virtual: bool,
+    pub is_const: bool,
+    pub is_noexcept: bool,
+    pub is_template: bool,
+    pub is_constexpr: bool,
+    pub is_override: bool,
+    pub is_final: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CsharpAttrsRow {
+    pub symbol_id: String,
+    pub attributes: Vec<String>,
+    pub is_partial: bool,
+    pub is_sealed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct GoAttrsRow {
+    pub symbol_id: String,
+    pub is_exported: bool,
+    pub has_receiver: bool,
+    pub build_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PhpAttrsRow {
+    pub symbol_id: String,
+    pub is_final: bool,
+    pub uses_traits: Vec<String>,
+    pub attributes: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CAttrsRow {
+    pub symbol_id: String,
+    pub is_file_static: bool,
+    pub is_extern: bool,
+    pub is_inline: bool,
+    pub is_const: bool,
+    pub is_volatile: bool,
+    pub is_restrict: bool,
+    pub gcc_attributes: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JavaAttrsRow {
+    pub symbol_id: String,
+    pub annotations: Vec<String>,
+    pub is_final: bool,
+    pub is_synchronized: bool,
+    pub throws_clause: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InheritanceKind {
     Extends,

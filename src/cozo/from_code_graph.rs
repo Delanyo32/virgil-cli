@@ -96,12 +96,81 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
 
     emit_comments(graph, &mut writer);
     emit_types_and_hierarchy(graph, workspace, &mut writer);
+    emit_attrs(graph, &mut writer);
 
     if let Some(ws) = workspace {
         record_build_meta_files(ws, &mut writer);
     }
 
     writer.flush(store)
+}
+
+/// Issue #15: walk `graph.attrs` and dispatch per-language push.
+fn emit_attrs(graph: &CodeGraph, writer: &mut CozoWriter) {
+    for (_, bucket) in &graph.attrs {
+        for r in &bucket.rust {
+            writer.push_rust_attrs(&r.symbol_id, r.is_unsafe, r.is_const, &r.derives);
+        }
+        for r in &bucket.python {
+            writer.push_python_attrs(
+                &r.symbol_id,
+                &r.decorators,
+                r.is_generator,
+                r.is_coroutine,
+                r.docstring_style.as_deref(),
+            );
+        }
+        for r in &bucket.typescript {
+            writer.push_typescript_attrs(
+                &r.symbol_id,
+                r.is_readonly,
+                r.is_optional,
+                &r.type_parameters,
+            );
+        }
+        for r in &bucket.cpp {
+            writer.push_cpp_attrs(
+                &r.symbol_id,
+                r.is_virtual,
+                r.is_const,
+                r.is_noexcept,
+                r.is_template,
+                r.is_constexpr,
+                r.is_override,
+                r.is_final,
+            );
+        }
+        for r in &bucket.csharp {
+            writer.push_csharp_attrs(&r.symbol_id, &r.attributes, r.is_partial, r.is_sealed);
+        }
+        for r in &bucket.go {
+            writer.push_go_attrs(&r.symbol_id, r.is_exported, r.has_receiver, &r.build_tags);
+        }
+        for r in &bucket.php {
+            writer.push_php_attrs(&r.symbol_id, r.is_final, &r.uses_traits, &r.attributes);
+        }
+        for r in &bucket.c {
+            writer.push_c_attrs(
+                &r.symbol_id,
+                r.is_file_static,
+                r.is_extern,
+                r.is_inline,
+                r.is_const,
+                r.is_volatile,
+                r.is_restrict,
+                &r.gcc_attributes,
+            );
+        }
+        for r in &bucket.java {
+            writer.push_java_attrs(
+                &r.symbol_id,
+                &r.annotations,
+                r.is_final,
+                r.is_synchronized,
+                &r.throws_clause,
+            );
+        }
+    }
 }
 
 /// Issue #13: walk `graph.types` / `graph.param_types` /
@@ -678,6 +747,17 @@ pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
         "?[path] := *file_classification{path} :rm file_classification {path}",
         "?[file_path, line] := *nolint{file_path, line} :rm nolint {file_path, line}",
         "?[file_path] := *build_meta_files{file_path} :rm build_meta_files {file_path}",
+        // Issue #15 — per-language attribute relations.
+        "?[symbol_id] := *rust_attrs{symbol_id} :rm rust_attrs {symbol_id}",
+        "?[symbol_id] := *python_attrs{symbol_id} :rm python_attrs {symbol_id}",
+        "?[symbol_id] := *typescript_attrs{symbol_id} \
+         :rm typescript_attrs {symbol_id}",
+        "?[symbol_id] := *cpp_attrs{symbol_id} :rm cpp_attrs {symbol_id}",
+        "?[symbol_id] := *csharp_attrs{symbol_id} :rm csharp_attrs {symbol_id}",
+        "?[symbol_id] := *go_attrs{symbol_id} :rm go_attrs {symbol_id}",
+        "?[symbol_id] := *php_attrs{symbol_id} :rm php_attrs {symbol_id}",
+        "?[symbol_id] := *c_attrs{symbol_id} :rm c_attrs {symbol_id}",
+        "?[symbol_id] := *java_attrs{symbol_id} :rm java_attrs {symbol_id}",
     ];
     for stmt in wipes {
         store
