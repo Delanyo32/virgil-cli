@@ -5,6 +5,9 @@ use std::thread;
 
 use anyhow::Result;
 use rayon::prelude::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::{debug, info, info_span};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
 use crate::language::Language;
@@ -90,6 +93,8 @@ impl<'a> GraphBuilder<'a> {
     }
 
     pub fn build(&self) -> Result<CodeGraph> {
+        let total_files = self.workspace.file_count();
+        info!(files = total_files, languages = self.languages.len(), "graph build starting");
         // Step 1: Pre-compile queries per language
         let mut symbol_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         let mut import_queries: HashMap<Language, Arc<Query>> = HashMap::new();
@@ -152,40 +157,76 @@ impl<'a> GraphBuilder<'a> {
         let com_q = Arc::clone(&comment_queries);
         let grouped_files_ref = &grouped_files;
 
-        thread::scope(|s| -> Result<()> {
-            let parallelism = thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4);
-            let channel_bound = (parallelism * 2).max(4);
-            let (tx, rx) = mpsc::sync_channel::<FileGraphData>(channel_bound);
+        let parsed = AtomicU64::new(0);
+        let absorbed_files = AtomicU64::new(0);
+        let target_files = grouped_files_ref.len() as u64;
 
-            s.spawn(move || {
-                pool.install(|| {
-                    grouped_files_ref
-                        .par_iter()
-                        .for_each_with(tx, |tx, &(lang, rel_path)| {
-                            if let Some(data) =
-                                parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q, &com_q)
-                            {
-                                let _ = tx.send(data);
-                            }
-                        });
+        {
+            let span = info_span!("graph.parse_absorb", files = target_files);
+            span.pb_set_length(target_files);
+            span.pb_set_style(
+                &indicatif::ProgressStyle::with_template(
+                    "{span_child_prefix}{spinner} parse+absorb [{bar:30}] {pos}/{len} ({eta})",
+                )
+                .unwrap()
+                .progress_chars("=> "),
+            );
+            let _enter = span.enter();
+            thread::scope(|s| -> Result<()> {
+                let parallelism = thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4);
+                let channel_bound = (parallelism * 2).max(4);
+                let (tx, rx) = mpsc::sync_channel::<FileGraphData>(channel_bound);
+
+                let parsed_ref = &parsed;
+                s.spawn(move || {
+                    pool.install(|| {
+                        grouped_files_ref
+                            .par_iter()
+                            .for_each_with(tx, |tx, &(lang, rel_path)| {
+                                if let Some(data) =
+                                    parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q, &com_q)
+                                {
+                                    let n = parsed_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                                    if n % 500 == 0 {
+                                        debug!(parsed = n, of = target_files, "parsing progress");
+                                    }
+                                    let _ = tx.send(data);
+                                }
+                            });
+                    });
                 });
-            });
 
-            while let Ok(data) = rx.recv() {
-                absorb_file_data(
-                    &mut graph,
-                    data,
-                    &mut deferred_imports,
-                    &mut deferred_calls,
-                    &mut file_symbols_by_name,
-                    &mut file_exports_by_name,
-                );
-            }
+                while let Ok(data) = rx.recv() {
+                    let path = data.path.clone();
+                    absorb_file_data(
+                        &mut graph,
+                        data,
+                        &mut deferred_imports,
+                        &mut deferred_calls,
+                        &mut file_symbols_by_name,
+                        &mut file_exports_by_name,
+                    );
+                    tracing::Span::current().pb_inc(1);
+                    let n = absorbed_files.fetch_add(1, Ordering::Relaxed) + 1;
+                    if n % 500 == 0 {
+                        debug!(absorbed = n, of = target_files, last = %path, "absorption progress");
+                    }
+                }
 
-            Ok(())
-        })?;
+                Ok(())
+            })?;
+            info!(
+                parsed = parsed.load(Ordering::Relaxed),
+                absorbed = absorbed_files.load(Ordering::Relaxed),
+                deferred_imports = deferred_imports.len(),
+                deferred_calls = deferred_calls.len(),
+                "parse + absorb done"
+            );
+        }
+
+        let _resolve_span = info_span!("graph.resolve_refs").entered();
 
         // Resolve deferred imports now that every File node exists. Track
         // each resolved import in `file_imports` so the call resolver below
@@ -261,6 +302,12 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
+        let edge_count: usize = graph.out_edges.iter().map(|v| v.len()).sum();
+        info!(
+            nodes = graph.nodes.len(),
+            edges = edge_count,
+            "graph build complete"
+        );
         Ok(graph)
     }
 }

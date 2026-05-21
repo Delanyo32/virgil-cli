@@ -163,6 +163,12 @@ pub fn incremental_refresh(
     if diff.is_empty() {
         return Ok(());
     }
+    tracing::info!(
+        added = diff.added.len(),
+        modified = diff.modified.len(),
+        removed = diff.removed.len(),
+        "incremental refresh: wiping + rebuilding"
+    );
     super::wipe_workspace_relations(store)?;
     let graph = GraphBuilder::new(workspace, languages).build()?;
     super::populate(store, &graph, Some(workspace))?;

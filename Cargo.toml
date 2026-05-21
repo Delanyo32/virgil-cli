@@ -22,7 +22,7 @@ rayon = "1.11"
 streaming-iterator = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 globset = "0.4"
 dirs = "5"
 regex = "1"
@@ -35,6 +35,10 @@ include_dir = "0.7"
 lru = "0.12"
 lasso = { version = "0.7", features = ["multi-threaded"] }
 cozo = { package = "cozo-ce", version = "0.7.13-alpha.3", default-features = false, features = ["storage-sqlite", "storage-new-rocksdb", "rayon"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-indicatif = "0.3"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 tempfile = "3"

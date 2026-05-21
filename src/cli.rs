@@ -8,8 +8,26 @@ use std::path::PathBuf;
     version
 )]
 pub struct Cli {
+    /// Increase log verbosity (-v info, -vv debug, -vvv trace). Overridden by VIRGIL_LOG.
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
+
+    /// Suppress all logs except errors.
+    #[arg(long, global = true, conflicts_with = "verbose")]
+    pub quiet: bool,
+
+    /// Log output format.
+    #[arg(long, global = true, value_enum, default_value_t = LogFormat::Compact)]
+    pub log_format: LogFormat,
+
     #[command(subcommand)]
     pub command: Command,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum LogFormat {
+    Compact,
+    Json,
 }
 
 #[derive(Subcommand, Debug)]
