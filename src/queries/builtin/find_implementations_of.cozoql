@@ -1,0 +1,25 @@
+# find_implementations_of — list every type that `implements` (or `extends`)
+# the given interface/class.
+# Params:
+#   $name — short name (matches `symbol.name`) of the parent type.
+
+base[bid] := *symbol{id: bid, name, kind: "interface"}, name = $name
+base[bid] := *symbol{id: bid, name, kind: "class"}, name = $name
+base[bid] := *symbol{id: bid, name, kind: "trait"}, name = $name
+base[bid] := *symbol{id: bid, name, kind: "struct"}, name = $name
+
+derived[d_id, rel] :=
+    base[bid],
+    *implements{impl_id: d_id, interface_id: bid},
+    rel = "implements"
+
+derived[d_id, rel] :=
+    base[bid],
+    *extends{child_id: d_id, parent_id: bid},
+    rel = "extends"
+
+?[name, kind, file_path, start_line, relation] :=
+    derived[d_id, relation],
+    *symbol{id: d_id, name, kind, file_path},
+    *span{entity_id: d_id, file_path, start_line}
+:order file_path, start_line

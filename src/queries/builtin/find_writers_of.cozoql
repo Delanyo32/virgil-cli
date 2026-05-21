@@ -1,0 +1,13 @@
+# find_writers_of — list every source-byte where `$name` is written
+# (assigned, mutated, or passed by mutable reference). Joins `references`
+# rows with `ref_kind = "write"` against the symbol's id.
+# Params:
+#   $name — short name (matches the referent `symbol.name`).
+
+?[site_file, site_start_byte, referrer_name, target_name] :=
+    *symbol{id: rid, name: target_name},
+    target_name = $name,
+    *references{referrer_id, site_file, site_start_byte, referent_id: rid,
+                ref_kind: "write"},
+    *symbol{id: referrer_id, name: referrer_name}
+:order site_file, site_start_byte

@@ -1,32 +1,44 @@
-# References (Level 3): read/write/type_use/import_use with scope-aware resolution (parity)
+# References (Level 3): per-language fact emitters + Cozoscript resolver
 
 **Label:** enhancement
 **Type:** AFK
+**Revised:** Per [ADR-0005](../adr/0005-datalog-resolution.md), this slice splits into fact emission (per language) and resolution (one Cozoscript rule set). See subtasks below.
 
 ## What to build
 
-Populate the `references` relation at Level 3 per ADR-0003: every identifier occurrence in source code emits a row, with `ref_kind` ∈ {`read`, `write`, `type_use`, `import_use`} and `referent_id` resolved via per-language lexical scope walking.
+Populate the `references` relation by separating fact emission from resolution:
 
-Per-language scope rules and `ref_kind` decision trees live in `docs/references-<lang>.md`. Resolution uses the parameter/local symbols extracted in issue #11 and the type-use rows seeded by issue #13.
+- **Per-language extractors** (9 languages, parallel) emit `occurrence` / `scope` / `binding` rows per the updated [contract template](../contract-template.md) and the rewritten `docs/references-<lang>.md` contracts.
+- **A single Cozoscript resolver** (`docs/resolution.md`) consumes those facts plus the existing `imports` relation and materialises `references` rows during `populate()`. The resolver handles scope walking, shadowing, transitive re-exports, alias following, and wildcard imports — uniformly across all 9 languages.
 
-Policy specifics (per contract review):
-- `referent_id` is nullable in the value position; key is `(referrer_id, site_file, site_start_byte, match_index)`.
-- Overload candidates emit additional rows at `match_index = 1, 2, ...`.
-- Compound assignments (`x += 1`) emit a single `write` row, not `write + read`.
-- Field-level `read`/`write` rows emitted only when the field has a known `symbol_id`.
+The Level-3 commitment from ADR-0003 is preserved (full lexical scope, transitive re-exports, aliases, wildcards). What changes is *where* the resolution algorithm lives.
 
-Dispatch one subagent per language with the contract doc + benchmark corpus.
+## Subtasks
+
+### 16a — Per-language fact emitters
+
+Per language, extend the extractor to emit `occurrence`, `scope`, and `binding` rows. Dispatch one subagent per language using the rewritten `docs/references-<lang>.md` as the contract.
+
+### 16b — Cozoscript resolver
+
+Implement the resolver rules per `docs/resolution.md` in `src/queries/resolution/` (folder TBD). Wire them into `populate()` so `references` rows materialise after fact emission completes.
+
+### 16c — Resolver test suite
+
+Synthetic-factbase tests under `tests/resolution/`: each test fixes minimal `occurrence` / `scope` / `binding` / `imports` rows and asserts the exact `references` rows the resolver produces. Cover shadowing, transitive re-exports, aliases, wildcards, overload disambiguation, and unresolved-occurrence-emits-null.
 
 ## Acceptance criteria
 
-- [ ] All four `ref_kind` values populated for every language (where the language supports the concept)
-- [ ] Scope-aware resolution: shadowing handled per `docs/references-<lang>.md`
-- [ ] Unresolvable identifiers produce a row with `referent_id = null` (no language uses "skip" any more)
-- [ ] Overload candidates use `match_index` to disambiguate
-- [ ] Compound assignments emit single `write` row across all 9 languages
-- [ ] Per-language snapshot tests at `tests/snapshots/<lang>/references.cozoql` validate expected rows (including shadowing and non-local writes)
+- [ ] `occurrence` populated for every language (call, read, write, type_use, import_use)
+- [ ] `scope` populated covering file/module/namespace/class/function/block as applicable per language
+- [ ] `binding` populated for definition, parameter, import, import_alias, wildcard_import
+- [ ] Cozoscript resolver rules in `src/queries/resolution/` produce `references` rows that match `docs/resolution.md`'s spec
+- [ ] `populate()` runs the resolver after fact emission; `references` is non-empty for non-trivial benchmarks
+- [ ] Per-language snapshot tests at `tests/snapshots/<lang>/references.cozoql` validate expected rows for a fixture exercising shadowing + a write to a non-local
+- [ ] Resolver tests at `tests/resolution/*.rs` pass against synthetic factbases
 - [ ] `cargo test` passes
 
 ## Blocked by
 
-- #11, #13
+- #11 (parameter/local symbols feed `binding` rows of kind `parameter`)
+- #13 (signatures provide `type_use` occurrences in parameter/return positions)

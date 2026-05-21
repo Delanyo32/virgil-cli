@@ -16,7 +16,10 @@ use tree_sitter::{Query, Tree};
 
 use crate::graph::GraphNode;
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo};
+use crate::models::{
+    AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
+    ReferencesBucket, ReturnsTypeRow, SymbolInfo, ThrowsRow, TypeRow,
+};
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
     match language {
@@ -63,6 +66,24 @@ pub fn compile_comment_query(language: Language) -> Result<Arc<Query>> {
         Language::Go => go::compile_comment_query(language),
         Language::Java => java::compile_comment_query(language),
         Language::Php => php::compile_comment_query(language),
+    }
+}
+
+/// Per-language separator used to join parent-chain segments in
+/// `symbol.qualified_name`. Rust / C / C++ use the scope-resolution
+/// operator `::`; PHP class-internal qualification also uses `::`. All
+/// other supported languages use the dotted convention.
+pub fn qname_separator(language: Language) -> &'static str {
+    match language {
+        Language::Rust | Language::C | Language::Cpp | Language::Php => "::",
+        Language::TypeScript
+        | Language::Tsx
+        | Language::JavaScript
+        | Language::Jsx
+        | Language::CSharp
+        | Language::Go
+        | Language::Java
+        | Language::Python => ".",
     }
 }
 
@@ -129,6 +150,125 @@ pub fn extract_comments(
         Language::Go => go::extract_comments(tree, source, query, file_path),
         Language::Java => java::extract_comments(tree, source, query, file_path),
         Language::Php => php::extract_comments(tree, source, query, file_path),
+    }
+}
+
+/// Issue #13 + #14 type-extraction facade. Each language returns:
+/// - `Vec<TypeRow>` (one per type-position node, pre-dedup),
+/// - `Vec<ParameterTypeRow>` (one per function parameter),
+/// - `Vec<ReturnsTypeRow>` (one per annotated function return),
+/// - `Vec<InheritanceRow>` (one per `extends`/`implements` edge),
+/// - `Vec<FieldTypeRow>` (one per typed field/property declaration; #14).
+pub fn extract_types(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+) -> (
+    Vec<TypeRow>,
+    Vec<ParameterTypeRow>,
+    Vec<ReturnsTypeRow>,
+    Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
+) {
+    match language {
+        Language::Rust => rust_lang::extract_types(tree, source, file_path),
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_types(tree, source, file_path)
+        }
+        Language::Python => python::extract_types(tree, source, file_path),
+        Language::Go => go::extract_types(tree, source, file_path),
+        Language::Java => java::extract_types(tree, source, file_path),
+        Language::Php => php::extract_types(tree, source, file_path),
+        Language::C => c_lang::extract_types(tree, source, file_path),
+        Language::Cpp => cpp::extract_types(tree, source, file_path),
+        Language::CSharp => csharp::extract_types(tree, source, file_path),
+    }
+}
+
+/// Issue #13 (followup): per-language `throws`/`@throws` extraction.
+/// Only Java, C#, and PHP currently emit rows; the other languages
+/// return an empty vec.
+pub fn extract_throws(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+) -> Vec<ThrowsRow> {
+    match language {
+        Language::Java => java::extract_throws(tree, source, file_path),
+        Language::CSharp => csharp::extract_throws(tree, source, file_path),
+        Language::Php => php::extract_throws(tree, source, file_path),
+        _ => Vec::new(),
+    }
+}
+
+/// Issue #15 per-language attribute facade. Each language returns an
+/// `AttrsBucket` with only its own variant populated. Symbols are
+/// passed in so the extractor can synthesize stable symbol_ids per
+/// ADR-0002 (`path|line|col|name|kind`).
+pub fn extract_attrs(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+    symbols: &[SymbolInfo],
+) -> AttrsBucket {
+    let mut bucket = AttrsBucket::default();
+    match language {
+        Language::Rust => {
+            bucket.rust = rust_lang::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            bucket.typescript = typescript::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Python => {
+            bucket.python = python::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Go => {
+            bucket.go = go::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Java => {
+            bucket.java = java::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Php => {
+            bucket.php = php::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::C => {
+            bucket.c = c_lang::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Cpp => {
+            bucket.cpp = cpp::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::CSharp => {
+            bucket.csharp = csharp::extract_attrs(tree, source, file_path, symbols);
+        }
+    }
+    bucket
+}
+
+/// Issue #16 references-fact emission facade per ADR-0005. Each
+/// language emits `occurrence` / `scope` / `binding` rows; the
+/// Cozoscript resolver consumes them to materialise `references`.
+pub fn extract_references(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+    symbols: &[SymbolInfo],
+) -> ReferencesBucket {
+    match language {
+        Language::Rust => rust_lang::extract_references(tree, source, file_path, symbols),
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_references(tree, source, file_path, symbols)
+        }
+        Language::Python => python::extract_references(tree, source, file_path, symbols),
+        Language::Go => go::extract_references(tree, source, file_path, symbols),
+        Language::Java => java::extract_references(tree, source, file_path, symbols),
+        Language::Php => php::extract_references(tree, source, file_path, symbols),
+        Language::C => c_lang::extract_references(tree, source, file_path, symbols),
+        Language::Cpp => cpp::extract_references(tree, source, file_path, symbols),
+        Language::CSharp => csharp::extract_references(tree, source, file_path, symbols),
     }
 }
 

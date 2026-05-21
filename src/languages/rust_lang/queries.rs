@@ -6,7 +6,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
 
 // ── Symbol queries ──
 
@@ -40,6 +40,18 @@ const RUST_SYMBOL_QUERY: &str = r#"
 
 (macro_definition
   name: (identifier) @name) @definition
+
+(parameter
+  pattern: (identifier) @name) @definition
+
+(let_declaration
+  pattern: (identifier) @name) @definition
+
+(let_declaration
+  pattern: (mut_pattern (identifier) @name)) @definition
+
+(field_declaration
+  name: (field_identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -116,17 +128,32 @@ pub fn extract_symbols(
         let kind = determine_rust_kind(def_node);
         let Some(kind) = kind else { continue };
 
-        let is_exported = is_exported_rust(def_node);
+        let visibility = visibility_rust(def_node, source);
+        let is_exported = visibility != SymbolVisibility::Private;
+        let is_async = is_async_rust(def_node);
+        let is_static = matches!(def_node.kind(), "static_item");
+        let is_mutable = is_mutable_rust(def_node);
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            is_async,
+            is_static,
+            // Rust has no `abstract` keyword. Trait method declarations
+            // without a body are conceptually abstract, but detecting that
+            // requires walking the impl/trait body shape — deferred until a
+            // downstream query needs the distinction.
+            is_abstract: false,
+            is_mutable,
         };
         symbols.push(symbol);
     }
@@ -153,6 +180,9 @@ fn determine_rust_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "union_item" => Some(SymbolKind::Union),
         "mod_item" => Some(SymbolKind::Module),
         "macro_definition" => Some(SymbolKind::Macro),
+        "parameter" => Some(SymbolKind::Parameter),
+        "let_declaration" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         _ => None,
     }
 }
@@ -173,12 +203,73 @@ fn is_inside_impl_or_trait(node: tree_sitter::Node) -> bool {
     false
 }
 
-fn is_exported_rust(def_node: tree_sitter::Node) -> bool {
-    // Check for visibility_modifier child node
+/// Classify the visibility of a Rust definition by reading the literal
+/// text of its `visibility_modifier` child (if any).
+///
+/// - `pub` → Public
+/// - `pub(crate)` / `pub(super)` / `pub(in <path>)` → Internal
+/// - `pub(self)` or no modifier → Private
+///
+/// Parameters and `let`-locals never appear at module level, so they
+/// classify as Private regardless of modifiers.
+fn visibility_rust(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "parameter" | "let_declaration" => return SymbolVisibility::Private,
+        _ => {}
+    }
     let mut cursor = def_node.walk();
     for child in def_node.children(&mut cursor) {
-        if child.kind() == "visibility_modifier" {
-            return true; // Any pub variant means exported
+        if child.kind() != "visibility_modifier" {
+            continue;
+        }
+        let text = child.utf8_text(source).unwrap_or("").trim();
+        // Bare `pub` (no trailing parens) → Public; anything narrower is
+        // Internal; explicit `pub(self)` collapses to Private.
+        if text == "pub" {
+            return SymbolVisibility::Public;
+        }
+        if text.starts_with("pub(self") {
+            return SymbolVisibility::Private;
+        }
+        if text.starts_with("pub(") {
+            return SymbolVisibility::Internal;
+        }
+        return SymbolVisibility::Public;
+    }
+    SymbolVisibility::Private
+}
+
+/// True if `def_node` carries the `async` modifier. Matches the
+/// tree-sitter `function_modifiers` child that wraps qualifiers like
+/// `async`, `unsafe`, `const`, and `extern`.
+fn is_async_rust(def_node: tree_sitter::Node) -> bool {
+    if !matches!(def_node.kind(), "function_item") {
+        return false;
+    }
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "function_modifiers" {
+            continue;
+        }
+        let mut inner = child.walk();
+        for m in child.children(&mut inner) {
+            if m.kind() == "async" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True for symbols that carry `mut`: `let mut`, `static mut`, or
+/// `mut` parameter patterns.
+fn is_mutable_rust(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        match child.kind() {
+            "mutable_specifier" => return true,
+            "mut_pattern" => return true,
+            _ => {}
         }
     }
     false
@@ -326,6 +417,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
             end_line: node.end_position().row as u32 + 1,
@@ -564,10 +657,14 @@ mod tests {
     #[test]
     fn extract_struct() {
         let syms = parse_and_extract("pub struct Point { x: i32, y: i32 }");
-        assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].name, "Point");
-        assert_eq!(syms[0].kind, SymbolKind::Struct);
-        assert!(syms[0].is_exported);
+        // Point + x + y (struct + 2 fields per #18.1).
+        let point = syms.iter().find(|s| s.name == "Point").expect("Point");
+        assert_eq!(point.kind, SymbolKind::Struct);
+        assert!(point.is_exported);
+        let x = syms.iter().find(|s| s.name == "x").expect("x field");
+        assert_eq!(x.kind, SymbolKind::Field);
+        let y = syms.iter().find(|s| s.name == "y").expect("y field");
+        assert_eq!(y.kind, SymbolKind::Field);
     }
 
     #[test]
@@ -638,9 +735,11 @@ mod tests {
     #[test]
     fn extract_union() {
         let syms = parse_and_extract("union MyUnion { i: i32, f: f32 }");
-        assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].name, "MyUnion");
-        assert_eq!(syms[0].kind, SymbolKind::Union);
+        let u = syms.iter().find(|s| s.name == "MyUnion").expect("MyUnion");
+        assert_eq!(u.kind, SymbolKind::Union);
+        // Union variant fields land as Field symbols per #18.1.
+        assert!(syms.iter().any(|s| s.name == "i" && s.kind == SymbolKind::Field));
+        assert!(syms.iter().any(|s| s.name == "f" && s.kind == SymbolKind::Field));
     }
 
     #[test]

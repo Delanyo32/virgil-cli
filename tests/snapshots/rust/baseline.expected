@@ -1,0 +1,14 @@
+# Rust baseline snapshot — counts of populated rows.
+#
+# Generated against ../virgil-skills/benchmarks/rust/systems-cli/ (48 files,
+# Rust only). Rerun the snapshot harness if benchmark contents change.
+#
+# Symbol count includes parameter + local-variable symbols (Issue #11).
+# Call count is filtered to callable kinds (Function/Method/ArrowFunction/
+# Macro) — parameters and locals matching a callee name don't create edges.
+symbol_count=1103
+comment_count=713
+call_count=103
+doc_attached_count=287
+file_count=48
+span_count=1103

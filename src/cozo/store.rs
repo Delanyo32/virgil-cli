@@ -198,9 +198,13 @@ mod tests {
         assert!(store.fresh(), "expected fresh open");
         store
             .run_script(
-                "?[id, name, kind, file_path, start_line, end_line, exported] <- \
-                 [[1, 'login', 'function', 'a.ts', 1, 5, true]] \
-                 :put symbol {id => name, kind, file_path, start_line, end_line, exported}",
+                "?[id, kind, name, qualified_name, language, visibility, file_path, \
+                   parent_id, is_async, is_static, is_abstract, is_mutable, exported] <- \
+                 [['a.ts|1|0|login|function', 'function', 'login', 'login', 'typescript', \
+                   'public', 'a.ts', null, false, false, false, false, true]] \
+                 :put symbol {id => kind, name, qualified_name, language, visibility, \
+                              file_path, parent_id, is_async, is_static, is_abstract, \
+                              is_mutable, exported}",
                 BTreeMap::new(),
             )
             .expect("insert");

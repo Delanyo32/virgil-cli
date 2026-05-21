@@ -1,0 +1,4 @@
+# Issue #15 fan-out baseline against benchmarks/go/http-service.
+go_attrs_total = 1308
+go_attrs_exported = 388
+go_attrs_with_receiver = 157

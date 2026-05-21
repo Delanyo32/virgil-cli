@@ -6,7 +6,94 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a Java definition by walking its
+/// `modifiers` child for the literal access keyword.
+///
+/// - `public` → Public
+/// - `private` → Private
+/// - `protected` → Protected
+/// - none of the above (package-private) → Internal
+///
+/// Parameters, catch parameters, lambda parameters, local variables,
+/// and resources have no source-level visibility — they classify as
+/// Private regardless of any modifiers.
+fn visibility_java(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "formal_parameter"
+        | "spread_parameter"
+        | "catch_formal_parameter"
+        | "lambda_expression"
+        | "local_variable_declaration"
+        | "resource" => return SymbolVisibility::Private,
+        _ => {}
+    }
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut mod_cursor = child.walk();
+        for modifier in child.children(&mut mod_cursor) {
+            match modifier.utf8_text(source).unwrap_or("") {
+                "public" => return SymbolVisibility::Public,
+                "private" => return SymbolVisibility::Private,
+                "protected" => return SymbolVisibility::Protected,
+                _ => {}
+            }
+        }
+    }
+    SymbolVisibility::Internal
+}
+
+/// True if `def_node` carries the `static` keyword in its `modifiers`
+/// child. Only meaningful for nested classes, methods, and fields;
+/// returns `false` for kinds where `static` can't appear.
+fn is_static_java(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    has_modifier_keyword(def_node, source, "static")
+}
+
+/// True if `def_node` is `abstract`. Explicit `abstract` keyword on a
+/// class or method counts, and any method declared inside an
+/// `interface_declaration` body is implicitly abstract.
+fn is_abstract_java(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    if has_modifier_keyword(def_node, source, "abstract") {
+        return true;
+    }
+    if def_node.kind() == "method_declaration" {
+        let mut current = def_node.parent();
+        while let Some(parent) = current {
+            match parent.kind() {
+                "interface_declaration" => return true,
+                "class_declaration"
+                | "enum_declaration"
+                | "record_declaration"
+                | "annotation_type_declaration"
+                | "method_declaration"
+                | "constructor_declaration" => return false,
+                _ => current = parent.parent(),
+            }
+        }
+    }
+    false
+}
+
+fn has_modifier_keyword(def_node: tree_sitter::Node, source: &[u8], keyword: &str) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut mod_cursor = child.walk();
+        for modifier in child.children(&mut mod_cursor) {
+            if modifier.utf8_text(source).unwrap_or("") == keyword {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -35,6 +122,29 @@ const JAVA_SYMBOL_QUERY: &str = r#"
 (field_declaration
   declarator: (variable_declarator
     name: (identifier) @name)) @definition
+
+(formal_parameter
+  name: (identifier) @name) @definition
+
+(spread_parameter
+  (variable_declarator
+    name: (identifier) @name)) @definition
+
+(catch_formal_parameter
+  name: (identifier) @name) @definition
+
+(lambda_expression
+  parameters: (inferred_parameters (identifier) @name)) @definition
+
+(lambda_expression
+  parameters: (identifier) @name) @definition
+
+(local_variable_declaration
+  declarator: (variable_declarator
+    name: (identifier) @name)) @definition
+
+(resource
+  name: (identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -111,16 +221,29 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_java(def_node, source);
+        let visibility = visibility_java(def_node, source);
+        let is_static = is_static_java(def_node, source);
+        let is_abstract = is_abstract_java(def_node, source);
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // Java has no async keyword on methods.
+            is_async: false,
+            is_static,
+            is_abstract,
+            // Java has no language-level mutability marker — `final`
+            // lives in `java_attrs.is_final`, not on the core symbol.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -134,7 +257,12 @@ fn determine_java_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "interface_declaration" | "annotation_type_declaration" => Some(SymbolKind::Interface),
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" | "constructor_declaration" => Some(SymbolKind::Method),
-        "field_declaration" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
+        "formal_parameter"
+        | "spread_parameter"
+        | "catch_formal_parameter"
+        | "lambda_expression" => Some(SymbolKind::Parameter),
+        "local_variable_declaration" | "resource" => Some(SymbolKind::Variable),
         _ => None,
     }
 }
@@ -269,6 +397,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
             end_line: node.end_position().row as u32 + 1,
@@ -483,7 +613,7 @@ mod tests {
         let syms = parse_and_extract("public class Foo { private int count; }");
         let f = syms.iter().find(|s| s.name == "count");
         assert!(f.is_some());
-        assert_eq!(f.unwrap().kind, SymbolKind::Variable);
+        assert_eq!(f.unwrap().kind, SymbolKind::Field);
         assert!(!f.unwrap().is_exported);
     }
 
@@ -567,5 +697,66 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_method_parameters() {
+        let syms = parse_and_extract(
+            "public class Foo { public int add(int a, String b) { return 0; } }",
+        );
+        let a = syms
+            .iter()
+            .find(|s| s.name == "a" && s.kind == SymbolKind::Parameter);
+        let b = syms
+            .iter()
+            .find(|s| s.name == "b" && s.kind == SymbolKind::Parameter);
+        assert!(a.is_some(), "parameter `a` should be emitted");
+        assert!(b.is_some(), "parameter `b` should be emitted");
+    }
+
+    #[test]
+    fn extract_local_variable() {
+        let syms =
+            parse_and_extract("public class Foo { void bar() { int x = 1; } }");
+        let x = syms
+            .iter()
+            .find(|s| s.name == "x" && s.kind == SymbolKind::Variable);
+        assert!(x.is_some(), "local variable `x` should be emitted");
+    }
+
+    #[test]
+    fn extract_multi_local_variables() {
+        let syms =
+            parse_and_extract("public class Foo { void bar() { int a, b; } }");
+        let a = syms
+            .iter()
+            .find(|s| s.name == "a" && s.kind == SymbolKind::Variable);
+        let b = syms
+            .iter()
+            .find(|s| s.name == "b" && s.kind == SymbolKind::Variable);
+        assert!(a.is_some(), "local variable `a` should be emitted");
+        assert!(b.is_some(), "local variable `b` should be emitted");
+    }
+
+    #[test]
+    fn extract_varargs_parameter() {
+        let syms = parse_and_extract(
+            "public class Foo { public void log(String... args) { } }",
+        );
+        let args = syms
+            .iter()
+            .find(|s| s.name == "args" && s.kind == SymbolKind::Parameter);
+        assert!(args.is_some(), "varargs parameter `args` should be emitted");
+    }
+
+    #[test]
+    fn extract_catch_parameter() {
+        let syms = parse_and_extract(
+            "public class Foo { void bar() { try { } catch (Exception e) { } } }",
+        );
+        let e = syms
+            .iter()
+            .find(|s| s.name == "e" && s.kind == SymbolKind::Parameter);
+        assert!(e.is_some(), "catch parameter `e` should be emitted");
     }
 }

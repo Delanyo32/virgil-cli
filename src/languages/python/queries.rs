@@ -6,7 +6,62 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Python has no language-level access modifiers — every symbol is
+/// Public. The "leading underscore is private" convention surfaces
+/// through `is_exported` and stays independent of `visibility` per
+/// issue #12 acceptance criteria.
+fn visibility_python(_def_node: tree_sitter::Node) -> SymbolVisibility {
+    SymbolVisibility::Public
+}
+
+/// True if `def_node` is an `async def` function/method. Tree-sitter's
+/// Python grammar represents this as a `function_definition` carrying an
+/// `async` keyword child (the grammar does not have a separate
+/// `async_function_definition` node).
+fn is_async_python(def_node: tree_sitter::Node) -> bool {
+    if def_node.kind() != "function_definition" {
+        return false;
+    }
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "async" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Walk up to the wrapping `decorated_definition` (if any) and scan its
+/// `decorator` children for one whose expression text matches any of
+/// `targets` (the bare name after `@`, ignoring any call arguments and
+/// any dotted prefix like `abc.`).
+fn has_decorator(def_node: tree_sitter::Node, source: &[u8], targets: &[&str]) -> bool {
+    let Some(parent) = def_node.parent() else {
+        return false;
+    };
+    if parent.kind() != "decorated_definition" {
+        return false;
+    }
+    let mut cursor = parent.walk();
+    for child in parent.children(&mut cursor) {
+        if child.kind() != "decorator" {
+            continue;
+        }
+        let text = child.utf8_text(source).unwrap_or("").trim();
+        // Strip leading `@` and any call args / whitespace.
+        let body = text.trim_start_matches('@').trim();
+        let head = body.split('(').next().unwrap_or(body).trim();
+        // Last dotted segment matches the bare decorator name
+        // (e.g. `abc.abstractmethod` → `abstractmethod`).
+        let bare = head.rsplit('.').next().unwrap_or(head);
+        if targets.iter().any(|t| *t == bare) {
+            return true;
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -27,6 +82,25 @@ const PYTHON_SYMBOL_QUERY: &str = r#"
 
 (expression_statement
   (assignment) @definition)
+
+; Parameters — Python's `parameters` (and `lambda_parameters`) node holds
+; several wrapper kinds. For each shape, capture the inner identifier as
+; @name and the wrapper itself as @definition so determine_python_kind
+; can route it to SymbolKind::Parameter. The `is_parameter_context`
+; helper distinguishes parameter identifiers from ordinary expression
+; identifiers by walking up to the nearest `parameters`/`lambda_parameters`
+; ancestor.
+(parameters (identifier) @name @definition)
+(parameters (typed_parameter (identifier) @name) @definition)
+(parameters (default_parameter name: (identifier) @name) @definition)
+(parameters (typed_default_parameter name: (identifier) @name) @definition)
+(parameters (list_splat_pattern (identifier) @name) @definition)
+(parameters (dictionary_splat_pattern (identifier) @name) @definition)
+
+(lambda_parameters (identifier) @name @definition)
+(lambda_parameters (default_parameter name: (identifier) @name) @definition)
+(lambda_parameters (list_splat_pattern (identifier) @name) @definition)
+(lambda_parameters (dictionary_splat_pattern (identifier) @name) @definition)
 "#;
 
 // ── Import queries ──
@@ -85,6 +159,15 @@ pub fn extract_symbols(
     let definition_idx = query.capture_index_for_name("definition");
 
     let mut symbols = Vec::new();
+    // (enclosing_function_id, name) seen for local-variable dedupe — keep
+    // only the FIRST assignment per name per function scope, per the
+    // issue #11 acceptance criterion ("first assignment within a function
+    // scope"). Module-level assignments are not deduped (the existing
+    // module-scope path handles those before this map is consulted).
+    let mut seen_locals: HashSet<(usize, String)> = HashSet::new();
+    // Collect candidate rows in source order then materialise — we need
+    // source-order traversal so the FIRST assignment wins.
+    let mut candidates: Vec<(tree_sitter::Node, String)> = Vec::new();
 
     while let Some(m) = matches.next() {
         let def_cap = definition_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
@@ -124,25 +207,82 @@ pub fn extract_symbols(
             continue;
         }
 
+        candidates.push((def_node, name));
+    }
+
+    // Sort by start_byte so the "first assignment wins" dedupe is
+    // deterministic regardless of tree-sitter match order.
+    candidates.sort_by_key(|(n, _)| n.start_byte());
+
+    for (def_node, name) in candidates {
         let kind = determine_python_kind(def_node, &name);
         let Some(kind) = kind else { continue };
 
+        // Function-local assignment dedupe: only the first `name = ...`
+        // inside a given function counts as the binding site. Subsequent
+        // re-assignments are writes against the same binding; they don't
+        // get their own symbol row.
+        if def_node.kind() == "assignment" && kind == SymbolKind::Variable {
+            if let Some(scope) = enclosing_function_node(def_node) {
+                let key = (scope.id(), name.clone());
+                if !seen_locals.insert(key) {
+                    continue;
+                }
+            }
+        }
+
         let is_exported = !name.starts_with('_');
+
+        let is_async = is_async_python(def_node);
+        // `@staticmethod` / `@abstractmethod` are only meaningful on
+        // function/method defs; helper short-circuits on non-decorated
+        // nodes anyway, but skip the parent walk entirely for assignments
+        // and parameters to keep the cost off the hot path.
+        let (is_static, is_abstract) = if def_node.kind() == "function_definition" {
+            (
+                has_decorator(def_node, source, &["staticmethod"]),
+                has_decorator(def_node, source, &["abstractmethod"]),
+            )
+        } else {
+            (false, false)
+        };
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility: visibility_python(def_node),
+            is_async,
+            is_static,
+            is_abstract,
+            // Python has no symbol-level mutability marker.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
 
     symbols
+}
+
+/// Walk up from `node` to the nearest enclosing `function_definition` or
+/// `lambda` node. Returns `None` if `node` is at module scope. Used to
+/// scope-key the "first assignment" dedupe.
+fn enclosing_function_node(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "function_definition" | "lambda" => return Some(parent),
+            _ => current = parent.parent(),
+        }
+    }
+    None
 }
 
 fn determine_python_kind(def_node: tree_sitter::Node, _name: &str) -> Option<SymbolKind> {
@@ -171,18 +311,47 @@ fn determine_python_kind(def_node: tree_sitter::Node, _name: &str) -> Option<Sym
             }
         }
         "assignment" => {
-            // Only module-level assignments
-            // Tree: module > expression_statement > assignment
-            let is_module_level = def_node
-                .parent()
-                .and_then(|p| p.parent())
-                .is_some_and(|gp| gp.kind() == "module");
-            if is_module_level {
-                Some(SymbolKind::Variable)
-            } else {
-                None
+            // Module-level assignment (Tree: module > expression_statement >
+            // assignment) AND function-local assignment both bind a name.
+            // The extractor emits a Variable symbol for either; the
+            // function-local case is deduped upstream so only the FIRST
+            // assignment per (function, name) becomes a symbol row.
+            //
+            // Class-body assignment (`class C: x = 1` / `class C: x: int = 1`)
+            // emits a `Field` symbol so the field_type JOIN finds its
+            // matching `symbol` row (issue #18.1).
+            let parent = def_node.parent(); // expression_statement
+            let grandparent = parent.and_then(|p| p.parent()); // module or block
+            match grandparent.map(|g| g.kind()) {
+                Some("module") => Some(SymbolKind::Variable),
+                Some("block") => {
+                    if enclosing_function_node(def_node).is_some() {
+                        Some(SymbolKind::Variable)
+                    } else if grandparent
+                        .and_then(|b| b.parent())
+                        .is_some_and(|p| p.kind() == "class_definition")
+                    {
+                        Some(SymbolKind::Field)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             }
         }
+        // Parameter wrappers from the symbol query — all map to Parameter.
+        "identifier" => {
+            // A bare identifier reaches this match only via the
+            // `(parameters (identifier) @name @definition)` /
+            // `(lambda_parameters ...)` patterns, so its parent is
+            // guaranteed to be one of those.
+            Some(SymbolKind::Parameter)
+        }
+        "typed_parameter"
+        | "default_parameter"
+        | "typed_default_parameter"
+        | "list_splat_pattern"
+        | "dictionary_splat_pattern" => Some(SymbolKind::Parameter),
         _ => None,
     }
 }
@@ -412,6 +581,8 @@ pub fn extract_comments(
                 file_path: file_path.to_string(),
                 text,
                 kind: "line".to_string(),
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
                 start_line: node.start_position().row as u32 + 1,
                 start_column: node.start_position().column as u32,
                 end_line: node.end_position().row as u32 + 1,
@@ -443,6 +614,8 @@ pub fn extract_comments(
                     file_path: file_path.to_string(),
                     text,
                     kind: "doc".to_string(),
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
                     start_line: node.start_position().row as u32 + 1,
                     start_column: node.start_position().column as u32,
                     end_line: node.end_position().row as u32 + 1,
@@ -761,5 +934,100 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    // ── Issue #11 Phase 2: parameter + local-variable extraction ──
+
+    #[test]
+    fn extract_parameters_positional_and_typed() {
+        let syms = parse_and_extract("def greet(name, age: int):\n    pass");
+        let params: Vec<&SymbolInfo> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .collect();
+        let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"name"), "expected `name` param, got {names:?}");
+        assert!(names.contains(&"age"), "expected `age` param, got {names:?}");
+    }
+
+    #[test]
+    fn extract_parameters_defaults_and_splats() {
+        // covers default_parameter, typed_default_parameter,
+        // list_splat_pattern (*args), dictionary_splat_pattern (**kwargs).
+        let syms = parse_and_extract(
+            "def f(a, b=1, c: int = 2, *args, **kwargs):\n    pass",
+        );
+        let names: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        for expected in ["a", "b", "c", "args", "kwargs"] {
+            assert!(
+                names.contains(&expected),
+                "expected param `{expected}`, got {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_function_local_variable() {
+        let syms = parse_and_extract("def f():\n    x = 1\n    return x");
+        let locals: Vec<&SymbolInfo> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Variable && s.name == "x")
+            .collect();
+        assert_eq!(locals.len(), 1, "expected exactly one local symbol for `x`");
+    }
+
+    #[test]
+    fn dedupe_local_variable_first_assignment_only() {
+        // Two assignments to the same name inside the same function — only
+        // the first should produce a symbol row (per issue #11 #3).
+        let syms = parse_and_extract(
+            "def f():\n    x = 1\n    x = 2\n    return x",
+        );
+        let locals: Vec<&SymbolInfo> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Variable && s.name == "x")
+            .collect();
+        assert_eq!(locals.len(), 1, "second assignment must not emit a new symbol");
+        assert_eq!(locals[0].start_line, 2, "first assignment wins");
+    }
+
+    #[test]
+    fn class_attribute_typed_emits_field_symbol() {
+        let syms = parse_and_extract("class C:\n    x: int = 1\n");
+        let field = syms
+            .iter()
+            .find(|s| s.kind == SymbolKind::Field && s.name == "x");
+        assert!(field.is_some(), "expected field `x`, got {syms:?}");
+    }
+
+    #[test]
+    fn class_attribute_untyped_emits_field_symbol() {
+        let syms = parse_and_extract("class C:\n    y = 2\n");
+        let field = syms
+            .iter()
+            .find(|s| s.kind == SymbolKind::Field && s.name == "y");
+        assert!(field.is_some(), "expected field `y`, got {syms:?}");
+    }
+
+    #[test]
+    fn decorated_function_still_emits_parameters_once() {
+        // Guards against the decorated_definition dedupe accidentally
+        // suppressing parameter symbols (or duplicating them).
+        let syms = parse_and_extract("@dec\ndef f(x, y):\n    pass");
+        let fn_count = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Function && s.name == "f")
+            .count();
+        assert_eq!(fn_count, 1, "decorated function should be emitted once");
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"x") && params.contains(&"y"), "got {params:?}");
     }
 }

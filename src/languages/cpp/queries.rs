@@ -6,7 +6,120 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a C++ definition.
+///
+/// - Parameters, optional parameters, range-for variables, and
+///   declarations inside a function body: always `Private` (locals).
+/// - Declarations inside a `field_declaration_list` (class/struct/union
+///   body): walk backwards through previous siblings looking for the
+///   most recent `access_specifier`. `public:` → Public, `private:` →
+///   Private, `protected:` → Protected. If no `access_specifier`
+///   precedes the member, fall back to the class default: `class` →
+///   Private, `struct`/`union` → Public.
+/// - File-scope / namespace-scope symbols: `static` storage class →
+///   Private; otherwise Public.
+fn visibility_cpp(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    // Parameters and locals are always Private.
+    match def_node.kind() {
+        "parameter_declaration" | "optional_parameter_declaration" | "for_range_loop" => {
+            return SymbolVisibility::Private;
+        }
+        _ => {}
+    }
+    if def_node.kind() == "declaration" && is_inside_function_body(def_node) {
+        return SymbolVisibility::Private;
+    }
+
+    // Class/struct/union member? Look for the enclosing field_declaration_list.
+    if let Some(member_vis) = class_member_visibility(def_node, source) {
+        return member_vis;
+    }
+
+    // File-scope / namespace-scope: `static` storage class → Private.
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier"
+            && child.utf8_text(source).unwrap_or("") == "static"
+        {
+            return SymbolVisibility::Private;
+        }
+    }
+    SymbolVisibility::Public
+}
+
+/// If `def_node` sits inside a `field_declaration_list` (i.e. it's a
+/// class/struct/union member), return its access-specifier-derived
+/// visibility. Otherwise `None`.
+fn class_member_visibility(
+    def_node: tree_sitter::Node,
+    source: &[u8],
+) -> Option<SymbolVisibility> {
+    // Find the field_declaration_list ancestor and the immediate child
+    // of that list which contains def_node (we'll scan its previous
+    // siblings for the most recent access_specifier).
+    let mut anchor = def_node;
+    let mut parent = def_node.parent();
+    while let Some(p) = parent {
+        if p.kind() == "field_declaration_list" {
+            break;
+        }
+        anchor = p;
+        parent = p.parent();
+    }
+    let field_list = parent?;
+
+    // Walk previous siblings of `anchor` looking for the most recent
+    // access_specifier.
+    let mut sibling = anchor.prev_named_sibling();
+    while let Some(s) = sibling {
+        if s.kind() == "access_specifier" {
+            let text = s.utf8_text(source).unwrap_or("").trim();
+            return Some(match text {
+                "public" => SymbolVisibility::Public,
+                "protected" => SymbolVisibility::Protected,
+                _ => SymbolVisibility::Private,
+            });
+        }
+        sibling = s.prev_named_sibling();
+    }
+
+    // No access_specifier seen — default depends on the enclosing
+    // class/struct/union keyword.
+    let class_kind = field_list.parent().map(|n| n.kind()).unwrap_or("");
+    Some(match class_kind {
+        "class_specifier" => SymbolVisibility::Private,
+        // struct_specifier and union_specifier default to public.
+        _ => SymbolVisibility::Public,
+    })
+}
+
+/// True if `def_node` carries a `static` storage class specifier.
+fn is_static_cpp(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier"
+            && child.utf8_text(source).unwrap_or("") == "static"
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if `def_node` is a pure-virtual function declaration (e.g.
+/// `virtual void foo() = 0;`). Detected by the presence of a
+/// `pure_virtual_clause` child in the tree-sitter-cpp grammar.
+fn is_abstract_cpp(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "pure_virtual_clause" {
+            return true;
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 // C++ extends C with classes, namespaces, and qualified identifiers
@@ -41,7 +154,63 @@ const CPP_SYMBOL_QUERY: &str = r#"
     declarator: (identifier) @name)) @definition
 
 (declaration
+  declarator: (init_declarator
+    declarator: (pointer_declarator
+      declarator: (identifier) @name))) @definition
+
+(declaration
+  declarator: (init_declarator
+    declarator: (reference_declarator
+      (identifier) @name))) @definition
+
+(declaration
   declarator: (identifier) @name) @definition
+
+(declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(declaration
+  declarator: (reference_declarator
+    (identifier) @name)) @definition
+
+(declaration
+  declarator: (init_declarator
+    declarator: (structured_binding_declarator
+      (identifier) @name))) @definition
+
+(for_range_loop
+  declarator: (identifier) @name) @definition
+
+(for_range_loop
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(for_range_loop
+  declarator: (reference_declarator
+    (identifier) @name)) @definition
+
+(parameter_declaration
+  declarator: (identifier) @name) @definition
+
+(parameter_declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(parameter_declaration
+  declarator: (reference_declarator
+    (identifier) @name)) @definition
+
+(optional_parameter_declaration
+  declarator: (identifier) @name) @definition
+
+(optional_parameter_declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(optional_parameter_declaration
+  declarator: (reference_declarator
+    (identifier) @name)) @definition
 
 (struct_specifier
   name: (type_identifier) @name
@@ -70,6 +239,21 @@ const CPP_SYMBOL_QUERY: &str = r#"
 
 (preproc_function_def
   name: (identifier) @name) @definition
+
+(field_declaration
+  declarator: (field_identifier) @name) @definition
+
+(field_declaration
+  declarator: (pointer_declarator
+    declarator: (field_identifier) @name)) @definition
+
+(field_declaration
+  declarator: (array_declarator
+    declarator: (field_identifier) @name)) @definition
+
+(field_declaration
+  declarator: (reference_declarator
+    (field_identifier) @name)) @definition
 "#;
 
 // ── Import queries ── (same as C: #include directives)
@@ -144,16 +328,29 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_cpp(def_node, source);
+        let visibility = visibility_cpp(def_node, source);
+        let is_static = is_static_cpp(def_node, source);
+        let is_abstract = is_abstract_cpp(def_node);
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // C++ has no async keyword at the symbol level; coroutines
+            // are expression-level (`co_await`).
+            is_async: false,
+            is_static,
+            is_abstract,
+            // `mutable` on class members is rare; deferred.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -182,11 +379,27 @@ fn determine_cpp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "enum_specifier" => Some(SymbolKind::Enum),
         "type_definition" => Some(SymbolKind::Typedef),
         "preproc_def" | "preproc_function_def" => Some(SymbolKind::Macro),
+        "parameter_declaration" | "optional_parameter_declaration" => Some(SymbolKind::Parameter),
+        "for_range_loop" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         _ => None,
     }
 }
 
 fn is_exported_cpp(def_node: tree_sitter::Node, source: &[u8]) -> bool {
+    // Parameters and locals are never exported
+    match def_node.kind() {
+        "parameter_declaration" | "optional_parameter_declaration" | "for_range_loop" => {
+            return false;
+        }
+        _ => {}
+    }
+
+    // Function-local declarations (inside a compound_statement) are not exported
+    if def_node.kind() == "declaration" && is_inside_function_body(def_node) {
+        return false;
+    }
+
     // Macros, types, and namespaces are always "exported"
     match def_node.kind() {
         "preproc_def"
@@ -306,6 +519,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
             end_line: node.end_position().row as u32 + 1,
@@ -430,6 +645,19 @@ fn find_identifier_recursive(node: tree_sitter::Node, source: &[u8]) -> Option<S
         return find_identifier_recursive(inner, source);
     }
     None
+}
+
+fn is_inside_function_body(node: tree_sitter::Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "compound_statement" | "function_definition" | "for_range_loop" | "for_statement"
+            | "while_statement" | "if_statement" | "lambda_expression" => return true,
+            "translation_unit" => return false,
+            _ => current = parent.parent(),
+        }
+    }
+    false
 }
 
 fn has_child_kind(node: tree_sitter::Node, kind: &str) -> bool {
@@ -574,5 +802,56 @@ mod tests {
             "qualified-name pointer-return function must be extracted"
         );
         assert_eq!(s.unwrap().kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn extract_function_parameters() {
+        let syms = parse_and_extract("int add(int a, int b) { return a + b; }");
+        let a = syms.iter().find(|s| s.name == "a");
+        let b = syms.iter().find(|s| s.name == "b");
+        assert!(a.is_some(), "parameter `a` must be extracted");
+        assert!(b.is_some(), "parameter `b` must be extracted");
+        assert_eq!(a.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(b.unwrap().kind, SymbolKind::Parameter);
+        assert!(!a.unwrap().is_exported);
+    }
+
+    #[test]
+    fn extract_local_variable() {
+        let syms = parse_and_extract("void f() { int x = 1; }");
+        let x = syms.iter().find(|s| s.name == "x");
+        assert!(x.is_some(), "local variable `x` must be extracted");
+        assert_eq!(x.unwrap().kind, SymbolKind::Variable);
+        assert!(!x.unwrap().is_exported);
+    }
+
+    #[test]
+    fn extract_reference_parameter() {
+        let syms =
+            parse_and_extract("#include <string>\nvoid greet(const std::string& s) { }");
+        let s = syms.iter().find(|sym| sym.name == "s");
+        assert!(s.is_some(), "reference parameter `s` must be extracted");
+        assert_eq!(s.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_pointer_parameter_and_default_arg() {
+        let syms = parse_and_extract("void f(int* p, int n = 0) { }");
+        let p = syms.iter().find(|s| s.name == "p");
+        let n = syms.iter().find(|s| s.name == "n");
+        assert!(p.is_some(), "pointer parameter `p` must be extracted");
+        assert!(n.is_some(), "default-arg parameter `n` must be extracted");
+        assert_eq!(p.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(n.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_range_based_for_loop_variable() {
+        let syms = parse_and_extract(
+            "void f() { int arr[3]; for (int& x : arr) { x = 0; } }",
+        );
+        let x = syms.iter().find(|s| s.name == "x");
+        assert!(x.is_some(), "range-for variable `x` must be extracted");
+        assert_eq!(x.unwrap().kind, SymbolKind::Variable);
     }
 }

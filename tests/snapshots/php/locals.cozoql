@@ -1,0 +1,14 @@
+# Issue #11 Phase 2 — parameter + local-variable extraction parity check.
+#
+# Conceptual shape (the runner executes these as two separate queries
+# for harness simplicity — see tests/snapshot_locals.rs):
+#
+#   ?[parameter_count] :=
+#       parameter_count = count(s),
+#       *symbol{id: s, kind: "parameter"}
+#
+#   ?[local_count] :=
+#       local_count = count(s),
+#       *symbol{id: s, kind: "variable"}
+#
+# Results are asserted against locals.expected.

@@ -1,5 +1,15 @@
-//! Built-in template discovery. Templates live in `src/queries/builtin/`
-//! and are embedded into the binary at compile time via `include_dir`.
+//! Built-in template discovery.
+//!
+//! Built-in pure-Cozoscript templates live under `src/queries/builtin/`,
+//! one `.cozoql` file per template. The `include_dir!` macro embeds them
+//! at build time so they ship inside the binary. To add a new template,
+//! drop a `<name>.cozoql` file next to the existing ones — no Rust glue
+//! required.
+//!
+//! Rust-side handlers (templates that need source access beyond what's
+//! in the fact store) live in `rust_templates.rs` and short-circuit the
+//! Cozoscript path; their names are kept disjoint from the `.cozoql`
+//! file names.
 
 use include_dir::{Dir, include_dir};
 
@@ -30,28 +40,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_seven_pure_templates_are_discoverable() {
-        let names = cozoscript_template_names();
-        for expected in [
-            "find_callers",
-            "find_callees",
-            "find_cycles",
-            "find_function_by_name",
-            "export_surface",
-            "import_depth",
-            "unused_symbols",
-        ] {
-            assert!(
-                names.contains(&expected.to_string()),
-                "missing template {expected}; have: {names:?}"
-            );
-        }
+    fn ships_the_expected_cozoscript_templates() {
+        let mut names = cozoscript_template_names();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "export_surface".to_string(),
+                "find_callees".to_string(),
+                "find_callers".to_string(),
+                "find_cycles".to_string(),
+                "find_function_by_name".to_string(),
+                "find_implementations_of".to_string(),
+                "find_writers_of".to_string(),
+                "import_depth".to_string(),
+                "unused_symbols".to_string(),
+            ],
+        );
     }
 
     #[test]
-    fn load_returns_body_for_known_template() {
-        let body = load_cozoscript_template("find_function_by_name").expect("body");
-        assert!(body.contains("?[name, kind, file_path"));
+    fn unknown_name_loads_to_none() {
         assert!(load_cozoscript_template("nonexistent").is_none());
+    }
+
+    #[test]
+    fn known_name_loads_a_non_empty_body() {
+        let body = load_cozoscript_template("find_function_by_name")
+            .expect("find_function_by_name template");
+        assert!(body.contains("?["), "expected a Cozoscript head, got {body}");
     }
 }

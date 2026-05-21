@@ -7,7 +7,10 @@ use std::collections::HashMap;
 pub use intern::{Spur, Symbols};
 
 use crate::language::Language;
-use crate::models::{ImportInfo, SymbolKind};
+use crate::models::{
+    AttrsBucket, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReferencesBucket,
+    ReturnsTypeRow, SymbolKind, SymbolVisibility, ThrowsRow, TypeRow,
+};
 
 /// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
 pub type NodeIndex = usize;
@@ -28,16 +31,32 @@ pub enum NodeWeight {
     },
     Symbol {
         name: Spur,
+        /// Scope-qualified name. Computed in `absorb_file_data` by walking
+        /// the chain of containing symbols and joining their names with the
+        /// language-specific separator. Top-level symbols have
+        /// `qualified_name == name`.
+        qualified_name: Spur,
         kind: SymbolKind,
         file_path: Spur,
+        start_byte: u32,
+        end_byte: u32,
         start_line: u32,
+        start_col: u32,
         end_line: u32,
+        end_col: u32,
         exported: bool,
+        visibility: SymbolVisibility,
+        is_async: bool,
+        is_static: bool,
+        is_abstract: bool,
+        is_mutable: bool,
     },
     CallSite {
         name: Spur,
         file_path: Spur,
         line: u32,
+        start_byte: u32,
+        end_byte: u32,
         /// Literal arguments at this call site (strings/numbers/bools only).
         /// `None` for the common case of a call with no literal arguments —
         /// avoids the 24-byte `Vec` header on every CallSite.
@@ -85,6 +104,35 @@ pub struct CodeGraph {
     /// pre-resolution import data into `raw_import` for the incremental
     /// refresh path (issue 08). Keyed by source file path.
     pub raw_imports: HashMap<String, Vec<ImportInfo>>,
+    /// Extracted comments per file. Populated by the builder when
+    /// comment queries succeed. Keyed by source file path. Empty for
+    /// languages whose extractor doesn't emit comments yet.
+    pub comments: HashMap<String, Vec<crate::models::CommentInfo>>,
+    /// Per-file type-expression rows (issue #13). One row per unique
+    /// `(file_path, display_name)`; the emitter dedups + assigns
+    /// `type.id`.
+    pub types: HashMap<String, Vec<TypeRow>>,
+    /// Per-file parameter→type bindings (issue #13). The emitter joins
+    /// these to `types` by `display_name` to populate `parameter.type_id`.
+    pub param_types: HashMap<String, Vec<ParameterTypeRow>>,
+    /// Per-file function→return-type bindings (issue #13).
+    pub returns_types: HashMap<String, Vec<ReturnsTypeRow>>,
+    /// Per-file class/trait inheritance edges (issue #13). The emitter
+    /// resolves both endpoints to symbol IDs where possible and writes
+    /// `extends` or `implements` rows.
+    pub inheritance: HashMap<String, Vec<InheritanceRow>>,
+    /// Per-file typed-field bindings (issue #14). One row per typed
+    /// struct/class field; untyped fields produce no entry.
+    pub field_types: HashMap<String, Vec<FieldTypeRow>>,
+    /// Per-file `throws` rows (issue #13 followup). Populated only by
+    /// Java/C#/PHP extractors; other languages leave this map empty.
+    pub throws: HashMap<String, Vec<ThrowsRow>>,
+    /// Per-file per-language attribute buckets (issue #15). Only the
+    /// file's source language is populated.
+    pub attrs: HashMap<String, AttrsBucket>,
+    /// Per-file occurrence/scope/binding facts (issue #16). The
+    /// Cozoscript resolver consumes these to materialise `references`.
+    pub references: HashMap<String, ReferencesBucket>,
 }
 
 impl Default for CodeGraph {
@@ -104,6 +152,15 @@ impl CodeGraph {
             symbol_nodes: HashMap::new(),
             symbols_by_name: HashMap::new(),
             raw_imports: HashMap::new(),
+            comments: HashMap::new(),
+            types: HashMap::new(),
+            param_types: HashMap::new(),
+            returns_types: HashMap::new(),
+            inheritance: HashMap::new(),
+            field_types: HashMap::new(),
+            throws: HashMap::new(),
+            attrs: HashMap::new(),
+            references: HashMap::new(),
         }
     }
 

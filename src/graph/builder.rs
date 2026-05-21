@@ -9,7 +9,10 @@ use tree_sitter::Query;
 
 use crate::language::Language;
 use crate::languages;
-use crate::models::{ImportInfo, SymbolInfo};
+use crate::models::{
+    AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
+    ReferencesBucket, ReturnsTypeRow, SymbolInfo, SymbolKind, ThrowsRow, TypeRow,
+};
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
@@ -20,8 +23,25 @@ struct FileGraphData {
     path: String,
     language: Language,
     symbols: Vec<SymbolInfo>,
+    comments: Vec<CommentInfo>,
     imports: Vec<ImportInfo>,
     call_sites: Vec<CallSiteData>,
+    /// Issue #13: type/parameter/return/inheritance rows from the
+    /// per-language type extractor. Empty for languages whose extractor
+    /// hasn't been wired yet.
+    types: Vec<TypeRow>,
+    param_types: Vec<ParameterTypeRow>,
+    returns_types: Vec<ReturnsTypeRow>,
+    inheritance: Vec<InheritanceRow>,
+    /// Issue #14: typed field/property declarations.
+    field_types: Vec<FieldTypeRow>,
+    /// Issue #13 followup: declared/observed `throws` rows.
+    throws: Vec<ThrowsRow>,
+    /// Issue #15: per-language attribute rows. Only this file's
+    /// language bucket is populated.
+    attrs: AttrsBucket,
+    /// Issue #16: occurrence/scope/binding facts for the resolver.
+    references: ReferencesBucket,
 }
 
 /// A call site extracted from within a symbol's line range.
@@ -31,6 +51,8 @@ struct CallSiteData {
     caller_symbol_line: u32,
     /// Line of the call expression itself (1-based).
     line: u32,
+    start_byte: u32,
+    end_byte: u32,
     /// Literal arguments (strings/numbers/bools) — non-literal args are skipped.
     arg_literals: Vec<String>,
     /// Name of the enclosing test function, when the caller is inside one.
@@ -71,12 +93,17 @@ impl<'a> GraphBuilder<'a> {
         // Step 1: Pre-compile queries per language
         let mut symbol_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         let mut import_queries: HashMap<Language, Arc<Query>> = HashMap::new();
+        let mut comment_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         for &lang in self.languages {
             symbol_queries.insert(lang, languages::compile_symbol_query(lang)?);
             import_queries.insert(lang, languages::compile_import_query(lang)?);
+            if let Ok(q) = languages::compile_comment_query(lang) {
+                comment_queries.insert(lang, q);
+            }
         }
         let symbol_queries = Arc::new(symbol_queries);
         let import_queries = Arc::new(import_queries);
+        let comment_queries = Arc::new(comment_queries);
 
         // Step 2: Build known_files set
         let known_files: HashSet<String> = self.workspace.files().iter().cloned().collect();
@@ -122,6 +149,7 @@ impl<'a> GraphBuilder<'a> {
         let workspace = self.workspace;
         let sym_q = Arc::clone(&symbol_queries);
         let imp_q = Arc::clone(&import_queries);
+        let com_q = Arc::clone(&comment_queries);
         let grouped_files_ref = &grouped_files;
 
         thread::scope(|s| -> Result<()> {
@@ -137,7 +165,7 @@ impl<'a> GraphBuilder<'a> {
                         .par_iter()
                         .for_each_with(tx, |tx, &(lang, rel_path)| {
                             if let Some(data) =
-                                parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q)
+                                parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q, &com_q)
                             {
                                 let _ = tx.send(data);
                             }
@@ -207,6 +235,23 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
+            // Filter out non-callable targets (parameters, locals, types) —
+            // a name match on a parameter or `let` binding is never a real
+            // call edge. Constants are kept because some Rust constants
+            // can be function pointers, but the heuristic stays
+            // intentionally conservative.
+            targets.retain(|&idx| {
+                matches!(
+                    &graph.nodes[idx],
+                    NodeWeight::Symbol {
+                        kind: SymbolKind::Function
+                            | SymbolKind::Method
+                            | SymbolKind::ArrowFunction
+                            | SymbolKind::Macro,
+                        ..
+                    }
+                )
+            });
             targets.sort_unstable();
             targets.dedup();
             for &target_idx in &targets {
@@ -228,6 +273,7 @@ fn parse_one_file(
     workspace: &Workspace,
     symbol_queries: &HashMap<Language, Arc<Query>>,
     import_queries: &HashMap<Language, Arc<Query>>,
+    comment_queries: &HashMap<Language, Arc<Query>>,
 ) -> Option<FileGraphData> {
     let sym_query = symbol_queries.get(&lang)?;
     let imp_query = import_queries.get(&lang)?;
@@ -238,11 +284,29 @@ fn parse_one_file(
 
     let symbols = languages::extract_symbols(&tree, source.as_bytes(), sym_query, rel_path, lang);
     let imports = languages::extract_imports(&tree, source.as_bytes(), imp_query, rel_path, lang);
+    let comments = if let Some(cq) = comment_queries.get(&lang) {
+        languages::extract_comments(&tree, source.as_bytes(), cq, rel_path, lang)
+    } else {
+        Vec::new()
+    };
 
     let call_node_types = call_expression_types(lang);
     let is_test = crate::classify::is_test_file(rel_path);
     let mut call_sites = Vec::new();
     for sym in &symbols {
+        // Only function-like symbols can be call-site owners. Parameters
+        // and locals never enclose calls (or shouldn't, semantically) —
+        // attributing calls to them creates phantom caller_ids that
+        // explode the calls relation.
+        if !matches!(
+            sym.kind,
+            SymbolKind::Function
+                | SymbolKind::Method
+                | SymbolKind::ArrowFunction
+                | SymbolKind::Macro
+        ) {
+            continue;
+        }
         let enclosing_test = if is_test && is_test_function_name(&sym.name) {
             Some(sym.name.clone())
         } else {
@@ -262,12 +326,36 @@ fn parse_one_file(
         );
     }
 
+    // Issue #13 + #14: per-language type / inheritance / field-type
+    // extraction. Languages without typed fields leave field_types
+    // empty.
+    let (types, param_types, returns_types, inheritance, field_types) =
+        languages::extract_types(&tree, source.as_bytes(), rel_path, lang);
+
+    // Issue #13 followup: per-language `throws` extraction (Java/C#/PHP).
+    let throws = languages::extract_throws(&tree, source.as_bytes(), rel_path, lang);
+
+    // Issue #15: per-language attribute extraction.
+    let attrs = languages::extract_attrs(&tree, source.as_bytes(), rel_path, lang, &symbols);
+
+    // Issue #16: occurrence/scope/binding fact emission.
+    let references = languages::extract_references(&tree, source.as_bytes(), rel_path, lang, &symbols);
+
     Some(FileGraphData {
         path: rel_path.to_string(),
         language: lang,
         symbols,
+        comments,
         imports,
         call_sites,
+        types,
+        param_types,
+        returns_types,
+        inheritance,
+        field_types,
+        throws,
+        attrs,
+        references,
     })
 }
 
@@ -283,8 +371,17 @@ fn absorb_file_data(
         path,
         language,
         symbols,
+        comments,
         imports,
         call_sites,
+        types,
+        param_types,
+        returns_types,
+        inheritance,
+        field_types,
+        throws,
+        attrs,
+        references,
     } = data;
 
     // File node
@@ -295,17 +392,33 @@ fn absorb_file_data(
     });
     graph.file_nodes.insert(path_spur, file_idx);
 
-    // Symbol nodes + DefinedIn/Contains/Exports
+    // Pass 1: allocate Symbol nodes in original extraction order. This
+    // preserves the baseline behaviour where `symbol_nodes[(f, line)]`
+    // resolves to whichever same-line symbol the extractor emitted *last*
+    // — existing call-site attribution and baseline snapshot counts
+    // depend on that mapping. `qualified_name` defaults to the leaf name
+    // here; pass 2 rewrites it with the parent-chain join.
+    let mut sym_indices: Vec<NodeIndex> = Vec::with_capacity(symbols.len());
     for sym in &symbols {
         let sym_file_spur = graph.symbols.intern(&sym.file_path);
         let sym_name_spur = graph.symbols.intern(&sym.name);
         let sym_idx = graph.add_node(NodeWeight::Symbol {
             name: sym_name_spur,
+            qualified_name: sym_name_spur,
             kind: sym.kind,
             file_path: sym_file_spur,
+            start_byte: sym.start_byte,
+            end_byte: sym.end_byte,
             start_line: sym.start_line,
+            start_col: sym.start_column,
             end_line: sym.end_line,
+            end_col: sym.end_column,
             exported: sym.is_exported,
+            visibility: sym.visibility,
+            is_async: sym.is_async,
+            is_static: sym.is_static,
+            is_abstract: sym.is_abstract,
+            is_mutable: sym.is_mutable,
         });
         graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
         graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
@@ -330,6 +443,71 @@ fn absorb_file_data(
                 .or_default()
                 .push(sym_idx);
         }
+        sym_indices.push(sym_idx);
+    }
+
+    // Pass 2: derive parent-symbol containment via byte ranges and
+    // compute `qualified_name` from the parent chain.
+    //
+    // Walk symbols in outer-first order (start_byte ASC, end_byte DESC
+    // tie-break) so an enclosing scope is seen before any nested symbol.
+    // Maintain a stack of currently-open containers; the innermost open
+    // one whose range covers the current symbol is its parent.
+    let mut order: Vec<usize> = (0..symbols.len()).collect();
+    order.sort_by(|&a, &b| {
+        symbols[a]
+            .start_byte
+            .cmp(&symbols[b].start_byte)
+            .then_with(|| symbols[b].end_byte.cmp(&symbols[a].end_byte))
+    });
+    let sep = languages::qname_separator(language);
+    let mut open: Vec<(usize, u32)> = Vec::new();
+    let mut parent_of: Vec<Option<usize>> = vec![None; symbols.len()];
+    for &i in &order {
+        let sym = &symbols[i];
+        while let Some(&(_, end)) = open.last() {
+            if end <= sym.start_byte {
+                open.pop();
+            } else {
+                break;
+            }
+        }
+        parent_of[i] = open
+            .iter()
+            .rev()
+            .find_map(|&(idx, end)| if sym.end_byte <= end { Some(idx) } else { None });
+        open.push((i, sym.end_byte));
+    }
+
+    // Compute qualified_name in outer-first order and add Symbol→Symbol
+    // Contains edges between each child and its parent.
+    let mut qnames: Vec<String> = vec![String::new(); symbols.len()];
+    for &i in &order {
+        let sym = &symbols[i];
+        qnames[i] = match parent_of[i] {
+            Some(p) => format!("{}{}{}", &qnames[p], sep, sym.name),
+            None => sym.name.clone(),
+        };
+        if let Some(p) = parent_of[i] {
+            graph.add_edge(sym_indices[p], sym_indices[i], EdgeWeight::Contains);
+        }
+    }
+
+    // Patch each symbol node's qualified_name spur.
+    for (i, qname) in qnames.into_iter().enumerate() {
+        let qname_spur = graph.symbols.intern(&qname);
+        if let NodeWeight::Symbol { qualified_name, .. } = &mut graph.nodes[sym_indices[i]] {
+            *qualified_name = qname_spur;
+        }
+    }
+
+    // Stash comments per file so the Cozo writer can emit `comment` rows.
+    if !comments.is_empty() {
+        graph
+            .comments
+            .entry(path.clone())
+            .or_default()
+            .extend(comments.into_iter());
     }
 
     // Queue imports for cross-file resolution. Also stash them on the
@@ -346,6 +524,70 @@ fn absorb_file_data(
             language,
             import,
         });
+    }
+
+    // Issue #13: stash per-file type / signature / inheritance rows so
+    // `from_code_graph` can emit them. Empty vectors carry no cost; we
+    // only insert when something is actually there.
+    if !types.is_empty() {
+        graph.types.entry(path.clone()).or_default().extend(types);
+    }
+    if !param_types.is_empty() {
+        graph
+            .param_types
+            .entry(path.clone())
+            .or_default()
+            .extend(param_types);
+    }
+    if !returns_types.is_empty() {
+        graph
+            .returns_types
+            .entry(path.clone())
+            .or_default()
+            .extend(returns_types);
+    }
+    if !inheritance.is_empty() {
+        graph
+            .inheritance
+            .entry(path.clone())
+            .or_default()
+            .extend(inheritance);
+    }
+    if !field_types.is_empty() {
+        graph
+            .field_types
+            .entry(path.clone())
+            .or_default()
+            .extend(field_types);
+    }
+    if !throws.is_empty() {
+        graph
+            .throws
+            .entry(path.clone())
+            .or_default()
+            .extend(throws);
+    }
+    // Issue #15: stash per-file attrs bucket. Each language's extractor
+    // populates only its own variant; the bucket as a whole has no
+    // "is empty" check because rust_attrs et al. are expected 1:1 with
+    // the file's symbols.
+    let attrs_nonempty = !attrs.rust.is_empty()
+        || !attrs.python.is_empty()
+        || !attrs.typescript.is_empty()
+        || !attrs.cpp.is_empty()
+        || !attrs.csharp.is_empty()
+        || !attrs.go.is_empty()
+        || !attrs.php.is_empty()
+        || !attrs.c.is_empty()
+        || !attrs.java.is_empty();
+    if attrs_nonempty {
+        graph.attrs.insert(path.clone(), attrs);
+    }
+    if !references.occurrences.is_empty()
+        || !references.scopes.is_empty()
+        || !references.bindings.is_empty()
+    {
+        graph.references.insert(path.clone(), references);
     }
 
     // CallSite nodes + Contains edges. Calls edges are deferred until
@@ -375,6 +617,8 @@ fn absorb_file_data(
             name: callee_spur,
             file_path: caller_file_spur,
             line: cs.line,
+            start_byte: cs.start_byte,
+            end_byte: cs.end_byte,
             arg_literals: arg_literal_spurs,
             enclosing_test_name: enclosing_spur,
             caller_symbol: caller_idx,
@@ -478,6 +722,8 @@ fn collect_calls_in_range(
             caller_file: file_path.to_string(),
             caller_symbol_line,
             line,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             arg_literals,
             enclosing_test_name: enclosing_test_name.map(|s| s.to_string()),
         });

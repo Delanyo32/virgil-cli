@@ -1,0 +1,11 @@
+# Go baseline snapshot — counts of populated rows.
+#
+# Issue #11 Phase 2: parameter symbols (incl. method receivers, variadic)
+# and locals (:= short-var, var) now extracted. Blank identifier `_` is
+# skipped. symbol_count grew from 346 → 1110; call_count from 47 → 58.
+symbol_count=1308
+comment_count=457
+call_count=58
+doc_attached_count=0
+file_count=48
+span_count=1308

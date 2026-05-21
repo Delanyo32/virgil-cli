@@ -1,0 +1,13 @@
+# PHP baseline snapshot — counts of populated rows.
+#
+# Issue #11 Phase 2: simple/variadic/property-promotion parameters and
+# first-assignment locals now extracted (dedupe keeps the earliest
+# assignment per (function, name); `$` prefix stripped from names).
+# symbol_count grew from 337 → 786. call_count remains 0 — PHP's call
+# extraction lives in a future phase (Issue #15 / template rewrite).
+symbol_count=786
+comment_count=274
+call_count=0
+doc_attached_count=167
+file_count=70
+span_count=786

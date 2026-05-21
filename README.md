@@ -102,16 +102,18 @@ Templates live under `src/queries/builtin/` (pure Cozoscript) and `src/queries/r
 
 | Template | Params | What it returns |
 |---|---|---|
-| `find_function_by_name` | `name` | Symbols with an exact-name match |
-| `find_callers` | `target`, `max_depth` | Transitive callers of `$target` up to `$max_depth` hops |
-| `find_callees` | `target`, `max_depth` | Transitive callees of `$target` |
-| `find_cycles` | — | Files participating in an import cycle |
-| `import_depth` | `max_depth` | Longest known import chain ending at each file (depth-bounded) |
-| `export_surface` | — | Per-file `(file, exported_count, total_count)` |
-| `unused_symbols` | — | Symbols with no inbound `edge_calls` (heuristic; name-based) |
+| `find_function_by_name` | `name` | Function/method symbols whose `name` or `qualified_name` matches |
+| `find_callers` | `name` | Direct callers of the callee `$name` |
+| `find_callees` | `name` | Direct callees of the caller `$name` |
+| `find_cycles` | — | Pairs of mutually-reachable symbols in the call graph |
+| `import_depth` | — | Longest file-import chain ending at each file |
+| `export_surface` | — | Public exported symbols whose host file is imported elsewhere |
+| `unused_symbols` | — | Exported symbols with no inbound `references` rows |
+| `find_implementations_of` | `name` | Types that `implements`/`extends` `$name` |
+| `find_writers_of` | `name` | Source locations writing to a symbol named `$name` (`references.ref_kind = "write"`) |
 | `complexity_hotspots` | `cc_threshold`, `length_threshold` | Functions exceeding cyclomatic or length thresholds; excludes tests |
 
-`complexity_hotspots` is a Rust-side handler — it queries `*symbol` + `*file_classification` from Cozo, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
+`complexity_hotspots` is a Rust-side handler — it queries `*symbol` + `*span` + `*file_classification` from Cozo, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
 
 ## Audit-shape Output
 
@@ -143,17 +145,27 @@ Authored queries can reach into any of these relations. See `src/cozo/schema.rs`
 
 | Relation | Keys / Values |
 |---|---|
-| `file` | `{path: String => language: String}` |
-| `symbol` | `{id: Int => name, kind, file_path, start_line, end_line, exported}` |
-| `callsite` | `{id: Int => name, file_path, line, caller_symbol_id, enclosing_test_name}` |
-| `edge_defined_in` | `{symbol_id, file_path}` |
-| `edge_calls` | `{caller_id, callee_id}` |
-| `edge_imports` | `{from_path, to_path}` |
-| `edge_exports` | `{file_path, symbol_id}` |
-| `edge_contains` | `{parent_id, child_id}` |
+| `file` | `{path => language, repo_id}` |
+| `symbol` | `{id => kind, name, qualified_name, language, visibility, file_path, parent_id?, is_async, is_static, is_abstract, is_mutable, exported}` |
+| `span` | `{entity_id, file_path => start_byte, end_byte, start_line, end_line, start_col, end_col}` — positional metadata for symbols/comments/call sites |
+| `calls` | `{caller_id, callee_id => call_site_file, call_site_start_byte, call_site_end_byte, is_direct}` |
+| `references` | `{referrer_id, site_file, site_start_byte, match_index => referent_id?, ref_kind}` — `ref_kind` is `read`/`write`/`call`/`type_use`/`import_use`; `referent_id` is null when unresolved |
+| `occurrence` | `{id => name, file_path, start_byte, end_byte, enclosing_symbol_id?, enclosing_scope_id, occurrence_kind}` — raw identifier occurrences (input to the resolver) |
+| `scope` | `{id => parent_id?, file_path, kind, start_byte, end_byte}` — lexical scope chain |
+| `binding` | `{scope_id, name, start_byte => symbol_id?, binding_kind}` — name → symbol within a scope |
+| `extends` | `{child_id, parent_id}` |
+| `implements` | `{impl_id, interface_id}` |
+| `imports` | `{importer_file_id, imported_id}` |
+| `raw_import` | `{file_path, position => raw_path, language, kind}` (pre-resolution imports for incremental refresh) |
+| `parameter` | `{id => name, function_id, position, type_id?, is_optional, has_default, is_taint_source}` |
+| `returns_type` | `{function_id => type_id}` |
+| `throws` | `{function_id, exception_type_id}` |
+| `field_type` | `{symbol_id => type_id}` |
+| `type` | `{id => kind, language, display_name, canonical_name?}` — `kind` is `primitive`/`named`/`generic`/`union`/`intersection`/`function`/`tuple`/`array` |
+| `comment` | `{id => documents_id?, file_path, kind, is_doc, text, todo_kind?, start_byte, end_byte}` |
+| `<lang>_attrs` | per-language attribute table (`rust_attrs`, `python_attrs`, `typescript_attrs`, `cpp_attrs`, `csharp_attrs`, `go_attrs`, `php_attrs`, `c_attrs`, `java_attrs`) |
 | `file_classification` | `{path => is_test, is_barrel, is_generated}` |
 | `nolint` | `{file_path, line => suppressed_pattern}` |
-| `raw_import` | `{file_path, position => raw_path, language, kind}` (pre-resolution imports for incremental refresh) |
 | `build_meta` | `{key => value}` — includes `schema_version` |
 | `build_meta_files` | `{file_path => hash, size, mtime}` |
 
@@ -175,9 +187,8 @@ virgil-cli projects create myapp --path ./src
 # Find every function named `login`
 virgil-cli projects query myapp --template find_function_by_name --param name=login
 
-# Who calls `authenticate`? (up to depth 2)
-virgil-cli projects query myapp --template find_callers \
-    --param target=authenticate --param max_depth=2
+# Who calls `authenticate`?
+virgil-cli projects query myapp --template find_callers --param name=authenticate
 
 # Import cycles
 virgil-cli projects query myapp --template find_cycles --pretty
@@ -242,7 +253,7 @@ virgil-cli serve --s3 <URI> [OPTIONS]
 ```json
 {
   "template": "find_callers",
-  "params": {"target": "authenticate", "max_depth": "2"}
+  "params": {"name": "authenticate"}
 }
 ```
 

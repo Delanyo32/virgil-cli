@@ -6,7 +6,36 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Go visibility is determined by the first rune of the identifier:
+/// uppercase → Public (exported), lowercase → Private (package-private).
+/// Computed directly from the name rather than the boolean cache so the
+/// rule is self-contained and survives any future divergence between
+/// `is_exported` and visibility classification.
+fn visibility_go(name: &str) -> SymbolVisibility {
+    if name.chars().next().is_some_and(|c| c.is_uppercase()) {
+        SymbolVisibility::Public
+    } else {
+        SymbolVisibility::Private
+    }
+}
+
+/// True iff `def_node` sits inside an `interface_type` body. Go interface
+/// method-set entries (parsed as `method_elem` in tree-sitter-go) have no
+/// implementation, so they are conceptually abstract. Concrete
+/// `method_declaration` nodes are never nested inside `interface_type`
+/// and so always return `false` here.
+fn is_abstract_go(def_node: tree_sitter::Node) -> bool {
+    let mut current = def_node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "interface_type" {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -25,9 +54,21 @@ const GO_SYMBOL_QUERY: &str = r#"
   (const_spec
     name: (identifier) @name) @definition)
 
-(var_declaration
-  (var_spec
-    name: (identifier) @name) @definition)
+(var_spec
+  name: (identifier) @name) @definition
+
+(parameter_declaration
+  name: (identifier) @name) @definition
+
+(variadic_parameter_declaration
+  name: (identifier) @name) @definition
+
+(short_var_declaration
+  left: (expression_list
+    (identifier) @name)) @definition
+
+(field_declaration
+  name: (field_identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -100,24 +141,38 @@ pub fn extract_symbols(
         let def_node = def_cap.node;
 
         let name = name_node.utf8_text(source).unwrap_or("").to_string();
-        if name.is_empty() {
+        if name.is_empty() || name == "_" {
+            // Skip blank identifier — not a binding in Go.
             continue;
         }
 
         let kind = determine_go_kind(def_node, source);
         let Some(kind) = kind else { continue };
 
-        let is_exported = name.chars().next().is_some_and(|c| c.is_uppercase());
+        let visibility = visibility_go(&name);
+        let is_exported = visibility == SymbolVisibility::Public;
+        // Go has no symbol-level async marker (`go` launches goroutines
+        // at call sites, not at definition sites) and no `static`
+        // keyword. Pointer- vs value-receiver methods are not modeled as
+        // symbol-level mutability.
+        let is_abstract = is_abstract_go(def_node);
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            is_async: false,
+            is_static: false,
+            is_abstract,
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -140,6 +195,11 @@ fn determine_go_kind(def_node: tree_sitter::Node, source: &[u8]) -> Option<Symbo
         }
         "const_spec" => Some(SymbolKind::Constant),
         "var_spec" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
+        "parameter_declaration" | "variadic_parameter_declaration" => {
+            Some(SymbolKind::Parameter)
+        }
+        "short_var_declaration" => Some(SymbolKind::Variable),
         _ => {
             // For parent nodes like type_declaration, const_declaration, var_declaration
             // walk children to find spec nodes
@@ -246,6 +306,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
             end_line: node.end_position().row as u32 + 1,
@@ -527,5 +589,66 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("package main");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_function_parameters() {
+        let syms = parse_and_extract(
+            "package main\nfunc add(x int, y int, rest ...int) int { return x + y }",
+        );
+        let x = syms
+            .iter()
+            .find(|s| s.name == "x")
+            .expect("parameter x present");
+        assert_eq!(x.kind, SymbolKind::Parameter);
+        let y = syms
+            .iter()
+            .find(|s| s.name == "y")
+            .expect("parameter y present");
+        assert_eq!(y.kind, SymbolKind::Parameter);
+        let rest = syms
+            .iter()
+            .find(|s| s.name == "rest")
+            .expect("variadic parameter rest present");
+        assert_eq!(rest.kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_short_var_declaration_local() {
+        let syms = parse_and_extract("package main\nfunc f() { x := 1; _ = x }");
+        let x = syms
+            .iter()
+            .find(|s| s.name == "x" && s.kind == SymbolKind::Variable)
+            .expect("local x present as Variable");
+        assert!(!x.is_exported);
+        // Blank identifier `_` must not be emitted.
+        assert!(syms.iter().all(|s| s.name != "_"));
+    }
+
+    #[test]
+    fn extract_var_spec_local() {
+        let syms = parse_and_extract("package main\nfunc f() { var foo int = 1; _ = foo }");
+        let foo = syms
+            .iter()
+            .find(|s| s.name == "foo")
+            .expect("local foo present");
+        assert_eq!(foo.kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_method_receiver_parameter() {
+        let syms = parse_and_extract(
+            "package main\ntype Foo struct{}\nfunc (f Foo) Bar(arg int) {}",
+        );
+        let recv = syms
+            .iter()
+            .find(|s| s.name == "f" && s.kind == SymbolKind::Parameter)
+            .expect("receiver f present as Parameter");
+        assert!(!recv.is_exported);
+        let arg = syms
+            .iter()
+            .find(|s| s.name == "arg")
+            .expect("method arg present");
+        assert_eq!(arg.kind, SymbolKind::Parameter);
     }
 }

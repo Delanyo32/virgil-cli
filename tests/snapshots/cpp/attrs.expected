@@ -1,0 +1,5 @@
+# Issue #15 fan-out baseline against benchmarks/cpp/data-processor.
+cpp_attrs_total = 968
+cpp_attrs_virtual = 50
+cpp_attrs_constexpr = 0
+cpp_attrs_template = 1

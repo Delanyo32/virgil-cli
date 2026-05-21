@@ -1,17 +1,22 @@
 //! Rust-side `--template` handlers.
 //!
-//! These templates escape Cozoscript because their inputs cannot be
-//! materialised as Cozo facts without duplicating source-of-truth:
+//! These templates can't be expressed in pure Cozoscript because their
+//! inputs require source-of-truth access beyond what's materialised in
+//! the fact store. Each handler returns a [`QueryOutput::Findings`]
+//! using the audit-shape columns so the CLI formatter treats it
+//! uniformly with pure-Cozoscript templates.
 //!
-//! - **complexity_hotspots** — metrics were deprecated from the schema
-//!   (issue 04); the handler re-uses the existing `compute_metric` stage.
-//! - **taint_paths** — CFG was deprecated (issue 03); the handler calls
-//!   into `src/graph/taint/`.
-//! - **unreleased_resources** — same; calls `src/graph/resource.rs`.
+//! Currently registered:
 //!
-//! Each handler returns a [`QueryOutput::Findings`] using the audit-shape
-//! columns so the CLI formats it uniformly with pure-Cozoscript
-//! templates.
+//! - **complexity_hotspots** — cyclomatic complexity + function length,
+//!   computed on-demand from each function's tree-sitter subtree (issue
+//!   #17). The old `start_line`/`end_line` columns on `symbol` are gone
+//!   (Datalog migration); spans come from the `span` relation.
+//!
+//! Old `taint_paths` / `unreleased_resources` handlers are not yet
+//! re-implemented — their underlying CFG/taint infra was deleted in the
+//! petgraph drop (commit bbf822d). They will land alongside whatever
+//! replacement analysis we build atop the new fact store.
 
 use std::collections::BTreeMap;
 
@@ -31,9 +36,9 @@ pub struct Context<'a> {
 
 pub type Handler = fn(&Context<'_>) -> Result<QueryOutput>;
 
-/// Returns a handler for the given template name, or `None` if no Rust-side
-/// handler exists (in which case `runner` falls through to the Cozoscript
-/// path).
+/// Returns a handler for the given template name, or `None` if no
+/// Rust-side handler exists (in which case `runner` falls through to the
+/// Cozoscript path).
 pub fn lookup(name: &str) -> Option<Handler> {
     match name {
         "complexity_hotspots" => Some(complexity_hotspots),
@@ -63,16 +68,17 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
     let cc_threshold = parse_int(ctx.params, "cc_threshold", 10);
     let length_threshold = parse_int(ctx.params, "length_threshold", 50);
 
-    // Pull function/method symbols and exclude test files in a single
-    // Cozoscript query — no in-memory graph walk required, so this works
-    // off a warm store without rebuilding the workspace.
+    // Pull function/method symbols + their spans, excluding test files.
+    // The new schema keeps positional metadata in `span`, not on
+    // `symbol`, so we join through it.
     let rows = ctx
         .store
         .run_query(
             "?[name, kind, file, start_line, end_line] := \
-             *symbol{name, kind, file_path: file, start_line, end_line}, \
+             *symbol{id, name, kind, file_path: file}, \
              kind in ['function', 'method', 'arrow_function'], \
-             *file_classification{path: file, is_test: false}",
+             *file_classification{path: file, is_test: false}, \
+             *span{entity_id: id, file_path: file, start_line, end_line}",
             BTreeMap::new(),
         )
         .map_err(|e| anyhow!("failed to query symbols: {e}"))?;

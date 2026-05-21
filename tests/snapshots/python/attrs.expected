@@ -1,0 +1,5 @@
+# Issue #15 fan-out baseline against benchmarks/python/technical-debt.
+py_attrs_total = 676
+py_attrs_generator = 1
+py_attrs_coroutine = 3
+py_attrs_with_decorators = 0

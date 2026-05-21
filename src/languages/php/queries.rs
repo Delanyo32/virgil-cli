@@ -6,7 +6,72 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a PHP definition.
+///
+/// - Class members (`method_declaration`, `property_declaration`,
+///   `const_declaration`): read the literal text of the
+///   `visibility_modifier` child. `public` → Public, `private` →
+///   Private, `protected` → Protected, absent → Public (PHP default).
+/// - Top-level definitions (functions, classes, interfaces, traits,
+///   enums, namespaces): always Public — PHP has no module-level
+///   visibility keyword.
+/// - Parameters and function-local variables: Private (no external
+///   visibility, mirrors the Rust pilot).
+fn visibility_php(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "simple_parameter"
+        | "variadic_parameter"
+        | "property_promotion_parameter"
+        | "assignment_expression" => return SymbolVisibility::Private,
+        "method_declaration" | "property_declaration" | "const_declaration" => {
+            let mut cursor = def_node.walk();
+            for child in def_node.children(&mut cursor) {
+                if child.kind() == "visibility_modifier" {
+                    let text = child.utf8_text(source).unwrap_or("").trim();
+                    return match text {
+                        "public" => SymbolVisibility::Public,
+                        "private" => SymbolVisibility::Private,
+                        "protected" => SymbolVisibility::Protected,
+                        _ => SymbolVisibility::Public,
+                    };
+                }
+            }
+            // No explicit modifier → PHP default is Public.
+            SymbolVisibility::Public
+        }
+        _ => SymbolVisibility::Public,
+    }
+}
+
+/// True if `def_node` carries a `static_modifier` child (or a bare
+/// `static` keyword token in its modifiers). PHP method/property
+/// staticness is encoded on the declaration node itself.
+fn is_static_php(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        match child.kind() {
+            "static_modifier" | "static" => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// True if `def_node` carries an `abstract_modifier` (or a bare
+/// `abstract` keyword token). Applies to class and method
+/// declarations.
+fn is_abstract_php(def_node: tree_sitter::Node) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        match child.kind() {
+            "abstract_modifier" | "abstract" => return true,
+            _ => {}
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -35,6 +100,29 @@ const PHP_SYMBOL_QUERY: &str = r#"
 
 (namespace_definition
   name: (namespace_name) @name) @definition
+
+; Parameters — PHP wraps a parameter's identifier in `variable_name` (which
+; carries the `$`). Capturing the inner `name` strips the dollar sign so
+; emitted symbol names match the contract (`docs/references-php.md`) —
+; `occurrence.name` keeps `$`, `binding.name` does not. The
+; `property_promotion_parameter` covers PHP 8 constructor promoted props.
+(simple_parameter
+  name: (variable_name (name) @name)) @definition
+
+(variadic_parameter
+  name: (variable_name (name) @name)) @definition
+
+(property_promotion_parameter
+  name: (variable_name (name) @name)) @definition
+
+; Locals — PHP has no `let`. A variable is bound at its first assignment
+; in a given scope. Capture every `assignment_expression` whose LHS is a
+; plain `variable_name`; dedupe per (enclosing-function, name) downstream
+; so only the FIRST assignment becomes a symbol row. Subsequent
+; assignments are writes against the same binding (per
+; `docs/references-php.md` write semantics).
+(assignment_expression
+  left: (variable_name (name) @name)) @definition
 "#;
 
 // ── Import queries ──
@@ -98,7 +186,10 @@ pub fn extract_symbols(
     let name_idx = query.capture_index_for_name("name");
     let definition_idx = query.capture_index_for_name("definition");
 
-    let mut symbols = Vec::new();
+    // Collect candidates first so we can sort by source order and
+    // deterministically apply the "first assignment wins" dedupe for
+    // function-local variables (mirrors the Python extractor).
+    let mut candidates: Vec<(tree_sitter::Node, Option<String>)> = Vec::new();
 
     while let Some(m) = matches.next() {
         let def_cap = definition_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
@@ -107,6 +198,24 @@ pub fn extract_symbols(
         };
         let def_node = def_cap.node;
 
+        let name_text = name_idx
+            .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
+            .map(|cap| cap.node.utf8_text(source).unwrap_or("").to_string());
+
+        candidates.push((def_node, name_text));
+    }
+
+    candidates.sort_by_key(|(n, _)| n.start_byte());
+
+    let mut symbols = Vec::new();
+    // (enclosing_function_id, name) seen for local-variable dedupe — keep
+    // only the FIRST assignment per name per function scope, per issue #11
+    // ("first assignment within a function scope"). Assignments outside
+    // any function (top-level PHP script vars) are not emitted as Variable
+    // symbols — see determine_php_kind below.
+    let mut seen_locals: HashSet<(usize, String)> = HashSet::new();
+
+    for (def_node, name_capture) in candidates {
         let kind = determine_php_kind(def_node);
         let Some(kind) = kind else { continue };
 
@@ -116,35 +225,76 @@ pub fn extract_symbols(
         } else if def_node.kind() == "const_declaration" {
             extract_const_name(def_node, source)
         } else {
-            let name_cap = name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
-            name_cap.and_then(|cap| {
-                let text = cap.node.utf8_text(source).unwrap_or("");
-                if text.is_empty() {
-                    None
-                } else {
-                    Some(text.to_string())
-                }
-            })
+            name_capture.filter(|s| !s.is_empty())
         };
 
         let Some(name) = name else { continue };
 
+        // Function-local assignment dedupe: only the first `$x = …` inside
+        // a given function counts as the binding site. Subsequent
+        // re-assignments are writes against the same binding.
+        if def_node.kind() == "assignment_expression" && kind == SymbolKind::Variable {
+            let Some(scope) = enclosing_function_node(def_node) else {
+                // Top-level assignment (not inside a function) — PHP allows
+                // this but per the contract we only emit locals at
+                // function scope. Skip.
+                continue;
+            };
+            let key = (scope.id(), name.clone());
+            if !seen_locals.insert(key) {
+                continue;
+            }
+        }
+
         let is_exported = is_exported_php(def_node, source);
+        let visibility = visibility_php(def_node, source);
+        let is_static = is_static_php(def_node);
+        let is_abstract = is_abstract_php(def_node);
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: (def_node.start_position().row + 1) as u32,
             start_column: def_node.start_position().column as u32,
             end_line: (def_node.end_position().row + 1) as u32,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // PHP has no async keyword on functions; fibers/coroutines
+            // are not symbol-level markers.
+            is_async: false,
+            is_static,
+            is_abstract,
+            // PHP has no per-symbol mutability marker (no `let mut`,
+            // no `final` propagation here — `final` lives in
+            // `php_attrs.is_final` per docs/attrs-php.md).
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
 
     symbols
+}
+
+/// Walk up from `node` to the nearest enclosing PHP function-like scope.
+/// Returns `None` if `node` is at file (top-level) scope. Used to
+/// scope-key the "first assignment" dedupe for local variables.
+fn enclosing_function_node(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "function_definition"
+            | "method_declaration"
+            | "anonymous_function"
+            | "anonymous_function_creation_expression"
+            | "arrow_function" => return Some(parent),
+            _ => current = parent.parent(),
+        }
+    }
+    None
 }
 
 fn determine_php_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
@@ -155,9 +305,17 @@ fn determine_php_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "trait_declaration" => Some(SymbolKind::Trait),
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" => Some(SymbolKind::Method),
-        "property_declaration" => Some(SymbolKind::Property),
+        "property_declaration" => Some(SymbolKind::Field),
         "const_declaration" => Some(SymbolKind::Constant),
         "namespace_definition" => Some(SymbolKind::Namespace),
+        // Parameter shapes — `property_promotion_parameter` is also a
+        // Parameter binding in the constructor scope. The fact that it
+        // doubles as a class property declaration is recorded by a
+        // separate occurrence/field row downstream (per references-php.md).
+        "simple_parameter" | "variadic_parameter" | "property_promotion_parameter" => {
+            Some(SymbolKind::Parameter)
+        }
+        "assignment_expression" => Some(SymbolKind::Variable),
         _ => None,
     }
 }
@@ -441,6 +599,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: (node.start_position().row + 1) as u32,
             start_column: node.start_position().column as u32,
             end_line: (node.end_position().row + 1) as u32,
@@ -688,7 +848,7 @@ mod tests {
         let syms = parse_and_extract("<?php\nclass Foo { public $name = 'test'; }");
         let p = syms.iter().find(|s| s.name == "name");
         assert!(p.is_some());
-        assert_eq!(p.unwrap().kind, SymbolKind::Property);
+        assert_eq!(p.unwrap().kind, SymbolKind::Field);
         assert!(p.unwrap().is_exported);
     }
 
@@ -797,5 +957,55 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("<?php");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_function_parameters() {
+        let syms = parse_and_extract("<?php\nfunction add($a, $b) { return $a + $b; }");
+        let a = syms.iter().find(|s| s.name == "a" && s.kind == SymbolKind::Parameter);
+        let b = syms.iter().find(|s| s.name == "b" && s.kind == SymbolKind::Parameter);
+        assert!(a.is_some(), "expected parameter `a`, got: {:?}", syms);
+        assert!(b.is_some(), "expected parameter `b`, got: {:?}", syms);
+        // Names must NOT include the `$` prefix.
+        assert!(syms.iter().all(|s| !s.name.starts_with('$')));
+    }
+
+    #[test]
+    fn extract_local_variable_first_assignment() {
+        let syms = parse_and_extract(
+            "<?php\nfunction tally() { $x = 1; $x = 2; $y = 3; }",
+        );
+        let xs: Vec<_> = syms
+            .iter()
+            .filter(|s| s.name == "x" && s.kind == SymbolKind::Variable)
+            .collect();
+        let ys: Vec<_> = syms
+            .iter()
+            .filter(|s| s.name == "y" && s.kind == SymbolKind::Variable)
+            .collect();
+        assert_eq!(xs.len(), 1, "expected exactly one Variable for `x`, got: {:?}", syms);
+        assert_eq!(ys.len(), 1, "expected exactly one Variable for `y`, got: {:?}", syms);
+        // Names must NOT include the `$` prefix.
+        assert!(syms.iter().all(|s| !s.name.starts_with('$')));
+    }
+
+    #[test]
+    fn extract_constructor_promoted_properties() {
+        let syms = parse_and_extract(
+            "<?php\nclass User { public function __construct(public string $name, private int $age) {} }",
+        );
+        let name = syms.iter().find(|s| s.name == "name" && s.kind == SymbolKind::Parameter);
+        let age = syms.iter().find(|s| s.name == "age" && s.kind == SymbolKind::Parameter);
+        assert!(name.is_some(), "expected promoted parameter `name`, got: {:?}", syms);
+        assert!(age.is_some(), "expected promoted parameter `age`, got: {:?}", syms);
+        assert!(syms.iter().all(|s| !s.name.starts_with('$')));
+    }
+
+    #[test]
+    fn variadic_parameter_emitted() {
+        let syms = parse_and_extract("<?php\nfunction sum(int ...$nums) {}");
+        let n = syms.iter().find(|s| s.name == "nums" && s.kind == SymbolKind::Parameter);
+        assert!(n.is_some(), "expected variadic parameter `nums`, got: {:?}", syms);
+        assert!(syms.iter().all(|s| !s.name.starts_with('$')));
     }
 }

@@ -1,10 +1,16 @@
-# find_cycles — files that participate in an import cycle.
-# No params.
-# Output rows: (file, partner) for each pair (sorted, file < partner).
-# Example:
-#   --template find_cycles
+# find_cycles — surface call-graph cycles.
+# Reports each cycle as a (a_name, b_name) pair where a calls b transitively
+# and b calls a transitively. To keep output finite, only the seed pair is
+# returned — walk `calls` further from either endpoint to enumerate the
+# full cycle path.
 
-reach[a, b] := *edge_imports{from_path: a, to_path: b}
-reach[a, c] := reach[a, b], *edge_imports{from_path: b, to_path: c}
-?[file, partner] := reach[file, partner], reach[partner, file], file < partner
-:order file, partner
+reachable[a, b] := *calls{caller_id: a, callee_id: b}
+reachable[a, b] := reachable[a, mid], *calls{caller_id: mid, callee_id: b}
+
+?[a_name, b_name, a_id, b_id] :=
+    reachable[a_id, b_id],
+    reachable[b_id, a_id],
+    a_id < b_id,
+    *symbol{id: a_id, name: a_name},
+    *symbol{id: b_id, name: b_name}
+:order a_name, b_name

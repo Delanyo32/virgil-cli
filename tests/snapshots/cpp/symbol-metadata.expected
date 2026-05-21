@@ -1,0 +1,13 @@
+# C++ symbol-metadata snapshot — counts of populated `symbol` columns
+# (issue #12). Probed on cpp/data-processor; update only alongside
+# intentional extractor changes.
+public_count=359
+private_count=609
+internal_count=0
+protected_count=0
+qualified_name_count=919
+parent_id_count=919
+is_async_count=0
+is_static_count=1
+is_abstract_count=0
+is_mutable_count=0

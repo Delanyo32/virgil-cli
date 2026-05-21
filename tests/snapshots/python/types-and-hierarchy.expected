@@ -1,0 +1,16 @@
+# Issue #13 fan-out baseline against benchmarks/python/technical-debt.
+type_total = 35
+type_primitive = 14
+type_named = 20
+type_generic = 1
+type_tuple = 0
+type_array = 0
+type_function = 0
+type_intersection = 0
+type_resolved_canonical = 31
+parameter_total = 1144
+parameter_with_type = 30
+returns_total = 19
+extends_total = 28
+implements_total = 0
+field_type_total = 0

@@ -1,17 +1,12 @@
-# find_callees — transitive callees of a function up to max_depth.
+# find_callees — list every direct function/method that `$name` calls.
 # Params:
-#   $target — name of the function whose callees to find.
-#   $max_depth — integer upper bound on hops (typical: 3).
-# Example:
-#   --template find_callees --param target=login --param max_depth=3
+#   $name — short name of the caller.
 
-callee[c, d] := d = 1,
-                *edge_calls{caller_id: s, callee_id: c},
-                *symbol{id: s, name: $target}
-callee[c, d] := callee[m, d_prev],
-                d_prev < $max_depth,
-                d = d_prev + 1,
-                *edge_calls{caller_id: m, callee_id: c}
-?[callee_name, callee_file, depth] :=
-    callee[c, depth], *symbol{id: c, name: callee_name, file_path: callee_file}
-:order depth, callee_file, callee_name
+?[caller, callee, callee_file, callee_line, call_site_start_byte] :=
+    *symbol{id: caller_id, name},
+    name = $name,
+    *calls{caller_id, callee_id, call_site_start_byte},
+    *symbol{id: callee_id, name: callee, file_path: callee_file},
+    *span{entity_id: callee_id, file_path: callee_file, start_line: callee_line},
+    caller = name
+:order callee_file, callee_line

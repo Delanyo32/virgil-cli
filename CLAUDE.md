@@ -35,8 +35,8 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
 - `src/queries/` — user-facing query surface
   - `runner.rs` — `run(QueryRequest)`: loads/dispatches, detects audit-shape output
   - `templates.rs` — embeds `builtin/*.cozoql` via `include_dir`
-  - `rust_templates.rs` — handlers that need source access (complexity_hotspots, taint_paths, unreleased_resources)
-  - `builtin/*.cozoql` — 7 pure-Cozoscript templates (find_callers/callees/cycles, find_function_by_name, export_surface, import_depth, unused_symbols)
+  - `rust_templates.rs` — handlers that need source access (currently only `complexity_hotspots`; `taint_paths`/`unreleased_resources` deferred until replacement CFG infra lands)
+  - `builtin/*.cozoql` — 9 pure-Cozoscript templates (find_callers/callees/cycles, find_function_by_name, find_implementations_of, find_writers_of, export_surface, import_depth, unused_symbols)
 - `src/graph/` — build-time graph data structures and builder
   - `mod.rs` — `CodeGraph` (Vec-backed adjacency lists; no petgraph), `NodeWeight`, `EdgeWeight`, `NodeIndex = usize`
   - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`); `find_node_at_line` used by `complexity_hotspots`
@@ -111,8 +111,14 @@ Name-based resolution via `symbols_by_name` lookup — heuristic only, no type i
 **Cozo store lifecycle**
 The query pipeline builds the `CodeGraph` first, then calls `cozo::populate(&store, &graph, Some(&workspace))` to materialise the cross-function relations + `file_classification` + `nolint` into an in-memory `CozoStore`. `NodeIndex::index()` is used as the monotonic `Int` id for `symbol`/`callsite` rows. On-disk persistence is a separate follow-up issue.
 
-**Three Rust-side templates, not pure Cozoscript**
-`complexity_hotspots` lives in `src/queries/rust_templates.rs`. It escapes Cozoscript because metrics aren't materialised as facts — the handler queries `*symbol` + `*file_classification` from Cozo, then calls `graph::metrics::compute_*` on demand for each function. All other built-in templates are pure Cozoscript.
+**Rust-side template, not pure Cozoscript**
+`complexity_hotspots` lives in `src/queries/rust_templates.rs`. It escapes Cozoscript because metrics aren't materialised as facts — the handler queries `*symbol` + `*span` + `*file_classification` from Cozo, then calls `graph::metrics::compute_*` on demand for each function. All other built-in templates are pure Cozoscript.
+
+**`throws` extraction is not uniform across languages**
+Java extracts the declared `throws` clause on method/constructor declarations. C# and PHP have no declared throws keyword — `extract_throws` walks `throw_statement` / `throw_expression` nodes and pulls the exception type out of `throw new X(...)` forms only. Re-throws and variable re-raise (`throw e;`) have no static type and emit no row. Other 6 languages return an empty `Vec<ThrowsRow>`. `from_code_graph::emit_types_and_hierarchy` synthesises a `*type{kind: "named"}` row when an exception type wasn't already seen by `extract_types`, so the 3-way JOIN through `*type` succeeds.
+
+**Python class-body assignments emit `Field` symbols**
+`class C: x: int = 5` (and untyped `x = 5`) produce a `kind=field` `Symbol` row in addition to whatever the type extractor emits. This is what makes `*symbol{kind: "field"} JOIN *field_type` non-empty.
 
 **Persistence + warm-start**
 `CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.cozo`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold ~850ms, warm ~17ms on the reference workspace.

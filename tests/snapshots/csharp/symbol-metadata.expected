@@ -1,0 +1,13 @@
+# C# symbol-metadata snapshot — counts of populated `symbol` columns
+# (issue #12). Probed on csharp/dotnet-api; update only alongside
+# intentional extractor changes.
+public_count=623
+private_count=1038
+internal_count=0
+protected_count=5
+qualified_name_count=1605
+parent_id_count=1605
+is_async_count=111
+is_static_count=49
+is_abstract_count=66
+is_mutable_count=0

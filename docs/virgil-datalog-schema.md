@@ -104,6 +104,11 @@ The big shift: in RDF the schema declares relationships *and* their transitive/i
     is_direct: Bool,
 }
 
+# `references` is a DERIVED view per ADR-0005, computed by Cozoscript
+# rules in `docs/resolution.md` from `occurrence` + `scope` + `binding`
+# + `imports`. Extractors do NOT populate this relation directly.
+# The shape is preserved so downstream queries against `*references{...}`
+# keep working; the resolver materialises the rows on (re)build.
 :create references {
     referrer_id: String,
     site_file: String,
@@ -112,6 +117,54 @@ The big shift: in RDF the schema declares relationships *and* their transitive/i
                                 # 1+ for additional overload candidates at the same site
     referent_id: String?,       # null when the identifier can't be resolved to a symbol
     ref_kind: String,           # "read", "write", "type_use", "import_use"
+}
+
+# ─── ADR-0005 fact-emission relations ──────────────────────────────────
+# Populated by per-language extractors. The Cozoscript resolver consumes
+# these to materialise `references` (and, in a later phase, `calls`).
+
+# Every identifier occurrence in source code. Resolution turns each
+# occurrence into zero-or-more `references` rows via scope + import
+# walking.
+:create occurrence {
+    id: String =>              # `path|start_byte|name|occurrence_kind`
+    name: String,              # textual identifier as written in source
+    file_path: String,
+    start_byte: Int,
+    end_byte: Int,
+    enclosing_symbol_id: String?,  # innermost symbol containing the occurrence
+    enclosing_scope_id: String,    # innermost lexical scope
+    occurrence_kind: String,   # "call", "read", "write", "type_use", "import_use"
+}
+
+# Lexical scope chain per file. `parent_id = null` for the file/module
+# scope. Each scope has a kind so the resolver can apply per-kind rules
+# (e.g. function parameters shadow module bindings).
+:create scope {
+    id: String =>              # `file_path|start_byte|kind`
+    parent_id: String?,
+    file_path: String,
+    kind: String,              # "file", "module", "namespace", "class",
+                               # "function", "block"
+    start_byte: Int,
+    end_byte: Int,
+}
+
+# A name → symbol_id binding within a specific scope. Covers
+# definitions (`fn foo` binds `foo` in its enclosing scope), parameter
+# declarations, import aliases (`import { foo as bar }` binds `bar`),
+# and wildcard imports (one row per imported file with name = "*").
+#
+# Multiple bindings to the same (scope_id, name) are allowed when the
+# language permits shadowing in the same scope (Rust `let` rebinding);
+# the resolver picks by `start_byte` order.
+:create binding {
+    scope_id: String,
+    name: String,
+    start_byte: Int =>         # disambiguator + ordering key
+    symbol_id: String?,        # null when the target is external/unknown
+    binding_kind: String,      # "definition", "parameter", "import",
+                               # "import_alias", "wildcard_import"
 }
 
 :create extends {

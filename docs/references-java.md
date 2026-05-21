@@ -1,420 +1,411 @@
 # References — Java
 
-Per [ADR-0003](adr/0003-level-3-types-and-references.md), every
-identifier occurrence in Java source gets a `references` row. The
-four `ref_kind` values (`read`, `write`, `type_use`, `import_use`)
-partition all occurrences. Updated per `docs/contract-review.md`
-(policy 1): the schema now keys `references` by
-`(referrer_id, site_file, site_start_byte, match_index)` with
-`referent_id` nullable in the value position. Unresolvable
-references emit a single row with `referent_id = null` (the
-previous Java-specific "skip" behavior is replaced with the
-cross-language null-row convention). `match_index = 0` for the
-primary/only candidate; overload resolution emits additional rows
-at `match_index = 1, 2, ...` sharing the same site.
+Per [ADR-0005](adr/0005-datalog-resolution.md), this contract describes
+**fact emission** only. The Java extractor emits `occurrence`, `scope`,
+and `binding` rows. Resolution (turning each `occurrence` into a
+`referent_id` in `references`) lives in `docs/resolution.md` as
+Cozoscript rules that apply uniformly across all languages. No
+`references` rows are produced by the extractor.
 
-## Lexical scope rules
+Symbol IDs in worked examples follow
+[ADR-0002](adr/0002-symbol-id-scheme.md):
+`path|start_line|start_col|name|kind`. `start_byte` values are the
+tree-sitter `Range.start_byte` of the relevant node (no trivia
+adjustment).
 
-Java has nested static scoping with four scope levels relevant to the
-extractor:
+> **Prerequisite — review item 7.** The Java extractor in
+> `src/languages/java/queries.rs` does not currently emit `parameter` or
+> local-variable symbol rows. This contract assumes
+> [Issue #11](../../../) (parameter/local extraction) lands **before**
+> [Issue #16](../../../). The `binding` rows of `binding_kind =
+> "parameter"` produced here reference those symbol rows by id. Until
+> Issue #11 lands, the parameter bindings still get emitted with their
+> ADR-0002 ids, but the matching `symbol` rows won't exist and the
+> resolver will treat references to them as unresolved.
 
-1. **Block scope.** Every `{ … }` opens a new scope. `for`, `try`,
-   `catch`, `if`, `while`, `switch`, lambda bodies, and the
-   parenthesised header of a `for` statement (`for (int i = …)`) all
-   introduce block scope.
-2. **Method scope.** Method/constructor parameters and type parameters
-   (`<T>`) live one level above the body block. Lambda parameters
-   create their own method-like scope nested under the enclosing method.
-3. **Class scope.** Fields, nested types, and methods declared in a
-   `class` / `interface` / `enum` / `record` / `annotation_type_declaration`
-   body. Static and instance members share the same name space for
-   lookup; the resolver does not distinguish them.
-4. **Compilation-unit (file) scope.** Top-level types declared in the
-   file plus the `package` declaration's contents. Java has no
-   first-class module scope below the package — all top-level types in
-   a package are mutually visible.
+## Scope tree
 
-### Lookup walk
+Java's lexical scopes that the extractor emits as `scope` rows:
 
-For a bare `identifier` token at some source position, the resolver
-walks outward in this order and **stops at the first match**:
+| Java construct | tree-sitter node | `scope.kind` | Notes |
+|---|---|---|---|
+| Compilation unit (file) | the `program` root | `"file"` | One per file; `parent_id = null`. The package declaration's name is not a separate scope — package membership is recorded via `imports` and via top-level type visibility, not via a `scope` row. |
+| Package (compile-unit grouping) | not directly a node | `"module"` | Java has **one** package per file; the file scope's `kind` is `"file"`. The contract emits **no** separate `"module"` scope row for the package — package-level resolution is done by the resolver using `imports` plus file-scope bindings of indexed same-package types. |
+| Top-level class / interface / enum / record / annotation type | `class_declaration`, `interface_declaration`, `enum_declaration`, `record_declaration`, `annotation_type_declaration` | `"class"` | One public class per `.java` file is the JLS rule; the extractor emits one `"class"` scope per type body regardless. |
+| Inner class / nested class / local class | `class_declaration` etc. inside another type or block | `"class"` | Each inner class gets its own class scope; `parent_id` is the enclosing class or block. |
+| Anonymous class | `object_creation_expression` whose `class_body` child is present | `"class"` | The `class_body` opens a new class scope whose `parent_id` is the enclosing block. |
+| Method / constructor | `method_declaration`, `constructor_declaration` | `"function"` | Parameters and the body share the same `"function"` scope. Type parameters `<T>` are also bound here. |
+| Static initializer | `static_initializer` | `"function"` | Treated as its own function-like scope so that locals declared in it don't leak to peer initializers. |
+| Instance initializer | `block` directly in a class body | `"function"` | Same treatment as static initializers. |
+| Lambda | `lambda_expression` | `"function"` | The lambda parameters and the lambda body share one `"function"` scope, parented to the enclosing block. Single-expression lambdas (no braces) still get a scope row. |
+| Block | every `{ ... }` (`block`, `constructor_body`, `enhanced_for_statement` body, `catch_clause` body, etc.) | `"block"` | One per syntactic block, parented to the innermost enclosing scope. |
+| `for`-header | `for_statement` parenthesised header | `"block"` | A separate block scope wrapping the body so that loop-declared variables (`for (int i = 0; …)`) shadow names in the enclosing block but not in sibling statements. |
+| `try`-with-resources header | `try_with_resources_statement` resource list | `"block"` | Wraps the `try` body so the resource variable is visible only inside the `try`/`catch`/`finally`. |
+| `catch` parameter | `catch_clause` | `"block"` | The catch clause opens a block scope holding the catch parameter binding(s). |
 
-1. Innermost enclosing block (locals, including catch parameters,
-   for-loop variables, lambda parameters).
-2. Each enclosing block, walking out to the method body.
-3. Method parameters and method-level type parameters of the enclosing
-   method / constructor / lambda.
-4. Class scope of the enclosing type — instance fields, static fields,
-   inner type names, methods of this class.
-5. Class scope of each enclosing outer type (for nested classes), from
-   innermost to outermost.
-6. Supertypes of the enclosing type — fields and methods inherited from
-   the `extends` chain and implemented `implements` interfaces, when
-   those types are indexed. Inherited names resolve to the supertype's
-   declaration `symbol_id`. If the supertype is not indexed, the
-   identifier is unresolved.
-7. File-level: other top-level types in the same file.
-8. Single-type imports.
-9. Same-package types.
-10. On-demand `*` imports (only when exactly one candidate exists).
-11. Static-member imports (`import static x.y.Z.METHOD;` makes
-    `METHOD` resolvable as if locally bound at file scope).
-12. `java.lang` prelude (whitelist in `types-java.md`).
+`parent_id` of each emitted scope is the innermost enclosing scope.
+`scope.id = file_path|start_byte|kind` per the schema.
 
-### Shadowing
+### What does NOT open its own scope
 
-- **Inner binding wins.** A local variable named `count` shadows a
-  field named `count` for the duration of the local's scope. The
-  resolver emits `referent_id = <local symbol id>` for those
-  occurrences and **only** the local id — the shadowed field is not
-  recorded as a second match.
-- An access prefixed with `this.` always bypasses local-variable
-  shadowing and resolves to the field on the enclosing instance type.
-- An access prefixed with `super.` resolves against the direct
-  superclass's scope, skipping the enclosing class.
-- A `for`-loop header variable shadows any same-named variable in the
-  enclosing block; the loop body sees the loop variable.
-- Method parameters shadow class fields. The body's bare `count`
-  resolves to the parameter.
+- `if` / `else` branches without explicit braces — only the wrapped
+  block opens a scope; a single-statement `if x;` does not.
+- Switch statement bodies — the `switch_block` is a single `"block"`
+  scope; individual `case` labels do **not** open sub-scopes.
+- The annotation list above a declaration — annotations live in the
+  enclosing scope; they don't introduce a scope of their own.
 
-### Module-qualified names
+## Bindings
 
-Java does not use `::` like C++; qualification is always dot-separated
-and parsed as either `field_access` (instance / static member) or
-`scoped_type_identifier` (type qualification). Resolution rules:
+For each `binding_kind`, the AST patterns the extractor recognises.
+`binding.id` is keyed by `(scope_id, name, start_byte)`; `symbol_id` is
+the target `symbol.id` when indexed, else `null`.
 
-- `Foo.bar` where `Foo` is an indexed type → `bar` resolves to a
-  member of `Foo` (field, method, or nested type). The `Foo` token gets
-  its own `references` row (`ref_kind = "read"` for a static-member
-  access, `"type_use"` if `Foo.bar` itself appears in a type position
-  such as `Foo.Bar inner`).
-- `a.b.c.D` (fully-qualified type) emits one `type_use` row for `D`
-  with `referent_id` set to the resolved type. Intermediate package
-  segments (`a`, `b`, `c`) do **not** emit rows — packages are not
-  `symbol` rows in the schema.
-- `this.field` — `field` resolves to the field on the enclosing class;
-  `this` itself does **not** emit a row.
-- `super.method()` — `method` resolves on the superclass; `super` does
-  not emit a row.
+### `definition`
 
-## `ref_kind` decision tree
+A site that introduces a name in its enclosing scope. The `symbol_id`
+is the same id the `symbol` extractor emits for the definition.
 
-The four values are mutually exclusive and exhaustive over the
-identifier occurrences this extractor emits. Decide in this order:
+| Java construct | Bound name | Bound in scope |
+|---|---|---|
+| `class_declaration` / `interface_declaration` / `enum_declaration` / `record_declaration` / `annotation_type_declaration` | type's simple name | enclosing file or class scope (top-level types live in the file scope; nested types live in the class scope of the enclosing type) |
+| `method_declaration` | method name | enclosing class scope |
+| `constructor_declaration` | the enclosing class's name | enclosing class scope (note: Java permits multiple constructors with the same name; the resolver disambiguates via `match_index` per [ADR-0003](adr/0003-level-3-types-and-references.md)) |
+| `field_declaration` (each `variable_declarator` inside it) | field name | enclosing class scope |
+| `enum_constant` | constant name | enclosing class (enum) scope |
+| `record_component` | component name | enclosing class scope and as a parameter for the canonical constructor (one `definition` row plus one `parameter` row) |
+| `static_initializer` | no `definition` row (no introduced name) | — |
 
-### `import_use`
+### `parameter`
 
-The identifier sits anywhere inside an `import_declaration` node,
-including the static variant.
+Method, constructor, and lambda parameter declarations. Emitted in the
+enclosing function scope.
 
-- `import com.example.inventory.dto.ProductDTO;` — the final identifier
-  `ProductDTO` is the import target; emit `import_use` whose
-  `referent_id` is the imported symbol if indexed.
-- `import static java.lang.Math.PI;` — final identifier `PI` is the
-  imported static field; emit `import_use`.
-- Intermediate package segments do **not** emit rows.
-- Wildcard imports (`import x.y.*;`) emit zero rows — there is no single
-  imported identifier.
+| Source | `name` | `scope_id` |
+|---|---|---|
+| `formal_parameter` inside a `method_declaration` | parameter name | the method's `"function"` scope |
+| `formal_parameter` inside a `constructor_declaration` | parameter name | the constructor's `"function"` scope |
+| `inferred_parameters` and `formal_parameters` inside a `lambda_expression` | each parameter name | the lambda's `"function"` scope |
+| `catch_formal_parameter` inside a `catch_clause` | exception variable name | the catch clause's `"block"` scope |
+| `resource` inside a `try_with_resources_statement` (declared variable) | resource variable name | the try-resources `"block"` scope |
+| `local_variable_declaration` | declared variable name | enclosing `"block"` scope (a *local* binding, but encoded as `binding_kind = "parameter"` per ADR-0005 because parameter and local both denote a function-scoped or block-scoped name resolved via the `symbol` row — see [Issue #11](../../../)) |
+| `enhanced_for_statement` declared variable (`for (Foo x : items)`) | loop variable | the `for`-header `"block"` scope |
 
-### `type_use`
+> The `binding_kind` enum in the schema (`docs/virgil-datalog-schema.md`)
+> spans `definition`, `parameter`, `import`, `import_alias`,
+> `wildcard_import`. Locals are emitted as `parameter` (the schema's
+> name for "scope-resolved, non-import binding rooted in a `symbol`
+> row"). If a future schema introduces a distinct `local` kind, this
+> contract gets updated; until then, all in-function bindings to symbol
+> rows go through `parameter`.
 
-The identifier sits inside a tree-sitter node that ends up emitting (or
-being part of) a `type` row per `types-java.md`. Specifically:
+`symbol_id` matches the `symbol` row produced by the parameter/local
+extractor in Issue #11.
 
-- Parameter type, return type, field type, local variable declared type.
-- `extends` / `implements` clauses on a class or interface.
-- `throws` clause exception types.
-- `catch` parameter types (including each side of a `union_type`).
-- Generic argument identifiers (each `type_identifier` inside
-  `type_arguments`).
-- Cast target (`(Foo) x` — `Foo` is `type_use`).
-- `instanceof` target.
-- Bounds on type parameters: `<T extends A & B>` — both `A` and `B` are
-  `type_use`.
-- `new Foo()` — `Foo` is `type_use` (this is the constructor target;
-  the *call* edge lives in `calls`, but the identifier kind is
-  `type_use`).
-- Annotation target name (`@Service` — `Service` is `type_use`).
-- Static-context resolution: in `Class.field`, the `Class` token's kind
-  is `type_use` when `Class` is a type name; in `obj.field` (where
-  `obj` is a variable), `obj`'s kind is `read`.
+### `import`
 
-### `write`
+Plain single-type imports. Bound in the file scope.
 
-The identifier is the **target** of an assignment or a mutating
-operation in source. Specifically:
+- `import_declaration` of the form `import a.b.C;` — emits one
+  `import` binding with `name = "C"`, `scope_id` = the file's
+  `"file"` scope, `symbol_id` = the imported type's `symbol.id` if the
+  target file is indexed, else `null`.
+- `import_declaration static` of the form
+  `import static a.b.X.METHOD;` — emits one `import` binding with
+  `name = "METHOD"`, `scope_id` = file scope, `symbol_id` pointing at
+  the static member (method or field) if indexed. **Static imports are
+  emitted as plain `import` bindings, not as `import_alias`** — Java
+  has no syntactic alias; the bound name equals the trailing
+  identifier of the import path.
 
-- Left-hand side of `=`, including the leaf of a `field_access`
-  (`product.setName(…)` — note: `setName` is *not* a write, it's a
-  method call which emits a `read` row; only the JLS assignment forms
-  count here). For the field leaf itself, a `write` row is emitted
-  **only** when the field has a known `symbol_id` in the store (per
-  `docs/contract-review.md`, policy 5). Fields not extracted as
-  symbols produce no field-level row.
-- Left-hand side of compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`,
-  `&=`, `|=`, `^=`, `<<=`, `>>=`, `>>>=`) — one `write` row, no
-  separate `read`. Per `docs/contract-review.md`: compound
-  assignment is single-row `write` at Level 3.
-- Operand of `++` / `--` (prefix or postfix) — single `write` row.
-- The declared name in a `variable_declarator` *only when* the
-  declarator has an initializer (`int x = 5;` — `x` is a `write`; bare
-  `int x;` does not emit a row for `x` because there's no use, only a
-  declaration which already lives in `symbol`).
-- Initialiser-only field declarations are treated the same way.
+### `import_alias`
 
-Setter calls (`product.setName(…)`) are not writes at the JLS level —
-they are method invocations. The contract therefore emits `read` for
-the receiver `product` and the call itself is captured by `calls`.
+**Java has no `import as` syntax.** The `import_alias` kind is therefore
+**never** emitted by the Java extractor. This is an explicit
+non-finding: if a Java-aware audit needs to know "all aliased
+imports", the answer over a Java workspace is always the empty set.
+
+### `wildcard_import`
+
+On-demand imports. One row per wildcard declaration with `name = "*"`,
+`symbol_id = null` (the resolver expands at materialise time using the
+`imports` graph).
+
+- `import a.b.*;` → `binding{scope_id: <file>, name: "*", binding_kind: "wildcard_import", symbol_id: null}`.
+- `import static a.b.X.*;` → same shape. The resolver distinguishes
+  type-on-demand from static-on-demand by inspecting the imported
+  target's nature (file-of-types vs class-of-static-members); the
+  extractor does not pre-classify.
+
+## Occurrence emission
+
+For each `occurrence_kind`, the AST patterns the extractor emits.
+`occurrence.id = path|start_byte|name|occurrence_kind`.
+`enclosing_symbol_id` is the innermost containing symbol (`null` for
+expressions outside any symbol — e.g. annotation arguments on the
+top-level type). `enclosing_scope_id` is the innermost containing
+`scope` row.
+
+### `call`
+
+Every call expression's callee identifier:
+
+- `method_invocation` — the `name` field (the leaf identifier in
+  `foo()` or in `obj.foo()`). For `obj.foo()`, only `foo` is emitted as
+  `call`; `obj` is emitted separately as a `read` (see below).
+- `object_creation_expression` (`new Foo(...)`) — emits a `type_use`
+  for `Foo` (constructor target is a type-position identifier) and
+  emits **no** `call` occurrence. The call edge into the constructor is
+  materialised by the resolver from the `type_use` occurrence joined
+  with constructor `definition` bindings, or stays in the existing
+  `calls` relation if Phase 1 populates it directly.
+- `explicit_constructor_invocation` (`this(...)` or `super(...)`) —
+  emits a `call` occurrence with `name = "this"` or `"super"`. The
+  resolver treats `this`/`super` constructor calls as resolved against
+  the enclosing class / superclass via dedicated bindings (not in
+  scope of this contract).
 
 ### `read`
 
-Default for any identifier that doesn't match the other three:
+Every identifier in value position. Specifically:
 
-- Right-hand side of any expression.
-- Method invocation target: in `productService.findAll(…)`,
-  `productService` is `read`; the method name `findAll` is **not**
-  emitted as a `references` row because the call is captured in `calls`.
-- Field access leaf in a non-assignment context.
-- Argument expressions.
-- Return-statement value expressions.
-- Annotation arguments (`@Cacheable(value = "products")` — the
-  identifier `value` is **not** emitted; annotation parameter names are
-  not symbols).
-- `this` and `super` do **not** emit rows (they're keywords, not
-  identifier symbols).
-- Enum constant references (`HttpStatus.NOT_FOUND` — `HttpStatus` is
-  `type_use`, `NOT_FOUND` is `read`).
+- Variable / field / parameter / local references on the RHS of any
+  expression.
+- The receiver in a method invocation (`obj` in `obj.foo()`).
+- The qualifier in a static-member access (`HttpStatus` in
+  `HttpStatus.PAYMENT_REQUIRED` — emitted as `read` of the type name;
+  the resolver determines whether the target is a type by joining with
+  `definition` bindings).
+- Enum constant references (`HttpStatus.PAYMENT_REQUIRED` →
+  `read` for `PAYMENT_REQUIRED`).
+- Arguments to method invocations, constructor invocations,
+  annotations.
+- Return-statement values.
+- Expressions inside `if` / `while` / `for` / `switch` headers.
 
-### Identifiers that emit **no** row
+**`this` field-access rule.** For `this.x`:
 
-- Package segments inside `field_access` / `scoped_type_identifier`
-  (`com`, `example`, `inventory` in `com.example.inventory.X`).
-- Method names at a call site (captured by `calls`).
-- Constructor names in a `new` expression (the constructor target is
-  emitted as `type_use` for the type; the call edge is in `calls`).
+- Emit a `read` occurrence with `name = "this"`. The resolver binds
+  `this` to the enclosing class (via an implicit class-scope
+  `"parameter"` binding established when the enclosing scope's kind is
+  `"function"` inside a class — extractor responsibility, but it falls
+  out of the parameter-emission pass in Issue #11).
+- Do **not** emit any occurrence for the field name `x` after the
+  dot. The resolver resolves field accesses by joining the `read of
+  this` occurrence with `definition` bindings of kind `field` in the
+  enclosing class scope. This avoids duplicating the field access as
+  both an occurrence and a `references` row for a name that's only
+  meaningful in the context of its receiver.
+
+This is the cross-language rule from `docs/resolution.md`: the field
+access's name resolution is a join over bindings, not an occurrence
+emission. The same rule applies to `super.x` (emit `read` of `super`,
+omit `x`).
+
+**Identifiers that emit no `read` row** (suppressions):
+
+- The method name at a call site (covered by `call`, above).
+- Package segments in a fully-qualified name (`com`, `example`,
+  `inventory` in `com.example.inventory.X` inside an
+  `import_declaration` or `scoped_type_identifier`). Packages are not
+  `symbol` rows.
 - The defining identifier of a class / method / field declaration
-  itself (captured by `symbol`).
-- `this`, `super`, `null`, literals.
-- Labels (`break label;` / `continue label;`).
+  (covered by `symbol` and by the matching `definition` binding).
+- `null`, literals, labels in `break label;` / `continue label;`.
+- Annotation parameter names (`@Cacheable(value = "products")` — the
+  bare `value` is **not** an occurrence; it names an annotation element
+  in the annotation type, not a local symbol).
 
-## `referent_id` resolution
+### `write`
 
-The Java extractor uses a **fresh per-file scope tree**, not the global
-`symbols_by_name` index from `src/graph/builder.rs`. Rationale: Java's
-package + import system makes the bare name → symbol map too ambiguous
-without local context. The per-file resolver caches the file's import
-table and walks the AST top-down, maintaining a scope stack.
+The identifier is the target of an assignment or a mutating operation.
+Per [ADR-0003](adr/0003-level-3-types-and-references.md), compound
+assignments emit a **single** `write` occurrence (no separate `read`).
 
-### Algorithm
+- LHS of `=`, when the LHS is a bare identifier. Emit `write` with
+  `name = <identifier>`.
+- LHS of `=` when the LHS is a `field_access` (`obj.field = x`,
+  `this.field = x`): emit `read` for the receiver (`obj` or `this`)
+  and `write` for the field leaf. The field leaf is emitted as a
+  `write` occurrence on the field's simple name — the resolver matches
+  it against `definition` bindings of `field` kind in the receiver's
+  type. (Per `docs/contract-review.md` policy 5, a downstream
+  consumer can filter out field-leaf writes whose target field has no
+  `symbol` row.)
+- LHS of any compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`,
+  `|=`, `^=`, `<<=`, `>>=`, `>>>=`) — single `write`, no `read`.
+- Operand of `++` / `--` (prefix or postfix) — single `write`.
+- A `variable_declarator` with an initializer — the declared name
+  emits a `write` occurrence (paired with the `definition` /
+  `parameter` binding for the same name; the resolver then renders
+  this as a self-reference to the freshly-declared symbol).
+- Field declarations with initializers (`private int x = 5;`) emit a
+  `write` occurrence on `x`.
 
-For each identifier occurrence `tok` at AST node `N`:
+### `type_use`
 
-1. Compute the enclosing scope chain by walking parent nodes upward,
-   pushing a scope frame at each block / method / type / file boundary.
-2. For each frame from innermost to outermost, look up `tok.text`:
-   - In block frames: locals declared lexically before `tok`.
-   - In method frames: parameters and method type parameters.
-   - In type frames: declared members (fields, methods, nested types),
-     then declared members of supertypes (one level at a time, BFS).
-   - In file frames: top-level types, single-type imports, same-package
-     types, on-demand imports (only if unambiguous), static-member
-     imports, `java.lang` prelude.
-3. On first match, emit a `references` row with that symbol's `id` as
-   `referent_id`.
-4. On no match across the entire chain, emit the row with
-   `referent_id = null` (updated per `docs/contract-review.md`:
-   the schema now allows nullable `referent_id` in value position).
-   Unresolved rows let downstream audits count unresolved-rate
-   and find dangling identifier sites.
+The identifier sits in a type position. These overlap exactly with the
+`type` rows produced by `types-java.md`. Specifically:
 
-### Tie-breaking
+- Parameter type, return type, field type, local variable declared
+  type, record component type.
+- `extends` clause target on `class_declaration` /
+  `interface_declaration`. `implements` clause targets.
+- `throws` clause exception types on methods and constructors.
+- `catch_formal_parameter` type(s) — each branch of a `union_type`
+  is a separate `type_use`.
+- Generic argument identifiers inside `type_arguments`
+  (each `type_identifier`).
+- Cast target (`(Foo) x` — `Foo` is `type_use`).
+- `instanceof` target (`x instanceof Foo`).
+- Type-parameter bounds (`<T extends A & B>` — both `A` and `B` are
+  `type_use`).
+- The class name in `new Foo(...)` (object creation).
+- The class name in array creation (`new Foo[10]` — `Foo` is
+  `type_use`).
+- The class name in `.class` literal (`Foo.class` — `Foo` is
+  `type_use`).
+- The annotation name in **any** `@Annotation` usage. This includes:
+  type annotations (`@Service`, `@RestController`), method/field
+  annotations (`@Autowired`, `@Override`), parameter annotations
+  (`@RequestBody`), and annotation arguments that are themselves
+  annotations. The annotation's simple name (e.g. `Service`) is
+  emitted as a `type_use` occurrence with `enclosing_symbol_id` set to
+  the annotated declaration.
 
-- Inner binding wins: stop walking on first hit.
-- Inside a single scope frame, two members with the same simple name
-  cannot coexist (Java compiler error), so no tie-breaking is required.
-- Across imports: a same-package type beats an on-demand `*` import.
-  An explicit single-type import beats both. Static-member imports
-  apply only to non-type names and only when the file scope has no
-  same-named field of the enclosing type.
+### `import_use`
 
-### Cross-file resolution
+The identifier sits inside an `import_declaration`. Emit one
+`import_use` occurrence for the **final** identifier of the import
+path (the imported simple name) and zero rows for intermediate
+package segments.
 
-The resolver consults the symbol table built from `symbol` rows during
-the first pass of `GraphBuilder` (the existing `symbols_by_name` index
-is reused for the look-ups; only the scope walk itself is
-file-local). The contract does **not** require this resolution to
-happen during `absorb_file_data`; it can run in a deferred pass after
-the channel drains, alongside `DeferredCall` and `DeferredImport`
-resolution.
+- `import a.b.C;` — one `import_use` on `C`.
+- `import static a.b.X.METHOD;` — one `import_use` on `METHOD`.
+- `import a.b.*;` — zero `import_use` rows (there is no single
+  imported identifier; the binding row of kind `wildcard_import` is
+  the only fact emitted).
+- `import static a.b.X.*;` — same: zero `import_use` rows; the
+  `wildcard_import` binding carries everything the resolver needs.
 
-### `site_file` and `site_start_byte`
+`enclosing_symbol_id` for `import_use` is `null` (imports sit at file
+scope, outside any symbol). `enclosing_scope_id` is the file scope.
 
-- `site_file` is the file `id` (= path) where the reference occurs.
-- `site_start_byte` is the tree-sitter `start_byte` of the identifier
-  token itself, **not** of the enclosing expression.
+## What this contract does NOT cover
 
-The schema's primary key is `(referrer_id, site_file, site_start_byte, match_index)` (updated per `docs/contract-review.md`). Each distinct identifier occurrence in source gets its own row by virtue of the unique `site_start_byte`, so the previous "first-occurrence-wins" pair collapse no longer applies. Multiple method-call sites referring to the same callee produce multiple rows, one per site.
+- **Resolution algorithm.** Lives in `docs/resolution.md`, applied
+  uniformly. Walking scopes outward, picking the innermost binding,
+  expanding wildcards, and disambiguating overloads are all the
+  resolver's job. This contract describes only the inputs.
+- **Method dispatch / overload selection.** Java permits multiple
+  methods with the same name in the same class scope. The extractor
+  emits one `definition` binding per overload at the class scope.
+  The resolver materialises multiple `references` rows with
+  `match_index = 0, 1, 2, …` for the same call site, one per
+  candidate. Selecting *which* overload actually runs is dynamic and
+  out of scope; the resolver's job is to enumerate the candidates.
+- **Reflection-based dispatch.** `Class.forName("Foo")`,
+  `method.invoke(...)`, etc., are method invocations like any other
+  — they generate `call` occurrences whose argument strings happen to
+  name types. Treating those strings as references is out of scope.
+- **`references` rows.** Worked examples below show the *inputs* to
+  resolution (occurrences, scopes, bindings), not the resolver's
+  output rows.
 
 ## Worked examples
 
-All citations are `path:line` (1-indexed) into
-`../virgil-skills/benchmarks/java/spring-api/`. `site_start_byte` is
-omitted in the tables below for brevity — the contract is that it
-equals the tree-sitter `start_byte` of the named identifier token.
-`referrer_id` is the `symbol.id` of the enclosing function /
-constructor / field initialiser (per ADR-0002:
-`path|start_line|start_col|name|kind`).
+Seven examples drawn from `../virgil-skills/benchmarks/java/spring-api/`.
+For brevity, columns shown are the schema-relevant ones; `start_byte`
+values are summarised as `bN` (the tree-sitter `start_byte` of the
+named identifier or block opener — substitute the actual integer when
+emitting rows). `path` is abbreviated to the file's basename.
 
-### Example 1 — type uses, reads, and method-call receivers
+For each example, the rows emitted are:
 
-**Source.** `src/main/java/com/example/inventory/service/ProductService.java:43-47`
+1. `scope` rows for the example's range.
+2. `binding` rows that fall inside that range.
+3. `occurrence` rows for every identifier the contract specifies.
+
+### Example 1 — `@Service` annotation usage on a class declaration
+
+**Source.** `service/ProductService.java:19-20`
 
 ```java
-public ProductDTO findById(Long id) {
-    Product product = productRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + id));
-    return toDTO(product);
-}
+@Service
+public class ProductService {
 ```
 
-Let `R = "src/.../ProductService.java|43|4|findById|method"` (the
-enclosing method).
+**Scopes (new, opened by this snippet):**
 
-Rows emitted:
+| id | parent | kind | start | notes |
+|---|---|---|---|---|
+| `ProductService.java\|b_file\|file` | `null` | `file` | byte 0 | the file's root scope (opened earlier in the file at byte 0; included here for context) |
+| `ProductService.java\|b_class\|class` | `ProductService.java\|b_file\|file` | `class` | byte at `{` after `ProductService` | class body scope |
 
-| referrer_id | referent_id (target) | ref_kind | notes |
-|---|---|---|---|
-| `R` | `…|ProductService.java|<line>|<col>|ProductDTO|class` (resolved via import line 3) | `type_use` | return type |
-| `R` | `…|String.java|…|Long|class` (unresolved → `null` → row with `referent_id = null`) | — | `Long` is `java.lang.Long`; `java.lang` prelude does not produce indexed targets when no `java.lang.Long.java` exists in the workspace → row emitted with `referent_id = null` |
-| `R` | `…|Product.java|…|Product|class` | `type_use` | local declared type |
-| `R` | `…|ProductRepository.java|…|ProductRepository|class` | (no row) | `productRepository` is a *field name*, not the type. The row below covers it. |
-| `R` | `…|ProductService.java|22|24|productRepository|variable` | `read` | field access |
-| `R` | `R` itself (the parameter `id` symbol — but parameters don't have separate `symbol` rows under the current Java extractor, see Note) | — | see Note |
-| `R` | `…|ResourceNotFoundException.java|…|ResourceNotFoundException|class` | `type_use` | `new` target |
-| `R` | `…|ProductService.java|137|17|toDTO|method` | (no row — captured by `calls`) | — |
-| `R` | `…|ProductService.java|43|31|product|variable` | (no row — locals not in `symbol`) | — |
+**Bindings (introduced by this snippet):**
 
-**Note on parameters and locals.** The current Java extractor in
-`src/languages/java/queries.rs` does not emit `parameter` or local-
-variable symbols. The Level-3 implementation MUST extend the extractor
-to emit `symbol` rows for parameters and locals (kind `"parameter"` /
-`"variable"`) so that references to them can be resolved. Until that
-lands, parameter and local references are emitted with
-`referent_id = null` (per `docs/contract-review.md` policy 1; the
-previous "skip" behavior was replaced by the cross-language
-null-row convention).
+| scope_id | name | start_byte | symbol_id | kind |
+|---|---|---|---|---|
+| file scope | `Service` | start of `Service` in `import org.springframework.stereotype.Service;` (line 12) | `null` (Spring not indexed) | `import` |
+| file scope | `ProductService` | byte of `ProductService` at line 20 col 14 | `ProductService.java\|20\|14\|ProductService\|class` | `definition` |
 
-### Example 2 — `write` to a field via setter (counter-example)
+**Occurrences:**
 
-**Source.** `src/main/java/com/example/inventory/service/ProductService.java:52-62`
+| id | name | kind | enclosing_symbol_id | enclosing_scope_id |
+|---|---|---|---|---|
+| `ProductService.java\|<b of Service at line 19>\|Service\|type_use` | `Service` | `type_use` | `ProductService.java\|20\|14\|ProductService\|class` | file scope |
+
+Key decisions:
+
+- The annotation `@Service` emits **one** `type_use` occurrence on the
+  annotation's simple name. The resolver looks `Service` up via the
+  file scope's `import` binding for `Service` and finds the import row
+  (its `symbol_id` is `null` because Spring isn't indexed, so the
+  resolver emits a `references` row with `referent_id = null`).
+- The `@` token and parenthesised arguments (none here) emit no
+  occurrences.
+- `enclosing_symbol_id` for the annotation occurrence is the class
+  symbol itself — the annotation is attached to the class declaration.
+
+### Example 2 — `@Autowired` field injection (annotation + field-type type_use)
+
+**Source.** `service/ProductService.java:22-23`
 
 ```java
-Product product = new Product();
-product.setName(dto.getName());
-product.setSku(dto.getSku());
-product.setDescription(dto.getDescription());
-product.setPrice(dto.getPrice());
-product.setStockQuantity(dto.getStockQuantity());
-product.setCategoryId(dto.getCategoryId());
-product.setStatus("ACTIVE");
-product.setCreatedAt(LocalDateTime.now());
-product.setUpdatedAt(LocalDateTime.now());
-Product saved = productRepository.save(product);
+    @Autowired
+    private ProductRepository productRepository;
 ```
 
-Common confusion: these look like writes. They are not.
-`product.setName(…)` is a method call, captured by `calls`. The
-identifier `product` (the receiver) is a `read`. There are no
-`references` rows with `ref_kind = "write"` in this block.
+**Bindings (introduced by this snippet):**
 
-The only `write` row in this block is implicit: line 52
-`Product product = new Product();` — `product` is a local variable
-declarator with an initializer, so `product` is a `write` referring to
-its own newly-created `symbol`. (Skipped today, see Note above.)
+| scope_id | name | start_byte | symbol_id | kind |
+|---|---|---|---|---|
+| class scope | `productRepository` | byte at line 23 col 31 | `ProductService.java\|23\|31\|productRepository\|field` | `definition` |
 
-### Example 3 — shadowing: local variable hides field
+(The `Autowired` and `ProductRepository` `import` bindings are at the
+file scope, established earlier — line 4 and line 9.)
 
-**Source.** `src/main/java/com/example/inventory/middleware/RateLimitFilter.java:30-62`
+**Occurrences:**
 
-```java
-protected void doFilterInternal(HttpServletRequest request,
-                                HttpServletResponse response,
-                                FilterChain chain)
-        throws ServletException, IOException {
-    String clientIp = getClientIp(request);
-    ...
-    RequestCount count = requestCounts.computeIfAbsent(clientIp, k -> new RequestCount());
-    ...
-    synchronized (count) {
-        ...
-        int current = count.count.incrementAndGet();
-```
+| id | name | kind | enclosing_symbol_id | enclosing_scope_id |
+|---|---|---|---|---|
+| `…\|<b of Autowired>\|Autowired\|type_use` | `Autowired` | `type_use` | the field symbol `…\|23\|31\|productRepository\|field` | class scope |
+| `…\|<b of ProductRepository>\|ProductRepository\|type_use` | `ProductRepository` | `type_use` | the field symbol | class scope |
 
-The class `RequestCount` (nested at line 74) has a field `count` of
-type `AtomicInteger`. The method `doFilterInternal` declares a *local*
-named `count` at line 43.
+Notes:
 
-Inside the body, the bare identifier `count`:
+- The field initializer is absent, so `productRepository` emits **no**
+  `write` occurrence on this line (only the `definition` binding for it,
+  shown above).
+- Annotation simple names always emit `type_use`. Field types always
+  emit `type_use`. Both rows share the same `enclosing_symbol_id` (the
+  field) because both attach to the field declaration.
 
-- On line 43 (LHS of declarator): `write` to the new local.
-- On line 46 (`synchronized (count)`): `read` of the local.
-- On line 47 (`count.windowStart`): `read` of the local; the `.windowStart`
-  field access resolves on the static-nested type `RequestCount`.
-- On line 52 (`count.count.incrementAndGet()`): the **outer** `count`
-  is the local (read); the **inner** `.count` is a field on
-  `RequestCount` (read of the nested-class field).
+### Example 3 — Static import absence (counter-example)
 
-There is no `RateLimitFilter` field named `count`, so this example
-demonstrates *nested-type* shadowing rather than class-field shadowing.
-
-For a class-field shadowing case, the contract specifies: if a method
-body declared `private int count;` at class scope and a local
-`int count = 0;` inside, every bare `count` inside the local's scope
-resolves to the local; only `this.count` resolves to the field.
-
-### Example 4 — static-member access (`HttpStatus.PAYMENT_REQUIRED`)
-
-**Source.** `src/main/java/com/example/inventory/exception/PaymentException.java:10`
+**Source.** `service/ProductService.java:1-17` (all imports)
 
 ```java
-@ResponseStatus(HttpStatus.PAYMENT_REQUIRED)
-public class PaymentException extends RuntimeException {
-```
-
-Rows emitted in the file-level scope (the annotation precedes the
-class declaration; for `referrer_id` purposes the annotation is
-treated as belonging to the class symbol — line 11):
-
-Let `R = "…/PaymentException.java|11|13|PaymentException|class"`.
-
-| referrer_id | referent | ref_kind | notes |
-|---|---|---|---|
-| `R` | (org.springframework.web.bind.annotation.ResponseStatus — not indexed) | — | row with `referent_id = null` |
-| `R` | (org.springframework.http.HttpStatus — not indexed) | — | row with `referent_id = null` |
-| `R` | `RuntimeException` (java.lang prelude, not indexed as source) | — | row with `referent_id = null` |
-
-When the Spring source jars *are* indexed, the rows are:
-
-| referrer_id | referent_id | ref_kind |
-|---|---|---|
-| `R` | `…/ResponseStatus.java|…|ResponseStatus|class` | `type_use` |
-| `R` | `…/HttpStatus.java|…|HttpStatus|class` | `type_use` |
-| `R` | `…/HttpStatus.java|…|PAYMENT_REQUIRED|variable` | `read` |
-| `R` | `…/RuntimeException.java|…|RuntimeException|class` | `type_use` |
-
-Key resolver decision: in `HttpStatus.PAYMENT_REQUIRED`, the parser
-sees a `field_access` with object `HttpStatus` and field
-`PAYMENT_REQUIRED`. The resolver checks whether the object position is
-a type name (via the import table + scope) — it is — and so emits
-`type_use` for `HttpStatus` and `read` for `PAYMENT_REQUIRED`.
-
-### Example 5 — import_use rows
-
-**Source.** `src/main/java/com/example/inventory/service/ProductService.java:1-17`
-
-```java
-package com.example.inventory.service;
-
 import com.example.inventory.dto.ProductDTO;
 import com.example.inventory.dto.UpdateProductRequest;
 import com.example.inventory.model.Product;
@@ -432,71 +423,284 @@ import java.util.List;
 import java.util.stream.Collectors;
 ```
 
-Each `import_declaration` emits one `import_use` row, *referrer_id =
-the file-level pseudo-symbol* (use the package-declaration's symbol
-when present; otherwise the file's `id`).
+**Bindings (all in file scope):**
 
-Indexed-target rows (sources present in the benchmark):
+| name | symbol_id | kind |
+|---|---|---|
+| `ProductDTO` | `ProductDTO.java\|…\|class` | `import` |
+| `UpdateProductRequest` | `UpdateProductRequest.java\|…\|class` | `import` |
+| `Product` | `Product.java\|…\|class` | `import` |
+| `ProductRepository` | `ProductRepository.java\|…\|class` | `import` |
+| `ResourceNotFoundException` | `ResourceNotFoundException.java\|…\|class` | `import` |
+| `ValidationException` | `ValidationException.java\|…\|class` | `import` |
+| `Autowired` | `null` | `import` |
+| `CacheEvict` | `null` | `import` |
+| `Cacheable` | `null` | `import` |
+| `Service` | `null` | `import` |
+| `BigDecimal` | `null` | `import` |
+| `LocalDateTime` | `null` | `import` |
+| `List` | `null` | `import` |
+| `Collectors` | `null` | `import` |
 
-| referent_id | ref_kind |
-|---|---|
-| `…/ProductDTO.java|…|ProductDTO|class` | `import_use` |
-| `…/UpdateProductRequest.java|…|UpdateProductRequest|class` | `import_use` |
-| `…/Product.java|…|Product|class` | `import_use` |
-| `…/ProductRepository.java|…|ProductRepository|class` | `import_use` |
-| `…/ResourceNotFoundException.java|…|ResourceNotFoundException|class` | `import_use` |
-| `…/ValidationException.java|…|ValidationException|class` | `import_use` |
+**Occurrences:**
 
-The Spring and `java.*` imports do not have indexed sources in the
-spring-api benchmark, so they're skipped (no row emitted) — they still
-appear in the existing `raw_import` / `imports` rows, which capture
-unresolved imports.
+One `import_use` per import line on the trailing simple name. No
+`import_alias` rows are produced. No static imports appear anywhere in
+this file (or in the `spring-api` benchmark — verified by grep for
+`import static` — so the **absence** of `import_alias` rows is the
+finding: a Java audit asking for "list of all aliased imports in this
+codebase" returns the empty set, and not because the extractor missed
+anything but because Java doesn't support the feature.
 
-### Example 6 — write via assignment (counter-example with `+=`)
+### Example 4 — Shadowing: method parameter shadows a class field
 
-**Source.** `src/main/java/com/example/inventory/middleware/RateLimitFilter.java:43-52`
+**Source.** `model/Product.java:48-49` — the `setName` setter
+
+```java
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+```
+
+This is the canonical Java shadowing case: a setter whose parameter has
+the same simple name as the field it assigns.
+
+**Scopes (new):**
+
+| id | parent | kind | start | notes |
+|---|---|---|---|---|
+| `Product.java\|b_setName\|function` | class scope | `function` | byte at `setName` parameter list | method scope holds the parameter binding |
+
+**Bindings:**
+
+| scope_id | name | start_byte | symbol_id | kind |
+|---|---|---|---|---|
+| class scope (introduced earlier on line 16) | `name` | byte at line 16 col 19 | `Product.java\|16\|19\|name\|field` | `definition` |
+| setName function scope | `name` | byte at line 49 col 33 (the parameter) | `Product.java\|49\|33\|name\|parameter` | `parameter` |
+
+**Occurrences inside `setName`'s body** (`{ this.name = name; }`):
+
+| name | kind | enclosing_symbol_id | enclosing_scope_id | notes |
+|---|---|---|---|---|
+| `this` | `read` | `Product.java\|49\|17\|setName\|method` | setName function scope | the receiver of the assignment |
+| `name` (the field leaf of `this.name`) | `write` | setName method | setName function scope | LHS of `=`; field is resolved by joining with the field's `definition` binding in `Product`'s class scope |
+| `name` (the RHS) | `read` | setName method | setName function scope | bare `name` resolves to the **parameter** (innermost binding wins); the field is shadowed |
+
+Key decisions:
+
+- The receiver `this` and the field leaf of `this.name` together cover
+  the field write: `this` emits a `read` occurrence; the field leaf
+  emits a `write`. The resolver does the join.
+- The RHS bare `name` resolves to the parameter binding in
+  `setName`'s function scope, **not** to the field. This is the
+  shadowing rule from `docs/resolution.md` falling out of
+  innermost-binding-wins.
+- No occurrence is emitted for the method name `setName` (covered by
+  `symbol` plus `definition` binding).
+- No occurrence for the parameter type `String` is shown here; it's an
+  ordinary `type_use` on the parameter's type annotation.
+
+### Example 5 — `this.field = field` write+read pair (canonical constructor / DTO pattern)
+
+**Source.** `exception/PaymentException.java:22-26`
+
+```java
+    public PaymentException(String message, String errorCode) {
+        super(message);
+        this.transactionId = null;
+        this.errorCode = errorCode;
+    }
+```
+
+**Bindings (new in this snippet):**
+
+| scope_id | name | start_byte | symbol_id | kind |
+|---|---|---|---|---|
+| ctor function scope | `message` | byte of `message` param | `PaymentException.java\|22\|41\|message\|parameter` | `parameter` |
+| ctor function scope | `errorCode` | byte of `errorCode` param | `PaymentException.java\|22\|57\|errorCode\|parameter` | `parameter` |
+
+**Occurrences (constructor body lines 23-25):**
+
+| name | kind | enclosing_symbol_id | notes |
+|---|---|---|---|
+| `super` | `call` | the constructor symbol | explicit constructor invocation |
+| `message` | `read` | the constructor symbol | argument to `super(...)` |
+| `this` (line 24) | `read` | the constructor symbol | receiver of the first assignment |
+| `transactionId` | `write` | the constructor symbol | field leaf on LHS — resolver joins with field `definition` in `PaymentException`'s class scope |
+| `this` (line 25) | `read` | the constructor symbol | receiver of the second assignment |
+| `errorCode` (line 25, LHS field leaf) | `write` | the constructor symbol | field leaf on LHS |
+| `errorCode` (line 25, RHS) | `read` | the constructor symbol | resolves to the parameter (shadowing again — but this time, **because of the `this.` prefix on the LHS**, both the field write and the parameter read are unambiguous and distinct) |
+
+Key decisions:
+
+- Per the `this` field-access rule: the LHS `this.errorCode` produces
+  one `read` occurrence on `this` plus one `write` occurrence on
+  `errorCode` (the field). The RHS bare `errorCode` is a separate
+  occurrence — a `read` of the parameter.
+- `null` on line 24 emits no occurrence (literal).
+- The `super(...)` call gets `name = "super"`, kind `call`. The
+  argument `message` is a `read`.
+
+### Example 6 — Compound assignment + nested-class field access
+
+**Source.** `middleware/RateLimitFilter.java:46-52`
+
+```java
+        synchronized (count) {
+            if (now - count.windowStart > WINDOW_MILLIS) {
+                count.windowStart = now;
+                count.count.set(0);
+            }
+
+            int current = count.count.incrementAndGet();
+```
+
+**Scopes (new in this snippet):**
+
+| id | parent | kind | notes |
+|---|---|---|---|
+| outer `block` for `synchronized` body | `doFilterInternal` function scope | `block` | opened at byte of `{` after `synchronized (count)` |
+| inner `block` for `if`-body | outer block | `block` | opened at byte of `{` after the `if` condition |
+
+(Note: the `synchronized` keyword does not by itself introduce a
+scope; only the wrapped block does.)
+
+**Bindings (new):**
+
+| scope_id | name | symbol_id | kind |
+|---|---|---|---|
+| outer `synchronized` block | none introduced here (the `count` local was bound earlier at line 43) | — | — |
+| inner `if` block | none introduced (no declarations) | — | — |
+| line 52 — the `for`-style declaration is actually inside `doFilterInternal`'s outer scope after the synchronized block exits | `current` (local) | `RateLimitFilter.java\|52\|17\|current\|parameter` | `parameter` |
+
+**Occurrences (lines 46-52):**
+
+| line | name | kind | enclosing_symbol_id | notes |
+|---|---|---|---|---|
+| 46 | `count` | `read` | doFilterInternal method | argument to `synchronized` — bare identifier |
+| 47 | `now` | `read` | method | bare local |
+| 47 | `count` | `read` | method | receiver of `count.windowStart` |
+| 47 | `windowStart` | `read` | method | field leaf of `count.windowStart` (read context: inside a comparison) |
+| 47 | `WINDOW_MILLIS` | `read` | method | static field of enclosing class |
+| 48 | `count` | `read` | method | receiver of LHS |
+| 48 | `windowStart` | `write` | method | LHS field leaf |
+| 48 | `now` | `read` | method | RHS |
+| 49 | `count` | `read` | method | outer receiver |
+| 49 | `count` | `read` | method | inner receiver (field on `RequestCount`) |
+| 49 | `set` | `call` | method | method invocation leaf |
+| 52 | `current` | `write` | method | declarator with initialiser |
+| 52 | `count` | `read` | method | outer receiver |
+| 52 | `count` | `read` | method | inner receiver |
+| 52 | `incrementAndGet` | `call` | method | method invocation leaf |
+
+Key decisions:
+
+- No `write` row is emitted for `count.count.set(0)` (line 49) —
+  `set(...)` is a method call, not an assignment. The arg `0` is a
+  literal (no occurrence). The two `count` tokens are both `read`
+  occurrences with the same `name`; the resolver disambiguates by
+  scope: the outer `count` resolves to the local at line 43; the
+  inner `count` resolves to the `RequestCount.count` field via the
+  resolver's join over field-leaf occurrences.
+- Line 52 declarator: `int current = count.count.incrementAndGet();`
+  emits **one** `write` for `current` (compound: declaration + init in
+  a single `variable_declarator`) and `read`s for both `count`s, then
+  a `call` for `incrementAndGet`. Per ADR-0003 the declarator with an
+  initializer is **one** write row; there's no separate `read` of
+  `current`.
+- A hypothetical compound `count += 1` would emit a **single** `write`
+  on `count`, not a paired read+write. The benchmark doesn't contain
+  one in this region; this is a contract statement, not a worked row.
+
+### Example 7 — Wildcard import + lambda parameter scope
+
+**Source.** `middleware/AuthFilter.java:1-46` (relevant excerpt)
+
+```java
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureException;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import javax.servlet.FilterChain;
+...
+import java.util.Arrays;
+import java.util.List;
+
+public class AuthFilter extends OncePerRequestFilter {
+    ...
+    protected void doFilterInternal(HttpServletRequest request, ...
+            throws ServletException, IOException {
+        String path = request.getRequestURI();
+        ...
+        boolean isPublic = PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+```
+
+This file has no wildcard imports, but `controller/SearchController.java`
+does. We use the lambda example here and reference the wildcard case
+from `SearchController`.
+
+**Wildcard binding (from `controller/AuthController.java:10`):**
+
+```java
+import org.springframework.web.bind.annotation.*;
+```
+
+| scope_id | name | start_byte | symbol_id | kind |
+|---|---|---|---|---|
+| `AuthController.java` file scope | `*` | byte of the import statement's start | `null` | `wildcard_import` |
+
+Zero `import_use` occurrences for this line.
+
+**Lambda scope (a synthetic example mirroring line 42 of `AuthFilter`):**
+
+The expression `PUBLIC_PATHS.stream().anyMatch(path::startsWith)` is
+**not** a lambda — it's a method reference. A real lambda inside the
+benchmark, `RateLimitFilter.java:43`:
 
 ```java
 RequestCount count = requestCounts.computeIfAbsent(clientIp, k -> new RequestCount());
-
-long now = System.currentTimeMillis();
-synchronized (count) {
-    if (now - count.windowStart > WINDOW_MILLIS) {
-        count.windowStart = now;
-        count.count.set(0);
-    }
-
-    int current = count.count.incrementAndGet();
 ```
 
-Line 48: `count.windowStart = now;` — this is a `field_access` on the
-LHS of an `=`. Rows emitted:
+The lambda `k -> new RequestCount()`:
 
-| referrer_id | referent_id | ref_kind | notes |
+**Scopes (new):**
+
+| id | parent | kind | notes |
 |---|---|---|---|
-| `R = "…/RateLimitFilter.java|30|14|doFilterInternal|method"` | `…|RateLimitFilter.java|43|22|count|variable` (local — currently skipped, see Note in Example 1) | `read` | `count` is the LHS object |
-| `R` | `…|RateLimitFilter.java|76|13|windowStart|variable` (nested-class field) | `write` | the leaf of the field_access on the assignment LHS |
-| `R` | `…|RateLimitFilter.java|45|13|now|variable` (local) | `read` | RHS |
+| lambda scope | enclosing block (line 43 is inside `doFilterInternal`'s body block, prior to the synchronized block) | `function` | one `"function"` scope holding the lambda parameter and the lambda body |
 
-Line 49: `count.count.set(0);` — this is a method call (`set`), not an
-assignment. No `write` row is emitted. The two `count` tokens are both
-`read` (one is the local, one is the field).
+**Bindings:**
 
-Line 52: `int current = count.count.incrementAndGet();` —
-`current` is a `write` of a new local; the rest is reads, and the
-method call is captured by `calls`.
+| scope_id | name | start_byte | symbol_id | kind |
+|---|---|---|---|---|
+| lambda scope | `k` | byte of `k` | `RateLimitFilter.java\|43\|68\|k\|parameter` | `parameter` |
 
-### Example 7 — multi-catch type_use (forward-looking)
+**Occurrences inside the lambda body** (`new RequestCount()`):
 
-The benchmark uses sequential `catch` clauses, not multi-catch.
-Contract: a hypothetical
-`catch (SignatureException | RuntimeException e)` emits:
+| name | kind | enclosing_symbol_id | enclosing_scope_id |
+|---|---|---|---|
+| `RequestCount` | `type_use` | the enclosing method symbol (lambdas are anonymous; the resolver uses the enclosing named symbol for `enclosing_symbol_id`) | lambda scope |
 
-- One `type` row of kind `"union"` (per `types-java.md` Example 6).
-- One `references` row for `SignatureException` (`type_use`, target =
-  the imported class).
-- One `references` row for `RuntimeException` (`type_use`, target =
-  `java.lang.RuntimeException` if indexed, else skipped).
-- No row for the variable name `e` (parameter declaration, handled by
-  `symbol`).
-- No row for the `|` token.
+Key decisions:
+
+- Lambdas are anonymous; they have no `symbol` row, so
+  `enclosing_symbol_id` for occurrences inside a lambda is the
+  enclosing named symbol (the method `doFilterInternal`).
+- The lambda parameter `k` opens a **function** scope, not a block
+  scope — parameter shadowing relative to the enclosing block is
+  resolved by the resolver via scope-kind precedence in
+  `docs/resolution.md`.
+- A wildcard import like
+  `import org.springframework.web.bind.annotation.*;` produces **one**
+  `binding` row with `name = "*"`, `binding_kind = "wildcard_import"`,
+  `symbol_id = null`, and **zero** occurrence rows. The resolver
+  expands the wildcard at materialise time using the `imports` graph.
+
+---
+
+**Done-criterion.** The Java extractor is finished when, fed the
+`spring-api/` benchmark and Issue #11's parameter/local symbol
+extraction, it produces exactly the `scope` / `binding` / `occurrence`
+rows enumerated in Examples 1–7 above. The `references` rows that
+fall out of resolving those facts via `docs/resolution.md` are the
+responsibility of the resolver test suite, not this contract.

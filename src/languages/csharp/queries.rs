@@ -5,7 +5,140 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a C# definition by reading the literal
+/// text of its `modifier` children.
+///
+/// - explicit `public` → Public
+/// - explicit `internal` (alone or paired with `protected`) → Internal
+/// - explicit `protected` (without `internal`) → Protected
+/// - explicit `private` → Private
+/// - no access modifier on a class/struct/interface/enum/record/delegate
+///   directly under the compilation unit or a namespace → Internal
+/// - no access modifier on any other declaration → Private
+///
+/// Parameters, locals, foreach iterators, catch clauses, and lambdas
+/// always resolve to Private — they're block-scoped.
+fn visibility_csharp(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "parameter"
+        | "parameter_list"
+        | "lambda_expression"
+        | "catch_declaration"
+        | "variable_declarator"
+        | "foreach_statement" => return SymbolVisibility::Private,
+        "namespace_declaration" => return SymbolVisibility::Public,
+        _ => {}
+    }
+
+    let mut saw_protected = false;
+    let mut saw_internal = false;
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "modifier" {
+            continue;
+        }
+        let text = child.utf8_text(source).unwrap_or("").trim();
+        match text {
+            "public" => return SymbolVisibility::Public,
+            "private" => return SymbolVisibility::Private,
+            "protected" => saw_protected = true,
+            "internal" => saw_internal = true,
+            _ => {}
+        }
+    }
+
+    if saw_internal {
+        // `internal` alone, or `protected internal` — both expose outside
+        // the type but are not Public.
+        return SymbolVisibility::Internal;
+    }
+    if saw_protected {
+        return SymbolVisibility::Protected;
+    }
+
+    // No access modifier specified. Top-level type declarations default
+    // to Internal; everything else (members, nested types) defaults to
+    // Private.
+    if is_top_level_type(def_node) {
+        SymbolVisibility::Internal
+    } else {
+        SymbolVisibility::Private
+    }
+}
+
+/// True when `def_node` is a type declaration whose direct enclosing
+/// scope is the compilation unit or a namespace — i.e. *not* nested
+/// inside another type. Used to pick the right default visibility for
+/// implicit access (`Internal` vs `Private`).
+fn is_top_level_type(def_node: tree_sitter::Node) -> bool {
+    match def_node.kind() {
+        "class_declaration"
+        | "struct_declaration"
+        | "interface_declaration"
+        | "enum_declaration"
+        | "record_declaration"
+        | "delegate_declaration" => {}
+        _ => return false,
+    }
+    let mut current = def_node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "compilation_unit" | "namespace_declaration" | "file_scoped_namespace_declaration" => {
+                return true;
+            }
+            "declaration_list" => {
+                current = parent.parent();
+                continue;
+            }
+            "class_declaration"
+            | "struct_declaration"
+            | "interface_declaration"
+            | "record_declaration" => return false,
+            _ => {
+                current = parent.parent();
+            }
+        }
+    }
+    true
+}
+
+/// True if any direct `modifier` child of `def_node` matches `keyword`.
+fn has_modifier(def_node: tree_sitter::Node, source: &[u8], keyword: &str) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() != "modifier" {
+            continue;
+        }
+        if child.utf8_text(source).unwrap_or("").trim() == keyword {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if `def_node` is a method/property/event/indexer declared
+/// directly inside an `interface_declaration` body — interface members
+/// are implicitly abstract.
+fn is_inside_interface(def_node: tree_sitter::Node) -> bool {
+    let mut current = def_node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "interface_declaration" => return true,
+            "declaration_list" => {
+                current = parent.parent();
+                continue;
+            }
+            "class_declaration"
+            | "struct_declaration"
+            | "record_declaration"
+            | "enum_declaration" => return false,
+            _ => return false,
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -47,6 +180,28 @@ const CSHARP_SYMBOL_QUERY: &str = r#"
   (variable_declaration
     (variable_declarator
       (identifier) @name))) @definition
+
+(parameter
+  name: (identifier) @name) @definition
+
+; `params int[] xs` — the grammar's `_parameter_array` rule is hidden, so
+; the trailing identifier appears as a direct child of `parameter_list`.
+(parameter_list
+  (identifier) @name) @definition
+
+(lambda_expression
+  parameters: (implicit_parameter) @name) @definition
+
+(catch_declaration
+  name: (identifier) @name) @definition
+
+(local_declaration_statement
+  (variable_declaration
+    (variable_declarator
+      name: (identifier) @name) @definition))
+
+(foreach_statement
+  left: (identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -120,16 +275,37 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_csharp(def_node, source);
+        let visibility = visibility_csharp(def_node, source);
+        let is_async = has_modifier(def_node, source, "async");
+        let is_static = has_modifier(def_node, source, "static");
+        // Members declared inside an interface body are implicitly
+        // abstract — even without the `abstract` modifier.
+        let is_abstract = has_modifier(def_node, source, "abstract")
+            || (matches!(
+                def_node.kind(),
+                "method_declaration" | "property_declaration"
+            ) && is_inside_interface(def_node));
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: (def_node.start_position().row + 1) as u32,
             start_column: def_node.start_position().column as u32,
             end_line: (def_node.end_position().row + 1) as u32,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            is_async,
+            is_static,
+            is_abstract,
+            // C# has no language-level mutability marker for declarations.
+            // `readonly`/`const` are tracked separately; locals/fields are
+            // mutable by default. Leaving false matches the cross-language
+            // contract that `is_mutable` flags explicit mutability.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -145,9 +321,21 @@ fn determine_csharp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" | "constructor_declaration" => Some(SymbolKind::Method),
         "namespace_declaration" => Some(SymbolKind::Namespace),
-        "property_declaration" => Some(SymbolKind::Property),
+        "property_declaration" => Some(SymbolKind::Field),
         "delegate_declaration" => Some(SymbolKind::TypeAlias),
-        "field_declaration" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
+        // Parameters: regular `(parameter ...)`, `params int[] xs` varargs (the
+        // grammar's `_parameter_array` rule is hidden, so its trailing
+        // identifier appears directly under `parameter_list`), the
+        // single-identifier lambda shorthand (`x => x + 1`, aliased to
+        // `implicit_parameter`), and the catch-clause name. All bind a single
+        // name in a callable's scope, so they all map to Parameter.
+        "parameter" | "parameter_list" | "lambda_expression" | "catch_declaration" => {
+            Some(SymbolKind::Parameter)
+        }
+        // Locals (`var x = 1;` / `int x = 1;`) and foreach iteration variables
+        // are both ordinary stack-locals, mapped to Variable.
+        "variable_declarator" | "foreach_statement" => Some(SymbolKind::Variable),
         _ => None,
     }
 }
@@ -267,6 +455,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: (node.start_position().row + 1) as u32,
             start_column: node.start_position().column as u32,
             end_line: (node.end_position().row + 1) as u32,
@@ -510,5 +700,65 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_method_parameters() {
+        let syms =
+            parse_and_extract("public class Foo { public void Bar(int x, string y) { } }");
+        let x = syms.iter().find(|s| s.name == "x");
+        let y = syms.iter().find(|s| s.name == "y");
+        assert!(x.is_some(), "expected parameter `x`");
+        assert!(y.is_some(), "expected parameter `y`");
+        assert_eq!(x.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(y.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_typed_local_variable() {
+        let syms = parse_and_extract(
+            "public class Foo { public void Bar() { int x = 1; } }",
+        );
+        let x = syms.iter().find(|s| s.name == "x");
+        assert!(x.is_some(), "expected local `x`");
+        assert_eq!(x.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_var_local_variable() {
+        let syms = parse_and_extract(
+            "public class Foo { public void Bar() { var y = 2; } }",
+        );
+        let y = syms.iter().find(|s| s.name == "y");
+        assert!(y.is_some(), "expected local `y`");
+        assert_eq!(y.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_params_varargs() {
+        let syms = parse_and_extract(
+            "public class Foo { public void Bar(params int[] xs) { } }",
+        );
+        let xs = syms.iter().find(|s| s.name == "xs");
+        assert!(xs.is_some(), "expected params varargs `xs`");
+        assert_eq!(xs.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_foreach_and_catch() {
+        let syms = parse_and_extract(
+            r#"public class Foo {
+                public void Bar() {
+                    foreach (var item in items) { }
+                    try { } catch (Exception ex) { }
+                }
+            }"#,
+        );
+        let item = syms.iter().find(|s| s.name == "item");
+        let ex = syms.iter().find(|s| s.name == "ex");
+        assert!(item.is_some(), "expected foreach var `item`");
+        assert_eq!(item.unwrap().kind, SymbolKind::Variable);
+        assert!(ex.is_some(), "expected catch param `ex`");
+        assert_eq!(ex.unwrap().kind, SymbolKind::Parameter);
     }
 }

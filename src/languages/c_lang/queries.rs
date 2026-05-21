@@ -6,7 +6,55 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Visibility for C symbols, per `docs/attrs-c.md`.
+///
+/// - Parameters and block-scope locals are always `Private`.
+/// - File-scope declarations carrying `static` storage class get `Private`
+///   (translation-unit local linkage).
+/// - Everything else is `Public`. C has no scoped visibility keywords.
+fn visibility_c(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
+    match def_node.kind() {
+        "parameter_declaration" => return SymbolVisibility::Private,
+        _ => {}
+    }
+    if is_block_scope(def_node) {
+        return SymbolVisibility::Private;
+    }
+    if has_storage_class(def_node, source, "static") {
+        return SymbolVisibility::Private;
+    }
+    SymbolVisibility::Public
+}
+
+/// True if `def_node` is nested inside a function body — i.e. block scope
+/// rather than file scope. Used to classify locals as Private regardless
+/// of their storage class.
+fn is_block_scope(def_node: tree_sitter::Node) -> bool {
+    let mut current = def_node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "compound_statement" | "function_definition" => return true,
+            _ => current = parent.parent(),
+        }
+    }
+    false
+}
+
+/// True if `def_node` has a direct child `storage_class_specifier` whose
+/// text matches `keyword` (e.g. `"static"`, `"extern"`).
+fn has_storage_class(def_node: tree_sitter::Node, source: &[u8], keyword: &str) -> bool {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier"
+            && child.utf8_text(source).unwrap_or("") == keyword
+        {
+            return true;
+        }
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -51,6 +99,46 @@ const C_SYMBOL_QUERY: &str = r#"
 
 (preproc_function_def
   name: (identifier) @name) @definition
+
+(parameter_declaration
+  declarator: (identifier) @name) @definition
+
+(parameter_declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(parameter_declaration
+  declarator: (pointer_declarator
+    declarator: (pointer_declarator
+      declarator: (identifier) @name))) @definition
+
+(parameter_declaration
+  declarator: (array_declarator
+    declarator: (identifier) @name)) @definition
+
+(declaration
+  declarator: (pointer_declarator
+    declarator: (identifier) @name)) @definition
+
+(declaration
+  declarator: (init_declarator
+    declarator: (pointer_declarator
+      declarator: (identifier) @name))) @definition
+
+(declaration
+  declarator: (array_declarator
+    declarator: (identifier) @name)) @definition
+
+(field_declaration
+  declarator: (field_identifier) @name) @definition
+
+(field_declaration
+  declarator: (pointer_declarator
+    declarator: (field_identifier) @name)) @definition
+
+(field_declaration
+  declarator: (array_declarator
+    declarator: (field_identifier) @name)) @definition
 "#;
 
 // ── Import queries ──
@@ -125,16 +213,31 @@ pub fn extract_symbols(
         let Some(kind) = kind else { continue };
 
         let is_exported = is_exported_c(def_node, source);
+        let visibility = visibility_c(def_node, source);
+        // `static` storage class — applies at both file scope and block
+        // scope. Parameters cannot carry storage class specifiers.
+        let is_static = matches!(def_node.kind(), "function_definition" | "declaration")
+            && has_storage_class(def_node, source, "static");
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            // C has no async concept.
+            is_async: false,
+            is_static,
+            // C has no abstract concept.
+            is_abstract: false,
+            // C `const`-ness is tracked in `c_attrs.is_const`, not here.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -155,11 +258,13 @@ fn determine_c_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
             }
             Some(SymbolKind::Variable)
         }
+        "parameter_declaration" => Some(SymbolKind::Parameter),
         "struct_specifier" => Some(SymbolKind::Struct),
         "union_specifier" => Some(SymbolKind::Union),
         "enum_specifier" => Some(SymbolKind::Enum),
         "type_definition" => Some(SymbolKind::Typedef),
         "preproc_def" | "preproc_function_def" => Some(SymbolKind::Macro),
+        "field_declaration" => Some(SymbolKind::Field),
         _ => None,
     }
 }
@@ -282,6 +387,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
             end_line: node.end_position().row as u32 + 1,
@@ -464,10 +571,12 @@ mod tests {
     #[test]
     fn extract_function_definition() {
         let syms = parse_and_extract("int main(int argc, char **argv) { return 0; }");
-        assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].name, "main");
-        assert_eq!(syms[0].kind, SymbolKind::Function);
-        assert!(syms[0].is_exported);
+        let main = syms
+            .iter()
+            .find(|s| s.name == "main")
+            .expect("main missing");
+        assert_eq!(main.kind, SymbolKind::Function);
+        assert!(main.is_exported);
     }
 
     #[test]
@@ -580,5 +689,49 @@ mod tests {
     fn empty_source_no_symbols() {
         let syms = parse_and_extract("");
         assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn extract_function_parameters() {
+        let syms = parse_and_extract("int add(int a, int b) { return a + b; }");
+        let a = syms.iter().find(|s| s.name == "a");
+        let b = syms.iter().find(|s| s.name == "b");
+        assert!(a.is_some(), "parameter `a` missing");
+        assert!(b.is_some(), "parameter `b` missing");
+        assert_eq!(a.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(b.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_pointer_parameter() {
+        let syms = parse_and_extract("void set(int *p, char **argv) { }");
+        let p = syms.iter().find(|s| s.name == "p");
+        let argv = syms.iter().find(|s| s.name == "argv");
+        assert!(p.is_some(), "pointer parameter `p` missing");
+        assert!(argv.is_some(), "double-pointer parameter `argv` missing");
+        assert_eq!(p.unwrap().kind, SymbolKind::Parameter);
+        assert_eq!(argv.unwrap().kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn extract_local_variable_in_function() {
+        let syms = parse_and_extract("int main() { int x = 1; int y; return x + y; }");
+        let x = syms.iter().find(|s| s.name == "x");
+        let y = syms.iter().find(|s| s.name == "y");
+        assert!(x.is_some(), "local `x` missing");
+        assert!(y.is_some(), "local `y` missing");
+        assert_eq!(x.unwrap().kind, SymbolKind::Variable);
+        assert_eq!(y.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_local_pointer_variable() {
+        let syms = parse_and_extract("void f() { int *ptr; int *q = 0; }");
+        let ptr = syms.iter().find(|s| s.name == "ptr");
+        let q = syms.iter().find(|s| s.name == "q");
+        assert!(ptr.is_some(), "pointer local `ptr` missing");
+        assert!(q.is_some(), "initialized pointer local `q` missing");
+        assert_eq!(ptr.unwrap().kind, SymbolKind::Variable);
+        assert_eq!(q.unwrap().kind, SymbolKind::Variable);
     }
 }

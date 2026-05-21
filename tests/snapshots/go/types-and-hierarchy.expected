@@ -1,0 +1,16 @@
+# Issue #13 fan-out baseline against benchmarks/go/http-service.
+type_total = 567
+type_primitive = 124
+type_named = 314
+type_generic = 92
+type_tuple = 0
+type_array = 28
+type_function = 9
+type_intersection = 0
+type_resolved_canonical = 387
+parameter_total = 446
+parameter_with_type = 446
+returns_total = 176
+extends_total = 0
+implements_total = 0
+field_type_total = 189

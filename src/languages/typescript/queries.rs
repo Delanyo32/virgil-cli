@@ -6,7 +6,130 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Query, QueryCursor, Tree};
 
 use crate::language::Language;
-use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind};
+use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisibility};
+
+/// Classify the visibility of a TS/JS definition.
+///
+/// - Parameters → Private.
+/// - Class members (`method_definition`, `public_field_definition`):
+///   read the `accessibility_modifier` child. `public`/`private`/
+///   `protected` map directly; absent modifier → Public (TS default).
+/// - Top-level symbols: Public iff `is_exported`, else Private.
+fn visibility_ts(
+    def_node: tree_sitter::Node,
+    kind: SymbolKind,
+    is_exported: bool,
+    source: &[u8],
+) -> SymbolVisibility {
+    if kind == SymbolKind::Parameter {
+        return SymbolVisibility::Private;
+    }
+    if is_class_member(def_node) {
+        if let Some(modifier) = find_accessibility_modifier(def_node, source) {
+            return match modifier.as_str() {
+                "private" => SymbolVisibility::Private,
+                "protected" => SymbolVisibility::Protected,
+                _ => SymbolVisibility::Public,
+            };
+        }
+        return SymbolVisibility::Public;
+    }
+    if is_exported {
+        SymbolVisibility::Public
+    } else {
+        SymbolVisibility::Private
+    }
+}
+
+/// True when `def_node` is a class-body member: `method_definition`,
+/// `public_field_definition`, `method_signature`, or `abstract_method_signature`.
+/// Excludes object-literal methods (parent is `object`, not `class_body`).
+fn is_class_member(def_node: tree_sitter::Node) -> bool {
+    let kind_ok = matches!(
+        def_node.kind(),
+        "method_definition"
+            | "public_field_definition"
+            | "method_signature"
+            | "abstract_method_signature"
+    );
+    if !kind_ok {
+        return false;
+    }
+    matches!(
+        def_node.parent().map(|p| p.kind()),
+        Some("class_body") | Some("interface_body")
+    )
+}
+
+/// Read the literal text of the `accessibility_modifier` child, if any.
+fn find_accessibility_modifier(def_node: tree_sitter::Node, source: &[u8]) -> Option<String> {
+    let mut cursor = def_node.walk();
+    for child in def_node.children(&mut cursor) {
+        if child.kind() == "accessibility_modifier" {
+            return Some(child.utf8_text(source).unwrap_or("").trim().to_string());
+        }
+    }
+    None
+}
+
+/// True if any direct child is an `async` anonymous keyword token.
+fn has_keyword_child(node: tree_sitter::Node, keyword: &str) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !child.is_named() && child.kind() == keyword {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if the symbol carries the `async` keyword. Checks the def node
+/// itself (function/method declarations) and, for variable bindings,
+/// the bound value (e.g. `const f = async () => ...`).
+fn is_async_ts(def_node: tree_sitter::Node, value_node: Option<tree_sitter::Node>) -> bool {
+    let async_targets = [
+        "function_declaration",
+        "function_expression",
+        "arrow_function",
+        "method_definition",
+        "method_signature",
+        "generator_function",
+        "generator_function_declaration",
+    ];
+    if async_targets.contains(&def_node.kind()) && has_keyword_child(def_node, "async") {
+        return true;
+    }
+    if let Some(v) = value_node {
+        if async_targets.contains(&v.kind()) && has_keyword_child(v, "async") {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if the class member has a `static` keyword child.
+fn is_static_ts(def_node: tree_sitter::Node) -> bool {
+    if !is_class_member(def_node) {
+        return false;
+    }
+    has_keyword_child(def_node, "static")
+}
+
+/// True if the def is an `abstract_class_declaration`, or a class
+/// member with the `abstract` keyword.
+fn is_abstract_ts(def_node: tree_sitter::Node) -> bool {
+    if def_node.kind() == "abstract_class_declaration" {
+        return true;
+    }
+    if is_class_member(def_node) && has_keyword_child(def_node, "abstract") {
+        return true;
+    }
+    // tree-sitter-typescript also exposes `abstract_method_signature`.
+    if def_node.kind() == "abstract_method_signature" {
+        return true;
+    }
+    false
+}
 
 // ── Symbol queries ──
 
@@ -38,6 +161,24 @@ const TS_SYMBOL_QUERY: &str = r#"
 
 (enum_declaration
   name: (identifier) @name) @definition
+
+(required_parameter
+  pattern: (identifier) @name) @parameter
+
+(optional_parameter
+  pattern: (identifier) @name) @parameter
+
+(required_parameter
+  pattern: (rest_pattern (identifier) @name)) @parameter
+
+(arrow_function
+  parameter: (identifier) @name) @parameter
+
+(public_field_definition
+  name: (property_identifier) @name) @definition
+
+(property_signature
+  name: (property_identifier) @name) @definition
 "#;
 
 const JS_SYMBOL_QUERY: &str = r#"
@@ -59,6 +200,19 @@ const JS_SYMBOL_QUERY: &str = r#"
   (variable_declarator
     name: (identifier) @name
     value: (_) @value)) @definition
+
+(formal_parameters
+  (identifier) @name) @parameter
+
+(formal_parameters
+  (rest_pattern (identifier) @name)) @parameter
+
+(formal_parameters
+  (assignment_pattern
+    left: (identifier) @name)) @parameter
+
+(arrow_function
+  parameter: (identifier) @name) @parameter
 "#;
 
 /// Matches `exports.NAME = VALUE` and `module.exports.NAME = VALUE` assignments.
@@ -161,6 +315,7 @@ pub fn extract_symbols(
     let name_idx = query.capture_index_for_name("name");
     let definition_idx = query.capture_index_for_name("definition");
     let value_idx = query.capture_index_for_name("value");
+    let parameter_idx = query.capture_index_for_name("parameter");
 
     let mut symbols = Vec::new();
 
@@ -168,36 +323,56 @@ pub fn extract_symbols(
         let name_cap = name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let def_cap = definition_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let value_cap = value_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
+        let param_cap = parameter_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
 
-        let (Some(name_cap), Some(def_cap)) = (name_cap, def_cap) else {
-            continue;
-        };
+        let Some(name_cap) = name_cap else { continue };
 
         let name_node = name_cap.node;
-        let def_node = def_cap.node;
-
         let name = name_node.utf8_text(source).unwrap_or("").to_string();
         if name.is_empty() {
             continue;
         }
 
-        let kind = determine_kind(def_node.kind(), value_cap.map(|c| c.node.kind()));
-        let Some(kind) = kind else { continue };
+        // Parameter capture takes precedence — anchor the symbol on the identifier
+        // node itself (parameter containers in JS are formal_parameters, which spans
+        // every parameter; using the name node keeps the byte range per-parameter).
+        let (def_node, kind, is_exported) = if let Some(_param_cap) = param_cap {
+            (name_node, SymbolKind::Parameter, false)
+        } else {
+            let Some(def_cap) = def_cap else { continue };
+            let def_node = def_cap.node;
+            let kind = determine_kind(def_node.kind(), value_cap.map(|c| c.node.kind()));
+            let Some(kind) = kind else { continue };
+            // Check if parent is an export_statement
+            let is_exported = def_node
+                .parent()
+                .is_some_and(|p| p.kind() == "export_statement");
+            (def_node, kind, is_exported)
+        };
 
-        // Check if parent is an export_statement
-        let is_exported = def_node
-            .parent()
-            .is_some_and(|p| p.kind() == "export_statement");
+        let value_node = value_cap.map(|c| c.node);
+        let visibility = visibility_ts(def_node, kind, is_exported, source);
+        let is_async = is_async_ts(def_node, value_node);
+        let is_static = is_static_ts(def_node);
+        let is_abstract = is_abstract_ts(def_node);
 
         let symbol = SymbolInfo {
             name,
             kind,
             file_path: file_path.to_string(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             start_line: def_node.start_position().row as u32 + 1,
             start_column: def_node.start_position().column as u32,
             end_line: def_node.end_position().row as u32 + 1,
             end_column: def_node.end_position().column as u32,
             is_exported,
+            visibility,
+            is_async,
+            is_static,
+            is_abstract,
+            // TS `readonly` lives in `typescript_attrs.is_readonly`, not here.
+            is_mutable: false,
         };
         symbols.push(symbol);
     }
@@ -291,11 +466,18 @@ pub fn extract_symbols(
                         name: export_name,
                         kind: symbol_kind,
                         file_path: file_path.to_string(),
+                        start_byte: name_cap.node.start_byte() as u32,
+                        end_byte: name_cap.node.end_byte() as u32,
                         start_line,
                         start_column: name_cap.node.start_position().column as u32,
                         end_line,
                         end_column: name_cap.node.end_position().column as u32,
                         is_exported: true,
+                        visibility: SymbolVisibility::Public,
+                        is_async: false,
+                        is_static: false,
+                        is_abstract: false,
+                        is_mutable: false,
                     });
                 }
             }
@@ -313,6 +495,7 @@ fn determine_kind(def_kind: &str, value_kind: Option<&str>) -> Option<SymbolKind
         "interface_declaration" => Some(SymbolKind::Interface),
         "type_alias_declaration" => Some(SymbolKind::TypeAlias),
         "enum_declaration" => Some(SymbolKind::Enum),
+        "public_field_definition" | "property_signature" => Some(SymbolKind::Field),
         "lexical_declaration" | "variable_declaration" => {
             if let Some(vk) = value_kind {
                 if vk == "arrow_function" {
@@ -678,6 +861,8 @@ pub fn extract_comments(
             file_path: file_path.to_string(),
             text,
             kind,
+            start_byte: node.start_byte() as u32,
+            end_byte: node.end_byte() as u32,
             start_line: node.start_position().row as u32 + 1,
             start_column: node.start_position().column as u32,
             end_line: node.end_position().row as u32 + 1,
@@ -1074,6 +1259,70 @@ module.exports.deleteItem = function(req, res) {
             "deleteItem should be Function/ArrowFunction kind, got {:?}",
             delete.kind
         );
+    }
+
+    #[test]
+    fn extract_ts_function_parameters() {
+        let source = "function greet(name: string, count?: number, ...rest: any[]) {}";
+        let syms = parse_and_extract(source, Language::TypeScript);
+        let params: Vec<&SymbolInfo> =
+            syms.iter().filter(|s| s.kind == SymbolKind::Parameter).collect();
+        let names: Vec<&str> = params.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"name"), "expected `name` param, got {:?}", names);
+        assert!(names.contains(&"count"), "expected `count` param, got {:?}", names);
+        assert!(names.contains(&"rest"), "expected `rest` param, got {:?}", names);
+    }
+
+    #[test]
+    fn extract_ts_arrow_parameters() {
+        // Both parenthesized arrows (formal_parameters) and bare-identifier arrows
+        // should emit Parameter symbols.
+        let source = "const a = (x: number) => x + 1;\nconst b = y => y * 2;";
+        let syms = parse_and_extract(source, Language::TypeScript);
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"x"), "expected `x` param, got {:?}", params);
+        assert!(params.contains(&"y"), "expected `y` param, got {:?}", params);
+    }
+
+    #[test]
+    fn extract_ts_method_parameters_and_local() {
+        // Method params + a local `let` inside the body. The local should already
+        // be picked up by the pre-existing lexical_declaration capture.
+        let source = "class C { run(a: number, b: number) { let total = a + b; return total; } }";
+        let syms = parse_and_extract(source, Language::TypeScript);
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"a"));
+        assert!(params.contains(&"b"));
+        let total = syms.iter().find(|s| s.name == "total");
+        assert!(total.is_some(), "expected local `total` symbol");
+        assert_eq!(total.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn extract_js_function_parameters_and_local() {
+        // JS uses formal_parameters with bare identifier / rest_pattern children.
+        let source = "function add(a, b, ...rest) { let sum = a + b; var v = 0; return sum; }";
+        let syms = parse_and_extract(source, Language::JavaScript);
+        let params: Vec<&str> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"a"), "params: {:?}", params);
+        assert!(params.contains(&"b"), "params: {:?}", params);
+        assert!(params.contains(&"rest"), "params: {:?}", params);
+        let sum = syms.iter().find(|s| s.name == "sum").expect("local `sum`");
+        assert_eq!(sum.kind, SymbolKind::Variable);
+        let v = syms.iter().find(|s| s.name == "v").expect("local `v`");
+        assert_eq!(v.kind, SymbolKind::Variable);
     }
 
     #[test]

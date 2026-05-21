@@ -1,24 +1,10 @@
-# export_surface — per-file count of exported symbols and total symbols.
-# No params.
-# Output rows: (file_path, exported_count, total_count).
-# Example:
-#   --template export_surface
-#
-# To compute ratio_percent, divide in the caller — Cozo's aggregate-then-
-# derive in a single query is awkward and a follow-up Rust handler is
-# cleaner for that case.
+# export_surface — list every publicly visible symbol that's actually
+# imported from another file in the workspace. Filter for the names a
+# library presents to its consumers.
 
-total_per_file[file_path, count(s)] := *symbol{id: s, file_path}
-
-exported_per_file[file_path, count(s)] :=
-    *symbol{id: s, file_path, exported: true}
-
-?[file_path, exported_count, total_count] :=
-    total_per_file[file_path, total_count],
-    exported_per_file[file_path, exported_count]
-
-?[file_path, exported_count, total_count] :=
-    total_per_file[file_path, total_count],
-    not exported_per_file[file_path, _],
-    exported_count = 0
-:order -exported_count, file_path
+?[name, qualified_name, kind, file_path, start_line] :=
+    *symbol{id, name, qualified_name, kind, file_path, visibility: "public",
+            exported: true},
+    *imports{imported_id: file_path},
+    *span{entity_id: id, file_path, start_line}
+:order file_path, start_line
