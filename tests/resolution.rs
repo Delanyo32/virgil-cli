@@ -5,4 +5,5 @@
 mod resolution {
     pub mod overload_disambiguation;
     pub mod shadowing;
+    pub mod wildcards;
 }

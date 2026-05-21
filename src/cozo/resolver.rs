@@ -42,12 +42,29 @@ innermost_binding[occ, sym] :=
     bk != "wildcard_import",
     sym != null
 
+has_scoped[occ] := innermost_binding[occ, _]
+
+# #18.2c: wildcard import expansion. When no scoped binding hits, the
+# occurrence's file may have one or more `wildcard_import` bindings.
+# Each expands to every exported symbol with a matching name in the
+# imported file (via `imports`).
+wildcard_target[occ, sym] :=
+    *occurrence{id: occ, name: n, file_path: of},
+    *scope{id: wscope, file_path: of},
+    *binding{scope_id: wscope, binding_kind: "wildcard_import"},
+    *imports{importer_file_id: of, imported_id: tf},
+    *symbol{id: sym, name: n, file_path: tf, exported: true},
+    not has_scoped[occ]
+
+resolved[occ, sym] := innermost_binding[occ, sym]
+resolved[occ, sym] := wildcard_target[occ, sym]
+
 # #18.2b: deterministic match_index per occurrence. Count of
 # candidates whose sym is lex ≤ this one. Singleton → count = 1 → mi = 0.
 # Two candidates A<B → A: count=1 → mi=0; B: count=2 → mi=1.
 match_index_count[occ, sym, count(s)] :=
-    innermost_binding[occ, sym],
-    innermost_binding[occ, s],
+    resolved[occ, sym],
+    resolved[occ, s],
     s <= sym
 
 ?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] :=
@@ -64,12 +81,24 @@ const UNRESOLVED_SCRIPT: &str = r#"
 scope_ancestor[s, t] := *scope{id: s}, t = s
 scope_ancestor[s, t] := scope_ancestor[s, mid], *scope{id: mid, parent_id: t}, t != null
 
-has_resolution[occ] :=
+has_scoped_resolution[occ] :=
     *occurrence{id: occ, name: n, enclosing_scope_id: occ_scope},
     scope_ancestor[occ_scope, anc_scope],
     *binding{scope_id: anc_scope, name: n, symbol_id: sym, binding_kind: bk},
     bk != "wildcard_import",
     sym != null
+
+# #18.2c: wildcard-import resolutions also count as resolved — don't
+# emit a null fallback when a wildcard would have matched.
+has_wildcard_resolution[occ] :=
+    *occurrence{id: occ, name: n, file_path: of},
+    *scope{id: wscope, file_path: of},
+    *binding{scope_id: wscope, binding_kind: "wildcard_import"},
+    *imports{importer_file_id: of, imported_id: tf},
+    *symbol{id: sym, name: n, file_path: tf, exported: true}
+
+has_resolution[occ] := has_scoped_resolution[occ]
+has_resolution[occ] := has_wildcard_resolution[occ]
 
 ?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] :=
     *occurrence{id: occ, file_path: site_file, start_byte: site_start_byte,
