@@ -1,0 +1,12 @@
+# find_callees — list every direct function/method that `$name` calls.
+# Params:
+#   $name — short name of the caller.
+
+?[caller, callee, callee_file, callee_line, call_site_start_byte] :=
+    *symbol{id: caller_id, name},
+    name = $name,
+    *calls{caller_id, callee_id, call_site_start_byte},
+    *symbol{id: callee_id, name: callee, file_path: callee_file},
+    *span{entity_id: callee_id, file_path: callee_file, start_line: callee_line},
+    caller = name
+:order callee_file, callee_line

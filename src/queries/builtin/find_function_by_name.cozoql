@@ -1,0 +1,36 @@
+# find_function_by_name — locate function/method symbols by exact name
+# (matches `symbol.name` or `symbol.qualified_name`).
+# Params:
+#   $name — short name (e.g. `login`) or qualified name (e.g. `auth::login`).
+
+match[id, kind, name, qname, file, line, vis, exp] :=
+    *symbol{id, kind, name, qualified_name: qname, file_path: file,
+            visibility: vis, exported: exp},
+    *span{entity_id: id, file_path: file, start_line: line},
+    kind = "function",
+    name = $name
+
+match[id, kind, name, qname, file, line, vis, exp] :=
+    *symbol{id, kind, name, qualified_name: qname, file_path: file,
+            visibility: vis, exported: exp},
+    *span{entity_id: id, file_path: file, start_line: line},
+    kind = "method",
+    name = $name
+
+match[id, kind, name, qname, file, line, vis, exp] :=
+    *symbol{id, kind, name, qualified_name: qname, file_path: file,
+            visibility: vis, exported: exp},
+    *span{entity_id: id, file_path: file, start_line: line},
+    kind = "function",
+    qname = $name
+
+match[id, kind, name, qname, file, line, vis, exp] :=
+    *symbol{id, kind, name, qualified_name: qname, file_path: file,
+            visibility: vis, exported: exp},
+    *span{entity_id: id, file_path: file, start_line: line},
+    kind = "method",
+    qname = $name
+
+?[id, kind, name, qualified_name, file_path, start_line, visibility, exported] :=
+    match[id, kind, name, qualified_name, file_path, start_line, visibility, exported]
+:order file_path, start_line

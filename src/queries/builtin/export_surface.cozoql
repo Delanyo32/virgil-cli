@@ -1,0 +1,10 @@
+# export_surface — list every publicly visible symbol that's actually
+# imported from another file in the workspace. Filter for the names a
+# library presents to its consumers.
+
+?[name, qualified_name, kind, file_path, start_line] :=
+    *symbol{id, name, qualified_name, kind, file_path, visibility: "public",
+            exported: true},
+    *imports{imported_id: file_path},
+    *span{entity_id: id, file_path, start_line}
+:order file_path, start_line
