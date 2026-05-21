@@ -49,6 +49,9 @@ const RUST_SYMBOL_QUERY: &str = r#"
 
 (let_declaration
   pattern: (mut_pattern (identifier) @name)) @definition
+
+(field_declaration
+  name: (field_identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -179,6 +182,7 @@ fn determine_rust_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "macro_definition" => Some(SymbolKind::Macro),
         "parameter" => Some(SymbolKind::Parameter),
         "let_declaration" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         _ => None,
     }
 }
@@ -653,10 +657,14 @@ mod tests {
     #[test]
     fn extract_struct() {
         let syms = parse_and_extract("pub struct Point { x: i32, y: i32 }");
-        assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].name, "Point");
-        assert_eq!(syms[0].kind, SymbolKind::Struct);
-        assert!(syms[0].is_exported);
+        // Point + x + y (struct + 2 fields per #18.1).
+        let point = syms.iter().find(|s| s.name == "Point").expect("Point");
+        assert_eq!(point.kind, SymbolKind::Struct);
+        assert!(point.is_exported);
+        let x = syms.iter().find(|s| s.name == "x").expect("x field");
+        assert_eq!(x.kind, SymbolKind::Field);
+        let y = syms.iter().find(|s| s.name == "y").expect("y field");
+        assert_eq!(y.kind, SymbolKind::Field);
     }
 
     #[test]
@@ -727,9 +735,11 @@ mod tests {
     #[test]
     fn extract_union() {
         let syms = parse_and_extract("union MyUnion { i: i32, f: f32 }");
-        assert_eq!(syms.len(), 1);
-        assert_eq!(syms[0].name, "MyUnion");
-        assert_eq!(syms[0].kind, SymbolKind::Union);
+        let u = syms.iter().find(|s| s.name == "MyUnion").expect("MyUnion");
+        assert_eq!(u.kind, SymbolKind::Union);
+        // Union variant fields land as Field symbols per #18.1.
+        assert!(syms.iter().any(|s| s.name == "i" && s.kind == SymbolKind::Field));
+        assert!(syms.iter().any(|s| s.name == "f" && s.kind == SymbolKind::Field));
     }
 
     #[test]

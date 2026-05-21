@@ -112,6 +112,12 @@ fn standard_counts() -> &'static [(&'static str, &'static str)] {
             "references_unresolved",
             "?[count(r)] := *references{referrer_id: r, referent_id: rid}, rid == null",
         ),
+        // Issue #18.1: verify field_type rows match real `symbol{kind: "field"}`
+        // rows (i.e. the JOIN succeeds — fields exist as proper Symbol rows).
+        (
+            "field_type_joinable_with_symbol",
+            "?[count(s)] := *symbol{id: s, kind: \"field\"}, *field_type{symbol_id: s}",
+        ),
     ]
 }
 

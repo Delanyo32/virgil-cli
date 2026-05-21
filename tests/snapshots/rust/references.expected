@@ -1,7 +1,8 @@
 # Issue #16 Rust pilot baseline against benchmarks/rust/systems-cli.
 occurrence_total = 6608
 scope_total = 1226
-binding_total = 1769
+binding_total = 1914
 references_total = 6123
-references_resolved = 2321
-references_unresolved = 3802
+references_resolved = 2543
+references_unresolved = 3580
+field_type_joinable_with_symbol = 145

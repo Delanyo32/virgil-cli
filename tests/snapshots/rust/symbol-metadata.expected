@@ -2,12 +2,12 @@
 # (issue #12: visibility, qualified_name, parent_id, is_async/static/
 # abstract/mutable). Probed on rust/systems-cli; update only alongside
 # intentional extractor changes.
-public_count=319
-private_count=639
+public_count=430
+private_count=673
 internal_count=0
 protected_count=0
-qualified_name_count=599
-parent_id_count=599
+qualified_name_count=744
+parent_id_count=744
 is_async_count=0
 is_static_count=2
 is_abstract_count=0

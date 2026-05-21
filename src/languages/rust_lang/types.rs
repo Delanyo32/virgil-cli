@@ -349,14 +349,14 @@ impl<'a> Ctx<'a> {
                 continue;
             };
             self.emit_type_with_subtree(t);
-            // Issue #14: name + position of the field for the
-            // synthesized symbol_id. Rust struct fields always carry a
-            // `name:` field (tuple-struct fields are positional and
-            // tree-sitter exposes them differently — skipped here).
+            // Issue #14 + #18.1: emit FieldTypeRow keyed on the
+            // *field_declaration* start position so the synthesized
+            // symbol_id matches the Symbol row the symbol query
+            // produces (which captures @definition = field_declaration).
             if let Some(name_node) = child.child_by_field_name("name")
                 && let Ok(field_name) = name_node.utf8_text(self.source)
             {
-                let (line, col) = node_pos(name_node);
+                let (line, col) = node_pos(child);
                 self.field_types.push(FieldTypeRow {
                     file_path: self.file_path.to_string(),
                     field_start_line: line,
