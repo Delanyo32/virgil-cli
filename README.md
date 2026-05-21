@@ -22,24 +22,6 @@ irm https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.ps1 | 
 cargo install --path .
 ```
 
-## AI Skill
-
-Virgil includes an [Agent Skills](https://agentskills.io/) compatible skill that teaches AI assistants how to use virgil-cli for codebase exploration. Works with Claude Code, Cursor, Gemini CLI, VS Code, and other compatible agents.
-
-### Install via npx
-
-```bash
-npx skills add delanyo32/virgil-cli
-```
-
-### Manual install (Claude Code)
-
-Copy the `virgil/` skill directory to your skills folder:
-
-```bash
-cp -r .agents/skills/virgil ~/.claude/skills/
-```
-
 ## Usage
 
 Two top-level command groups:
@@ -314,7 +296,7 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 ## Features
 
 - **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP via tree-sitter
-- **Cozoscript query language** — Datalog over a fact store, far more expressive than the previous JSON DSL
+- **Cozoscript query language** — Datalog over a fact store
 - **Persistent fact store** — SQLite-backed Cozo store cached at `~/.cache/virgil/<hash>.cozo`
 - **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely; ~17ms on the reference workspace vs ~850ms cold
 - **Incremental refresh** — modifying / adding / removing one file re-parses only that file and re-resolves cross-file edges
