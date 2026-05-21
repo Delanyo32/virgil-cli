@@ -1,8 +1,8 @@
-# benchmarks/c/embedded-sensors
-occurrence_total = 5313
+# benchmarks/c/embedded-sensors — C full extractor (#18.3)
+occurrence_total = 3283
 scope_total = 844
-binding_total = 1426
-references_total = 10495
-references_resolved = 9506
-references_unresolved = 989
+binding_total = 1385
+references_total = 3265
+references_resolved = 789
+references_unresolved = 2476
 field_type_joinable_with_symbol = 144
