@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
 pub fn extract_types(
@@ -32,6 +32,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -47,6 +48,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// `import alias "path";` parsed into `(local_name, canonical_path)`.
     imports: Vec<ImportBinding>,
     /// Same-file named-type declarations (struct/interface/alias). Used
@@ -77,6 +79,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             imports: Vec::new(),
             same_file_defs: HashSet::new(),
             package_path: derive_package_path(file_path),
@@ -90,12 +93,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -516,6 +521,25 @@ impl<'a> Ctx<'a> {
                             && let Some(t) = field.child_by_field_name("type")
                         {
                             self.emit_type_with_subtree(t);
+                            // Issue #14: every named field (Go fields use
+                            // a `name` child for each declared field;
+                            // embedded fields use no `name` and are
+                            // skipped). One row per name.
+                            let display = render_type(t, self.source);
+                            let mut nc = field.walk();
+                            for n in field.children_by_field_name("name", &mut nc) {
+                                if let Ok(field_name) = n.utf8_text(self.source) {
+                                    let (line, col) = node_pos(n);
+                                    self.field_types.push(FieldTypeRow {
+                                        file_path: self.file_path.to_string(),
+                                        field_start_line: line,
+                                        field_start_col: col,
+                                        field_name: field_name.to_string(),
+                                        field_kind: SymbolKind::Field,
+                                        type_display_name: display.clone(),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -1069,6 +1093,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::Go).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -1077,7 +1102,7 @@ mod tests {
 
     #[test]
     fn primitive_param_and_return() {
-        let (types, params, returns, _) = run(
+        let (types, params, returns, _, _) = run(
             "package math\nfunc Add(a int, b int) int { return a + b }",
             "internal/math/add.go",
         );
@@ -1101,7 +1126,7 @@ mod tests {
     #[test]
     fn shared_type_across_names() {
         // `func f(a, b int)` — single parameter_declaration with two names.
-        let (_, params, _, _) = run("package p\nfunc F(a, b int) {}", "p/f.go");
+        let (_, params, _, _, _) = run("package p\nfunc F(a, b int) {}", "p/f.go");
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].parameter_name, "a");
         assert_eq!(params[1].parameter_name, "b");
@@ -1113,7 +1138,7 @@ mod tests {
 
     #[test]
     fn pointer_is_generic() {
-        let (types, params, _, _) = run("package api\nfunc H(x *Order) {}", "internal/api/h.go");
+        let (types, params, _, _, _) = run("package api\nfunc H(x *Order) {}", "internal/api/h.go");
         let p = types
             .iter()
             .find(|t| t.display_name == "*Order")
@@ -1126,7 +1151,7 @@ mod tests {
 
     #[test]
     fn slice_and_array_are_array_kind() {
-        let (types, _, _, _) = run("package m\nfunc F(s []int, a [3]byte) {}", "m/f.go");
+        let (types, _, _, _, _) = run("package m\nfunc F(s []int, a [3]byte) {}", "m/f.go");
         let s = types
             .iter()
             .find(|t| t.display_name == "[]int")
@@ -1141,7 +1166,7 @@ mod tests {
 
     #[test]
     fn map_and_channel_are_generic() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "package p\nfunc F(m map[string]int, c chan int) {}",
             "p/f.go",
         );
@@ -1159,7 +1184,7 @@ mod tests {
 
     #[test]
     fn function_type_is_function_kind() {
-        let (types, _, returns, _) = run(
+        let (types, _, returns, _, _) = run(
             "package p\nfunc Wrap() func(int) int { return nil }",
             "p/w.go",
         );
@@ -1173,7 +1198,7 @@ mod tests {
 
     #[test]
     fn multi_return_first_is_returns_rest_negative_params() {
-        let (_, params, returns, _) = run(
+        let (_, params, returns, _, _) = run(
             "package p\nfunc F() (int, error) { return 0, nil }",
             "p/f.go",
         );
@@ -1190,7 +1215,7 @@ mod tests {
 
     #[test]
     fn named_multi_return_keeps_names() {
-        let (_, params, returns, _) = run(
+        let (_, params, returns, _, _) = run(
             "package p\nfunc F() (n int, err error) { return }",
             "p/f.go",
         );
@@ -1211,7 +1236,7 @@ mod tests {
     #[test]
     fn interface_embedding_emits_extends() {
         let src = "package p\ntype Reader interface { Read() }\ntype RW interface {\n  Reader\n  Write()\n}\n";
-        let (_, _, _, inh) = run(src, "p/r.go");
+        let (_, _, _, inh, _) = run(src, "p/r.go");
         let r = inh
             .iter()
             .find(|r| r.child_name == "RW" && r.kind == InheritanceKind::Extends)
@@ -1224,7 +1249,7 @@ mod tests {
     #[test]
     fn struct_embedding_is_not_inheritance() {
         let src = "package p\ntype Base struct{}\ntype Derived struct {\n  Base\n  X int\n}\n";
-        let (_, _, _, inh) = run(src, "p/d.go");
+        let (_, _, _, inh, _) = run(src, "p/d.go");
         // Struct embedding must NOT produce inheritance rows.
         assert!(inh.is_empty(), "got rows: {:?}", inh);
     }
@@ -1235,7 +1260,7 @@ mod tests {
 import "github.com/example/ordersvc/internal/service"
 func New(s *service.OrderService) {}
 "#;
-        let (types, _, _, _) = run(src, "internal/handlers/h.go");
+        let (types, _, _, _, _) = run(src, "internal/handlers/h.go");
         let row = types
             .iter()
             .find(|t| t.display_name == "*service.OrderService")
@@ -1250,7 +1275,7 @@ func New(s *service.OrderService) {}
     #[test]
     fn same_package_canonical() {
         let src = "package model\ntype Order struct{ ID int }\nfunc F(o Order) {}";
-        let (types, _, _, _) = run(src, "internal/model/order.go");
+        let (types, _, _, _, _) = run(src, "internal/model/order.go");
         let order = types
             .iter()
             .find(|t| t.display_name == "Order")
@@ -1265,7 +1290,7 @@ func New(s *service.OrderService) {}
     #[test]
     fn method_receiver_is_position_zero() {
         let src = "package p\ntype Foo struct{}\nfunc (f *Foo) Bar(x int) {}";
-        let (_, params, _, _) = run(src, "p/foo.go");
+        let (_, params, _, _, _) = run(src, "p/foo.go");
         let recv = params
             .iter()
             .find(|p| p.parameter_name == "f")
@@ -1280,20 +1305,20 @@ func New(s *service.OrderService) {}
 
     #[test]
     fn no_return_emits_no_returns_row() {
-        let (_, _, returns, _) = run("package p\nfunc F() {}", "p/f.go");
+        let (_, _, returns, _, _) = run("package p\nfunc F() {}", "p/f.go");
         assert!(returns.is_empty());
     }
 
     #[test]
     fn variadic_param_display_has_ellipsis() {
-        let (_, params, _, _) = run("package p\nfunc F(xs ...int) {}", "p/f.go");
+        let (_, params, _, _, _) = run("package p\nfunc F(xs ...int) {}", "p/f.go");
         let p = params.iter().find(|p| p.parameter_name == "xs").unwrap();
         assert_eq!(p.type_display_name.as_deref(), Some("...int"));
     }
 
     #[test]
     fn nested_types_emit_inner_rows() {
-        let (types, _, _, _) = run("package p\nfunc F(m map[string][]*Foo) {}", "p/f.go");
+        let (types, _, _, _, _) = run("package p\nfunc F(m map[string][]*Foo) {}", "p/f.go");
         // Outer + key + value + slice + ptr + Foo all appear.
         assert!(types.iter().any(|t| t.display_name == "map[string][]*Foo"));
         assert!(types.iter().any(|t| t.display_name == "[]*Foo"));
@@ -1308,7 +1333,7 @@ func New(s *service.OrderService) {}
 import foo "github.com/x/y/bar"
 func G(p *foo.Thing) {}
 "#;
-        let (types, _, _, _) = run(src, "h/g.go");
+        let (types, _, _, _, _) = run(src, "h/g.go");
         let row = types
             .iter()
             .find(|t| t.display_name == "*foo.Thing")
@@ -1322,7 +1347,7 @@ func G(p *foo.Thing) {}
     #[test]
     fn type_alias_declaration() {
         let src = "package p\ntype MyInt = int\nfunc F(x MyInt) {}";
-        let (types, _, _, _) = run(src, "p/a.go");
+        let (types, _, _, _, _) = run(src, "p/a.go");
         let alias = types
             .iter()
             .find(|t| t.display_name == "MyInt")

@@ -118,6 +118,7 @@ fn emit_types_and_hierarchy(
         && graph.param_types.is_empty()
         && graph.returns_types.is_empty()
         && graph.inheritance.is_empty()
+        && graph.field_types.is_empty()
     {
         return;
     }
@@ -290,6 +291,32 @@ fn emit_types_and_hierarchy(
                 InheritanceKind::Extends => writer.push_extends(&child_id, &parent_id),
                 InheritanceKind::Implements => writer.push_implements(&child_id, &parent_id),
             }
+        }
+    }
+
+    // Issue #14: field_type rows. The field's symbol_id follows the
+    // ADR-0002 convention (path|line|col|name|kind); the type_id joins
+    // through the per-file display_name → type.id map we built above.
+    // Untyped fields don't reach here — the extractor only emits rows
+    // when an annotation is present.
+    for (file_path, rows) in &graph.field_types {
+        let language = workspace
+            .and_then(|ws| ws.file_language(file_path))
+            .map(|l| l.as_str())
+            .unwrap_or("");
+        for row in rows {
+            let field_symbol_id = symbol_id(
+                file_path,
+                row.field_start_line,
+                row.field_start_col,
+                &row.field_name,
+                row.field_kind,
+            );
+            let tid = type_id_by_display
+                .get(&(file_path.clone(), row.type_display_name.clone()))
+                .cloned()
+                .unwrap_or_else(|| type_id(language, file_path, &row.type_display_name));
+            writer.push_field_type(&field_symbol_id, &tid);
         }
     }
 }

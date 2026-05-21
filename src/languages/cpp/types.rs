@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
 pub fn extract_types(
@@ -19,6 +19,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node(), Vec::new());
@@ -34,6 +35,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// `using X = Y;` / `using X;` / `typedef ... X;` bindings collected
     /// at file/namespace scope. Maps the local name to its canonical
     /// qualified form.
@@ -53,6 +55,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             using_bindings: HashMap::new(),
             same_file_defs: HashMap::new(),
         }
@@ -65,12 +68,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -422,6 +427,26 @@ impl<'a> Ctx<'a> {
         // is the type expression.
         if let Some(t) = node.child_by_field_name("type") {
             self.emit_type_with_subtree(t);
+            // Issue #14: data-member field rows. Only emit when the
+            // declarator chain bottoms out at a plain identifier (i.e.
+            // not a function declarator). Pointer/reference/array
+            // wrappers around the name still count as data fields.
+            if let Some(decl) = node.child_by_field_name("declarator")
+                && find_function_declarator(decl).is_none()
+            {
+                let field_name = extract_param_name(decl, self.source).unwrap_or_default();
+                if !field_name.is_empty() {
+                    let (line, col) = node_pos(decl);
+                    self.field_types.push(FieldTypeRow {
+                        file_path: self.file_path.to_string(),
+                        field_start_line: line,
+                        field_start_col: col,
+                        field_name,
+                        field_kind: SymbolKind::Field,
+                        type_display_name: render_type(t, self.source),
+                    });
+                }
+            }
         }
         // If it's an in-class function declaration, we want
         // params/returns too. The declarator chain may include a
@@ -1036,6 +1061,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::Cpp).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -1044,7 +1070,7 @@ mod tests {
 
     #[test]
     fn primitive_param_and_return() {
-        let (types, params, returns, _) =
+        let (types, params, returns, _, _) =
             run("int add(int a, int b) { return a + b; }", "test.cpp");
         assert!(
             types
@@ -1062,7 +1088,7 @@ mod tests {
 
     #[test]
     fn pointer_param_and_return() {
-        let (types, params, returns, _) = run("void* alloc(void* p) { return p; }", "test.cpp");
+        let (types, params, returns, _, _) = run("void* alloc(void* p) { return p; }", "test.cpp");
         // params and returns both `void*`
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].type_display_name.as_deref(), Some("void*"));
@@ -1074,7 +1100,7 @@ mod tests {
 
     #[test]
     fn reference_param() {
-        let (types, params, _, _) = run("void f(const std::string& s) { }", "test.cpp");
+        let (types, params, _, _, _) = run("void f(const std::string& s) { }", "test.cpp");
         // Display name keeps `&` punctuation.
         let d = params[0].type_display_name.as_deref().unwrap_or("");
         assert!(d.contains('&'), "expected & in param display, got {:?}", d);
@@ -1088,7 +1114,7 @@ mod tests {
     #[ignore]
     #[test]
     fn template_generic_return() {
-        let (types, _, returns, _) = run(
+        let (types, _, returns, _, _) = run(
             "#include <vector>\nstd::vector<int> nums() { return {}; }",
             "test.cpp",
         );
@@ -1103,7 +1129,7 @@ mod tests {
     #[test]
     fn class_inheritance_extends() {
         let src = "class Bar {};\nclass Baz {};\nclass Foo : public Bar, private Baz {};";
-        let (_, _, _, inh) = run(src, "test.cpp");
+        let (_, _, _, inh, _) = run(src, "test.cpp");
         let foo_parents: Vec<&str> = inh
             .iter()
             .filter(|r| r.child_name == "Foo" && r.kind == InheritanceKind::Extends)
@@ -1124,7 +1150,7 @@ mod tests {
     #[test]
     fn struct_inheritance_extends() {
         let src = "struct Base { int x; };\nstruct Derived : Base { int y; };";
-        let (_, _, _, inh) = run(src, "test.cpp");
+        let (_, _, _, inh, _) = run(src, "test.cpp");
         let row = inh
             .iter()
             .find(|r| r.child_name == "Derived")
@@ -1136,7 +1162,7 @@ mod tests {
     #[test]
     fn same_file_canonical_namespaced() {
         let src = "namespace ns { class Reader {}; class CsvReader : public Reader {}; }";
-        let (_, _, _, inh) = run(src, "test.cpp");
+        let (_, _, _, inh, _) = run(src, "test.cpp");
         let row = inh
             .iter()
             .find(|r| r.child_name == "CsvReader")
@@ -1147,7 +1173,7 @@ mod tests {
 
     #[test]
     fn std_qualified_preserved() {
-        let (types, _, _, _) = run("#include <string>\nvoid f(std::string s) {}", "test.cpp");
+        let (types, _, _, _, _) = run("#include <string>\nvoid f(std::string s) {}", "test.cpp");
         let row = types
             .iter()
             .find(|t| t.display_name == "std::string")
@@ -1159,7 +1185,7 @@ mod tests {
     #[test]
     fn method_inside_class() {
         let src = "class C { public: int m(int x) { return x; } };";
-        let (_, params, returns, _) = run(src, "test.cpp");
+        let (_, params, returns, _, _) = run(src, "test.cpp");
         let m_returns = returns.iter().find(|r| r.function_name == "m");
         assert!(
             m_returns.is_some(),

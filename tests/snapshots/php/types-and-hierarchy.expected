@@ -13,3 +13,4 @@ parameter_with_type = 175
 returns_total = 84
 extends_total = 30
 implements_total = 0
+field_type_total = 2

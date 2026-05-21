@@ -30,6 +30,11 @@ pub enum SymbolKind {
     Constant,
     Module,
     Parameter,
+    /// Struct / class / interface field. Distinct from `Property` (which
+    /// carries getter/setter semantics in TS/C#); plain data members go
+    /// here. Used as the `kind` segment of the synthesized symbol_id in
+    /// `field_type` rows (issue #14).
+    Field,
 }
 
 impl SymbolKind {
@@ -54,6 +59,7 @@ impl SymbolKind {
             "constant" => Some(SymbolKind::Constant),
             "module" => Some(SymbolKind::Module),
             "parameter" => Some(SymbolKind::Parameter),
+            "field" => Some(SymbolKind::Field),
             _ => None,
         }
     }
@@ -80,6 +86,7 @@ impl fmt::Display for SymbolKind {
             SymbolKind::Constant => "constant",
             SymbolKind::Module => "module",
             SymbolKind::Parameter => "parameter",
+            SymbolKind::Field => "field",
         };
         f.write_str(s)
     }
@@ -217,6 +224,23 @@ pub struct ReturnsTypeRow {
     pub type_display_name: String,
 }
 
+/// Issue #14: links a struct/class/interface field symbol to its
+/// declared type. Untyped fields (e.g. JS class fields, dynamic PHP
+/// properties, Python attributes without PEP 526 annotations) emit no
+/// row. The emitter computes `symbol_id` from `(file_path,
+/// field_start_line, field_start_col, field_name, field_kind)` per
+/// ADR-0002 and `type_id` by joining `type_display_name` against the
+/// per-file `TypeRow`s produced by the same extractor.
+#[derive(Debug, Clone)]
+pub struct FieldTypeRow {
+    pub file_path: String,
+    pub field_start_line: u32,
+    pub field_start_col: u32,
+    pub field_name: String,
+    pub field_kind: SymbolKind,
+    pub type_display_name: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InheritanceKind {
     Extends,
@@ -297,5 +321,6 @@ mod tests {
         assert_eq!(SymbolKind::Constant.to_string(), "constant");
         assert_eq!(SymbolKind::Module.to_string(), "module");
         assert_eq!(SymbolKind::Parameter.to_string(), "parameter");
+        assert_eq!(SymbolKind::Field.to_string(), "field");
     }
 }

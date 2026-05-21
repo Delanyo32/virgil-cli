@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    TypeRow,
 };
 
 pub fn extract_types(
@@ -19,6 +20,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -34,6 +36,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// Use statements at file scope, parsed into `(local_name, canonical_path)` pairs.
     use_bindings: Vec<UseBinding>,
     /// Same-file definitions that can resolve a bare name to a
@@ -59,6 +62,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             use_bindings: Vec::new(),
             same_file_defs: HashSet::new(),
             crate_module_path: derive_crate_module_path(file_path),
@@ -72,12 +76,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -336,10 +342,29 @@ impl<'a> Ctx<'a> {
     fn emit_field_types(&mut self, body: Node) {
         let mut cursor = body.walk();
         for child in body.named_children(&mut cursor) {
-            if child.kind() == "field_declaration"
-                && let Some(t) = child.child_by_field_name("type")
+            if child.kind() != "field_declaration" {
+                continue;
+            }
+            let Some(t) = child.child_by_field_name("type") else {
+                continue;
+            };
+            self.emit_type_with_subtree(t);
+            // Issue #14: name + position of the field for the
+            // synthesized symbol_id. Rust struct fields always carry a
+            // `name:` field (tuple-struct fields are positional and
+            // tree-sitter exposes them differently — skipped here).
+            if let Some(name_node) = child.child_by_field_name("name")
+                && let Ok(field_name) = name_node.utf8_text(self.source)
             {
-                self.emit_type_with_subtree(t);
+                let (line, col) = node_pos(name_node);
+                self.field_types.push(FieldTypeRow {
+                    file_path: self.file_path.to_string(),
+                    field_start_line: line,
+                    field_start_col: col,
+                    field_name: field_name.to_string(),
+                    field_kind: SymbolKind::Field,
+                    type_display_name: render_type(t, self.source),
+                });
             }
         }
     }
@@ -852,6 +877,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::Rust).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -860,7 +886,7 @@ mod tests {
 
     #[test]
     fn primitive_param_and_return() {
-        let (types, params, returns, _) =
+        let (types, params, returns, _, _) =
             run("fn add(a: i32, b: i32) -> i32 { a + b }", "src/lib.rs");
         assert!(
             types
@@ -875,7 +901,7 @@ mod tests {
 
     #[test]
     fn reference_param() {
-        let (types, params, _, _) = run("fn f(s: &str) {}", "src/lib.rs");
+        let (types, params, _, _, _) = run("fn f(s: &str) {}", "src/lib.rs");
         // &str → kind=generic; inner str → primitive
         let outer = types
             .iter()
@@ -892,7 +918,7 @@ mod tests {
 
     #[test]
     fn generic_return() {
-        let (types, _, returns, _) =
+        let (types, _, returns, _, _) =
             run("fn f() -> Result<bool, String> { Ok(true) }", "src/lib.rs");
         let outer = types
             .iter()
@@ -908,7 +934,7 @@ mod tests {
 
     #[test]
     fn tuple_and_array() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "pub fn f(r: &[(String, bool, u64)]) {}",
             "src/cli/output.rs",
         );
@@ -919,7 +945,7 @@ mod tests {
     #[test]
     fn same_file_canonical() {
         let src = "pub struct ContentHash { value: u64 }\nfn f(c: ContentHash) {}";
-        let (types, _, _, _) = run(src, "src/utils/hash.rs");
+        let (types, _, _, _, _) = run(src, "src/utils/hash.rs");
         let row = types
             .iter()
             .find(|t| t.display_name == "ContentHash")
@@ -933,7 +959,7 @@ mod tests {
     #[test]
     fn use_alias_resolution() {
         let src = "use std::collections::HashMap as Map;\nfn f(m: Map<String, u8>) {}";
-        let (types, _, _, _) = run(src, "src/lib.rs");
+        let (types, _, _, _, _) = run(src, "src/lib.rs");
         let row = types
             .iter()
             .find(|t| t.display_name.starts_with("Map<"))
@@ -947,7 +973,7 @@ mod tests {
     #[test]
     fn trait_extends() {
         let src = "trait Sub: Super + Send {}\ntrait Super {}";
-        let (_, _, _, inh) = run(src, "src/lib.rs");
+        let (_, _, _, inh, _) = run(src, "src/lib.rs");
         let supers: Vec<&str> = inh
             .iter()
             .filter(|r| r.child_name == "Sub" && r.kind == InheritanceKind::Extends)
@@ -960,7 +986,7 @@ mod tests {
     #[test]
     fn impl_implements() {
         let src = "struct Foo;\nimpl Bar for Foo {}";
-        let (_, _, _, inh) = run(src, "src/lib.rs");
+        let (_, _, _, inh, _) = run(src, "src/lib.rs");
         let row = inh
             .iter()
             .find(|r| r.kind == InheritanceKind::Implements)
@@ -970,9 +996,21 @@ mod tests {
     }
 
     #[test]
+    fn struct_fields_emit_field_types() {
+        let src = "pub struct Cache { entries: u64, name: String }";
+        let (_, _, _, _, fields) = run(src, "src/core/cache.rs");
+        let names: Vec<&str> = fields.iter().map(|f| f.field_name.as_str()).collect();
+        assert!(names.contains(&"entries"), "got {:?}", names);
+        assert!(names.contains(&"name"), "got {:?}", names);
+        let n = fields.iter().find(|f| f.field_name == "entries").unwrap();
+        assert_eq!(n.type_display_name, "u64");
+        assert_eq!(n.field_kind, SymbolKind::Field);
+    }
+
+    #[test]
     fn self_parameter_emitted() {
         let src = "struct S;\nimpl S { fn m(&self, x: i32) {} }";
-        let (_, params, _, _) = run(src, "src/lib.rs");
+        let (_, params, _, _, _) = run(src, "src/lib.rs");
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].parameter_name, "self");
         assert_eq!(params[0].position, 0);

@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
 pub fn extract_types(
@@ -23,6 +23,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -38,6 +39,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// File-level `package x.y.z;` declaration. Empty for default package.
     package: String,
     /// `import x.y.Z;` → ("Z", "x.y.Z"). Wildcards and `static` imports
@@ -67,6 +69,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             package: String::new(),
             single_imports: Vec::new(),
             on_demand_prefixes: Vec::new(),
@@ -81,12 +84,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -655,10 +660,34 @@ impl<'a> Ctx<'a> {
     fn emit_field_types(&mut self, body: Node) {
         let mut cursor = body.walk();
         for child in body.named_children(&mut cursor) {
-            if child.kind() == "field_declaration"
-                && let Some(t) = child.child_by_field_name("type")
-            {
-                self.emit_type_with_subtree(t);
+            if child.kind() != "field_declaration" {
+                continue;
+            }
+            let Some(t) = child.child_by_field_name("type") else {
+                continue;
+            };
+            self.emit_type_with_subtree(t);
+            // Issue #14: one row per declarator name. Java allows
+            // `int a, b, c;` — each declarator gets its own field row.
+            let display = render_type(t, self.source);
+            let mut dc = child.walk();
+            for d in child.named_children(&mut dc) {
+                if d.kind() != "variable_declarator" {
+                    continue;
+                }
+                if let Some(name_node) = d.child_by_field_name("name")
+                    && let Ok(field_name) = name_node.utf8_text(self.source)
+                {
+                    let (line, col) = node_pos(name_node);
+                    self.field_types.push(FieldTypeRow {
+                        file_path: self.file_path.to_string(),
+                        field_start_line: line,
+                        field_start_col: col,
+                        field_name: field_name.to_string(),
+                        field_kind: SymbolKind::Field,
+                        type_display_name: display.clone(),
+                    });
+                }
             }
         }
     }
@@ -1029,6 +1058,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::Java).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -1038,7 +1068,7 @@ mod tests {
     #[test]
     fn primitive_param_and_return() {
         let src = "public class C { public int add(int a, int b) { return a + b; } }";
-        let (types, params, returns, _) = run(src, "C.java");
+        let (types, params, returns, _, _) = run(src, "C.java");
         let int_row = types
             .iter()
             .find(|t| t.display_name == "int")
@@ -1054,7 +1084,7 @@ mod tests {
     #[test]
     fn string_prelude_resolves() {
         let src = "public class C { public String greet(String name) { return name; } }";
-        let (types, params, _, _) = run(src, "C.java");
+        let (types, params, _, _, _) = run(src, "C.java");
         let r = types
             .iter()
             .find(|t| t.display_name == "String")
@@ -1072,7 +1102,7 @@ mod tests {
     fn generic_with_import_resolves() {
         let src =
             "import java.util.List;\npublic class C { public List<String> all() { return null; } }";
-        let (types, _, returns, _) = run(src, "C.java");
+        let (types, _, returns, _, _) = run(src, "C.java");
         let g = types
             .iter()
             .find(|t| t.display_name == "List<String>")
@@ -1093,7 +1123,7 @@ mod tests {
     #[test]
     fn array_param() {
         let src = "public class C { public void f(int[] xs) { } }";
-        let (types, params, _, _) = run(src, "C.java");
+        let (types, params, _, _, _) = run(src, "C.java");
         let arr = types
             .iter()
             .find(|t| t.display_name == "int[]")
@@ -1106,7 +1136,7 @@ mod tests {
     #[test]
     fn multi_dim_array() {
         let src = "public class C { public void f(String[][] xs) { } }";
-        let (types, _, _, _) = run(src, "C.java");
+        let (types, _, _, _, _) = run(src, "C.java");
         let arr = types
             .iter()
             .find(|t| t.display_name == "String[][]")
@@ -1118,7 +1148,7 @@ mod tests {
     #[test]
     fn class_extends_implements() {
         let src = "import java.util.List;\npublic class Foo extends Bar implements I1, java.util.List { }";
-        let (_, _, _, inh) = run(src, "Foo.java");
+        let (_, _, _, inh, _) = run(src, "Foo.java");
         let extends: Vec<_> = inh
             .iter()
             .filter(|r| r.kind == InheritanceKind::Extends && r.child_name == "Foo")
@@ -1138,7 +1168,7 @@ mod tests {
     #[test]
     fn interface_extends_multiple() {
         let src = "public interface Foo extends Bar, Baz { }";
-        let (_, _, _, inh) = run(src, "Foo.java");
+        let (_, _, _, inh, _) = run(src, "Foo.java");
         let extends: Vec<&str> = inh
             .iter()
             .filter(|r| r.kind == InheritanceKind::Extends && r.child_name == "Foo")
@@ -1151,7 +1181,7 @@ mod tests {
     #[test]
     fn same_file_canonical_with_package() {
         let src = "package com.example;\npublic class Outer { }\nclass Other { Outer field; }";
-        let (types, _, _, _) = run(src, "Outer.java");
+        let (types, _, _, _, _) = run(src, "Outer.java");
         let outer = types
             .iter()
             .find(|t| t.display_name == "Outer")
@@ -1162,7 +1192,7 @@ mod tests {
     #[test]
     fn throws_emits_type_rows() {
         let src = "import java.io.IOException;\npublic class C { void f() throws IOException, RuntimeException { } }";
-        let (types, _, _, _) = run(src, "C.java");
+        let (types, _, _, _, _) = run(src, "C.java");
         let io = types
             .iter()
             .find(|t| t.display_name == "IOException")
@@ -1181,7 +1211,7 @@ mod tests {
     #[test]
     fn multi_catch_union() {
         let src = "import java.io.IOException;\npublic class C { void f() { try { } catch (IOException | RuntimeException e) { } } }";
-        let (types, _, _, _) = run(src, "C.java");
+        let (types, _, _, _, _) = run(src, "C.java");
         let u = types.iter().find(|t| t.kind == "union").expect("union row");
         assert_eq!(u.display_name, "IOException | RuntimeException");
         assert_eq!(
@@ -1193,7 +1223,7 @@ mod tests {
     #[test]
     fn varargs_parameter() {
         let src = "public class C { public void log(String... args) { } }";
-        let (types, params, _, _) = run(src, "C.java");
+        let (types, params, _, _, _) = run(src, "C.java");
         assert_eq!(params[0].type_display_name.as_deref(), Some("String[]"));
         let arr = types
             .iter()
@@ -1206,7 +1236,7 @@ mod tests {
     #[test]
     fn type_parameter_unresolved() {
         let src = "public class C<T> { public T get() { return null; } }";
-        let (types, _, _, _) = run(src, "C.java");
+        let (types, _, _, _, _) = run(src, "C.java");
         let t = types.iter().find(|t| t.display_name == "T").expect("T row");
         assert_eq!(t.kind, "named");
         assert_eq!(t.canonical_name, None);

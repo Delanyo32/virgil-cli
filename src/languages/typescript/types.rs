@@ -12,7 +12,8 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    TypeRow,
 };
 
 pub fn extract_types(
@@ -24,6 +25,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let is_js = is_javascript_path(file_path);
     let mut ctx = Ctx::new(file_path, source, is_js);
@@ -40,6 +42,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
 }
 
 impl<'a> Ctx<'a> {
@@ -53,6 +56,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
         }
     }
 
@@ -63,12 +67,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -403,6 +409,7 @@ impl<'a> Ctx<'a> {
                     if let Some(t) = child.child_by_field_name("type") {
                         let inner = unwrap_type_annotation(t);
                         self.emit_type_with_subtree(inner);
+                        self.emit_field_row(child, inner);
                     }
                 }
                 _ => {}
@@ -418,6 +425,7 @@ impl<'a> Ctx<'a> {
                     if let Some(t) = child.child_by_field_name("type") {
                         let inner = unwrap_type_annotation(t);
                         self.emit_type_with_subtree(inner);
+                        self.emit_field_row(child, inner);
                     }
                 }
                 "method_signature" => {
@@ -428,6 +436,30 @@ impl<'a> Ctx<'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Issue #14: emit a FieldTypeRow for a class field /
+    /// interface property. JS files skip the call entirely (no type
+    /// annotation to record).
+    fn emit_field_row(&mut self, field_node: Node, inner_type: Node) {
+        if self.is_js {
+            return;
+        }
+        let Some(name_node) = field_node.child_by_field_name("name") else {
+            return;
+        };
+        let Ok(field_name) = name_node.utf8_text(self.source) else {
+            return;
+        };
+        let (line, col) = node_pos(name_node);
+        self.field_types.push(FieldTypeRow {
+            file_path: self.file_path.to_string(),
+            field_start_line: line,
+            field_start_col: col,
+            field_name: field_name.to_string(),
+            field_kind: SymbolKind::Field,
+            type_display_name: render_type(inner_type, self.source),
+        });
     }
 
     /// Emit a TypeRow for `node` and every meaningful sub-type expression
@@ -871,6 +903,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let language = match path.rsplit('.').next().unwrap_or("ts") {
             "tsx" => Language::Tsx,
@@ -885,7 +918,7 @@ mod tests {
 
     #[test]
     fn primitive_param_and_return() {
-        let (types, params, returns, _) = run(
+        let (types, params, returns, _, _) = run(
             "function add(a: number, b: number): number { return a + b; }",
             "src/calc.ts",
         );
@@ -912,7 +945,7 @@ mod tests {
 
     #[test]
     fn generic_record() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "function f(): Record<string, any> { return {} as any; }",
             "src/a.ts",
         );
@@ -931,7 +964,7 @@ mod tests {
 
     #[test]
     fn union_type_alias() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "export type SortDirection = 'asc' | 'desc';",
             "src/common.ts",
         );
@@ -949,7 +982,7 @@ mod tests {
 
     #[test]
     fn intersection_type_alias() {
-        let (types, _, _, _) = run("type C = A & B;", "src/x.ts");
+        let (types, _, _, _, _) = run("type C = A & B;", "src/x.ts");
         let isect = types
             .iter()
             .find(|t| t.kind == "intersection")
@@ -969,7 +1002,7 @@ mod tests {
 
     #[test]
     fn interface_extends() {
-        let (_, _, _, inh) = run("interface A {}\ninterface B extends A {}", "src/i.ts");
+        let (_, _, _, inh, _) = run("interface A {}\ninterface B extends A {}", "src/i.ts");
         let row = inh
             .iter()
             .find(|r| r.child_name == "B" && r.kind == InheritanceKind::Extends)
@@ -980,7 +1013,7 @@ mod tests {
 
     #[test]
     fn class_extends_and_implements() {
-        let (_, _, _, inh) = run(
+        let (_, _, _, inh, _) = run(
             "interface I {}\nclass Base {}\nclass D extends Base implements I {}",
             "src/c.ts",
         );
@@ -999,7 +1032,7 @@ mod tests {
 
     #[test]
     fn optional_param_and_default() {
-        let (_, params, _, _) = run("function f(a?: number, b: number = 1) {}", "src/o.ts");
+        let (_, params, _, _, _) = run("function f(a?: number, b: number = 1) {}", "src/o.ts");
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].parameter_name, "a");
         assert!(params[0].is_optional);
@@ -1010,7 +1043,7 @@ mod tests {
 
     #[test]
     fn js_file_emits_no_type_rows() {
-        let (types, params, returns, inh) = run(
+        let (types, params, returns, inh, _) = run(
             "function authenticate(req, res, next) { return next(); }",
             "src/auth.js",
         );
@@ -1034,7 +1067,7 @@ mod tests {
     #[ignore]
     #[test]
     fn array_type_shorthand() {
-        let (types, params, _, _) = run(
+        let (types, params, _, _, _) = run(
             "function avg(values: number[]): number { return 0; }",
             "src/arr.ts",
         );
@@ -1054,7 +1087,7 @@ mod tests {
 
     #[test]
     fn tuple_return_type() {
-        let (types, _, returns, _) = run(
+        let (types, _, returns, _, _) = run(
             "function range(): [number, number] { return [0, 1]; }",
             "src/r.ts",
         );

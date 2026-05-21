@@ -13,3 +13,4 @@ parameter_with_type = 30
 returns_total = 19
 extends_total = 28
 implements_total = 0
+field_type_total = 0

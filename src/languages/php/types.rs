@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
 pub fn extract_types(
@@ -19,6 +19,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -34,6 +35,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// `use Foo\Bar as B;` → local `B` → canonical `Foo\Bar`. Also
     /// stores `use Foo\Bar;` as local `Bar` → canonical `Foo\Bar`.
     use_bindings: Vec<UseBinding>,
@@ -56,6 +58,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             use_bindings: Vec::new(),
             current_namespace: None,
         }
@@ -68,12 +71,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -375,9 +380,40 @@ impl<'a> Ctx<'a> {
 
     fn visit_property(&mut self, node: Node) {
         // property_declaration with a `type` field — emit type rows so
-        // the field type appears in the per-file `type` table.
-        if let Some(t) = node.child_by_field_name("type") {
-            self.emit_type_with_subtree(t);
+        // the field type appears in the per-file `type` table. Untyped
+        // properties (legacy dynamic PHP) emit no row.
+        let Some(t) = node.child_by_field_name("type") else {
+            return;
+        };
+        self.emit_type_with_subtree(t);
+        // Issue #14: PHP `property_declaration` has child
+        // `property_element` nodes (one per `$x = init`). Each carries a
+        // `name` that's a `variable_name` ($x).
+        let display = render_type(t, self.source);
+        let mut cursor = node.walk();
+        for c in node.named_children(&mut cursor) {
+            if c.kind() != "property_element" {
+                continue;
+            }
+            let Some(name_node) = c.child_by_field_name("name") else {
+                continue;
+            };
+            let raw = name_node.utf8_text(self.source).unwrap_or("");
+            // Strip the leading `$` so the field name matches the
+            // symbol-extraction convention.
+            let field_name = raw.trim_start_matches('$').to_string();
+            if field_name.is_empty() {
+                continue;
+            }
+            let (line, col) = node_pos(name_node);
+            self.field_types.push(FieldTypeRow {
+                file_path: self.file_path.to_string(),
+                field_start_line: line,
+                field_start_col: col,
+                field_name,
+                field_kind: SymbolKind::Field,
+                type_display_name: display.clone(),
+            });
         }
     }
 
@@ -651,6 +687,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::Php).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -659,7 +696,7 @@ mod tests {
 
     #[test]
     fn primitive_param_and_return() {
-        let (types, params, returns, _) = run(
+        let (types, params, returns, _, _) = run(
             "<?php\nfunction add(int $a, int $b): int { return $a + $b; }",
             "test.php",
         );
@@ -679,7 +716,7 @@ mod tests {
 
     #[test]
     fn untyped_parameters_emit_none() {
-        let (_, params, returns, _) = run("<?php\nfunction f($a, $b = 1) {}", "test.php");
+        let (_, params, returns, _, _) = run("<?php\nfunction f($a, $b = 1) {}", "test.php");
         assert_eq!(params.len(), 2);
         assert!(params[0].type_display_name.is_none());
         assert!(!params[0].has_default);
@@ -690,7 +727,7 @@ mod tests {
 
     #[test]
     fn optional_type_is_union_with_nullable() {
-        let (types, params, _, _) = run("<?php\nfunction f(?string $y = null) {}", "test.php");
+        let (types, params, _, _, _) = run("<?php\nfunction f(?string $y = null) {}", "test.php");
         let opt = types
             .iter()
             .find(|t| t.display_name == "?string")
@@ -709,7 +746,7 @@ mod tests {
 
     #[test]
     fn union_type_kind_and_canonical() {
-        let (types, _, returns, _) =
+        let (types, _, returns, _, _) =
             run("<?php\nfunction f(): int|string { return 1; }", "test.php");
         let u = types.iter().find(|t| t.kind == "union").expect("union row");
         assert_eq!(u.display_name, "int|string");
@@ -719,7 +756,7 @@ mod tests {
 
     #[test]
     fn intersection_type_kind() {
-        let (types, _, _, _) = run("<?php\nfunction f(Countable&Stringable $x) {}", "test.php");
+        let (types, _, _, _, _) = run("<?php\nfunction f(Countable&Stringable $x) {}", "test.php");
         let i = types
             .iter()
             .find(|t| t.kind == "intersection")
@@ -729,7 +766,7 @@ mod tests {
 
     #[test]
     fn class_extends_and_implements() {
-        let (_, _, _, inh) = run(
+        let (_, _, _, inh, _) = run(
             "<?php\nclass Foo extends Bar implements I1, I2 {}",
             "test.php",
         );
@@ -750,7 +787,7 @@ mod tests {
 
     #[test]
     fn interface_extends_multiple() {
-        let (_, _, _, inh) = run("<?php\ninterface Sub extends A, B {}", "test.php");
+        let (_, _, _, inh, _) = run("<?php\ninterface Sub extends A, B {}", "test.php");
         let parents: Vec<&str> = inh
             .iter()
             .filter(|r| r.kind == InheritanceKind::Extends && r.child_name == "Sub")
@@ -765,7 +802,7 @@ mod tests {
     #[ignore]
     #[test]
     fn use_alias_resolution() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "<?php\nuse App\\Models\\User as U;\nfunction f(U $u): U { return $u; }",
             "test.php",
         );
@@ -778,7 +815,7 @@ mod tests {
 
     #[test]
     fn leading_backslash_preserved() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "<?php\nfunction f(): \\Illuminate\\Http\\Request {}",
             "test.php",
         );
@@ -795,7 +832,7 @@ mod tests {
 
     #[test]
     fn builtin_closure_resolves_to_root() {
-        let (types, _, _, _) = run("<?php\nfunction f(Closure $c) {}", "test.php");
+        let (types, _, _, _, _) = run("<?php\nfunction f(Closure $c) {}", "test.php");
         let row = types
             .iter()
             .find(|t| t.display_name == "Closure")
@@ -805,7 +842,7 @@ mod tests {
 
     #[test]
     fn same_namespace_resolution() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "<?php\nnamespace App\\Services;\nfunction f(Cart $c) {}",
             "test.php",
         );
@@ -818,7 +855,7 @@ mod tests {
 
     #[test]
     fn primitive_canonical_lowercase() {
-        let (types, _, _, _) = run("<?php\nfunction f(): VOID {}", "test.php");
+        let (types, _, _, _, _) = run("<?php\nfunction f(): VOID {}", "test.php");
         // PHP grammar lowercases primitive keywords by lex; verify the
         // display is preserved as-written but canonical is lowercase.
         let row = types
@@ -833,7 +870,7 @@ mod tests {
 
     #[test]
     fn property_type_emits_row() {
-        let (types, _, _, _) = run("<?php\nclass Foo { private string $name; }", "test.php");
+        let (types, _, _, _, _) = run("<?php\nclass Foo { private string $name; }", "test.php");
         assert!(
             types
                 .iter()
@@ -843,7 +880,7 @@ mod tests {
 
     #[test]
     fn variadic_parameter_typed() {
-        let (_, params, _, _) = run("<?php\nfunction f(int ...$nums) {}", "test.php");
+        let (_, params, _, _, _) = run("<?php\nfunction f(int ...$nums) {}", "test.php");
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].parameter_name, "nums");
         assert_eq!(params[0].type_display_name.as_deref(), Some("int"));
@@ -851,7 +888,7 @@ mod tests {
 
     #[test]
     fn method_parameters_and_return() {
-        let (_, params, returns, _) = run(
+        let (_, params, returns, _, _) = run(
             "<?php\nclass Foo { public function bar(int $x): string { return ''; } }",
             "test.php",
         );

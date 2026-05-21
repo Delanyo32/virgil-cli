@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
 pub fn extract_types(
@@ -19,6 +19,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -34,6 +35,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// `(local_name, canonical_module_path)` pairs from file-scope
     /// `import X` / `from M import N [as L]` statements.
     use_bindings: Vec<UseBinding>,
@@ -62,6 +64,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             use_bindings: Vec::new(),
             same_file_defs: HashSet::new(),
             module_path: derive_module_path(file_path),
@@ -75,12 +78,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -384,33 +389,74 @@ impl<'a> Ctx<'a> {
             return;
         };
         let (cl, cc) = node_pos(name_node);
-        let Some(supers) = node.child_by_field_name("superclasses") else {
-            return;
-        };
-        let mut cursor = supers.walk();
-        for base in supers.named_children(&mut cursor) {
-            // The `superclasses` node is an `argument_list`; skip
-            // `keyword_argument` (e.g. `metaclass=`) and emit one row per
-            // positional base.
-            if base.kind() == "keyword_argument" {
-                continue;
+
+        // Inheritance: superclasses → extends rows.
+        if let Some(supers) = node.child_by_field_name("superclasses") {
+            let mut cursor = supers.walk();
+            for base in supers.named_children(&mut cursor) {
+                // The `superclasses` node is an `argument_list`; skip
+                // `keyword_argument` (e.g. `metaclass=`) and emit one
+                // row per positional base.
+                if base.kind() == "keyword_argument" {
+                    continue;
+                }
+                let display = render_type(base, self.source);
+                if display.is_empty() {
+                    continue;
+                }
+                self.emit_type_with_subtree(base);
+                let canonical = self.resolve_head(&display);
+                self.inheritance.push(InheritanceRow {
+                    file_path: self.file_path.to_string(),
+                    child_start_line: cl,
+                    child_start_col: cc,
+                    child_name: child_name.to_string(),
+                    child_kind: SymbolKind::Class,
+                    parent_display_name: display,
+                    parent_canonical_name: canonical,
+                    kind: InheritanceKind::Extends,
+                });
             }
-            let display = render_type(base, self.source);
-            if display.is_empty() {
-                continue;
+        }
+
+        // Issue #14: PEP 526 typed class attributes. Tree-sitter-python
+        // exposes `x: int = 5` as an `expression_statement` containing
+        // an `assignment` with a `type` field. Untyped attributes
+        // (`x = 5`) have no `type` and emit no row.
+        if let Some(body) = node.child_by_field_name("body") {
+            let mut c = body.walk();
+            for stmt in body.named_children(&mut c) {
+                if stmt.kind() != "expression_statement" {
+                    continue;
+                }
+                let mut sc = stmt.walk();
+                for inner in stmt.named_children(&mut sc) {
+                    if inner.kind() != "assignment" {
+                        continue;
+                    }
+                    let Some(t) = inner.child_by_field_name("type") else {
+                        continue;
+                    };
+                    let Some(left) = inner.child_by_field_name("left") else {
+                        continue;
+                    };
+                    if left.kind() != "identifier" {
+                        continue;
+                    }
+                    self.emit_type_with_subtree(t);
+                    if let Ok(field_name) = left.utf8_text(self.source) {
+                        let (line, col) = node_pos(left);
+                        self.field_types.push(FieldTypeRow {
+                            file_path: self.file_path.to_string(),
+                            field_start_line: line,
+                            field_start_col: col,
+                            field_name: field_name.to_string(),
+                            field_kind: SymbolKind::Field,
+                            type_display_name: render_type(t, self.source),
+                        });
+                    }
+                }
             }
-            self.emit_type_with_subtree(base);
-            let canonical = self.resolve_head(&display);
-            self.inheritance.push(InheritanceRow {
-                file_path: self.file_path.to_string(),
-                child_start_line: cl,
-                child_start_col: cc,
-                child_name: child_name.to_string(),
-                child_kind: SymbolKind::Class,
-                parent_display_name: display,
-                parent_canonical_name: canonical,
-                kind: InheritanceKind::Extends,
-            });
         }
     }
 
@@ -907,6 +953,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::Python).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -915,7 +962,7 @@ mod tests {
 
     #[test]
     fn typed_param_and_return() {
-        let (types, params, returns, _) =
+        let (types, params, returns, _, _) =
             run("def f(x: int) -> str:\n    return str(x)\n", "app/m.py");
         assert!(
             types
@@ -937,7 +984,7 @@ mod tests {
 
     #[test]
     fn class_with_bases() {
-        let (_, _, _, inh) = run("class Child(Base, Mixin):\n    pass\n", "app/m.py");
+        let (_, _, _, inh, _) = run("class Child(Base, Mixin):\n    pass\n", "app/m.py");
         let parents: Vec<&str> = inh
             .iter()
             .filter(|r| r.child_name == "Child" && r.kind == InheritanceKind::Extends)
@@ -949,7 +996,7 @@ mod tests {
 
     #[test]
     fn untyped_param_emits_none_type() {
-        let (types, params, returns, _) = run("def chunks(lst, n):\n    pass\n", "app/utils.py");
+        let (types, params, returns, _, _) = run("def chunks(lst, n):\n    pass\n", "app/utils.py");
         assert!(types.is_empty(), "no type rows for unannotated fn");
         assert_eq!(params.len(), 2);
         assert!(params.iter().all(|p| p.type_display_name.is_none()));
@@ -958,7 +1005,7 @@ mod tests {
 
     #[test]
     fn union_pep604() {
-        let (types, _, returns, _) = run(
+        let (types, _, returns, _, _) = run(
             "def f(x: int) -> str | None:\n    return None\n",
             "app/m.py",
         );
@@ -979,7 +1026,7 @@ mod tests {
 
     #[test]
     fn optional_param_is_union() {
-        let (types, params, _, _) = run(
+        let (types, params, _, _, _) = run(
             "from typing import Optional\ndef f(id: Optional[int] = None):\n    pass\n",
             "app/m.py",
         );
@@ -997,7 +1044,7 @@ mod tests {
 
     #[test]
     fn list_int_generic() {
-        let (types, params, _, _) = run("def f(xs: list[int]):\n    pass\n", "app/m.py");
+        let (types, params, _, _, _) = run("def f(xs: list[int]):\n    pass\n", "app/m.py");
         let row = types
             .iter()
             .find(|t| t.display_name == "list[int]")

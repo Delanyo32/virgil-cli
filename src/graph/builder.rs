@@ -10,8 +10,8 @@ use tree_sitter::Query;
 use crate::language::Language;
 use crate::languages;
 use crate::models::{
-    CommentInfo, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolInfo,
-    SymbolKind, TypeRow,
+    CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow,
+    SymbolInfo, SymbolKind, TypeRow,
 };
 use crate::parser;
 use crate::storage::workspace::Workspace;
@@ -33,6 +33,8 @@ struct FileGraphData {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    /// Issue #14: typed field/property declarations.
+    field_types: Vec<FieldTypeRow>,
 }
 
 /// A call site extracted from within a symbol's line range.
@@ -317,9 +319,10 @@ fn parse_one_file(
         );
     }
 
-    // Issue #13: per-language type / inheritance extraction. Languages
-    // without a wired extractor leave all four vectors empty.
-    let (types, param_types, returns_types, inheritance) =
+    // Issue #13 + #14: per-language type / inheritance / field-type
+    // extraction. Languages without typed fields leave field_types
+    // empty.
+    let (types, param_types, returns_types, inheritance, field_types) =
         languages::extract_types(&tree, source.as_bytes(), rel_path, lang);
 
     Some(FileGraphData {
@@ -333,6 +336,7 @@ fn parse_one_file(
         param_types,
         returns_types,
         inheritance,
+        field_types,
     })
 }
 
@@ -355,6 +359,7 @@ fn absorb_file_data(
         param_types,
         returns_types,
         inheritance,
+        field_types,
     } = data;
 
     // File node
@@ -525,6 +530,13 @@ fn absorb_file_data(
             .entry(path.clone())
             .or_default()
             .extend(inheritance);
+    }
+    if !field_types.is_empty() {
+        graph
+            .field_types
+            .entry(path.clone())
+            .or_default()
+            .extend(field_types);
     }
 
     // CallSite nodes + Contains edges. Calls edges are deferred until

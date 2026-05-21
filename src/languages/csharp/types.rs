@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
 pub fn extract_types(
@@ -19,6 +19,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -34,6 +35,7 @@ struct Ctx<'a> {
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
     inheritance: Vec<InheritanceRow>,
+    field_types: Vec<FieldTypeRow>,
     /// `using` directives parsed into `(local_name, canonical_path)` pairs.
     /// Includes both `using A.B.C;` (binds the leaf `C`) and
     /// `using Alias = A.B.C;` (binds `Alias`).
@@ -62,6 +64,7 @@ impl<'a> Ctx<'a> {
             param_types: Vec::new(),
             returns_types: Vec::new(),
             inheritance: Vec::new(),
+            field_types: Vec::new(),
             use_bindings: Vec::new(),
             using_namespaces: Vec::new(),
             same_file_defs: std::collections::HashMap::new(),
@@ -75,12 +78,14 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         (
             self.types,
             self.param_types,
             self.returns_types,
             self.inheritance,
+            self.field_types,
         )
     }
 
@@ -492,18 +497,56 @@ impl<'a> Ctx<'a> {
     }
 
     fn visit_property(&mut self, node: Node) {
-        if let Some(t) = node.child_by_field_name("type") {
-            self.emit_type_with_subtree(t);
+        let Some(t) = node.child_by_field_name("type") else {
+            return;
+        };
+        self.emit_type_with_subtree(t);
+        // Issue #14: emit a field_type row keyed off the property's name.
+        if let Some(name_node) = node.child_by_field_name("name")
+            && let Ok(field_name) = name_node.utf8_text(self.source)
+        {
+            let (line, col) = node_pos(name_node);
+            self.field_types.push(FieldTypeRow {
+                file_path: self.file_path.to_string(),
+                field_start_line: line,
+                field_start_col: col,
+                field_name: field_name.to_string(),
+                field_kind: SymbolKind::Field,
+                type_display_name: render_type(t, self.source),
+            });
         }
     }
 
     fn visit_field(&mut self, node: Node) {
         let mut cursor = node.walk();
         for c in node.named_children(&mut cursor) {
-            if c.kind() == "variable_declaration"
-                && let Some(t) = c.child_by_field_name("type")
-            {
-                self.emit_type_with_subtree(t);
+            if c.kind() != "variable_declaration" {
+                continue;
+            }
+            let Some(t) = c.child_by_field_name("type") else {
+                continue;
+            };
+            self.emit_type_with_subtree(t);
+            // Issue #14: one row per declarator. `int a, b, c;` → 3 rows.
+            let display = render_type(t, self.source);
+            let mut dc = c.walk();
+            for d in c.named_children(&mut dc) {
+                if d.kind() != "variable_declarator" {
+                    continue;
+                }
+                if let Some(name_node) = d.child_by_field_name("name")
+                    && let Ok(field_name) = name_node.utf8_text(self.source)
+                {
+                    let (line, col) = node_pos(name_node);
+                    self.field_types.push(FieldTypeRow {
+                        file_path: self.file_path.to_string(),
+                        field_start_line: line,
+                        field_start_col: col,
+                        field_name: field_name.to_string(),
+                        field_kind: SymbolKind::Field,
+                        type_display_name: display.clone(),
+                    });
+                }
             }
         }
     }
@@ -1110,6 +1153,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::CSharp).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -1122,7 +1166,7 @@ mod tests {
             public class C {
                 public int Add(int a, int b) { return a + b; }
             }"#;
-        let (types, params, returns, _) = run(src, "test.cs");
+        let (types, params, returns, _, _) = run(src, "test.cs");
         assert!(
             types
                 .iter()
@@ -1148,7 +1192,7 @@ mod tests {
             public class C {
                 public List<int> GetNumbers() { return null; }
             }"#;
-        let (types, _, returns, _) = run(src, "test.cs");
+        let (types, _, returns, _, _) = run(src, "test.cs");
         let outer = types
             .iter()
             .find(|t| t.display_name == "List<int>")
@@ -1164,7 +1208,7 @@ mod tests {
     #[test]
     fn array_type() {
         let src = r#"public class C { public string[] Items { get; set; } }"#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         let arr = types
             .iter()
             .find(|t| t.display_name == "string[]")
@@ -1183,7 +1227,7 @@ mod tests {
         let src = r#"
             using System;
             public class C { public DateTime? UpdatedAt { get; set; } }"#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         let row = types
             .iter()
             .find(|t| t.display_name == "DateTime?")
@@ -1206,7 +1250,7 @@ mod tests {
     #[test]
     fn nullable_primitive() {
         let src = r#"public class C { public int? Count { get; set; } }"#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         let row = types
             .iter()
             .find(|t| t.display_name == "int?")
@@ -1224,7 +1268,7 @@ mod tests {
             public class C {
                 public (int Id, string Name) GetTuple() { return (0, ""); }
             }"#;
-        let (types, _, returns, _) = run(src, "test.cs");
+        let (types, _, returns, _, _) = run(src, "test.cs");
         let row = types.iter().find(|t| t.kind == "tuple").expect("tuple row");
         assert_eq!(row.display_name, "(int Id, string Name)");
         assert_eq!(
@@ -1239,7 +1283,7 @@ mod tests {
         let src = r#"
             public class Foo : Bar, IFoo, IBar { }
         "#;
-        let (_, _, _, inh) = run(src, "test.cs");
+        let (_, _, _, inh, _) = run(src, "test.cs");
         let extends: Vec<&str> = inh
             .iter()
             .filter(|r| r.child_name == "Foo" && r.kind == InheritanceKind::Extends)
@@ -1259,7 +1303,7 @@ mod tests {
     fn class_implements_only() {
         // First base entry begins with `I` → treated as interface.
         let src = r#"public class Foo : IFoo, IBar { }"#;
-        let (_, _, _, inh) = run(src, "test.cs");
+        let (_, _, _, inh, _) = run(src, "test.cs");
         for row in &inh {
             assert_eq!(
                 row.kind,
@@ -1273,7 +1317,7 @@ mod tests {
     #[test]
     fn interface_extends_only() {
         let src = r#"public interface ISub : ISuper, IOther { }"#;
-        let (_, _, _, inh) = run(src, "test.cs");
+        let (_, _, _, inh, _) = run(src, "test.cs");
         for row in &inh {
             assert_eq!(row.kind, InheritanceKind::Extends);
             assert_eq!(row.child_name, "ISub");
@@ -1287,7 +1331,7 @@ mod tests {
     #[test]
     fn enum_underlying_type_not_inheritance() {
         let src = r#"public enum Color : byte { Red, Green, Blue }"#;
-        let (types, _, _, inh) = run(src, "test.cs");
+        let (types, _, _, inh, _) = run(src, "test.cs");
         // No inheritance rows for enums.
         assert!(
             inh.is_empty(),
@@ -1304,7 +1348,7 @@ mod tests {
             using Foo = System.Collections.Generic.List<int>;
             public class C { public Foo Items { get; set; } }
         "#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         let row = types
             .iter()
             .find(|t| t.display_name == "Foo")
@@ -1323,7 +1367,7 @@ mod tests {
                 public class Project { public User Owner { get; set; } }
             }
         "#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         let row = types
             .iter()
             .find(|t| t.display_name == "User")
@@ -1336,7 +1380,7 @@ mod tests {
         let src = r#"
             public class C { public void M() { var x = 1; } }
         "#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         // No type row for `var`.
         assert!(!types.iter().any(|t| t.display_name == "var"));
     }
@@ -1344,7 +1388,7 @@ mod tests {
     #[test]
     fn type_parameter_unresolved() {
         let src = r#"public class Box<T> { public T Value { get; set; } }"#;
-        let (types, _, _, _) = run(src, "test.cs");
+        let (types, _, _, _, _) = run(src, "test.cs");
         let t_row = types.iter().find(|t| t.display_name == "T").expect("T row");
         assert!(
             t_row.canonical_name.is_none(),
@@ -1358,7 +1402,7 @@ mod tests {
         let src = r#"
             public class C { public void M(int x = 5) { } }
         "#;
-        let (_, params, _, _) = run(src, "test.cs");
+        let (_, params, _, _, _) = run(src, "test.cs");
         let p = params
             .iter()
             .find(|p| p.parameter_name == "x")
@@ -1375,7 +1419,7 @@ mod tests {
                 public Dictionary<string, List<int>> Lookup() { return null; }
             }
         "#;
-        let (types, _, returns, _) = run(src, "test.cs");
+        let (types, _, returns, _, _) = run(src, "test.cs");
         assert!(
             types
                 .iter()

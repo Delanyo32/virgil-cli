@@ -9,7 +9,9 @@ use std::collections::HashSet;
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow};
+use crate::models::{
+    FieldTypeRow, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+};
 
 pub fn extract_types(
     tree: &Tree,
@@ -20,6 +22,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
@@ -34,6 +37,9 @@ struct Ctx<'a> {
     seen_display: HashSet<String>,
     param_types: Vec<ParameterTypeRow>,
     returns_types: Vec<ReturnsTypeRow>,
+    /// Typed struct/union members (issue #14). C has no class
+    /// inheritance, but it does have typed struct fields.
+    field_types: Vec<FieldTypeRow>,
     /// Type-introducing symbols (typedef names, struct/union/enum tags)
     /// declared in the same file. Used as a coarse same-file resolver
     /// for `canonical_name`.
@@ -49,6 +55,7 @@ impl<'a> Ctx<'a> {
             seen_display: HashSet::new(),
             param_types: Vec::new(),
             returns_types: Vec::new(),
+            field_types: Vec::new(),
             same_file_defs: HashSet::new(),
         }
     }
@@ -60,9 +67,16 @@ impl<'a> Ctx<'a> {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         // C has no inheritance — InheritanceRow is always empty.
-        (self.types, self.param_types, self.returns_types, Vec::new())
+        (
+            self.types,
+            self.param_types,
+            self.returns_types,
+            Vec::new(),
+            self.field_types,
+        )
     }
 
     /// Pre-pass: gather every typedef/struct/union/enum tag declared in
@@ -313,6 +327,22 @@ impl<'a> Ctx<'a> {
         let display = build_param_type(base_type, decl, self.source);
         self.emit_type_recursive_string(&display);
         self.emit_type_for_base(base_type);
+        // Issue #14: field row for each named declarator. Bitfields,
+        // anonymous members, etc. (no innermost identifier) are skipped.
+        if let Some(d) = decl
+            && let Some(name_node) = find_innermost_identifier(d)
+            && let Ok(field_name) = name_node.utf8_text(self.source)
+        {
+            let (line, col) = node_pos(name_node);
+            self.field_types.push(FieldTypeRow {
+                file_path: self.file_path.to_string(),
+                field_start_line: line,
+                field_start_col: col,
+                field_name: field_name.to_string(),
+                field_kind: SymbolKind::Field,
+                type_display_name: display,
+            });
+        }
     }
 
     fn visit_type_definition(&mut self, node: Node) {
@@ -945,6 +975,7 @@ mod tests {
         Vec<ParameterTypeRow>,
         Vec<ReturnsTypeRow>,
         Vec<InheritanceRow>,
+        Vec<FieldTypeRow>,
     ) {
         let mut parser = create_parser(Language::C).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -953,7 +984,7 @@ mod tests {
 
     #[test]
     fn primitive_param_and_return() {
-        let (types, params, returns, inh) =
+        let (types, params, returns, inh, _) =
             run("int add(int a, int b) { return a + b; }", "src/a.c");
         assert!(
             types
@@ -972,7 +1003,7 @@ mod tests {
 
     #[test]
     fn pointer_param() {
-        let (types, params, _, _) = run("void f(int *p) { }", "src/a.c");
+        let (types, params, _, _, _) = run("void f(int *p) { }", "src/a.c");
         assert!(
             types
                 .iter()
@@ -990,7 +1021,7 @@ mod tests {
 
     #[test]
     fn double_pointer_param() {
-        let (types, params, _, _) = run("int main(int argc, char **argv) { return 0; }", "src/a.c");
+        let (types, params, _, _, _) = run("int main(int argc, char **argv) { return 0; }", "src/a.c");
         // expect ptr<ptr<char>>
         assert!(
             types
@@ -1008,7 +1039,7 @@ mod tests {
 
     #[test]
     fn array_with_literal_size() {
-        let (types, _, _, _) = run("int main() { int buf[16]; return 0; }", "src/a.c");
+        let (types, _, _, _, _) = run("int main() { int buf[16]; return 0; }", "src/a.c");
         assert!(
             types
                 .iter()
@@ -1020,7 +1051,7 @@ mod tests {
 
     #[test]
     fn array_with_macro_size_drops_n() {
-        let (types, _, _, _) = run(
+        let (types, _, _, _, _) = run(
             "#define N 10\nint main() { int buf[N]; return 0; }",
             "src/a.c",
         );
@@ -1035,7 +1066,7 @@ mod tests {
 
     #[test]
     fn unsigned_int_normalises() {
-        let (types, _, _, _) = run("unsigned   int   x;", "src/a.c");
+        let (types, _, _, _, _) = run("unsigned   int   x;", "src/a.c");
         assert!(
             types
                 .iter()
@@ -1048,7 +1079,7 @@ mod tests {
     #[test]
     fn struct_tag_param() {
         let src = "struct Foo { int x; };\nvoid g(struct Foo *p) { }";
-        let (types, params, _, _) = run(src, "src/a.c");
+        let (types, params, _, _, _) = run(src, "src/a.c");
         assert!(
             types
                 .iter()
@@ -1066,7 +1097,7 @@ mod tests {
     #[test]
     fn typedef_named_resolves_same_file() {
         let src = "typedef int my_int;\nvoid h(my_int x) { }";
-        let (types, _, _, _) = run(src, "src/a.c");
+        let (types, _, _, _, _) = run(src, "src/a.c");
         let row = types
             .iter()
             .find(|t| t.display_name == "my_int")
@@ -1077,7 +1108,7 @@ mod tests {
 
     #[test]
     fn no_inheritance_for_c() {
-        let (_, _, _, inh) = run("int x;", "src/a.c");
+        let (_, _, _, inh, _) = run("int x;", "src/a.c");
         assert!(inh.is_empty());
     }
 
@@ -1088,7 +1119,7 @@ mod tests {
     #[test]
     fn function_pointer_typedef() {
         let src = "typedef int (*cmp_fn)(int, int);";
-        let (types, _, _, _) = run(src, "src/a.c");
+        let (types, _, _, _, _) = run(src, "src/a.c");
         let displays: Vec<&str> = types.iter().map(|t| t.display_name.as_str()).collect();
         // Expect the inner fn(...) type and the outer ptr<...> wrapper.
         assert!(

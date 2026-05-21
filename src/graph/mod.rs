@@ -8,8 +8,8 @@ pub use intern::{Spur, Symbols};
 
 use crate::language::Language;
 use crate::models::{
-    ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, SymbolVisibility,
-    TypeRow,
+    FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    SymbolVisibility, TypeRow,
 };
 
 /// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
@@ -121,6 +121,9 @@ pub struct CodeGraph {
     /// resolves both endpoints to symbol IDs where possible and writes
     /// `extends` or `implements` rows.
     pub inheritance: HashMap<String, Vec<InheritanceRow>>,
+    /// Per-file typed-field bindings (issue #14). One row per typed
+    /// struct/class field; untyped fields produce no entry.
+    pub field_types: HashMap<String, Vec<FieldTypeRow>>,
 }
 
 impl Default for CodeGraph {
@@ -145,6 +148,7 @@ impl CodeGraph {
             param_types: HashMap::new(),
             returns_types: HashMap::new(),
             inheritance: HashMap::new(),
+            field_types: HashMap::new(),
         }
     }
 

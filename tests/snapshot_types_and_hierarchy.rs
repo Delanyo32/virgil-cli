@@ -93,6 +93,10 @@ fn snapshot_for(lang_name: &str, languages: &[Language], bench_rel: &str) {
         ),
         ("extends_total", "?[count(c)] := *extends{child_id: c}"),
         ("implements_total", "?[count(i)] := *implements{impl_id: i}"),
+        (
+            "field_type_total",
+            "?[count(s)] := *field_type{symbol_id: s}",
+        ),
     ];
 
     let mut actual: BTreeMap<String, i64> = BTreeMap::new();

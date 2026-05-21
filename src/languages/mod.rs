@@ -17,7 +17,8 @@ use tree_sitter::{Query, Tree};
 use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::models::{
-    CommentInfo, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolInfo, TypeRow,
+    CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow,
+    SymbolInfo, TypeRow,
 };
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
@@ -152,13 +153,12 @@ pub fn extract_comments(
     }
 }
 
-/// Issue #13 type-extraction facade. Each language returns:
+/// Issue #13 + #14 type-extraction facade. Each language returns:
 /// - `Vec<TypeRow>` (one per type-position node, pre-dedup),
 /// - `Vec<ParameterTypeRow>` (one per function parameter),
 /// - `Vec<ReturnsTypeRow>` (one per annotated function return),
-/// - `Vec<InheritanceRow>` (one per `extends`/`implements` edge).
-///
-/// Languages without a wired extractor return four empty vectors.
+/// - `Vec<InheritanceRow>` (one per `extends`/`implements` edge),
+/// - `Vec<FieldTypeRow>` (one per typed field/property declaration; #14).
 pub fn extract_types(
     tree: &Tree,
     source: &[u8],
@@ -169,6 +169,7 @@ pub fn extract_types(
     Vec<ParameterTypeRow>,
     Vec<ReturnsTypeRow>,
     Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
 ) {
     match language {
         Language::Rust => rust_lang::extract_types(tree, source, file_path),
