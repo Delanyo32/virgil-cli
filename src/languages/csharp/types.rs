@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    ThrowsRow, TypeRow,
 };
 
 pub fn extract_types(
@@ -25,6 +26,76 @@ pub fn extract_types(
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node(), Vec::new());
     ctx.finish()
+}
+
+/// Issue #13 followup: extract `throw new X(...)` statements as
+/// throws-relation rows. C# has no declared `throws` keyword, so this
+/// approximates "thrown by" via runtime `throw_statement` /
+/// `throw_expression` nodes nested inside method bodies. The
+/// enclosing method's `(name, line, col)` keys the row.
+pub fn extract_throws(tree: &Tree, source: &[u8], file_path: &str) -> Vec<ThrowsRow> {
+    let mut out = Vec::new();
+    walk_throws(tree.root_node(), source, file_path, None, &mut out);
+    out
+}
+
+fn walk_throws(
+    node: Node,
+    source: &[u8],
+    file_path: &str,
+    enclosing: Option<(String, u32, u32)>,
+    out: &mut Vec<ThrowsRow>,
+) {
+    let next_enclosing = match node.kind() {
+        "method_declaration"
+        | "constructor_declaration"
+        | "destructor_declaration"
+        | "operator_declaration" => node
+            .child_by_field_name("name")
+            .and_then(|n| n.utf8_text(source).ok().map(|s| s.to_string()))
+            .map(|name| {
+                // Match symbol IDs, which use the whole declaration's
+                // start position, not the name identifier's.
+                let (l, c) = node_pos(node);
+                (name, l, c)
+            })
+            .or(enclosing.clone()),
+        _ => enclosing.clone(),
+    };
+
+    if matches!(node.kind(), "throw_statement" | "throw_expression") {
+        if let Some((ref fn_name, fn_line, fn_col)) = next_enclosing {
+            // The thrown expression is the first named child of the
+            // throw_statement / throw_expression. We only emit rows for
+            // `new ExceptionType(...)` forms — re-throw (`throw;`) and
+            // variable re-raise (`throw e;`) have no static type and emit
+            // nothing.
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "object_creation_expression" {
+                    if let Some(t) = child.child_by_field_name("type") {
+                        let display = render_type(t, source);
+                        if !display.is_empty() {
+                            out.push(ThrowsRow {
+                                file_path: file_path.to_string(),
+                                function_start_line: fn_line,
+                                function_start_col: fn_col,
+                                function_name: fn_name.clone(),
+                                function_kind: SymbolKind::Method,
+                                exception_display_name: display,
+                            });
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        walk_throws(child, source, file_path, next_enclosing.clone(), out);
+    }
 }
 
 struct Ctx<'a> {

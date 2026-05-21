@@ -9,7 +9,7 @@ pub use intern::{Spur, Symbols};
 use crate::language::Language;
 use crate::models::{
     AttrsBucket, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReferencesBucket,
-    ReturnsTypeRow, SymbolKind, SymbolVisibility, TypeRow,
+    ReturnsTypeRow, SymbolKind, SymbolVisibility, ThrowsRow, TypeRow,
 };
 
 /// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
@@ -124,6 +124,9 @@ pub struct CodeGraph {
     /// Per-file typed-field bindings (issue #14). One row per typed
     /// struct/class field; untyped fields produce no entry.
     pub field_types: HashMap<String, Vec<FieldTypeRow>>,
+    /// Per-file `throws` rows (issue #13 followup). Populated only by
+    /// Java/C#/PHP extractors; other languages leave this map empty.
+    pub throws: HashMap<String, Vec<ThrowsRow>>,
     /// Per-file per-language attribute buckets (issue #15). Only the
     /// file's source language is populated.
     pub attrs: HashMap<String, AttrsBucket>,
@@ -155,6 +158,7 @@ impl CodeGraph {
             returns_types: HashMap::new(),
             inheritance: HashMap::new(),
             field_types: HashMap::new(),
+            throws: HashMap::new(),
             attrs: HashMap::new(),
             references: HashMap::new(),
         }

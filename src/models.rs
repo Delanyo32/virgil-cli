@@ -224,6 +224,21 @@ pub struct ReturnsTypeRow {
     pub type_display_name: String,
 }
 
+/// Issue #13 (followup): one per exception type declared in a Java/C#
+/// `throws` clause or PHP `@throws` doc tag. The emitter joins
+/// `type_display_name` against the per-file `TypeRow`s (same path as
+/// `ParameterTypeRow`) and writes a row into the `throws` relation
+/// keyed `(function_id, exception_type_id)`.
+#[derive(Debug, Clone)]
+pub struct ThrowsRow {
+    pub file_path: String,
+    pub function_start_line: u32,
+    pub function_start_col: u32,
+    pub function_name: String,
+    pub function_kind: SymbolKind,
+    pub exception_display_name: String,
+}
+
 /// Issue #14: links a struct/class/interface field symbol to its
 /// declared type. Untyped fields (e.g. JS class fields, dynamic PHP
 /// properties, Python attributes without PEP 526 annotations) emit no

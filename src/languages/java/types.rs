@@ -11,7 +11,8 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    ThrowsRow, TypeRow,
 };
 
 pub fn extract_types(
@@ -29,6 +30,63 @@ pub fn extract_types(
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
     ctx.finish()
+}
+
+/// Issue #13 followup: walk method/constructor `throws` clauses and emit
+/// one `ThrowsRow` per exception type. Type-position children of the
+/// `throws` node are rendered through the same `render_type` used by
+/// `extract_types`, so the resulting `display_name` joins cleanly
+/// against the per-file `TypeRow`s already emitted there.
+pub fn extract_throws(tree: &Tree, source: &[u8], file_path: &str) -> Vec<ThrowsRow> {
+    let mut out = Vec::new();
+    walk_throws(tree.root_node(), source, file_path, &mut out);
+    out
+}
+
+fn walk_throws(node: Node, source: &[u8], file_path: &str, out: &mut Vec<ThrowsRow>) {
+    match node.kind() {
+        "method_declaration" | "constructor_declaration" => {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source) {
+                    // Symbol IDs come from `def_node` (the whole
+                    // method/constructor declaration), not the name
+                    // identifier — match that so the join in
+                    // `from_code_graph::emit_types_and_hierarchy`
+                    // succeeds.
+                    let (line, col) = node_pos(node);
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() != "throws" {
+                            continue;
+                        }
+                        let mut cc = child.walk();
+                        for tnode in child.named_children(&mut cc) {
+                            if !is_type_position_node(tnode.kind()) {
+                                continue;
+                            }
+                            let display = render_type(tnode, source);
+                            if display.is_empty() {
+                                continue;
+                            }
+                            out.push(ThrowsRow {
+                                file_path: file_path.to_string(),
+                                function_start_line: line,
+                                function_start_col: col,
+                                function_name: name.to_string(),
+                                function_kind: SymbolKind::Method,
+                                exception_display_name: display,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        walk_throws(child, source, file_path, out);
+    }
 }
 
 struct Ctx<'a> {

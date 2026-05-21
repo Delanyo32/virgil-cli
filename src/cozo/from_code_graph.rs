@@ -232,6 +232,7 @@ fn emit_types_and_hierarchy(
         && graph.returns_types.is_empty()
         && graph.inheritance.is_empty()
         && graph.field_types.is_empty()
+        && graph.throws.is_empty()
     {
         return;
     }
@@ -404,6 +405,45 @@ fn emit_types_and_hierarchy(
                 InheritanceKind::Extends => writer.push_extends(&child_id, &parent_id),
                 InheritanceKind::Implements => writer.push_implements(&child_id, &parent_id),
             }
+        }
+    }
+
+    // Issue #13 followup: `throws` rows. The function's symbol_id is
+    // derived from `(file, line, col, name, kind)`; exception_type_id
+    // joins through the same per-file display_name → type.id map. If the
+    // exception type wasn't emitted by `extract_types` (rare but
+    // possible for dynamic forms), we fall back to a synthesised type id.
+    for (file_path, rows) in &graph.throws {
+        let language = workspace
+            .and_then(|ws| ws.file_language(file_path))
+            .map(|l| l.as_str())
+            .unwrap_or("");
+        for row in rows {
+            let function_id = symbol_id(
+                file_path,
+                row.function_start_line,
+                row.function_start_col,
+                &row.function_name,
+                row.function_kind,
+            );
+            let tid = if let Some(existing) =
+                type_id_by_display.get(&(file_path.clone(), row.exception_display_name.clone()))
+            {
+                existing.clone()
+            } else {
+                // The exception type wasn't seen by `extract_types` (C#/PHP
+                // `throw new X()` runs through `extract_throws` only).
+                // Emit a synthetic `named` type row so the JOIN through
+                // `*type{}` is non-empty for templates that need it.
+                let id = type_id(language, file_path, &row.exception_display_name);
+                type_id_by_display.insert(
+                    (file_path.clone(), row.exception_display_name.clone()),
+                    id.clone(),
+                );
+                writer.push_type(&id, "named", language, &row.exception_display_name, None);
+                id
+            };
+            writer.push_throws(&function_id, &tid);
         }
     }
 

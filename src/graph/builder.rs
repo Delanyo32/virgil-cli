@@ -11,7 +11,7 @@ use crate::language::Language;
 use crate::languages;
 use crate::models::{
     AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
-    ReferencesBucket, ReturnsTypeRow, SymbolInfo, SymbolKind, TypeRow,
+    ReferencesBucket, ReturnsTypeRow, SymbolInfo, SymbolKind, ThrowsRow, TypeRow,
 };
 use crate::parser;
 use crate::storage::workspace::Workspace;
@@ -35,6 +35,8 @@ struct FileGraphData {
     inheritance: Vec<InheritanceRow>,
     /// Issue #14: typed field/property declarations.
     field_types: Vec<FieldTypeRow>,
+    /// Issue #13 followup: declared/observed `throws` rows.
+    throws: Vec<ThrowsRow>,
     /// Issue #15: per-language attribute rows. Only this file's
     /// language bucket is populated.
     attrs: AttrsBucket,
@@ -330,6 +332,9 @@ fn parse_one_file(
     let (types, param_types, returns_types, inheritance, field_types) =
         languages::extract_types(&tree, source.as_bytes(), rel_path, lang);
 
+    // Issue #13 followup: per-language `throws` extraction (Java/C#/PHP).
+    let throws = languages::extract_throws(&tree, source.as_bytes(), rel_path, lang);
+
     // Issue #15: per-language attribute extraction.
     let attrs = languages::extract_attrs(&tree, source.as_bytes(), rel_path, lang, &symbols);
 
@@ -348,6 +353,7 @@ fn parse_one_file(
         returns_types,
         inheritance,
         field_types,
+        throws,
         attrs,
         references,
     })
@@ -373,6 +379,7 @@ fn absorb_file_data(
         returns_types,
         inheritance,
         field_types,
+        throws,
         attrs,
         references,
     } = data;
@@ -552,6 +559,13 @@ fn absorb_file_data(
             .entry(path.clone())
             .or_default()
             .extend(field_types);
+    }
+    if !throws.is_empty() {
+        graph
+            .throws
+            .entry(path.clone())
+            .or_default()
+            .extend(throws);
     }
     // Issue #15: stash per-file attrs bucket. Each language's extractor
     // populates only its own variant; the bucket as a whole has no

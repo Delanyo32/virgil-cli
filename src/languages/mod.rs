@@ -18,7 +18,7 @@ use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::models::{
     AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
-    ReferencesBucket, ReturnsTypeRow, SymbolInfo, TypeRow,
+    ReferencesBucket, ReturnsTypeRow, SymbolInfo, ThrowsRow, TypeRow,
 };
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
@@ -183,6 +183,23 @@ pub fn extract_types(
         Language::C => c_lang::extract_types(tree, source, file_path),
         Language::Cpp => cpp::extract_types(tree, source, file_path),
         Language::CSharp => csharp::extract_types(tree, source, file_path),
+    }
+}
+
+/// Issue #13 (followup): per-language `throws`/`@throws` extraction.
+/// Only Java, C#, and PHP currently emit rows; the other languages
+/// return an empty vec.
+pub fn extract_throws(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+) -> Vec<ThrowsRow> {
+    match language {
+        Language::Java => java::extract_throws(tree, source, file_path),
+        Language::CSharp => csharp::extract_throws(tree, source, file_path),
+        Language::Php => php::extract_throws(tree, source, file_path),
+        _ => Vec::new(),
     }
 }
 

@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    ThrowsRow, TypeRow,
 };
 
 pub fn extract_types(
@@ -25,6 +26,80 @@ pub fn extract_types(
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
     ctx.finish()
+}
+
+/// Issue #13 followup: PHP has no declared `throws` clause, so this
+/// approximates "thrown by" via `throw_expression` nodes nested in
+/// `function_definition` / `method_declaration` bodies. Only
+/// `throw new X(...)` forms emit a row — re-raise with a variable has
+/// no statically resolvable type.
+pub fn extract_throws(tree: &Tree, source: &[u8], file_path: &str) -> Vec<ThrowsRow> {
+    let mut out = Vec::new();
+    walk_throws(tree.root_node(), source, file_path, None, &mut out);
+    out
+}
+
+fn walk_throws(
+    node: Node,
+    source: &[u8],
+    file_path: &str,
+    enclosing: Option<(String, u32, u32, SymbolKind)>,
+    out: &mut Vec<ThrowsRow>,
+) {
+    let mut next_enclosing = enclosing.clone();
+    if matches!(node.kind(), "function_definition" | "method_declaration") {
+        if let Some(name_node) = node.child_by_field_name("name") {
+            if let Ok(name) = name_node.utf8_text(source) {
+                // Match symbol IDs — they're built from the whole
+                // declaration's start position, not the name node's.
+                let (l, c) = node_pos(node);
+                let kind = if node.kind() == "method_declaration" {
+                    SymbolKind::Method
+                } else {
+                    SymbolKind::Function
+                };
+                next_enclosing = Some((name.to_string(), l, c, kind));
+            }
+        }
+    }
+
+    if node.kind() == "throw_expression" {
+        if let Some((ref fn_name, fn_line, fn_col, fn_kind)) = next_enclosing {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "object_creation_expression" {
+                    // PHP grammar exposes the class as the first named
+                    // child of `object_creation_expression` (no `type`
+                    // field). It can be `name`, `qualified_name`, or a
+                    // `variable_name` (dynamic) — only the first two
+                    // give a static type.
+                    let mut cc = child.walk();
+                    for inner in child.named_children(&mut cc) {
+                        if matches!(inner.kind(), "name" | "qualified_name") {
+                            let display = render_type(inner, source);
+                            if !display.is_empty() {
+                                out.push(ThrowsRow {
+                                    file_path: file_path.to_string(),
+                                    function_start_line: fn_line,
+                                    function_start_col: fn_col,
+                                    function_name: fn_name.clone(),
+                                    function_kind: fn_kind,
+                                    exception_display_name: display,
+                                });
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        walk_throws(child, source, file_path, next_enclosing.clone(), out);
+    }
 }
 
 struct Ctx<'a> {

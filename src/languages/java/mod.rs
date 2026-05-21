@@ -6,4 +6,4 @@ mod types;
 pub use attrs::extract_attrs;
 pub use queries::*;
 pub use references::extract_references;
-pub use types::extract_types;
+pub use types::{extract_throws, extract_types};
