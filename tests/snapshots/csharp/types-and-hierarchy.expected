@@ -1,0 +1,15 @@
+# Issue #13 fan-out baseline against benchmarks/csharp/dotnet-api.
+type_total = 518
+type_primitive = 138
+type_named = 283
+type_generic = 91
+type_tuple = 2
+type_array = 4
+type_function = 0
+type_intersection = 0
+type_resolved_canonical = 345
+parameter_total = 365
+parameter_with_type = 365
+returns_total = 236
+extends_total = 9
+implements_total = 12

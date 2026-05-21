@@ -172,7 +172,16 @@ pub fn extract_types(
 ) {
     match language {
         Language::Rust => rust_lang::extract_types(tree, source, file_path),
-        _ => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_types(tree, source, file_path)
+        }
+        Language::Python => python::extract_types(tree, source, file_path),
+        Language::Go => go::extract_types(tree, source, file_path),
+        Language::Java => java::extract_types(tree, source, file_path),
+        Language::Php => php::extract_types(tree, source, file_path),
+        Language::C => c_lang::extract_types(tree, source, file_path),
+        Language::Cpp => cpp::extract_types(tree, source, file_path),
+        Language::CSharp => csharp::extract_types(tree, source, file_path),
     }
 }
 

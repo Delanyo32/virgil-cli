@@ -1,0 +1,15 @@
+# Issue #13 fan-out baseline against benchmarks/c/embedded-sensors.
+type_total = 624
+type_primitive = 117
+type_named = 236
+type_generic = 110
+type_tuple = 0
+type_array = 54
+type_function = 107
+type_intersection = 0
+type_resolved_canonical = 182
+parameter_total = 504
+parameter_with_type = 504
+returns_total = 338
+extends_total = 0
+implements_total = 0

@@ -139,3 +139,47 @@ fn snapshot_for(lang_name: &str, languages: &[Language], bench_rel: &str) {
 fn rust_types_and_hierarchy() {
     snapshot_for("rust", &[Language::Rust], "rust/systems-cli");
 }
+
+#[test]
+fn typescript_types_and_hierarchy() {
+    snapshot_for(
+        "typescript",
+        &[Language::TypeScript, Language::Tsx],
+        "typescript/nextjs-dashboard",
+    );
+}
+
+#[test]
+fn python_types_and_hierarchy() {
+    snapshot_for("python", &[Language::Python], "python/technical-debt");
+}
+
+#[test]
+fn go_types_and_hierarchy() {
+    snapshot_for("go", &[Language::Go], "go/http-service");
+}
+
+#[test]
+fn java_types_and_hierarchy() {
+    snapshot_for("java", &[Language::Java], "java/spring-api");
+}
+
+#[test]
+fn php_types_and_hierarchy() {
+    snapshot_for("php", &[Language::Php], "php/laravel-store");
+}
+
+#[test]
+fn c_types_and_hierarchy() {
+    snapshot_for("c", &[Language::C], "c/embedded-sensors");
+}
+
+#[test]
+fn cpp_types_and_hierarchy() {
+    snapshot_for("cpp", &[Language::Cpp], "cpp/data-processor");
+}
+
+#[test]
+fn csharp_types_and_hierarchy() {
+    snapshot_for("csharp", &[Language::CSharp], "csharp/dotnet-api");
+}
