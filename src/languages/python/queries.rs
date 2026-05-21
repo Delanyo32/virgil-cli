@@ -315,23 +315,23 @@ fn determine_python_kind(def_node: tree_sitter::Node, _name: &str) -> Option<Sym
             // assignment) AND function-local assignment both bind a name.
             // The extractor emits a Variable symbol for either; the
             // function-local case is deduped upstream so only the FIRST
-            // assignment per (function, name) becomes a symbol row. Per
-            // ADR-0005 / docs/references-python.md, this is the binding
-            // site for the local name in its function scope.
+            // assignment per (function, name) becomes a symbol row.
             //
-            // Skip assignments inside class bodies whose direct enclosing
-            // block is a class body — those are class attributes, not
-            // function locals or module-level vars. (They still get a
-            // Variable kind today, matching pre-Phase-2 behaviour.)
+            // Class-body assignment (`class C: x = 1` / `class C: x: int = 1`)
+            // emits a `Field` symbol so the field_type JOIN finds its
+            // matching `symbol` row (issue #18.1).
             let parent = def_node.parent(); // expression_statement
             let grandparent = parent.and_then(|p| p.parent()); // module or block
             match grandparent.map(|g| g.kind()) {
                 Some("module") => Some(SymbolKind::Variable),
                 Some("block") => {
-                    // block parent could be a function body or a class body
-                    // — only function bodies yield locals.
                     if enclosing_function_node(def_node).is_some() {
                         Some(SymbolKind::Variable)
+                    } else if grandparent
+                        .and_then(|b| b.parent())
+                        .is_some_and(|p| p.kind() == "class_definition")
+                    {
+                        Some(SymbolKind::Field)
                     } else {
                         None
                     }
@@ -993,6 +993,24 @@ mod tests {
             .collect();
         assert_eq!(locals.len(), 1, "second assignment must not emit a new symbol");
         assert_eq!(locals[0].start_line, 2, "first assignment wins");
+    }
+
+    #[test]
+    fn class_attribute_typed_emits_field_symbol() {
+        let syms = parse_and_extract("class C:\n    x: int = 1\n");
+        let field = syms
+            .iter()
+            .find(|s| s.kind == SymbolKind::Field && s.name == "x");
+        assert!(field.is_some(), "expected field `x`, got {syms:?}");
+    }
+
+    #[test]
+    fn class_attribute_untyped_emits_field_symbol() {
+        let syms = parse_and_extract("class C:\n    y = 2\n");
+        let field = syms
+            .iter()
+            .find(|s| s.kind == SymbolKind::Field && s.name == "y");
+        assert!(field.is_some(), "expected field `y`, got {syms:?}");
     }
 
     #[test]

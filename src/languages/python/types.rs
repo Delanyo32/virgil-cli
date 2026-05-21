@@ -1043,6 +1043,16 @@ mod tests {
     }
 
     #[test]
+    fn class_typed_attribute_emits_field_type_row() {
+        let (_, _, _, _, fields) =
+            run("class C:\n    x: int = 5\n    y = 6\n", "app/m.py");
+        assert_eq!(fields.len(), 1, "got {fields:?}");
+        assert_eq!(fields[0].field_name, "x");
+        assert_eq!(fields[0].type_display_name, "int");
+        assert_eq!(fields[0].field_kind, SymbolKind::Field);
+    }
+
+    #[test]
     fn list_int_generic() {
         let (types, params, _, _, _) = run("def f(xs: list[int]):\n    pass\n", "app/m.py");
         let row = types
