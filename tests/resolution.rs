@@ -6,5 +6,6 @@ mod resolution {
     pub mod aliased_imports;
     pub mod overload_disambiguation;
     pub mod shadowing;
+    pub mod transitive_reexports;
     pub mod wildcards;
 }

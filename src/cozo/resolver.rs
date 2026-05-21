@@ -44,10 +44,27 @@ innermost_binding[occ, sym] :=
 
 has_scoped[occ] := innermost_binding[occ, _]
 
+# #18.2e: cross-file chain (single hop). An `import` /
+# `import_alias` binding with `symbol_id = null` means "the extractor
+# didn't follow"; the resolver follows the `imports` relation +
+# matching-name binding in the target file. Multi-hop transitive
+# re-exports require a recursive `file_resolves` rule which cozo's
+# analyzer currently rejects in this form — tracked as a follow-up.
+chain_resolved[occ, sym] :=
+    *occurrence{id: occ, name: cn, file_path: cof},
+    *scope{id: csc, file_path: cof},
+    *binding{scope_id: csc, name: cn, symbol_id: cnb, binding_kind: cbk},
+    cnb == null,
+    cbk != "wildcard_import",
+    *imports{importer_file_id: cof, imported_id: tf},
+    *scope{id: ts, file_path: tf},
+    *binding{scope_id: ts, name: cn, symbol_id: sym, binding_kind: tbk},
+    sym != null,
+    tbk != "wildcard_import",
+    *symbol{id: sym}
+
 # #18.2c: wildcard import expansion. When no scoped binding hits, the
-# occurrence's file may have one or more `wildcard_import` bindings.
-# Each expands to every exported symbol with a matching name in the
-# imported file (via `imports`).
+# occurrence's file may have wildcard_import bindings.
 wildcard_target[occ, sym] :=
     *occurrence{id: occ, name: n, file_path: of},
     *scope{id: wscope, file_path: of},
@@ -57,6 +74,7 @@ wildcard_target[occ, sym] :=
     not has_scoped[occ]
 
 resolved[occ, sym] := innermost_binding[occ, sym]
+resolved[occ, sym] := chain_resolved[occ, sym]
 resolved[occ, sym] := wildcard_target[occ, sym]
 
 # #18.2b: deterministic match_index per occurrence. Count of
@@ -97,8 +115,25 @@ has_wildcard_resolution[occ] :=
     *imports{importer_file_id: of, imported_id: tf},
     *symbol{id: sym, name: n, file_path: tf, exported: true}
 
+# #18.2e: chain-resolved occurrences (null-sym binding + single-hop
+# imports lookup). Don't emit null fallback when a chain would have
+# matched.
+has_chain_resolution[occ] :=
+    *occurrence{id: occ, name: cn, file_path: cof},
+    *scope{id: csc, file_path: cof},
+    *binding{scope_id: csc, name: cn, symbol_id: cnb, binding_kind: cbk},
+    cnb == null,
+    cbk != "wildcard_import",
+    *imports{importer_file_id: cof, imported_id: tf},
+    *scope{id: ts, file_path: tf},
+    *binding{scope_id: ts, name: cn, symbol_id: csym, binding_kind: tbk},
+    csym != null,
+    tbk != "wildcard_import",
+    *symbol{id: csym}
+
 has_resolution[occ] := has_scoped_resolution[occ]
 has_resolution[occ] := has_wildcard_resolution[occ]
+has_resolution[occ] := has_chain_resolution[occ]
 
 ?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] :=
     *occurrence{id: occ, file_path: site_file, start_byte: site_start_byte,
