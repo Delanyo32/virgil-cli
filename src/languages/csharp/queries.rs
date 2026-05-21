@@ -321,9 +321,9 @@ fn determine_csharp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" | "constructor_declaration" => Some(SymbolKind::Method),
         "namespace_declaration" => Some(SymbolKind::Namespace),
-        "property_declaration" => Some(SymbolKind::Property),
+        "property_declaration" => Some(SymbolKind::Field),
         "delegate_declaration" => Some(SymbolKind::TypeAlias),
-        "field_declaration" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         // Parameters: regular `(parameter ...)`, `params int[] xs` varargs (the
         // grammar's `_parameter_array` rule is hidden, so its trailing
         // identifier appears directly under `parameter_list`), the

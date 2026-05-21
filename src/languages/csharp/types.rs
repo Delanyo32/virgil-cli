@@ -501,11 +501,13 @@ impl<'a> Ctx<'a> {
             return;
         };
         self.emit_type_with_subtree(t);
-        // Issue #14: emit a field_type row keyed off the property's name.
+        // Issue #14 + #18.1: emit a field_type row keyed off the
+        // property_declaration's own start position so symbol_id
+        // matches the Symbol row.
         if let Some(name_node) = node.child_by_field_name("name")
             && let Ok(field_name) = name_node.utf8_text(self.source)
         {
-            let (line, col) = node_pos(name_node);
+            let (line, col) = node_pos(node);
             self.field_types.push(FieldTypeRow {
                 file_path: self.file_path.to_string(),
                 field_start_line: line,
@@ -537,7 +539,10 @@ impl<'a> Ctx<'a> {
                 if let Some(name_node) = d.child_by_field_name("name")
                     && let Ok(field_name) = name_node.utf8_text(self.source)
                 {
-                    let (line, col) = node_pos(name_node);
+                    // #18.1: key on the field_declaration's start
+                    // (`node`), not the declarator's, matching what
+                    // the symbol query produces as @definition.
+                    let (line, col) = node_pos(node);
                     self.field_types.push(FieldTypeRow {
                         file_path: self.file_path.to_string(),
                         field_start_line: line,

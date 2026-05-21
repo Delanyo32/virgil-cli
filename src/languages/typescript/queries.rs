@@ -173,6 +173,12 @@ const TS_SYMBOL_QUERY: &str = r#"
 
 (arrow_function
   parameter: (identifier) @name) @parameter
+
+(public_field_definition
+  name: (property_identifier) @name) @definition
+
+(property_signature
+  name: (property_identifier) @name) @definition
 "#;
 
 const JS_SYMBOL_QUERY: &str = r#"
@@ -489,6 +495,7 @@ fn determine_kind(def_kind: &str, value_kind: Option<&str>) -> Option<SymbolKind
         "interface_declaration" => Some(SymbolKind::Interface),
         "type_alias_declaration" => Some(SymbolKind::TypeAlias),
         "enum_declaration" => Some(SymbolKind::Enum),
+        "public_field_definition" | "property_signature" => Some(SymbolKind::Field),
         "lexical_declaration" | "variable_declaration" => {
             if let Some(vk) = value_kind {
                 if vk == "arrow_function" {

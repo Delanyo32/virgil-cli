@@ -5,9 +5,9 @@
 # now extracted. symbol_count grew from 708 → 1282; call_count is
 # unchanged (callable-only filter in builder.rs catches param/local
 # names that collide with function names).
-symbol_count=1282
+symbol_count=1426
 comment_count=235
 call_count=39
 doc_attached_count=16
 file_count=48
-span_count=1282
+span_count=1426

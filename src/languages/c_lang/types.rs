@@ -333,7 +333,9 @@ impl<'a> Ctx<'a> {
             && let Some(name_node) = find_innermost_identifier(d)
             && let Ok(field_name) = name_node.utf8_text(self.source)
         {
-            let (line, col) = node_pos(name_node);
+            // #18.1: key on the field_declaration's start (`node`)
+            // so symbol_id matches the Symbol row's id.
+            let (line, col) = node_pos(node);
             self.field_types.push(FieldTypeRow {
                 file_path: self.file_path.to_string(),
                 field_start_line: line,

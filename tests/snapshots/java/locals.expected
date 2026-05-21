@@ -3,4 +3,4 @@
 # local_count covers local_variable_declaration + try-with-resources.
 # See locals.cozoql for the conceptual query shape.
 parameter_count=434
-local_count=457
+local_count=230

@@ -5,9 +5,9 @@
 # grew from 494 → 830; call_count from 102 → 105 (parameter names that
 # happen to match callee names are filtered out by the callable-only
 # resolver in builder.rs).
-symbol_count=830
+symbol_count=1084
 comment_count=188
 call_count=105
 doc_attached_count=0
 file_count=54
-span_count=830
+span_count=1084

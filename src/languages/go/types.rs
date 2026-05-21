@@ -529,7 +529,10 @@ impl<'a> Ctx<'a> {
                             let mut nc = field.walk();
                             for n in field.children_by_field_name("name", &mut nc) {
                                 if let Ok(field_name) = n.utf8_text(self.source) {
-                                    let (line, col) = node_pos(n);
+                                    // #18.1: key on the field_declaration's
+                                    // start (`field`), matching the @definition
+                                    // capture in the symbol query.
+                                    let (line, col) = node_pos(field);
                                     self.field_types.push(FieldTypeRow {
                                         file_path: self.file_path.to_string(),
                                         field_start_line: line,

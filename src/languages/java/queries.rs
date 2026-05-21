@@ -257,7 +257,7 @@ fn determine_java_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "interface_declaration" | "annotation_type_declaration" => Some(SymbolKind::Interface),
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" | "constructor_declaration" => Some(SymbolKind::Method),
-        "field_declaration" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         "formal_parameter"
         | "spread_parameter"
         | "catch_formal_parameter"
@@ -613,7 +613,7 @@ mod tests {
         let syms = parse_and_extract("public class Foo { private int count; }");
         let f = syms.iter().find(|s| s.name == "count");
         assert!(f.is_some());
-        assert_eq!(f.unwrap().kind, SymbolKind::Variable);
+        assert_eq!(f.unwrap().kind, SymbolKind::Field);
         assert!(!f.unwrap().is_exported);
     }
 

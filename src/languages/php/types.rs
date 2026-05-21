@@ -405,7 +405,10 @@ impl<'a> Ctx<'a> {
             if field_name.is_empty() {
                 continue;
             }
-            let (line, col) = node_pos(name_node);
+            // #18.1: key on the property_declaration's start (`node`),
+            // not the property_element's, so the synthesized symbol_id
+            // matches the Symbol row's id.
+            let (line, col) = node_pos(node);
             self.field_types.push(FieldTypeRow {
                 file_path: self.file_path.to_string(),
                 field_start_line: line,

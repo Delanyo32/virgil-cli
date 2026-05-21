@@ -66,6 +66,9 @@ const GO_SYMBOL_QUERY: &str = r#"
 (short_var_declaration
   left: (expression_list
     (identifier) @name)) @definition
+
+(field_declaration
+  name: (field_identifier) @name) @definition
 "#;
 
 // ── Import queries ──
@@ -192,6 +195,7 @@ fn determine_go_kind(def_node: tree_sitter::Node, source: &[u8]) -> Option<Symbo
         }
         "const_spec" => Some(SymbolKind::Constant),
         "var_spec" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         "parameter_declaration" | "variadic_parameter_declaration" => {
             Some(SymbolKind::Parameter)
         }

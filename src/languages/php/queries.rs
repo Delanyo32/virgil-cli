@@ -305,7 +305,7 @@ fn determine_php_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "trait_declaration" => Some(SymbolKind::Trait),
         "enum_declaration" => Some(SymbolKind::Enum),
         "method_declaration" => Some(SymbolKind::Method),
-        "property_declaration" => Some(SymbolKind::Property),
+        "property_declaration" => Some(SymbolKind::Field),
         "const_declaration" => Some(SymbolKind::Constant),
         "namespace_definition" => Some(SymbolKind::Namespace),
         // Parameter shapes — `property_promotion_parameter` is also a
@@ -848,7 +848,7 @@ mod tests {
         let syms = parse_and_extract("<?php\nclass Foo { public $name = 'test'; }");
         let p = syms.iter().find(|s| s.name == "name");
         assert!(p.is_some());
-        assert_eq!(p.unwrap().kind, SymbolKind::Property);
+        assert_eq!(p.unwrap().kind, SymbolKind::Field);
         assert!(p.unwrap().is_exported);
     }
 

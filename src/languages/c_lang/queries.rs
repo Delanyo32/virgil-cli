@@ -128,6 +128,17 @@ const C_SYMBOL_QUERY: &str = r#"
 (declaration
   declarator: (array_declarator
     declarator: (identifier) @name)) @definition
+
+(field_declaration
+  declarator: (field_identifier) @name) @definition
+
+(field_declaration
+  declarator: (pointer_declarator
+    declarator: (field_identifier) @name)) @definition
+
+(field_declaration
+  declarator: (array_declarator
+    declarator: (field_identifier) @name)) @definition
 "#;
 
 // ── Import queries ──
@@ -253,6 +264,7 @@ fn determine_c_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "enum_specifier" => Some(SymbolKind::Enum),
         "type_definition" => Some(SymbolKind::Typedef),
         "preproc_def" | "preproc_function_def" => Some(SymbolKind::Macro),
+        "field_declaration" => Some(SymbolKind::Field),
         _ => None,
     }
 }

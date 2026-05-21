@@ -451,7 +451,9 @@ impl<'a> Ctx<'a> {
         let Ok(field_name) = name_node.utf8_text(self.source) else {
             return;
         };
-        let (line, col) = node_pos(name_node);
+        // #18.1: key on the field_definition / property_signature
+        // start position so the symbol_id matches the Symbol row.
+        let (line, col) = node_pos(field_node);
         self.field_types.push(FieldTypeRow {
             file_path: self.file_path.to_string(),
             field_start_line: line,

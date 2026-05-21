@@ -436,7 +436,9 @@ impl<'a> Ctx<'a> {
             {
                 let field_name = extract_param_name(decl, self.source).unwrap_or_default();
                 if !field_name.is_empty() {
-                    let (line, col) = node_pos(decl);
+                    // #18.1: key on the field_declaration's start
+                    // (`node`), matching @definition.
+                    let (line, col) = node_pos(node);
                     self.field_types.push(FieldTypeRow {
                         file_path: self.file_path.to_string(),
                         field_start_line: line,

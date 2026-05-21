@@ -263,7 +263,7 @@ mod tests {
         );
         let r = rows
             .iter()
-            .find(|r| r.symbol_id.ends_with("|MAX|variable"))
+            .find(|r| r.symbol_id.ends_with("|MAX|field"))
             .expect("field row");
         assert!(r.is_final);
         assert!(!r.is_synchronized);
@@ -344,7 +344,7 @@ mod tests {
         let rows = run("public class C { int x; }", "Foo.java");
         let r = rows
             .iter()
-            .find(|r| r.symbol_id.ends_with("|x|variable"))
+            .find(|r| r.symbol_id.ends_with("|x|field"))
             .expect("field row");
         assert!(r.throws_clause.is_empty());
     }

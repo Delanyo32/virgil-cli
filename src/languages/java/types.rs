@@ -678,7 +678,10 @@ impl<'a> Ctx<'a> {
                 if let Some(name_node) = d.child_by_field_name("name")
                     && let Ok(field_name) = name_node.utf8_text(self.source)
                 {
-                    let (line, col) = node_pos(name_node);
+                    // #18.1: key on the field_declaration's start
+                    // position (`child`), matching what the symbol
+                    // query emits as @definition.
+                    let (line, col) = node_pos(child);
                     self.field_types.push(FieldTypeRow {
                         file_path: self.file_path.to_string(),
                         field_start_line: line,

@@ -239,6 +239,21 @@ const CPP_SYMBOL_QUERY: &str = r#"
 
 (preproc_function_def
   name: (identifier) @name) @definition
+
+(field_declaration
+  declarator: (field_identifier) @name) @definition
+
+(field_declaration
+  declarator: (pointer_declarator
+    declarator: (field_identifier) @name)) @definition
+
+(field_declaration
+  declarator: (array_declarator
+    declarator: (field_identifier) @name)) @definition
+
+(field_declaration
+  declarator: (reference_declarator
+    (field_identifier) @name)) @definition
 "#;
 
 // ── Import queries ── (same as C: #include directives)
@@ -366,6 +381,7 @@ fn determine_cpp_kind(def_node: tree_sitter::Node) -> Option<SymbolKind> {
         "preproc_def" | "preproc_function_def" => Some(SymbolKind::Macro),
         "parameter_declaration" | "optional_parameter_declaration" => Some(SymbolKind::Parameter),
         "for_range_loop" => Some(SymbolKind::Variable),
+        "field_declaration" => Some(SymbolKind::Field),
         _ => None,
     }
 }

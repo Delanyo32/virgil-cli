@@ -70,7 +70,8 @@ fn full_pipeline_typescript() {
 
     let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
     // Issue #11: parameter symbols (name, url) now extracted as well.
-    assert_eq!(syms.len(), 12, "expected 12 symbols, got: {names:?}");
+    // Issue #18.1: class fields (id, name) emitted as Field symbols.
+    assert_eq!(syms.len(), 14, "expected 14 symbols, got: {names:?}");
 
     let expected = [
         "greet",
@@ -126,7 +127,8 @@ fn full_pipeline_tsx() {
     let (_meta, syms) = parse_fixture("component.tsx", Language::Tsx);
     let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
     // Issue #11: parameter symbol `props` (Header's prop arg) now extracted.
-    assert_eq!(syms.len(), 4, "expected 4 symbols, got: {names:?}");
+    // Issue #18.1: interface property `title` emitted as Field symbol.
+    assert_eq!(syms.len(), 5, "expected 5 symbols, got: {names:?}");
     assert!(names.contains(&"App"));
     assert!(names.contains(&"Header"));
     assert!(names.contains(&"Props"));

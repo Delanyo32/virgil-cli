@@ -1,7 +1,8 @@
 # benchmarks/c/embedded-sensors
 occurrence_total = 5313
 scope_total = 844
-binding_total = 1282
+binding_total = 1426
 references_total = 5291
-references_resolved = 3937
-references_unresolved = 1354
+references_resolved = 4302
+references_unresolved = 989
+field_type_joinable_with_symbol = 144

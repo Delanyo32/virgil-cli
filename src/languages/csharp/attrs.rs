@@ -245,7 +245,7 @@ mod tests {
         let rows = run(src, "M.cs");
         let r = rows
             .iter()
-            .find(|r| r.symbol_id.ends_with("|Name|property"))
+            .find(|r| r.symbol_id.ends_with("|Name|field"))
             .unwrap();
         assert_eq!(r.attributes, vec!["MaxLength".to_string()]);
     }

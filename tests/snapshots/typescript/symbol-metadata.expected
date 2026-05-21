@@ -2,11 +2,11 @@
 # columns (issue #12). Probed on typescript/nextjs-dashboard; update
 # only alongside intentional extractor changes.
 public_count=160
-private_count=670
+private_count=924
 internal_count=0
 protected_count=0
-qualified_name_count=595
-parent_id_count=595
+qualified_name_count=849
+parent_id_count=849
 is_async_count=17
 is_static_count=0
 is_abstract_count=0

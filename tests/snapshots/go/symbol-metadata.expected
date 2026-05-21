@@ -2,12 +2,12 @@
 # (issue #12). Probed on go/http-service; update only alongside
 # intentional extractor changes. Visibility derives from the first-rune
 # capitalisation rule; Go has no async/static/mutable concepts.
-public_count=273
-private_count=837
+public_count=388
+private_count=920
 internal_count=0
 protected_count=0
-qualified_name_count=798
-parent_id_count=798
+qualified_name_count=996
+parent_id_count=996
 is_async_count=0
 is_static_count=0
 is_abstract_count=7

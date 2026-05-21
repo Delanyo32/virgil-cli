@@ -2,12 +2,12 @@
 # (issue #12). Probed on c/embedded-sensors; update only alongside
 # intentional extractor changes. C has no async/abstract/mutable
 # concepts; visibility = file-scope `static` collapses to Private.
-public_count=511
-private_count=771
+public_count=649
+private_count=777
 internal_count=0
 protected_count=0
-qualified_name_count=709
-parent_id_count=709
+qualified_name_count=853
+parent_id_count=853
 is_async_count=0
 is_static_count=62
 is_abstract_count=0
