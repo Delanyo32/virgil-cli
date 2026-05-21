@@ -18,15 +18,21 @@ const RESOLVED_SCRIPT: &str = r#"
 scope_ancestor[s, t] := *scope{id: s}, t = s
 scope_ancestor[s, t] := scope_ancestor[s, mid], *scope{id: mid, parent_id: t}, t != null
 
-candidate_binding[occ, sym] :=
+candidate_binding[occ, sym, sb] :=
     *occurrence{id: occ, name: n, enclosing_scope_id: occ_scope},
     scope_ancestor[occ_scope, anc_scope],
-    *binding{scope_id: anc_scope, name: n, symbol_id: sym, binding_kind: bk},
+    *binding{scope_id: anc_scope, name: n, start_byte: sb, symbol_id: sym, binding_kind: bk},
     bk != "wildcard_import",
     sym != null
 
+occ_max_sb[occ, max_sb] := candidate_binding[occ, _, sb], max_sb = max(sb)
+
+innermost_binding[occ, sym] :=
+    candidate_binding[occ, sym, sb],
+    occ_max_sb[occ, sb]
+
 ?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] :=
-    candidate_binding[occ, referent_id],
+    innermost_binding[occ, referent_id],
     *occurrence{id: occ, file_path: site_file, start_byte: site_start_byte,
                 enclosing_symbol_id: referrer_id, occurrence_kind: ref_kind},
     referrer_id != null,
