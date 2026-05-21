@@ -2,7 +2,7 @@
 occurrence_total = 5423
 scope_total = 874
 binding_total = 1308
-references_total = 5419
-references_resolved = 3081
+references_total = 10015
+references_resolved = 7677
 references_unresolved = 2338
 field_type_joinable_with_symbol = 189

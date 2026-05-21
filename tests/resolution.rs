@@ -3,5 +3,6 @@
 //! One test binary; one named test function per scenario file.
 
 mod resolution {
+    pub mod overload_disambiguation;
     pub mod shadowing;
 }

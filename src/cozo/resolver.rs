@@ -18,25 +18,44 @@ const RESOLVED_SCRIPT: &str = r#"
 scope_ancestor[s, t] := *scope{id: s}, t = s
 scope_ancestor[s, t] := scope_ancestor[s, mid], *scope{id: mid, parent_id: t}, t != null
 
-candidate_binding[occ, sym, sb] :=
+# #18.2a + 18.2b: innermost-scope pick (max scope.start_byte among
+# scopes that have a matching name binding) — preserves overload
+# candidates that all live in the same scope.
+scope_with_binding[occ, sid, ssb] :=
     *occurrence{id: occ, name: n, enclosing_scope_id: occ_scope},
-    scope_ancestor[occ_scope, anc_scope],
-    *binding{scope_id: anc_scope, name: n, start_byte: sb, symbol_id: sym, binding_kind: bk},
+    scope_ancestor[occ_scope, sid],
+    *binding{scope_id: sid, name: n, symbol_id: sym, binding_kind: bk},
+    bk != "wildcard_import",
+    sym != null,
+    *scope{id: sid, start_byte: ssb}
+
+occ_max_scope_sb[occ, max(ssb)] := scope_with_binding[occ, _, ssb]
+
+innermost_scope[occ, sid] :=
+    scope_with_binding[occ, sid, ssb],
+    occ_max_scope_sb[occ, ssb]
+
+innermost_binding[occ, sym] :=
+    *occurrence{id: occ, name: n},
+    innermost_scope[occ, isid],
+    *binding{scope_id: isid, name: n, symbol_id: sym, binding_kind: bk},
     bk != "wildcard_import",
     sym != null
 
-occ_max_sb[occ, max_sb] := candidate_binding[occ, _, sb], max_sb = max(sb)
-
-innermost_binding[occ, sym] :=
-    candidate_binding[occ, sym, sb],
-    occ_max_sb[occ, sb]
+# #18.2b: deterministic match_index per occurrence. Count of
+# candidates whose sym is lex ≤ this one. Singleton → count = 1 → mi = 0.
+# Two candidates A<B → A: count=1 → mi=0; B: count=2 → mi=1.
+match_index_count[occ, sym, count(s)] :=
+    innermost_binding[occ, sym],
+    innermost_binding[occ, s],
+    s <= sym
 
 ?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] :=
-    innermost_binding[occ, referent_id],
+    match_index_count[occ, referent_id, c],
+    match_index = c - 1,
     *occurrence{id: occ, file_path: site_file, start_byte: site_start_byte,
                 enclosing_symbol_id: referrer_id, occurrence_kind: ref_kind},
-    referrer_id != null,
-    match_index = 0
+    referrer_id != null
 
 :put references {referrer_id, site_file, site_start_byte, match_index => referent_id, ref_kind}
 "#;
