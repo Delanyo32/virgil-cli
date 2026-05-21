@@ -1,8 +1,8 @@
-# benchmarks/go/http-service
-occurrence_total = 5423
-scope_total = 874
-binding_total = 1308
-references_total = 10015
-references_resolved = 7677
-references_unresolved = 2338
+# benchmarks/go/http-service — Go full extractor (#18.3)
+occurrence_total = 3496
+scope_total = 813
+binding_total = 1800
+references_total = 4948
+references_resolved = 2832
+references_unresolved = 2116
 field_type_joinable_with_symbol = 189
