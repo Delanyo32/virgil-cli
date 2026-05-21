@@ -5,8 +5,11 @@ mod go;
 mod java;
 mod php;
 mod python;
+mod refs_common;
 mod rust_lang;
 mod typescript;
+
+pub(crate) use refs_common::{LangRefs, emit_minimal_references};
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -242,7 +245,16 @@ pub fn extract_references(
 ) -> ReferencesBucket {
     match language {
         Language::Rust => rust_lang::extract_references(tree, source, file_path, symbols),
-        _ => ReferencesBucket::default(),
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            typescript::extract_references(tree, source, file_path, symbols)
+        }
+        Language::Python => python::extract_references(tree, source, file_path, symbols),
+        Language::Go => go::extract_references(tree, source, file_path, symbols),
+        Language::Java => java::extract_references(tree, source, file_path, symbols),
+        Language::Php => php::extract_references(tree, source, file_path, symbols),
+        Language::C => c_lang::extract_references(tree, source, file_path, symbols),
+        Language::Cpp => cpp::extract_references(tree, source, file_path, symbols),
+        Language::CSharp => csharp::extract_references(tree, source, file_path, symbols),
     }
 }
 

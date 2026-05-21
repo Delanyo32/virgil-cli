@@ -1,0 +1,7 @@
+# benchmarks/java/spring-api
+occurrence_total = 7719
+scope_total = 1391
+binding_total = 1445
+references_total = 6070
+references_resolved = 2208
+references_unresolved = 3862

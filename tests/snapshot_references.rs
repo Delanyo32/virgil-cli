@@ -95,37 +95,72 @@ fn snapshot_refs_for(
     }
 }
 
+fn standard_counts() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("occurrence_total", "?[count(id)] := *occurrence{id}"),
+        ("scope_total", "?[count(id)] := *scope{id}"),
+        ("binding_total", "?[count(s)] := *binding{scope_id: s}"),
+        (
+            "references_total",
+            "?[count(r)] := *references{referrer_id: r}",
+        ),
+        (
+            "references_resolved",
+            "?[count(r)] := *references{referrer_id: r, referent_id: rid}, rid != null",
+        ),
+        (
+            "references_unresolved",
+            "?[count(r)] := *references{referrer_id: r, referent_id: rid}, rid == null",
+        ),
+    ]
+}
+
 #[test]
 fn rust_references() {
+    snapshot_refs_for("rust", &[Language::Rust], "rust/systems-cli", standard_counts());
+}
+
+#[test]
+fn typescript_references() {
     snapshot_refs_for(
-        "rust",
-        &[Language::Rust],
-        "rust/systems-cli",
-        &[
-            (
-                "occurrence_total",
-                "?[count(id)] := *occurrence{id}",
-            ),
-            (
-                "scope_total",
-                "?[count(id)] := *scope{id}",
-            ),
-            (
-                "binding_total",
-                "?[count(s)] := *binding{scope_id: s}",
-            ),
-            (
-                "references_total",
-                "?[count(r)] := *references{referrer_id: r}",
-            ),
-            (
-                "references_resolved",
-                "?[count(r)] := *references{referrer_id: r, referent_id: rid}, rid != null",
-            ),
-            (
-                "references_unresolved",
-                "?[count(r)] := *references{referrer_id: r, referent_id: rid}, rid == null",
-            ),
-        ],
+        "typescript",
+        &[Language::TypeScript, Language::Tsx],
+        "typescript/nextjs-dashboard",
+        standard_counts(),
     );
+}
+
+#[test]
+fn python_references() {
+    snapshot_refs_for("python", &[Language::Python], "python/technical-debt", standard_counts());
+}
+
+#[test]
+fn go_references() {
+    snapshot_refs_for("go", &[Language::Go], "go/http-service", standard_counts());
+}
+
+#[test]
+fn java_references() {
+    snapshot_refs_for("java", &[Language::Java], "java/spring-api", standard_counts());
+}
+
+#[test]
+fn php_references() {
+    snapshot_refs_for("php", &[Language::Php], "php/laravel-store", standard_counts());
+}
+
+#[test]
+fn c_references() {
+    snapshot_refs_for("c", &[Language::C], "c/embedded-sensors", standard_counts());
+}
+
+#[test]
+fn cpp_references() {
+    snapshot_refs_for("cpp", &[Language::Cpp], "cpp/data-processor", standard_counts());
+}
+
+#[test]
+fn csharp_references() {
+    snapshot_refs_for("csharp", &[Language::CSharp], "csharp/dotnet-api", standard_counts());
 }

@@ -1,0 +1,7 @@
+# benchmarks/cpp/data-processor
+occurrence_total = 3872
+scope_total = 814
+binding_total = 871
+references_total = 3871
+references_resolved = 1933
+references_unresolved = 1938

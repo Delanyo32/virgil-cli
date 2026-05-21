@@ -1,0 +1,7 @@
+# benchmarks/csharp/dotnet-api
+occurrence_total = 6222
+scope_total = 1102
+binding_total = 1666
+references_total = 5537
+references_resolved = 1864
+references_unresolved = 3673

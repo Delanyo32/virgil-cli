@@ -1,0 +1,7 @@
+# benchmarks/php/laravel-store
+occurrence_total = 6093
+scope_total = 749
+binding_total = 786
+references_total = 4995
+references_resolved = 1639
+references_unresolved = 3356

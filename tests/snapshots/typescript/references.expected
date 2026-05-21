@@ -1,0 +1,7 @@
+# Issue #16 fan-out against benchmarks/typescript/nextjs-dashboard.
+occurrence_total = 4064
+scope_total = 714
+binding_total = 1568
+references_total = 3869
+references_resolved = 881
+references_unresolved = 2988
