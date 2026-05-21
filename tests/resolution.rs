@@ -7,5 +7,6 @@ mod resolution {
     pub mod overload_disambiguation;
     pub mod shadowing;
     pub mod transitive_reexports;
+    pub mod unresolved_emits_null;
     pub mod wildcards;
 }
