@@ -1,8 +1,8 @@
-# benchmarks/php/laravel-store
-occurrence_total = 6093
-scope_total = 749
-binding_total = 786
-references_total = 6836
-references_resolved = 3480
-references_unresolved = 3356
+# benchmarks/php/laravel-store — PHP full extractor (#18.3)
+occurrence_total = 4643
+scope_total = 791
+binding_total = 694
+references_total = 3782
+references_resolved = 73
+references_unresolved = 3709
 field_type_joinable_with_symbol = 2
