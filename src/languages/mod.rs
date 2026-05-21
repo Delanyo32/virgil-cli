@@ -18,7 +18,7 @@ use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::models::{
     AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
-    ReturnsTypeRow, SymbolInfo, TypeRow,
+    ReferencesBucket, ReturnsTypeRow, SymbolInfo, TypeRow,
 };
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
@@ -228,6 +228,22 @@ pub fn extract_attrs(
         }
     }
     bucket
+}
+
+/// Issue #16 references-fact emission facade per ADR-0005. Each
+/// language emits `occurrence` / `scope` / `binding` rows; the
+/// Cozoscript resolver consumes them to materialise `references`.
+pub fn extract_references(
+    tree: &Tree,
+    source: &[u8],
+    file_path: &str,
+    language: Language,
+    symbols: &[SymbolInfo],
+) -> ReferencesBucket {
+    match language {
+        Language::Rust => rust_lang::extract_references(tree, source, file_path, symbols),
+        _ => ReferencesBucket::default(),
+    }
 }
 
 /// Resolve an internal import to a graph node within the project.

@@ -43,6 +43,10 @@ pub struct CozoWriter {
     nolint: Vec<Vec<DataValue>>,
     build_meta: Vec<Vec<DataValue>>,
     build_meta_files: Vec<Vec<DataValue>>,
+    // Issue #16 — ADR-0005 fact-emission relations.
+    occurrence: Vec<Vec<DataValue>>,
+    scope: Vec<Vec<DataValue>>,
+    binding: Vec<Vec<DataValue>>,
     // Issue #15 — per-language attribute tables.
     rust_attrs: Vec<Vec<DataValue>>,
     python_attrs: Vec<Vec<DataValue>>,
@@ -84,6 +88,9 @@ impl CozoWriter {
         self.nolint.append(&mut other.nolint);
         self.build_meta.append(&mut other.build_meta);
         self.build_meta_files.append(&mut other.build_meta_files);
+        self.occurrence.append(&mut other.occurrence);
+        self.scope.append(&mut other.scope);
+        self.binding.append(&mut other.binding);
         self.rust_attrs.append(&mut other.rust_attrs);
         self.python_attrs.append(&mut other.python_attrs);
         self.typescript_attrs.append(&mut other.typescript_attrs);
@@ -355,6 +362,70 @@ impl CozoWriter {
             DataValue::from(hash),
             DataValue::from(size),
             DataValue::from(mtime),
+        ]);
+    }
+
+    // ── Issue #16 ADR-0005 fact emission ────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_occurrence(
+        &mut self,
+        id: &str,
+        name: &str,
+        file_path: &str,
+        start_byte: i64,
+        end_byte: i64,
+        enclosing_symbol_id: Option<&str>,
+        enclosing_scope_id: &str,
+        occurrence_kind: &str,
+    ) {
+        self.occurrence.push(vec![
+            DataValue::from(id),
+            DataValue::from(name),
+            DataValue::from(file_path),
+            DataValue::from(start_byte),
+            DataValue::from(end_byte),
+            enclosing_symbol_id
+                .map(DataValue::from)
+                .unwrap_or(DataValue::Null),
+            DataValue::from(enclosing_scope_id),
+            DataValue::from(occurrence_kind),
+        ]);
+    }
+
+    pub fn push_scope(
+        &mut self,
+        id: &str,
+        parent_id: Option<&str>,
+        file_path: &str,
+        kind: &str,
+        start_byte: i64,
+        end_byte: i64,
+    ) {
+        self.scope.push(vec![
+            DataValue::from(id),
+            parent_id.map(DataValue::from).unwrap_or(DataValue::Null),
+            DataValue::from(file_path),
+            DataValue::from(kind),
+            DataValue::from(start_byte),
+            DataValue::from(end_byte),
+        ]);
+    }
+
+    pub fn push_binding(
+        &mut self,
+        scope_id: &str,
+        name: &str,
+        start_byte: i64,
+        symbol_id: Option<&str>,
+        binding_kind: &str,
+    ) {
+        self.binding.push(vec![
+            DataValue::from(scope_id),
+            DataValue::from(name),
+            DataValue::from(start_byte),
+            symbol_id.map(DataValue::from).unwrap_or(DataValue::Null),
+            DataValue::from(binding_kind),
         ]);
     }
 
@@ -642,6 +713,26 @@ impl CozoWriter {
             "?[file_path, hash, size, mtime] <- $rows \
              :put build_meta_files {file_path => hash, size, mtime}",
             std::mem::take(&mut self.build_meta_files),
+        )?;
+        flush(
+            store,
+            "?[id, name, file_path, start_byte, end_byte, enclosing_symbol_id, \
+              enclosing_scope_id, occurrence_kind] <- $rows \
+             :put occurrence {id => name, file_path, start_byte, end_byte, \
+                              enclosing_symbol_id, enclosing_scope_id, occurrence_kind}",
+            std::mem::take(&mut self.occurrence),
+        )?;
+        flush(
+            store,
+            "?[id, parent_id, file_path, kind, start_byte, end_byte] <- $rows \
+             :put scope {id => parent_id, file_path, kind, start_byte, end_byte}",
+            std::mem::take(&mut self.scope),
+        )?;
+        flush(
+            store,
+            "?[scope_id, name, start_byte, symbol_id, binding_kind] <- $rows \
+             :put binding {scope_id, name, start_byte => symbol_id, binding_kind}",
+            std::mem::take(&mut self.binding),
         )?;
         flush(
             store,

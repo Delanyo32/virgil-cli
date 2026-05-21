@@ -11,7 +11,7 @@ use crate::language::Language;
 use crate::languages;
 use crate::models::{
     AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
-    ReturnsTypeRow, SymbolInfo, SymbolKind, TypeRow,
+    ReferencesBucket, ReturnsTypeRow, SymbolInfo, SymbolKind, TypeRow,
 };
 use crate::parser;
 use crate::storage::workspace::Workspace;
@@ -38,6 +38,8 @@ struct FileGraphData {
     /// Issue #15: per-language attribute rows. Only this file's
     /// language bucket is populated.
     attrs: AttrsBucket,
+    /// Issue #16: occurrence/scope/binding facts for the resolver.
+    references: ReferencesBucket,
 }
 
 /// A call site extracted from within a symbol's line range.
@@ -331,6 +333,9 @@ fn parse_one_file(
     // Issue #15: per-language attribute extraction.
     let attrs = languages::extract_attrs(&tree, source.as_bytes(), rel_path, lang, &symbols);
 
+    // Issue #16: occurrence/scope/binding fact emission.
+    let references = languages::extract_references(&tree, source.as_bytes(), rel_path, lang, &symbols);
+
     Some(FileGraphData {
         path: rel_path.to_string(),
         language: lang,
@@ -344,6 +349,7 @@ fn parse_one_file(
         inheritance,
         field_types,
         attrs,
+        references,
     })
 }
 
@@ -368,6 +374,7 @@ fn absorb_file_data(
         inheritance,
         field_types,
         attrs,
+        references,
     } = data;
 
     // File node
@@ -561,6 +568,12 @@ fn absorb_file_data(
         || !attrs.java.is_empty();
     if attrs_nonempty {
         graph.attrs.insert(path.clone(), attrs);
+    }
+    if !references.occurrences.is_empty()
+        || !references.scopes.is_empty()
+        || !references.bindings.is_empty()
+    {
+        graph.references.insert(path.clone(), references);
     }
 
     // CallSite nodes + Contains edges. Calls edges are deferred until

@@ -31,6 +31,24 @@ pub fn create_statements() -> &'static [&'static str] {
         ":create references {referrer_id: String, site_file: String, \
             site_start_byte: Int, match_index: Int => \
             referent_id: String?, ref_kind: String}",
+        // ─── ADR-0005 fact-emission relations (issue #16) ──────────────────
+        // Every identifier occurrence in source code. Resolution turns each
+        // occurrence into zero-or-more `references` rows via scope + import
+        // walking (see docs/resolution.md).
+        ":create occurrence {id: String => \
+            name: String, file_path: String, \
+            start_byte: Int, end_byte: Int, \
+            enclosing_symbol_id: String?, enclosing_scope_id: String, \
+            occurrence_kind: String}",
+        // Lexical scope chain per file. `parent_id` is null for the
+        // file/module scope.
+        ":create scope {id: String => \
+            parent_id: String?, file_path: String, kind: String, \
+            start_byte: Int, end_byte: Int}",
+        // name → symbol_id binding within a specific scope. Shadowing
+        // permitted; the resolver picks by `start_byte` order.
+        ":create binding {scope_id: String, name: String, start_byte: Int => \
+            symbol_id: String?, binding_kind: String}",
         ":create extends {child_id: String, parent_id: String}",
         ":create implements {impl_id: String, interface_id: String}",
         ":create imports {importer_file_id: String, imported_id: String}",
@@ -100,5 +118,9 @@ pub fn index_statements() -> &'static [&'static str] {
         "::index create imports:by_imported {imported_id}",
         "::index create comment:by_file {file_path}",
         "::index create comment:by_documents {documents_id}",
+        // Issue #16 — resolver-critical indices per ADR-0005.
+        "::index create occurrence:by_name {name}",
+        "::index create binding:by_name {name}",
+        "::index create scope:by_file {file_path}",
     ]
 }

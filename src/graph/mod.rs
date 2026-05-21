@@ -8,8 +8,8 @@ pub use intern::{Spur, Symbols};
 
 use crate::language::Language;
 use crate::models::{
-    AttrsBucket, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReturnsTypeRow,
-    SymbolKind, SymbolVisibility, TypeRow,
+    AttrsBucket, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow, ReferencesBucket,
+    ReturnsTypeRow, SymbolKind, SymbolVisibility, TypeRow,
 };
 
 /// Stable index into [`CodeGraph::nodes`]. Replaces `petgraph::NodeIndex`.
@@ -127,6 +127,9 @@ pub struct CodeGraph {
     /// Per-file per-language attribute buckets (issue #15). Only the
     /// file's source language is populated.
     pub attrs: HashMap<String, AttrsBucket>,
+    /// Per-file occurrence/scope/binding facts (issue #16). The
+    /// Cozoscript resolver consumes these to materialise `references`.
+    pub references: HashMap<String, ReferencesBucket>,
 }
 
 impl Default for CodeGraph {
@@ -153,6 +156,7 @@ impl CodeGraph {
             inheritance: HashMap::new(),
             field_types: HashMap::new(),
             attrs: HashMap::new(),
+            references: HashMap::new(),
         }
     }
 

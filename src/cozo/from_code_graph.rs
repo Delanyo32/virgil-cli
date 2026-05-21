@@ -97,12 +97,56 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
     emit_comments(graph, &mut writer);
     emit_types_and_hierarchy(graph, workspace, &mut writer);
     emit_attrs(graph, &mut writer);
+    emit_references_facts(graph, &mut writer);
 
     if let Some(ws) = workspace {
         record_build_meta_files(ws, &mut writer);
     }
 
-    writer.flush(store)
+    writer.flush(store)?;
+
+    // Issue #16 ADR-0005: resolve `references` from the now-flushed
+    // occurrence / scope / binding / imports / symbol facts.
+    super::resolver::resolve_references(store)?;
+
+    Ok(())
+}
+
+/// Issue #16: walk per-file occurrence / scope / binding buckets.
+fn emit_references_facts(graph: &CodeGraph, writer: &mut CozoWriter) {
+    for bucket in graph.references.values() {
+        for r in &bucket.scopes {
+            writer.push_scope(
+                &r.id,
+                r.parent_id.as_deref(),
+                &r.file_path,
+                &r.kind,
+                r.start_byte as i64,
+                r.end_byte as i64,
+            );
+        }
+        for r in &bucket.bindings {
+            writer.push_binding(
+                &r.scope_id,
+                &r.name,
+                r.start_byte as i64,
+                r.symbol_id.as_deref(),
+                &r.binding_kind,
+            );
+        }
+        for r in &bucket.occurrences {
+            writer.push_occurrence(
+                &r.id,
+                &r.name,
+                &r.file_path,
+                r.start_byte as i64,
+                r.end_byte as i64,
+                r.enclosing_symbol_id.as_deref(),
+                &r.enclosing_scope_id,
+                &r.occurrence_kind,
+            );
+        }
+    }
 }
 
 /// Issue #15: walk `graph.attrs` and dispatch per-language push.
@@ -747,6 +791,11 @@ pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
         "?[path] := *file_classification{path} :rm file_classification {path}",
         "?[file_path, line] := *nolint{file_path, line} :rm nolint {file_path, line}",
         "?[file_path] := *build_meta_files{file_path} :rm build_meta_files {file_path}",
+        // Issue #16 — ADR-0005 fact relations.
+        "?[id] := *occurrence{id} :rm occurrence {id}",
+        "?[id] := *scope{id} :rm scope {id}",
+        "?[scope_id, name, start_byte] := *binding{scope_id, name, start_byte} \
+         :rm binding {scope_id, name, start_byte}",
         // Issue #15 — per-language attribute relations.
         "?[symbol_id] := *rust_attrs{symbol_id} :rm rust_attrs {symbol_id}",
         "?[symbol_id] := *python_attrs{symbol_id} :rm python_attrs {symbol_id}",

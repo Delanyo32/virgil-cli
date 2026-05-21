@@ -241,6 +241,58 @@ pub struct FieldTypeRow {
     pub type_display_name: String,
 }
 
+/// Issue #16 fact-emission rows per ADR-0005. Each per-language
+/// extractor emits these; the Cozoscript resolver consumes them to
+/// materialise the `references` view.
+
+#[derive(Debug, Clone)]
+pub struct OccurrenceRow {
+    /// `<file_path>|<start_byte>|<name>|<occurrence_kind>`.
+    pub id: String,
+    pub name: String,
+    pub file_path: String,
+    pub start_byte: u32,
+    pub end_byte: u32,
+    /// Innermost symbol containing the occurrence. `None` if at
+    /// file-scope level (rare; usually attached to a symbol).
+    pub enclosing_symbol_id: Option<String>,
+    /// Innermost lexical scope id (matches a `scope.id`).
+    pub enclosing_scope_id: String,
+    /// One of `"call" | "read" | "write" | "type_use" | "import_use"`.
+    pub occurrence_kind: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScopeRow {
+    /// `<file_path>|<start_byte>|<kind>`.
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub file_path: String,
+    /// One of `"file" | "module" | "namespace" | "class" | "function" | "block"`.
+    pub kind: String,
+    pub start_byte: u32,
+    pub end_byte: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct BindingRow {
+    pub scope_id: String,
+    pub name: String,
+    pub start_byte: u32,
+    pub symbol_id: Option<String>,
+    /// One of `"definition" | "parameter" | "import" | "import_alias" |
+    /// "wildcard_import"`.
+    pub binding_kind: String,
+}
+
+/// Per-file output of the references fact emitter (issue #16).
+#[derive(Debug, Clone, Default)]
+pub struct ReferencesBucket {
+    pub occurrences: Vec<OccurrenceRow>,
+    pub scopes: Vec<ScopeRow>,
+    pub bindings: Vec<BindingRow>,
+}
+
 /// Issue #15 attribute rows. One per applicable symbol per the
 /// language's `docs/attrs-<lang>.md` contract. Columns mirror the
 /// schema declared in `src/cozo/schema.rs` (additive — no `symbol`

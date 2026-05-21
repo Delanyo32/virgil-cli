@@ -8,6 +8,7 @@
 pub mod from_code_graph;
 pub mod incremental;
 pub mod queries;
+pub mod resolver;
 pub mod schema;
 pub mod store;
 pub mod writer;
@@ -28,4 +29,9 @@ pub use writer::CozoWriter;
 /// nullable `referent_id`), `field_type`/`type`/`extends`/`implements`/
 /// `throws`/`comment` relations added, per-language `*_attrs` tables
 /// declared (empty until Phase 4).
-pub const SCHEMA_VERSION: u32 = 3;
+///
+/// 4: Issue #16 — `occurrence`, `scope`, `binding` fact-emission
+/// relations added per ADR-0005. The `references` relation is now
+/// materialised by a Cozoscript resolver after fact emission completes,
+/// not directly by extractors.
+pub const SCHEMA_VERSION: u32 = 4;
