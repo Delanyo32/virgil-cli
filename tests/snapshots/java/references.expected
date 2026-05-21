@@ -1,8 +1,8 @@
-# benchmarks/java/spring-api
-occurrence_total = 7719
+# benchmarks/java/spring-api — Java full extractor (#18.3)
+occurrence_total = 7247
 scope_total = 1391
-binding_total = 1445
-references_total = 8064
-references_resolved = 4202
-references_unresolved = 3862
+binding_total = 2021
+references_total = 6483
+references_resolved = 2207
+references_unresolved = 4276
 field_type_joinable_with_symbol = 227
