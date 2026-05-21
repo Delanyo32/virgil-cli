@@ -203,16 +203,28 @@ pub fn extract_attrs(
             bucket.rust = rust_lang::extract_attrs(tree, source, file_path, symbols);
         }
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
-            // Wired in fan-out follow-up.
+            bucket.typescript = typescript::extract_attrs(tree, source, file_path, symbols);
         }
-        Language::Python
-        | Language::Go
-        | Language::Java
-        | Language::Php
-        | Language::C
-        | Language::Cpp
-        | Language::CSharp => {
-            // Wired in fan-out follow-up.
+        Language::Python => {
+            bucket.python = python::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Go => {
+            bucket.go = go::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Java => {
+            bucket.java = java::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Php => {
+            bucket.php = php::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::C => {
+            bucket.c = c_lang::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::Cpp => {
+            bucket.cpp = cpp::extract_attrs(tree, source, file_path, symbols);
+        }
+        Language::CSharp => {
+            bucket.csharp = csharp::extract_attrs(tree, source, file_path, symbols);
         }
     }
     bucket

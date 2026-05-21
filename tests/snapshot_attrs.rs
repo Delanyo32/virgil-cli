@@ -124,3 +124,199 @@ fn rust_attrs() {
         ],
     );
 }
+
+#[test]
+fn typescript_attrs() {
+    snapshot_attrs_for(
+        "typescript",
+        &[Language::TypeScript, Language::Tsx],
+        "typescript/nextjs-dashboard",
+        &[
+            (
+                "ts_attrs_total",
+                "?[count(s)] := *typescript_attrs{symbol_id: s}",
+            ),
+            (
+                "ts_attrs_readonly",
+                "?[count(s)] := *typescript_attrs{symbol_id: s, is_readonly: true}",
+            ),
+            (
+                "ts_attrs_optional",
+                "?[count(s)] := *typescript_attrs{symbol_id: s, is_optional: true}",
+            ),
+            (
+                "ts_attrs_with_type_params",
+                "?[count(s)] := *typescript_attrs{symbol_id: s, type_parameters: tp}, length(tp) > 0",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn python_attrs() {
+    snapshot_attrs_for(
+        "python",
+        &[Language::Python],
+        "python/technical-debt",
+        &[
+            (
+                "py_attrs_total",
+                "?[count(s)] := *python_attrs{symbol_id: s}",
+            ),
+            (
+                "py_attrs_generator",
+                "?[count(s)] := *python_attrs{symbol_id: s, is_generator: true}",
+            ),
+            (
+                "py_attrs_coroutine",
+                "?[count(s)] := *python_attrs{symbol_id: s, is_coroutine: true}",
+            ),
+            (
+                "py_attrs_with_decorators",
+                "?[count(s)] := *python_attrs{symbol_id: s, decorators: d}, length(d) > 0",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn go_attrs() {
+    snapshot_attrs_for(
+        "go",
+        &[Language::Go],
+        "go/http-service",
+        &[
+            ("go_attrs_total", "?[count(s)] := *go_attrs{symbol_id: s}"),
+            (
+                "go_attrs_exported",
+                "?[count(s)] := *go_attrs{symbol_id: s, is_exported: true}",
+            ),
+            (
+                "go_attrs_with_receiver",
+                "?[count(s)] := *go_attrs{symbol_id: s, has_receiver: true}",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn java_attrs() {
+    snapshot_attrs_for(
+        "java",
+        &[Language::Java],
+        "java/spring-api",
+        &[
+            (
+                "java_attrs_total",
+                "?[count(s)] := *java_attrs{symbol_id: s}",
+            ),
+            (
+                "java_attrs_final",
+                "?[count(s)] := *java_attrs{symbol_id: s, is_final: true}",
+            ),
+            (
+                "java_attrs_with_annotations",
+                "?[count(s)] := *java_attrs{symbol_id: s, annotations: a}, length(a) > 0",
+            ),
+            (
+                "java_attrs_with_throws",
+                "?[count(s)] := *java_attrs{symbol_id: s, throws_clause: t}, length(t) > 0",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn php_attrs() {
+    snapshot_attrs_for(
+        "php",
+        &[Language::Php],
+        "php/laravel-store",
+        &[
+            ("php_attrs_total", "?[count(s)] := *php_attrs{symbol_id: s}"),
+            (
+                "php_attrs_final",
+                "?[count(s)] := *php_attrs{symbol_id: s, is_final: true}",
+            ),
+            (
+                "php_attrs_with_traits",
+                "?[count(s)] := *php_attrs{symbol_id: s, uses_traits: t}, length(t) > 0",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn c_attrs() {
+    snapshot_attrs_for(
+        "c",
+        &[Language::C],
+        "c/embedded-sensors",
+        &[
+            ("c_attrs_total", "?[count(s)] := *c_attrs{symbol_id: s}"),
+            (
+                "c_attrs_static",
+                "?[count(s)] := *c_attrs{symbol_id: s, is_file_static: true}",
+            ),
+            (
+                "c_attrs_extern",
+                "?[count(s)] := *c_attrs{symbol_id: s, is_extern: true}",
+            ),
+            (
+                "c_attrs_inline",
+                "?[count(s)] := *c_attrs{symbol_id: s, is_inline: true}",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn cpp_attrs() {
+    snapshot_attrs_for(
+        "cpp",
+        &[Language::Cpp],
+        "cpp/data-processor",
+        &[
+            ("cpp_attrs_total", "?[count(s)] := *cpp_attrs{symbol_id: s}"),
+            (
+                "cpp_attrs_virtual",
+                "?[count(s)] := *cpp_attrs{symbol_id: s, is_virtual: true}",
+            ),
+            (
+                "cpp_attrs_constexpr",
+                "?[count(s)] := *cpp_attrs{symbol_id: s, is_constexpr: true}",
+            ),
+            (
+                "cpp_attrs_template",
+                "?[count(s)] := *cpp_attrs{symbol_id: s, is_template: true}",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn csharp_attrs() {
+    snapshot_attrs_for(
+        "csharp",
+        &[Language::CSharp],
+        "csharp/dotnet-api",
+        &[
+            (
+                "cs_attrs_total",
+                "?[count(s)] := *csharp_attrs{symbol_id: s}",
+            ),
+            (
+                "cs_attrs_sealed",
+                "?[count(s)] := *csharp_attrs{symbol_id: s, is_sealed: true}",
+            ),
+            (
+                "cs_attrs_partial",
+                "?[count(s)] := *csharp_attrs{symbol_id: s, is_partial: true}",
+            ),
+            (
+                "cs_attrs_with_attributes",
+                "?[count(s)] := *csharp_attrs{symbol_id: s, attributes: a}, length(a) > 0",
+            ),
+        ],
+    );
+}

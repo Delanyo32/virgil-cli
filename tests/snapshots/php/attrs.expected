@@ -1,0 +1,4 @@
+# Issue #15 fan-out baseline against benchmarks/php/laravel-store.
+php_attrs_total = 786
+php_attrs_final = 0
+php_attrs_with_traits = 12

@@ -1,0 +1,5 @@
+# Issue #15 fan-out baseline against benchmarks/java/spring-api.
+java_attrs_total = 1445
+java_attrs_final = 36
+java_attrs_with_annotations = 263
+java_attrs_with_throws = 7
