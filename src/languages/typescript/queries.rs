@@ -975,6 +975,21 @@ pub fn resolve_import(
         return Some(resolved);
     }
 
+    // NodeNext / ESM: specifiers like "./foo.js" map to "./foo.ts" on disk
+    for (from, to) in &[
+        (".js", ".ts"),
+        (".jsx", ".tsx"),
+        (".mjs", ".mts"),
+        (".cjs", ".cts"),
+    ] {
+        if let Some(stem) = resolved.strip_suffix(from) {
+            let candidate = format!("{stem}{to}");
+            if known_files.contains(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+
     // Try extensions
     for ext in &[".ts", ".tsx", ".js", ".jsx"] {
         let candidate = format!("{}{}", resolved, ext);
@@ -1532,5 +1547,53 @@ const fs = require("fs");
         let imports = parse_and_extract_imports(source, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].line, 2);
+    }
+
+    // ── resolve_import tests ──
+
+    fn known(paths: &[&str]) -> HashSet<String> {
+        paths.iter().map(|p| (*p).to_string()).collect()
+    }
+
+    #[test]
+    fn resolve_extensionless_specifier_to_ts() {
+        let files = known(&["src/foo.ts", "src/bar.ts"]);
+        let got = resolve_import("src/bar.ts", "./foo", &files);
+        assert_eq!(got.as_deref(), Some("src/foo.ts"));
+    }
+
+    #[test]
+    fn resolve_nodenext_js_specifier_to_ts() {
+        let files = known(&["src/foo.ts", "src/bar.ts"]);
+        let got = resolve_import("src/bar.ts", "./foo.js", &files);
+        assert_eq!(got.as_deref(), Some("src/foo.ts"));
+    }
+
+    #[test]
+    fn resolve_nodenext_jsx_specifier_to_tsx() {
+        let files = known(&["src/Foo.tsx", "src/Bar.tsx"]);
+        let got = resolve_import("src/Bar.tsx", "./Foo.jsx", &files);
+        assert_eq!(got.as_deref(), Some("src/Foo.tsx"));
+    }
+
+    #[test]
+    fn resolve_nodenext_mjs_specifier_to_mts() {
+        let files = known(&["src/foo.mts", "src/bar.mts"]);
+        let got = resolve_import("src/bar.mts", "./foo.mjs", &files);
+        assert_eq!(got.as_deref(), Some("src/foo.mts"));
+    }
+
+    #[test]
+    fn resolve_js_specifier_keeps_real_js_file() {
+        // If the .js file actually exists, exact match wins over the .ts swap.
+        let files = known(&["src/foo.js", "src/foo.ts", "src/bar.ts"]);
+        let got = resolve_import("src/bar.ts", "./foo.js", &files);
+        assert_eq!(got.as_deref(), Some("src/foo.js"));
+    }
+
+    #[test]
+    fn resolve_unresolvable_returns_none() {
+        let files = known(&["src/bar.ts"]);
+        assert!(resolve_import("src/bar.ts", "./missing.js", &files).is_none());
     }
 }
