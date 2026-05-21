@@ -1,8 +1,8 @@
-# benchmarks/cpp/data-processor
-occurrence_total = 3872
+# benchmarks/cpp/data-processor — C++ full extractor (#18.3)
+occurrence_total = 2480
 scope_total = 814
-binding_total = 968
-references_total = 6012
-references_resolved = 4175
-references_unresolved = 1837
+binding_total = 980
+references_total = 2539
+references_resolved = 370
+references_unresolved = 2169
 field_type_joinable_with_symbol = 97
