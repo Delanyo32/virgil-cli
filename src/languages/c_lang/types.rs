@@ -1023,7 +1023,8 @@ mod tests {
 
     #[test]
     fn double_pointer_param() {
-        let (types, params, _, _, _) = run("int main(int argc, char **argv) { return 0; }", "src/a.c");
+        let (types, params, _, _, _) =
+            run("int main(int argc, char **argv) { return 0; }", "src/a.c");
         // expect ptr<ptr<char>>
         assert!(
             types

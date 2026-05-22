@@ -482,8 +482,7 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     }
 
     // Call: bare identifier in `function` field of a `call` node.
-    if pkind == "call"
-        && parent.child_by_field_name("function").map(|n| n.id()) == Some(node.id())
+    if pkind == "call" && parent.child_by_field_name("function").map(|n| n.id()) == Some(node.id())
     {
         return Some("call");
     }

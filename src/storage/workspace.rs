@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tracing::info;
 use rayon::prelude::*;
+use tracing::info;
 
 use crate::language::Language;
 use crate::storage::discovery;

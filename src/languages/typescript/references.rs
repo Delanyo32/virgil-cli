@@ -518,12 +518,8 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         | "method_definition"
         | "generator_function"
         | "generator_function_declaration" => Some("function"),
-        "statement_block"
-        | "for_statement"
-        | "for_in_statement"
-        | "for_of_statement"
-        | "catch_clause"
-        | "switch_body" => Some("block"),
+        "statement_block" | "for_statement" | "for_in_statement" | "for_of_statement"
+        | "catch_clause" | "switch_body" => Some("block"),
         _ => None,
     }
 }
@@ -546,10 +542,7 @@ fn is_function_body_block(node: Node) -> bool {
             | "method_definition"
             | "generator_function"
             | "generator_function_declaration"
-    ) && parent
-        .child_by_field_name("body")
-        .map(|b| b.id())
-        == Some(node.id())
+    ) && parent.child_by_field_name("body").map(|b| b.id()) == Some(node.id())
 }
 
 /// True when `node` is the `name` field of `parent` — used to skip
@@ -661,15 +654,11 @@ fn is_property_name_position(node: Node) -> bool {
         return false;
     };
     match parent.kind() {
-        "member_expression" => parent
-            .child_by_field_name("property")
-            .map(|p| p.id())
-            == Some(node.id()),
+        "member_expression" => {
+            parent.child_by_field_name("property").map(|p| p.id()) == Some(node.id())
+        }
         // Object literal property key: `{ key: value }`.
-        "pair" => parent
-            .child_by_field_name("key")
-            .map(|p| p.id())
-            == Some(node.id()),
+        "pair" => parent.child_by_field_name("key").map(|p| p.id()) == Some(node.id()),
         // JSX attribute name.
         "jsx_attribute" => true,
         _ => false,
@@ -742,8 +731,12 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     let mut p = parent;
     loop {
         match p.kind() {
-            "object_pattern" | "array_pattern" | "rest_pattern" | "assignment_pattern"
-            | "object_assignment_pattern" | "pair_pattern" => return None,
+            "object_pattern"
+            | "array_pattern"
+            | "rest_pattern"
+            | "assignment_pattern"
+            | "object_assignment_pattern"
+            | "pair_pattern" => return None,
             // shorthand_property_identifier_pattern is itself the binding name.
             _ => {}
         }
@@ -862,7 +855,11 @@ mod tests {
     #[test]
     fn file_scope_emitted_ts() {
         let b = run_ts("function main() {}");
-        assert!(b.scopes.iter().any(|s| s.kind == "file" && s.parent_id.is_none()));
+        assert!(
+            b.scopes
+                .iter()
+                .any(|s| s.kind == "file" && s.parent_id.is_none())
+        );
     }
 
     #[test]
@@ -874,10 +871,11 @@ mod tests {
     #[test]
     fn definition_binding_emitted_ts() {
         let b = run_ts("function main() {}");
-        assert!(b
-            .bindings
-            .iter()
-            .any(|x| x.binding_kind == "definition" && x.name == "main"));
+        assert!(
+            b.bindings
+                .iter()
+                .any(|x| x.binding_kind == "definition" && x.name == "main")
+        );
     }
 
     #[test]
@@ -943,7 +941,10 @@ mod tests {
     #[test]
     fn wildcard_reexport_binding_emitted() {
         let b = run_ts(r#"export * from "./x";"#);
-        let w = b.bindings.iter().find(|x| x.binding_kind == "wildcard_import");
+        let w = b
+            .bindings
+            .iter()
+            .find(|x| x.binding_kind == "wildcard_import");
         assert!(w.is_some(), "got: {:?}", b.bindings);
     }
 
@@ -985,7 +986,11 @@ mod tests {
             .iter()
             .filter(|o| o.occurrence_kind == "write" && o.name == "x")
             .count();
-        assert!(w >= 1, "expected at least one write for x, got: {:?}", b.occurrences);
+        assert!(
+            w >= 1,
+            "expected at least one write for x, got: {:?}",
+            b.occurrences
+        );
     }
 
     #[test]
@@ -1022,7 +1027,11 @@ mod tests {
     fn property_name_emits_no_occurrence() {
         let b = run_ts("function f() { const x = obj.foo; }");
         // `obj` should be a read; `foo` should NOT appear as an occurrence.
-        assert!(b.occurrences.iter().any(|o| o.name == "obj" && o.occurrence_kind == "read"));
+        assert!(
+            b.occurrences
+                .iter()
+                .any(|o| o.name == "obj" && o.occurrence_kind == "read")
+        );
         assert!(
             !b.occurrences.iter().any(|o| o.name == "foo"),
             "property name `foo` should not emit an occurrence, got: {:?}",
@@ -1034,7 +1043,9 @@ mod tests {
     fn js_emits_no_type_use() {
         let b = run_js("function f(x) { return x; }");
         assert!(
-            !b.occurrences.iter().any(|o| o.occurrence_kind == "type_use"),
+            !b.occurrences
+                .iter()
+                .any(|o| o.occurrence_kind == "type_use"),
             "JS should emit no type_use, got: {:?}",
             b.occurrences
         );
@@ -1055,12 +1066,20 @@ mod tests {
         let b = run_ts("function f() { for (let i = 0; i < 3; i++) {} }");
         // Expect at least: file, function, block (for_statement).
         let block_count = b.scopes.iter().filter(|s| s.kind == "block").count();
-        assert!(block_count >= 1, "expected ≥1 block scope, got: {:?}", b.scopes);
+        assert!(
+            block_count >= 1,
+            "expected ≥1 block scope, got: {:?}",
+            b.scopes
+        );
         let i_binding = b
             .bindings
             .iter()
             .find(|x| x.name == "i" && x.binding_kind == "definition");
-        assert!(i_binding.is_some(), "expected i binding, got: {:?}", b.bindings);
+        assert!(
+            i_binding.is_some(),
+            "expected i binding, got: {:?}",
+            b.bindings
+        );
     }
 
     #[test]
@@ -1077,7 +1096,10 @@ mod tests {
         assert!(names.contains(&"a"), "got: {:?}", names);
         assert!(names.contains(&"b"), "got: {:?}", names);
         // Property key `y` must NOT appear.
-        assert!(!names.contains(&"y"), "property key `y` should not bind, got: {:?}", names);
+        assert!(
+            !names.contains(&"y"),
+            "property key `y` should not bind, got: {:?}",
+            names
+        );
     }
-
 }

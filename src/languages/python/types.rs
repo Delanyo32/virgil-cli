@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    TypeRow,
 };
 
 pub fn extract_types(
@@ -1044,8 +1045,7 @@ mod tests {
 
     #[test]
     fn class_typed_attribute_emits_field_type_row() {
-        let (_, _, _, _, fields) =
-            run("class C:\n    x: int = 5\n    y = 6\n", "app/m.py");
+        let (_, _, _, _, fields) = run("class C:\n    x: int = 5\n    y = 6\n", "app/m.py");
         assert_eq!(fields.len(), 1, "got {fields:?}");
         assert_eq!(fields[0].field_name, "x");
         assert_eq!(fields[0].type_display_name, "int");

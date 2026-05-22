@@ -29,7 +29,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -637,7 +639,11 @@ mod tests {
     fn block_scope_emitted() {
         let b = run("void f() { { int x = 1; } }", "main.cpp");
         let blocks = b.scopes.iter().filter(|s| s.kind == "block").count();
-        assert!(blocks >= 2, "expected >=2 block scopes, got: {:?}", b.scopes);
+        assert!(
+            blocks >= 2,
+            "expected >=2 block scopes, got: {:?}",
+            b.scopes
+        );
     }
 
     #[test]
@@ -661,7 +667,11 @@ mod tests {
             .iter()
             .filter(|x| x.binding_kind == "definition" && x.name == "x")
             .collect();
-        assert!(!xs.is_empty(), "local `x` definition missing, got: {:?}", b.bindings);
+        assert!(
+            !xs.is_empty(),
+            "local `x` definition missing, got: {:?}",
+            b.bindings
+        );
         let block_scope_ids: std::collections::HashSet<&str> = b
             .scopes
             .iter()
@@ -669,7 +679,8 @@ mod tests {
             .map(|s| s.id.as_str())
             .collect();
         assert!(
-            xs.iter().any(|x| block_scope_ids.contains(x.scope_id.as_str())),
+            xs.iter()
+                .any(|x| block_scope_ids.contains(x.scope_id.as_str())),
             "`x` local must bind at a block scope, got scope_ids: {:?}",
             xs.iter().map(|x| &x.scope_id).collect::<Vec<_>>()
         );

@@ -29,9 +29,8 @@ pub fn init(verbosity: u8, quiet: bool, format: LogFormat) {
         }
     };
 
-    let filter = EnvFilter::try_from_env("VIRGIL_LOG").unwrap_or_else(|_| {
-        EnvFilter::new(format!("virgil_cli={level},warn"))
-    });
+    let filter = EnvFilter::try_from_env("VIRGIL_LOG")
+        .unwrap_or_else(|_| EnvFilter::new(format!("virgil_cli={level},warn")));
 
     // JSON format is meant for machine consumption (serve mode, log shippers) —
     // progress bars would corrupt that. Only enable indicatif for compact output

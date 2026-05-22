@@ -97,10 +97,7 @@ fn snapshot_for(lang_name: &str, languages: &[Language], bench_rel: &str) {
             "field_type_total",
             "?[count(s)] := *field_type{symbol_id: s}",
         ),
-        (
-            "throws_total",
-            "?[count(f)] := *throws{function_id: f}",
-        ),
+        ("throws_total", "?[count(f)] := *throws{function_id: f}"),
         (
             "throws_joinable_with_symbol",
             "?[count(f)] := *throws{function_id: f}, *symbol{id: f}",

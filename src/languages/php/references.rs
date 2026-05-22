@@ -27,7 +27,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -280,7 +282,12 @@ impl<'a> Ctx<'a> {
         let Some((path, start)) = path_text else {
             return;
         };
-        let leaf = path.trim_end_matches('\\').rsplit('\\').next().unwrap_or(&path).trim();
+        let leaf = path
+            .trim_end_matches('\\')
+            .rsplit('\\')
+            .next()
+            .unwrap_or(&path)
+            .trim();
         if leaf.is_empty() {
             return;
         }

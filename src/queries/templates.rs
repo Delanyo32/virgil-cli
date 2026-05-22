@@ -68,6 +68,9 @@ mod tests {
     fn known_name_loads_a_non_empty_body() {
         let body = load_cozoscript_template("find_function_by_name")
             .expect("find_function_by_name template");
-        assert!(body.contains("?["), "expected a Cozoscript head, got {body}");
+        assert!(
+            body.contains("?["),
+            "expected a Cozoscript head, got {body}"
+        );
     }
 }

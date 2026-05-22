@@ -94,8 +94,8 @@ fn rust_baseline_snapshot_matches() {
         actual.insert(key.to_string(), n);
     }
 
-    let expected_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots/rust/baseline.expected");
+    let expected_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots/rust/baseline.expected");
     let expected = read_expected(&expected_path);
 
     for (key, want) in &expected {

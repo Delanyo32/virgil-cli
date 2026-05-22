@@ -114,8 +114,16 @@ fn alias_shadows_same_name_import() {
         w.push_symbol(
             id,
             "function",
-            if id.contains("something") { "something" } else { "foo" },
-            if id.contains("something") { "something" } else { "foo" },
+            if id.contains("something") {
+                "something"
+            } else {
+                "foo"
+            },
+            if id.contains("something") {
+                "something"
+            } else {
+                "foo"
+            },
             "rust",
             "public",
             file,

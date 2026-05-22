@@ -21,18 +21,7 @@ fn two_overload_candidates_emit_match_indices() {
         ("f.rs|20|0|foo|method", "method"),
     ] {
         w.push_symbol(
-            id,
-            kind,
-            "foo",
-            "foo",
-            "rust",
-            "private",
-            "f.rs",
-            None,
-            false,
-            false,
-            false,
-            false,
+            id, kind, "foo", "foo", "rust", "private", "f.rs", None, false, false, false, false,
             false,
         );
     }

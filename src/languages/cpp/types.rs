@@ -7,7 +7,8 @@ use std::collections::{HashMap, HashSet};
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
+    TypeRow,
 };
 
 pub fn extract_types(

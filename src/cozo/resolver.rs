@@ -168,10 +168,7 @@ pub fn resolve_references(store: &CozoStore) -> Result<()> {
         let imports = count_relation(store, "imports", "importer_file_id");
         debug!(
             occurrences = occ,
-            scopes,
-            bindings,
-            imports,
-            "resolver input cardinality"
+            scopes, bindings, imports, "resolver input cardinality"
         );
         occ
     };
@@ -181,7 +178,13 @@ pub fn resolve_references(store: &CozoStore) -> Result<()> {
 
     {
         let _s = info_span!("cozo.resolver.run", occurrences = n).entered();
-        run_stage(store, "ancestor", STAGE_ANCESTOR, "rsv_ancestor", "scope_id")?;
+        run_stage(
+            store,
+            "ancestor",
+            STAGE_ANCESTOR,
+            "rsv_ancestor",
+            "scope_id",
+        )?;
         run_stage(store, "innermost", STAGE_INNERMOST, "rsv_innermost", "occ")?;
         run_stage(
             store,
@@ -292,8 +295,7 @@ fn finalize_resolved(store: &CozoStore) -> Result<()> {
     {
         let _w = info_span!("cozo.resolver.finalize.write").entered();
         for chunk in out.chunks(FINALIZE_BATCH) {
-            let batch: Vec<DataValue> =
-                chunk.iter().map(|r| DataValue::List(r.clone())).collect();
+            let batch: Vec<DataValue> = chunk.iter().map(|r| DataValue::List(r.clone())).collect();
             let mut params = BTreeMap::new();
             params.insert("rows".to_string(), DataValue::List(batch));
             store

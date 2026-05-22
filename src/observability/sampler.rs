@@ -47,11 +47,7 @@ impl ResourceSampler {
                 let mut sys = System::new();
                 let refresh = ProcessRefreshKind::new().with_memory().with_cpu();
                 while !stop_c.load(Ordering::Relaxed) {
-                    sys.refresh_processes_specifics(
-                        ProcessesToUpdate::Some(&[pid]),
-                        true,
-                        refresh,
-                    );
+                    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, refresh);
                     if let Some(proc_) = sys.process(pid) {
                         let rss_kb = proc_.memory() / 1024;
                         last_c.store(rss_kb, Ordering::Relaxed);

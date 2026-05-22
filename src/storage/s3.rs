@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use tracing::warn;
 use globset::{Glob, GlobSetBuilder};
+use tracing::warn;
 
 use crate::language::Language;
 

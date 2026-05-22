@@ -701,9 +701,8 @@ mod tests {
 
     #[test]
     fn extract_method_parameters() {
-        let syms = parse_and_extract(
-            "public class Foo { public int add(int a, String b) { return 0; } }",
-        );
+        let syms =
+            parse_and_extract("public class Foo { public int add(int a, String b) { return 0; } }");
         let a = syms
             .iter()
             .find(|s| s.name == "a" && s.kind == SymbolKind::Parameter);
@@ -716,8 +715,7 @@ mod tests {
 
     #[test]
     fn extract_local_variable() {
-        let syms =
-            parse_and_extract("public class Foo { void bar() { int x = 1; } }");
+        let syms = parse_and_extract("public class Foo { void bar() { int x = 1; } }");
         let x = syms
             .iter()
             .find(|s| s.name == "x" && s.kind == SymbolKind::Variable);
@@ -726,8 +724,7 @@ mod tests {
 
     #[test]
     fn extract_multi_local_variables() {
-        let syms =
-            parse_and_extract("public class Foo { void bar() { int a, b; } }");
+        let syms = parse_and_extract("public class Foo { void bar() { int a, b; } }");
         let a = syms
             .iter()
             .find(|s| s.name == "a" && s.kind == SymbolKind::Variable);
@@ -740,9 +737,7 @@ mod tests {
 
     #[test]
     fn extract_varargs_parameter() {
-        let syms = parse_and_extract(
-            "public class Foo { public void log(String... args) { } }",
-        );
+        let syms = parse_and_extract("public class Foo { public void log(String... args) { } }");
         let args = syms
             .iter()
             .find(|s| s.name == "args" && s.kind == SymbolKind::Parameter);

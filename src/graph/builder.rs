@@ -94,7 +94,11 @@ impl<'a> GraphBuilder<'a> {
 
     pub fn build(&self) -> Result<CodeGraph> {
         let total_files = self.workspace.file_count();
-        info!(files = total_files, languages = self.languages.len(), "graph build starting");
+        info!(
+            files = total_files,
+            languages = self.languages.len(),
+            "graph build starting"
+        );
         // Step 1: Pre-compile queries per language
         let mut symbol_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         let mut import_queries: HashMap<Language, Arc<Query>> = HashMap::new();
@@ -185,9 +189,9 @@ impl<'a> GraphBuilder<'a> {
                         grouped_files_ref
                             .par_iter()
                             .for_each_with(tx, |tx, &(lang, rel_path)| {
-                                if let Some(data) =
-                                    parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q, &com_q)
-                                {
+                                if let Some(data) = parse_one_file(
+                                    lang, rel_path, workspace, &sym_q, &imp_q, &com_q,
+                                ) {
                                     let n = parsed_ref.fetch_add(1, Ordering::Relaxed) + 1;
                                     if n % 500 == 0 {
                                         debug!(parsed = n, of = target_files, "parsing progress");
@@ -386,7 +390,8 @@ fn parse_one_file(
     let attrs = languages::extract_attrs(&tree, source.as_bytes(), rel_path, lang, &symbols);
 
     // Issue #16: occurrence/scope/binding fact emission.
-    let references = languages::extract_references(&tree, source.as_bytes(), rel_path, lang, &symbols);
+    let references =
+        languages::extract_references(&tree, source.as_bytes(), rel_path, lang, &symbols);
 
     Some(FileGraphData {
         path: rel_path.to_string(),
@@ -608,11 +613,7 @@ fn absorb_file_data(
             .extend(field_types);
     }
     if !throws.is_empty() {
-        graph
-            .throws
-            .entry(path.clone())
-            .or_default()
-            .extend(throws);
+        graph.throws.entry(path.clone()).or_default().extend(throws);
     }
     // Issue #15: stash per-file attrs bucket. Each language's extractor
     // populates only its own variant; the bucket as a whole has no

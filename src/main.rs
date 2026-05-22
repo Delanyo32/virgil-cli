@@ -196,8 +196,7 @@ fn run_cozo_query(
                 None => Language::all().to_vec(),
             };
             let loc = S3Location::parse(&s3_uri)?;
-            let ws =
-                Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &exclude, None)?;
+            let ws = Workspace::load_from_s3(&loc.bucket, &loc.prefix, &languages, &exclude, None)?;
             info!(files = ws.file_count(), source = %s3_uri, "workspace loaded");
             (ws, s3_uri)
         } else {
