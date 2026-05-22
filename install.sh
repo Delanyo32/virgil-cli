@@ -15,7 +15,7 @@ Usage: install.sh [OPTIONS]
 
 Options:
   -b DIR      Install directory (default: ~/.local/bin)
-  -v VERSION  Install a specific version (e.g. v0.1.0)
+  -v VERSION  Install a specific release tag (e.g. release/v0.6.1)
   -h          Show this help
 EOF
 }

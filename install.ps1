@@ -1,5 +1,10 @@
 # Install script for virgil-cli (Windows)
 # Usage: irm https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.ps1 | iex
+# Pin a version: & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.ps1))) -Version release/v0.6.1
+
+param(
+    [string]$Version = ""
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -8,11 +13,18 @@ $Binary = "virgil-cli"
 $Target = "x86_64-pc-windows-msvc"
 $InstallDir = if ($env:VIRGIL_INSTALL_DIR) { $env:VIRGIL_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".local\bin" }
 
-# Fetch latest release tag
-Write-Host "Fetching latest release..."
-$Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+# Fetch release tag (latest or pinned)
+if ([string]::IsNullOrEmpty($Version)) {
+    Write-Host "Fetching latest release..."
+    $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+} else {
+    # URL-encode the slash in tags like "release/v0.6.1"
+    $EncodedVersion = $Version -replace '/', '%2F'
+    Write-Host "Fetching release $Version..."
+    $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/tags/$EncodedVersion"
+}
 $Version = $Release.tag_name
-Write-Host "Latest version: $Version"
+Write-Host "Version: $Version"
 
 # Find the matching asset download URL directly from the release API
 # This avoids constructing URLs manually which can break with tags containing slashes

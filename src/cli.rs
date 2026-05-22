@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "virgil",
+    name = "virgil-cli",
     about = "Parse and query codebases on-demand",
     version
 )]
@@ -95,60 +95,31 @@ pub enum ProjectCommand {
         name: String,
     },
 
-    /// Query a project using the JSON query language
+    /// Query a project using Cozoscript
     ///
-    /// Pass a query via --q (inline), --file (path), or pipe JSON to stdin.
+    /// Pass the query via exactly one of:
+    ///   --cozoscript '<inline>'   inline Cozoscript
+    ///   --file <path>             load Cozoscript from a file
+    ///   --template <name>         a built-in template (see src/queries/builtin/)
     ///
-    /// QUERY FIELDS:
-    ///   find         Symbol kind(s): function, method, class, type, enum, struct,
-    ///                trait, variable, constant, property, namespace, module, any
-    ///   name         Glob string, {"contains": "..."}, or {"regex": "..."}
-    ///   files        Glob pattern(s) to scope files: "src/**/*.ts" or ["a/**", "b/**"]
-    ///   files_exclude  Glob pattern(s) to exclude files
-    ///   visibility   "exported", "public", "private", "protected", "internal"
-    ///   inside       Only symbols nested inside a parent with this name
-    ///   has          Filter by comment/decorator text; {"not": "docstring"} for inverse
-    ///   lines        {"min": N, "max": N} — filter by line count
-    ///   body         true — include full source body in results
-    ///   preview      N — include first N lines of each symbol
-    ///   calls        "down" (callees), "up" (callers), or "both"
-    ///   depth        Call graph traversal depth (default 1, max 5)
-    ///   read         File path to read (returns content instead of symbols)
-    ///                Combine with `lines` for a specific range
+    /// Bind parameters with --param key=value (repeatable). Integers and
+    /// booleans are auto-coerced; everything else binds as a string.
+    ///
+    /// Queries that return columns (file, line, severity, pattern, message)
+    /// are auto-formatted as audit findings; any other shape prints as rows.
     ///
     /// EXAMPLES:
-    ///   # Find all exported functions
-    ///   virgil projects query myapp --q '{"find": "function", "visibility": "exported"}'
+    ///   # Built-in template with a parameter
+    ///   virgil-cli projects query myapp --template find_function_by_name --param name=login
     ///
-    ///   # Search by name pattern with preview
-    ///   virgil projects query myapp --q '{"name": "handle*", "preview": 5}' --pretty
+    ///   # Inline Cozoscript
+    ///   virgil-cli projects query myapp --cozoscript '?[name] := *symbol{name}'
     ///
-    ///   # Methods inside a specific class
-    ///   virgil projects query myapp --q '{"find": "method", "inside": "AuthService"}'
+    ///   # Cozoscript from a file, with --pretty JSON output
+    ///   virgil-cli projects query myapp --file query.cozoql --pretty
     ///
-    ///   # Large functions (50+ lines) in a directory
-    ///   virgil projects query myapp --q '{"files": "src/api/**", "find": "function", "lines": {"min": 50}}'
-    ///
-    ///   # Functions missing docstrings
-    ///   virgil projects query myapp --q '{"find": "function", "has": {"not": "docstring"}}'
-    ///
-    ///   # Name regex — all getters
-    ///   virgil projects query myapp --q '{"name": {"regex": "^get[A-Z]"}}'
-    ///
-    ///   # Call graph — what does authenticate() call?
-    ///   virgil projects query myapp --q '{"name": "authenticate", "calls": "down", "depth": 2}'
-    ///
-    ///   # Summary of an entire project
-    ///   virgil projects query myapp --q '{}' --out summary --pretty
-    ///
-    ///   # Read a file
-    ///   virgil projects query myapp --q '{"read": "src/main.rs"}' --pretty
-    ///
-    ///   # Read specific lines from a file
-    ///   virgil projects query myapp --q '{"read": "src/main.rs", "lines": {"min": 10, "max": 25}}'
-    ///
-    ///   # File:line locations only
-    ///   virgil projects query myapp --q '{"find": "class"}' --out locations
+    ///   # Query an S3 codebase directly (no registration)
+    ///   virgil-cli projects query --s3 s3://bucket/prefix --template find_cycles --lang rs
     #[command(verbatim_doc_comment)]
     Query {
         /// Project name (not needed with --s3)
@@ -199,21 +170,4 @@ fn parse_key_value(s: &str) -> Result<(String, String), String> {
     s.split_once('=')
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .ok_or_else(|| format!("expected key=value, got '{s}'"))
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-pub enum QueryOutputFormat {
-    Outline,
-    Snippet,
-    Full,
-    Tree,
-    Locations,
-    Summary,
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-pub enum OutputFormat {
-    Table,
-    Json,
-    Csv,
 }
