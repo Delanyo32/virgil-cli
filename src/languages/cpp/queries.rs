@@ -52,10 +52,7 @@ fn visibility_cpp(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibilit
 /// If `def_node` sits inside a `field_declaration_list` (i.e. it's a
 /// class/struct/union member), return its access-specifier-derived
 /// visibility. Otherwise `None`.
-fn class_member_visibility(
-    def_node: tree_sitter::Node,
-    source: &[u8],
-) -> Option<SymbolVisibility> {
+fn class_member_visibility(def_node: tree_sitter::Node, source: &[u8]) -> Option<SymbolVisibility> {
     // Find the field_declaration_list ancestor and the immediate child
     // of that list which contains def_node (we'll scan its previous
     // siblings for the most recent access_specifier).
@@ -651,8 +648,13 @@ fn is_inside_function_body(node: tree_sitter::Node) -> bool {
     let mut current = node.parent();
     while let Some(parent) = current {
         match parent.kind() {
-            "compound_statement" | "function_definition" | "for_range_loop" | "for_statement"
-            | "while_statement" | "if_statement" | "lambda_expression" => return true,
+            "compound_statement"
+            | "function_definition"
+            | "for_range_loop"
+            | "for_statement"
+            | "while_statement"
+            | "if_statement"
+            | "lambda_expression" => return true,
             "translation_unit" => return false,
             _ => current = parent.parent(),
         }
@@ -827,8 +829,7 @@ mod tests {
 
     #[test]
     fn extract_reference_parameter() {
-        let syms =
-            parse_and_extract("#include <string>\nvoid greet(const std::string& s) { }");
+        let syms = parse_and_extract("#include <string>\nvoid greet(const std::string& s) { }");
         let s = syms.iter().find(|sym| sym.name == "s");
         assert!(s.is_some(), "reference parameter `s` must be extracted");
         assert_eq!(s.unwrap().kind, SymbolKind::Parameter);
@@ -847,9 +848,7 @@ mod tests {
 
     #[test]
     fn extract_range_based_for_loop_variable() {
-        let syms = parse_and_extract(
-            "void f() { int arr[3]; for (int& x : arr) { x = 0; } }",
-        );
+        let syms = parse_and_extract("void f() { int arr[3]; for (int& x : arr) { x = 0; } }");
         let x = syms.iter().find(|s| s.name == "x");
         assert!(x.is_some(), "range-for variable `x` must be extracted");
         assert_eq!(x.unwrap().kind, SymbolKind::Variable);

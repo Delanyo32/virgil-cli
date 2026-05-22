@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use globset::{Glob, GlobSetBuilder};
+use tracing::warn;
 
 use crate::language::Language;
 
@@ -252,19 +253,19 @@ pub fn download_objects(
                                 match std::str::from_utf8(&bytes) {
                                     Ok(s) => Some((relative, Arc::from(s), size)),
                                     Err(_) => {
-                                        eprintln!("Warning: skipping non-UTF-8 file: {full_key}");
+                                        warn!(key = %full_key, reason = "non-utf8", "skipping S3 object");
                                         None
                                     }
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Warning: failed to read {full_key}: {e}");
+                                warn!(key = %full_key, error = %e, "failed to read S3 body");
                                 None
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Warning: failed to download {full_key}: {e}");
+                        warn!(key = %full_key, error = %e, "failed to download S3 object");
                         None
                     }
                 }

@@ -59,10 +59,19 @@ fn unresolved_occurrence_emits_one_null_row() {
             BTreeMap::new(),
         )
         .expect("query");
-    assert_eq!(rows.rows.len(), 1, "expected exactly one row, got {:?}", rows.rows);
+    assert_eq!(
+        rows.rows.len(),
+        1,
+        "expected exactly one row, got {:?}",
+        rows.rows
+    );
     let row = &rows.rows[0];
     assert_eq!(row[0], DataValue::from(0), "match_index = 0");
-    assert!(matches!(row[1], DataValue::Null), "referent_id is null, got {:?}", row[1]);
+    assert!(
+        matches!(row[1], DataValue::Null),
+        "referent_id is null, got {:?}",
+        row[1]
+    );
 }
 
 #[test]
@@ -133,6 +142,11 @@ fn resolved_occurrence_does_not_emit_null_row() {
         )
         .expect("query");
     // Exactly one row — the resolved one. No additional null fallback.
-    assert_eq!(rows.rows.len(), 1, "expected exactly one row, got {:?}", rows.rows);
+    assert_eq!(
+        rows.rows.len(),
+        1,
+        "expected exactly one row, got {:?}",
+        rows.rows
+    );
     assert_eq!(rows.rows[0][0], DataValue::from("f.rs|2|0|foo|function"));
 }

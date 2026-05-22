@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result, anyhow};
 use cozo::DataValue;
 use serde::Serialize;
+use tracing::{debug, info};
 
 use crate::cozo::CozoStore;
 use crate::storage::workspace::Workspace;
@@ -64,16 +65,29 @@ pub struct AuditFinding {
 /// matches one; otherwise loads the Cozoscript body (inline / file /
 /// builtin) and executes it against the store.
 pub fn run(req: QueryRequest<'_>) -> Result<QueryOutput> {
+    let source_kind = match &req.source {
+        QuerySource::Inline(_) => "inline",
+        QuerySource::File(_) => "file",
+        QuerySource::Template(name) => {
+            debug!(template = %name, "query template");
+            "template"
+        }
+    };
+    let param_keys: Vec<&str> = req.params.iter().map(|(k, _)| k.as_str()).collect();
+    debug!(source = source_kind, params = ?param_keys, "running query");
+
     // Rust-side handlers short-circuit before we touch the store.
     if let QuerySource::Template(name) = &req.source
         && let Some(handler) = rust_templates::lookup(name)
     {
         let param_map = params_to_btree(&req.params);
-        return handler(&rust_templates::Context {
+        let out = handler(&rust_templates::Context {
             store: req.store,
             workspace: req.workspace,
             params: &param_map,
-        });
+        })?;
+        log_output_summary(&out);
+        return Ok(out);
     }
 
     let script = match req.source {
@@ -92,7 +106,16 @@ pub fn run(req: QueryRequest<'_>) -> Result<QueryOutput> {
         .run_query(&script, params)
         .with_context(|| "running cozoscript")?;
 
-    Ok(rows_to_output(rows.headers, rows.rows))
+    let out = rows_to_output(rows.headers, rows.rows);
+    log_output_summary(&out);
+    Ok(out)
+}
+
+fn log_output_summary(out: &QueryOutput) {
+    match out {
+        QueryOutput::Findings(f) => info!(findings = f.len(), "query complete"),
+        QueryOutput::Rows { rows, .. } => info!(rows = rows.len(), "query complete"),
+    }
 }
 
 /// Convert raw `--param k=v` pairs into `BTreeMap<String, DataValue>` for

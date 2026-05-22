@@ -99,10 +99,11 @@ fn is_async_ts(def_node: tree_sitter::Node, value_node: Option<tree_sitter::Node
     if async_targets.contains(&def_node.kind()) && has_keyword_child(def_node, "async") {
         return true;
     }
-    if let Some(v) = value_node {
-        if async_targets.contains(&v.kind()) && has_keyword_child(v, "async") {
-            return true;
-        }
+    if let Some(v) = value_node
+        && async_targets.contains(&v.kind())
+        && has_keyword_child(v, "async")
+    {
+        return true;
     }
     false
 }
@@ -1280,12 +1281,26 @@ module.exports.deleteItem = function(req, res) {
     fn extract_ts_function_parameters() {
         let source = "function greet(name: string, count?: number, ...rest: any[]) {}";
         let syms = parse_and_extract(source, Language::TypeScript);
-        let params: Vec<&SymbolInfo> =
-            syms.iter().filter(|s| s.kind == SymbolKind::Parameter).collect();
+        let params: Vec<&SymbolInfo> = syms
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .collect();
         let names: Vec<&str> = params.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"name"), "expected `name` param, got {:?}", names);
-        assert!(names.contains(&"count"), "expected `count` param, got {:?}", names);
-        assert!(names.contains(&"rest"), "expected `rest` param, got {:?}", names);
+        assert!(
+            names.contains(&"name"),
+            "expected `name` param, got {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"count"),
+            "expected `count` param, got {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"rest"),
+            "expected `rest` param, got {:?}",
+            names
+        );
     }
 
     #[test]
@@ -1299,8 +1314,16 @@ module.exports.deleteItem = function(req, res) {
             .filter(|s| s.kind == SymbolKind::Parameter)
             .map(|s| s.name.as_str())
             .collect();
-        assert!(params.contains(&"x"), "expected `x` param, got {:?}", params);
-        assert!(params.contains(&"y"), "expected `y` param, got {:?}", params);
+        assert!(
+            params.contains(&"x"),
+            "expected `x` param, got {:?}",
+            params
+        );
+        assert!(
+            params.contains(&"y"),
+            "expected `y` param, got {:?}",
+            params
+        );
     }
 
     #[test]

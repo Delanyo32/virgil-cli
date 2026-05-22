@@ -208,20 +208,18 @@ impl<'a> Ctx<'a> {
 
     fn emit_function_params(&mut self, node: Node, scope_id: &str) {
         // Arrow-function bare-identifier parameter: `x => x + 1`.
-        if node.kind() == "arrow_function" {
-            if let Some(p) = node.child_by_field_name("parameter") {
-                if p.kind() == "identifier" {
-                    if let Ok(name) = p.utf8_text(self.source) {
-                        self.bucket.bindings.push(BindingRow {
-                            scope_id: scope_id.to_string(),
-                            name: name.to_string(),
-                            start_byte: p.start_byte() as u32,
-                            symbol_id: None,
-                            binding_kind: "parameter".to_string(),
-                        });
-                    }
-                }
-            }
+        if node.kind() == "arrow_function"
+            && let Some(p) = node.child_by_field_name("parameter")
+            && p.kind() == "identifier"
+            && let Ok(name) = p.utf8_text(self.source)
+        {
+            self.bucket.bindings.push(BindingRow {
+                scope_id: scope_id.to_string(),
+                name: name.to_string(),
+                start_byte: p.start_byte() as u32,
+                symbol_id: None,
+                binding_kind: "parameter".to_string(),
+            });
         }
 
         let Some(params) = node.child_by_field_name("parameters") else {
@@ -339,10 +337,10 @@ impl<'a> Ctx<'a> {
     fn emit_variable_declarators(&mut self, decl_node: Node, scope_id: &str) {
         let mut c = decl_node.walk();
         for child in decl_node.named_children(&mut c) {
-            if child.kind() == "variable_declarator" {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    self.emit_pattern_bindings(name_node, scope_id, "definition");
-                }
+            if child.kind() == "variable_declarator"
+                && let Some(name_node) = child.child_by_field_name("name")
+            {
+                self.emit_pattern_bindings(name_node, scope_id, "definition");
             }
         }
     }
@@ -376,16 +374,16 @@ impl<'a> Ctx<'a> {
                         // import * as ns from ...
                         let mut nc = sub.walk();
                         for nchild in sub.children(&mut nc) {
-                            if nchild.kind() == "identifier" {
-                                if let Ok(name) = nchild.utf8_text(self.source) {
-                                    self.bucket.bindings.push(BindingRow {
-                                        scope_id: scope_id.to_string(),
-                                        name: name.to_string(),
-                                        start_byte: nchild.start_byte() as u32,
-                                        symbol_id: None,
-                                        binding_kind: "import_alias".to_string(),
-                                    });
-                                }
+                            if nchild.kind() == "identifier"
+                                && let Ok(name) = nchild.utf8_text(self.source)
+                            {
+                                self.bucket.bindings.push(BindingRow {
+                                    scope_id: scope_id.to_string(),
+                                    name: name.to_string(),
+                                    start_byte: nchild.start_byte() as u32,
+                                    symbol_id: None,
+                                    binding_kind: "import_alias".to_string(),
+                                });
                             }
                         }
                     }
@@ -420,16 +418,16 @@ impl<'a> Ctx<'a> {
                     binding_kind: "import_alias".to_string(),
                 });
             }
-        } else if let Some(imp) = imported {
-            if let Ok(name) = imp.utf8_text(self.source) {
-                self.bucket.bindings.push(BindingRow {
-                    scope_id: scope_id.to_string(),
-                    name: name.to_string(),
-                    start_byte: imp.start_byte() as u32,
-                    symbol_id: None,
-                    binding_kind: "import".to_string(),
-                });
-            }
+        } else if let Some(imp) = imported
+            && let Ok(name) = imp.utf8_text(self.source)
+        {
+            self.bucket.bindings.push(BindingRow {
+                scope_id: scope_id.to_string(),
+                name: name.to_string(),
+                start_byte: imp.start_byte() as u32,
+                symbol_id: None,
+                binding_kind: "import".to_string(),
+            });
         }
     }
 
@@ -471,16 +469,16 @@ impl<'a> Ctx<'a> {
 
     fn emit_export_specifier(&mut self, spec: Node, scope_id: &str) {
         let alias = spec.child_by_field_name("alias");
-        if let Some(alias) = alias {
-            if let Ok(local) = alias.utf8_text(self.source) {
-                self.bucket.bindings.push(BindingRow {
-                    scope_id: scope_id.to_string(),
-                    name: local.to_string(),
-                    start_byte: alias.start_byte() as u32,
-                    symbol_id: None,
-                    binding_kind: "import_alias".to_string(),
-                });
-            }
+        if let Some(alias) = alias
+            && let Ok(local) = alias.utf8_text(self.source)
+        {
+            self.bucket.bindings.push(BindingRow {
+                scope_id: scope_id.to_string(),
+                name: local.to_string(),
+                start_byte: alias.start_byte() as u32,
+                symbol_id: None,
+                binding_kind: "import_alias".to_string(),
+            });
         }
     }
 
@@ -518,12 +516,8 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         | "method_definition"
         | "generator_function"
         | "generator_function_declaration" => Some("function"),
-        "statement_block"
-        | "for_statement"
-        | "for_in_statement"
-        | "for_of_statement"
-        | "catch_clause"
-        | "switch_body" => Some("block"),
+        "statement_block" | "for_statement" | "for_in_statement" | "for_of_statement"
+        | "catch_clause" | "switch_body" => Some("block"),
         _ => None,
     }
 }
@@ -546,10 +540,7 @@ fn is_function_body_block(node: Node) -> bool {
             | "method_definition"
             | "generator_function"
             | "generator_function_declaration"
-    ) && parent
-        .child_by_field_name("body")
-        .map(|b| b.id())
-        == Some(node.id())
+    ) && parent.child_by_field_name("body").map(|b| b.id()) == Some(node.id())
 }
 
 /// True when `node` is the `name` field of `parent` — used to skip
@@ -661,15 +652,11 @@ fn is_property_name_position(node: Node) -> bool {
         return false;
     };
     match parent.kind() {
-        "member_expression" => parent
-            .child_by_field_name("property")
-            .map(|p| p.id())
-            == Some(node.id()),
+        "member_expression" => {
+            parent.child_by_field_name("property").map(|p| p.id()) == Some(node.id())
+        }
         // Object literal property key: `{ key: value }`.
-        "pair" => parent
-            .child_by_field_name("key")
-            .map(|p| p.id())
-            == Some(node.id()),
+        "pair" => parent.child_by_field_name("key").map(|p| p.id()) == Some(node.id()),
         // JSX attribute name.
         "jsx_attribute" => true,
         _ => false,
@@ -694,9 +681,7 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     if !is_id {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
 
     // Skip property-name positions (member_expression `.foo`, object
     // literal keys, JSX attributes).
@@ -727,10 +712,10 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
         | "required_parameter"
         | "optional_parameter"
         | "enum_assignment"
-        | "property_signature" => {
-            if is_name_field(node, parent) {
-                return None;
-            }
+        | "property_signature"
+            if is_name_field(node, parent) =>
+        {
+            return None;
         }
         // `shorthand_property_identifier` in an object literal: `{ foo }`
         // — emit as `read` per contract; do NOT skip.
@@ -742,8 +727,12 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     let mut p = parent;
     loop {
         match p.kind() {
-            "object_pattern" | "array_pattern" | "rest_pattern" | "assignment_pattern"
-            | "object_assignment_pattern" | "pair_pattern" => return None,
+            "object_pattern"
+            | "array_pattern"
+            | "rest_pattern"
+            | "assignment_pattern"
+            | "object_assignment_pattern"
+            | "pair_pattern" => return None,
             // shorthand_property_identifier_pattern is itself the binding name.
             _ => {}
         }
@@ -862,7 +851,11 @@ mod tests {
     #[test]
     fn file_scope_emitted_ts() {
         let b = run_ts("function main() {}");
-        assert!(b.scopes.iter().any(|s| s.kind == "file" && s.parent_id.is_none()));
+        assert!(
+            b.scopes
+                .iter()
+                .any(|s| s.kind == "file" && s.parent_id.is_none())
+        );
     }
 
     #[test]
@@ -874,10 +867,11 @@ mod tests {
     #[test]
     fn definition_binding_emitted_ts() {
         let b = run_ts("function main() {}");
-        assert!(b
-            .bindings
-            .iter()
-            .any(|x| x.binding_kind == "definition" && x.name == "main"));
+        assert!(
+            b.bindings
+                .iter()
+                .any(|x| x.binding_kind == "definition" && x.name == "main")
+        );
     }
 
     #[test]
@@ -943,7 +937,10 @@ mod tests {
     #[test]
     fn wildcard_reexport_binding_emitted() {
         let b = run_ts(r#"export * from "./x";"#);
-        let w = b.bindings.iter().find(|x| x.binding_kind == "wildcard_import");
+        let w = b
+            .bindings
+            .iter()
+            .find(|x| x.binding_kind == "wildcard_import");
         assert!(w.is_some(), "got: {:?}", b.bindings);
     }
 
@@ -985,7 +982,11 @@ mod tests {
             .iter()
             .filter(|o| o.occurrence_kind == "write" && o.name == "x")
             .count();
-        assert!(w >= 1, "expected at least one write for x, got: {:?}", b.occurrences);
+        assert!(
+            w >= 1,
+            "expected at least one write for x, got: {:?}",
+            b.occurrences
+        );
     }
 
     #[test]
@@ -1022,7 +1023,11 @@ mod tests {
     fn property_name_emits_no_occurrence() {
         let b = run_ts("function f() { const x = obj.foo; }");
         // `obj` should be a read; `foo` should NOT appear as an occurrence.
-        assert!(b.occurrences.iter().any(|o| o.name == "obj" && o.occurrence_kind == "read"));
+        assert!(
+            b.occurrences
+                .iter()
+                .any(|o| o.name == "obj" && o.occurrence_kind == "read")
+        );
         assert!(
             !b.occurrences.iter().any(|o| o.name == "foo"),
             "property name `foo` should not emit an occurrence, got: {:?}",
@@ -1034,7 +1039,9 @@ mod tests {
     fn js_emits_no_type_use() {
         let b = run_js("function f(x) { return x; }");
         assert!(
-            !b.occurrences.iter().any(|o| o.occurrence_kind == "type_use"),
+            !b.occurrences
+                .iter()
+                .any(|o| o.occurrence_kind == "type_use"),
             "JS should emit no type_use, got: {:?}",
             b.occurrences
         );
@@ -1055,12 +1062,20 @@ mod tests {
         let b = run_ts("function f() { for (let i = 0; i < 3; i++) {} }");
         // Expect at least: file, function, block (for_statement).
         let block_count = b.scopes.iter().filter(|s| s.kind == "block").count();
-        assert!(block_count >= 1, "expected ≥1 block scope, got: {:?}", b.scopes);
+        assert!(
+            block_count >= 1,
+            "expected ≥1 block scope, got: {:?}",
+            b.scopes
+        );
         let i_binding = b
             .bindings
             .iter()
             .find(|x| x.name == "i" && x.binding_kind == "definition");
-        assert!(i_binding.is_some(), "expected i binding, got: {:?}", b.bindings);
+        assert!(
+            i_binding.is_some(),
+            "expected i binding, got: {:?}",
+            b.bindings
+        );
     }
 
     #[test]
@@ -1077,7 +1092,10 @@ mod tests {
         assert!(names.contains(&"a"), "got: {:?}", names);
         assert!(names.contains(&"b"), "got: {:?}", names);
         // Property key `y` must NOT appear.
-        assert!(!names.contains(&"y"), "property key `y` should not bind, got: {:?}", names);
+        assert!(
+            !names.contains(&"y"),
+            "property key `y` should not bind, got: {:?}",
+            names
+        );
     }
-
 }

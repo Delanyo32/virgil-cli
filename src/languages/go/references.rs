@@ -38,7 +38,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -394,15 +396,10 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
 /// (declarations, selector right-hand sides in value position, etc.).
 fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     let kind = node.kind();
-    if !matches!(
-        kind,
-        "identifier" | "type_identifier" | "field_identifier"
-    ) {
+    if !matches!(kind, "identifier" | "type_identifier" | "field_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Defining-identifier positions — these names are bindings, not
@@ -417,10 +414,10 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
         | "variadic_parameter_declaration"
         | "field_declaration"
         | "type_parameter_declaration"
-        | "import_spec" => {
-            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) {
-                return None;
-            }
+        | "import_spec"
+            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) =>
+        {
+            return None;
         }
         _ => {}
     }
@@ -506,10 +503,7 @@ mod tests {
 
     #[test]
     fn parameter_binding_emitted() {
-        let b = run(
-            "package main\nfunc f(x int, y string) {}\n",
-            "main.go",
-        );
+        let b = run("package main\nfunc f(x int, y string) {}\n", "main.go");
         let names: Vec<&str> = b
             .bindings
             .iter()
@@ -544,10 +538,7 @@ mod tests {
 
     #[test]
     fn variadic_parameter_binding() {
-        let b = run(
-            "package main\nfunc f(args ...int) {}\n",
-            "main.go",
-        );
+        let b = run("package main\nfunc f(args ...int) {}\n", "main.go");
         let p = b
             .bindings
             .iter()
@@ -607,19 +598,22 @@ mod tests {
     #[test]
     fn blank_import_emits_no_binding() {
         let b = run("package main\nimport _ \"net/http/pprof\"\n", "main.go");
-        let any_import = b
-            .bindings
-            .iter()
-            .any(|x| matches!(x.binding_kind.as_str(), "import" | "import_alias" | "wildcard_import"));
-        assert!(!any_import, "blank import must emit no binding, got: {:?}", b.bindings);
+        let any_import = b.bindings.iter().any(|x| {
+            matches!(
+                x.binding_kind.as_str(),
+                "import" | "import_alias" | "wildcard_import"
+            )
+        });
+        assert!(
+            !any_import,
+            "blank import must emit no binding, got: {:?}",
+            b.bindings
+        );
     }
 
     #[test]
     fn short_var_definition_binding() {
-        let b = run(
-            "package main\nfunc f() { x := 1; _ = x }\n",
-            "main.go",
-        );
+        let b = run("package main\nfunc f() { x := 1; _ = x }\n", "main.go");
         let d = b
             .bindings
             .iter()

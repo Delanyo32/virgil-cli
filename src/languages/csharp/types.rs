@@ -7,21 +7,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
-    ThrowsRow, TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, ThrowsRow, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node(), Vec::new());
@@ -63,31 +53,31 @@ fn walk_throws(
         _ => enclosing.clone(),
     };
 
-    if matches!(node.kind(), "throw_statement" | "throw_expression") {
-        if let Some((ref fn_name, fn_line, fn_col)) = next_enclosing {
-            // The thrown expression is the first named child of the
-            // throw_statement / throw_expression. We only emit rows for
-            // `new ExceptionType(...)` forms — re-throw (`throw;`) and
-            // variable re-raise (`throw e;`) have no static type and emit
-            // nothing.
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                if child.kind() == "object_creation_expression" {
-                    if let Some(t) = child.child_by_field_name("type") {
-                        let display = render_type(t, source);
-                        if !display.is_empty() {
-                            out.push(ThrowsRow {
-                                file_path: file_path.to_string(),
-                                function_start_line: fn_line,
-                                function_start_col: fn_col,
-                                function_name: fn_name.clone(),
-                                function_kind: SymbolKind::Method,
-                                exception_display_name: display,
-                            });
-                        }
+    if matches!(node.kind(), "throw_statement" | "throw_expression")
+        && let Some((ref fn_name, fn_line, fn_col)) = next_enclosing
+    {
+        // The thrown expression is the first named child of the
+        // throw_statement / throw_expression. We only emit rows for
+        // `new ExceptionType(...)` forms — re-throw (`throw;`) and
+        // variable re-raise (`throw e;`) have no static type and emit
+        // nothing.
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "object_creation_expression" {
+                if let Some(t) = child.child_by_field_name("type") {
+                    let display = render_type(t, source);
+                    if !display.is_empty() {
+                        out.push(ThrowsRow {
+                            file_path: file_path.to_string(),
+                            function_start_line: fn_line,
+                            function_start_col: fn_col,
+                            function_name: fn_name.clone(),
+                            function_kind: SymbolKind::Method,
+                            exception_display_name: display,
+                        });
                     }
-                    break;
                 }
+                break;
             }
         }
     }
@@ -142,15 +132,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -490,6 +472,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn collect_inheritance_from_base_list(
         &mut self,
         base_list: Node,
@@ -546,9 +529,7 @@ impl<'a> Ctx<'a> {
             //   tree-sitter cannot distinguish — apply the C# naming
             //   convention: identifiers starting with `I` followed by an
             //   uppercase letter are interfaces.
-            let kind = if is_interface {
-                InheritanceKind::Extends
-            } else if i == 0 && !looks_like_interface(&display) {
+            let kind = if is_interface || (i == 0 && !looks_like_interface(&display)) {
                 InheritanceKind::Extends
             } else {
                 InheritanceKind::Implements
@@ -1221,16 +1202,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::CSharp).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)

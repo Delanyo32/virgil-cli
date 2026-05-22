@@ -23,11 +23,14 @@
 //!   - `use X\Y\Z;` → `import` (last segment)
 //!   - `use X\Y\Z as W;` → `import_alias` (`W`)
 //!   - grouped `use X\{A, B as C};` → one row per item.
-//!   PHP has no wildcard `use`.
+//!
+//! PHP has no wildcard `use`.
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -280,7 +283,12 @@ impl<'a> Ctx<'a> {
         let Some((path, start)) = path_text else {
             return;
         };
-        let leaf = path.trim_end_matches('\\').rsplit('\\').next().unwrap_or(&path).trim();
+        let leaf = path
+            .trim_end_matches('\\')
+            .rsplit('\\')
+            .next()
+            .unwrap_or(&path)
+            .trim();
         if leaf.is_empty() {
             return;
         }
@@ -342,9 +350,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "name" | "variable_name") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Declaring positions — these names are bindings, not occurrences.

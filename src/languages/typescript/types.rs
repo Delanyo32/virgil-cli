@@ -12,21 +12,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
-    TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let is_js = is_javascript_path(file_path);
     let mut ctx = Ctx::new(file_path, source, is_js);
     ctx.walk(tree.root_node());
@@ -60,15 +50,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -187,6 +169,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_ts_parameter(
         &mut self,
         p: Node,
@@ -278,33 +261,30 @@ impl<'a> Ctx<'a> {
         // class_declaration (NOT inside class_body).
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "class_heritage" => {
-                    // class_heritage contains extends_clause / implements_clause children.
-                    let mut hc = child.walk();
-                    for h in child.named_children(&mut hc) {
-                        match h.kind() {
-                            "extends_clause" => self.collect_heritage(
-                                h,
-                                child_name,
-                                SymbolKind::Class,
-                                cl,
-                                cc,
-                                InheritanceKind::Extends,
-                            ),
-                            "implements_clause" => self.collect_heritage(
-                                h,
-                                child_name,
-                                SymbolKind::Class,
-                                cl,
-                                cc,
-                                InheritanceKind::Implements,
-                            ),
-                            _ => {}
-                        }
+            if child.kind() == "class_heritage" {
+                // class_heritage contains extends_clause / implements_clause children.
+                let mut hc = child.walk();
+                for h in child.named_children(&mut hc) {
+                    match h.kind() {
+                        "extends_clause" => self.collect_heritage(
+                            h,
+                            child_name,
+                            SymbolKind::Class,
+                            cl,
+                            cc,
+                            InheritanceKind::Extends,
+                        ),
+                        "implements_clause" => self.collect_heritage(
+                            h,
+                            child_name,
+                            SymbolKind::Class,
+                            cl,
+                            cc,
+                            InheritanceKind::Implements,
+                        ),
+                        _ => {}
                     }
                 }
-                _ => {}
             }
         }
 
@@ -546,6 +526,7 @@ impl<'a> Ctx<'a> {
     /// only resolve:
     ///   - predefined types → `typescript::primitive::<name>`
     ///   - global ambient allow-list → `typescript::global::<name>`
+    ///
     /// Everything else returns `None` and downstream Cozoscript handles
     /// import-based resolution. This matches the Rust pilot, which also
     /// only fills in canonical_name for what it can prove locally.
@@ -615,10 +596,10 @@ fn first_type_child(node: Node) -> Option<Node> {
 
 /// A `type_annotation` wraps the actual type expression. Peel it.
 fn unwrap_type_annotation(node: Node) -> Node {
-    if node.kind() == "type_annotation" {
-        if let Some(inner) = first_named_child(node) {
-            return inner;
-        }
+    if node.kind() == "type_annotation"
+        && let Some(inner) = first_named_child(node)
+    {
+        return inner;
     }
     node
 }
@@ -897,16 +878,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let language = match path.rsplit('.').next().unwrap_or("ts") {
             "tsx" => Language::Tsx,
             "js" => Language::JavaScript,

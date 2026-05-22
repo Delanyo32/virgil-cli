@@ -7,21 +7,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
-    TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node(), false);
@@ -69,15 +59,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -869,16 +851,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::Rust).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)

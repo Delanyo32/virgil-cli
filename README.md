@@ -310,6 +310,7 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 - **Cozoscript query language** — Datalog over a fact store
 - **Persistent fact store** — SQLite-backed Cozo store cached at `~/.cache/virgil/<hash>.cozo`
 - **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely; ~17ms on the reference workspace vs ~850ms cold
+- **Scales to multi-thousand-file codebases** — staged Cozoscript resolver + Rust-side `match_index` assignment; cold-builds a 5k-file workload in ~3 min
 - **Incremental refresh** — modifying / adding / removing one file re-parses only that file and re-resolves cross-file edges
 - **Audit-shape output convention** — `(file, line, severity, pattern, message)` columns auto-format as findings
 - **Parameter binding** — `--param key=value`; user input never interpolated into the script body

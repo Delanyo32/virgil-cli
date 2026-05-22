@@ -70,10 +70,8 @@ fn fill_from_node(node: Node, source: &[u8], sym: &SymbolInfo, row: &mut CAttrsR
                 match text {
                     "static" => row.is_file_static = true,
                     "extern" => row.is_extern = true,
-                    "inline" | "__inline" | "__inline__" => {
-                        if sym.kind == SymbolKind::Function {
-                            row.is_inline = true;
-                        }
+                    "inline" | "__inline" | "__inline__" if sym.kind == SymbolKind::Function => {
+                        row.is_inline = true;
                     }
                     _ => {}
                 }
@@ -87,10 +85,10 @@ fn fill_from_node(node: Node, source: &[u8], sym: &SymbolInfo, row: &mut CAttrsR
                     _ => {}
                 }
             }
-            "attribute_specifier" | "gnu_asm_expression" => {
-                if child.kind() == "attribute_specifier" {
-                    collect_gcc_attr_names(child, source, &mut row.gcc_attributes);
-                }
+            "attribute_specifier" | "gnu_asm_expression"
+                if child.kind() == "attribute_specifier" =>
+            {
+                collect_gcc_attr_names(child, source, &mut row.gcc_attributes);
             }
             _ => {}
         }

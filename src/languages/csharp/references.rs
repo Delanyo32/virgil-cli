@@ -28,7 +28,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -155,9 +157,7 @@ impl<'a> Ctx<'a> {
 
         // Emit bindings unique to this node kind.
         match node.kind() {
-            "method_declaration"
-            | "constructor_declaration"
-            | "local_function_statement" => {
+            "method_declaration" | "constructor_declaration" | "local_function_statement" => {
                 self.emit_method_params(node, &active_scope);
             }
             "lambda_expression" => {
@@ -370,8 +370,7 @@ impl<'a> Ctx<'a> {
                             && let Ok(text) = inner.utf8_text(self.source)
                             && !text.is_empty()
                         {
-                            alias_text =
-                                Some((text.to_string(), inner.start_byte() as u32));
+                            alias_text = Some((text.to_string(), inner.start_byte() as u32));
                             break;
                         }
                     }
@@ -501,9 +500,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if kind != "identifier" {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     if is_defining_identifier(node) {
@@ -579,8 +576,7 @@ mod tests {
         let mut parser = create_parser(Language::CSharp).expect("parser");
         let tree = parser.parse(src.as_bytes(), None).expect("parse");
         let q = languages::compile_symbol_query(Language::CSharp).expect("query");
-        let symbols =
-            languages::extract_symbols(&tree, src.as_bytes(), &q, path, Language::CSharp);
+        let symbols = languages::extract_symbols(&tree, src.as_bytes(), &q, path, Language::CSharp);
         extract_references(&tree, src.as_bytes(), path, &symbols)
     }
 
@@ -624,20 +620,18 @@ mod tests {
 
     #[test]
     fn block_scope_emitted() {
-        let b = run(
-            "class Foo { void Bar() { { int x = 1; } } }",
-            "Foo.cs",
-        );
+        let b = run("class Foo { void Bar() { { int x = 1; } } }", "Foo.cs");
         let blocks = b.scopes.iter().filter(|s| s.kind == "block").count();
-        assert!(blocks >= 2, "expected >=2 block scopes, got: {:?}", b.scopes);
+        assert!(
+            blocks >= 2,
+            "expected >=2 block scopes, got: {:?}",
+            b.scopes
+        );
     }
 
     #[test]
     fn parameter_binding_emitted() {
-        let b = run(
-            "class Foo { void Bar(int x, string y) {} }",
-            "Foo.cs",
-        );
+        let b = run("class Foo { void Bar(int x, string y) {} }", "Foo.cs");
         let names: Vec<&str> = b
             .bindings
             .iter()
@@ -650,10 +644,7 @@ mod tests {
 
     #[test]
     fn local_var_binding_emitted() {
-        let b = run(
-            "class Foo { void Bar() { int x = 1; } }",
-            "Foo.cs",
-        );
+        let b = run("class Foo { void Bar() { int x = 1; } }", "Foo.cs");
         let xs: Vec<&BindingRow> = b
             .bindings
             .iter()

@@ -738,8 +738,14 @@ mod tests {
         let u = syms.iter().find(|s| s.name == "MyUnion").expect("MyUnion");
         assert_eq!(u.kind, SymbolKind::Union);
         // Union variant fields land as Field symbols per #18.1.
-        assert!(syms.iter().any(|s| s.name == "i" && s.kind == SymbolKind::Field));
-        assert!(syms.iter().any(|s| s.name == "f" && s.kind == SymbolKind::Field));
+        assert!(
+            syms.iter()
+                .any(|s| s.name == "i" && s.kind == SymbolKind::Field)
+        );
+        assert!(
+            syms.iter()
+                .any(|s| s.name == "f" && s.kind == SymbolKind::Field)
+        );
     }
 
     #[test]

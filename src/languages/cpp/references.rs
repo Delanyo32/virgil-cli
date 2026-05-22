@@ -29,7 +29,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -173,10 +175,8 @@ impl<'a> Ctx<'a> {
             "alias_declaration" => {
                 self.emit_alias_declaration(node, &active_scope);
             }
-            "declaration" => {
-                if self.inside_function(node.start_byte() as u32) {
-                    self.emit_local_declaration(node, &active_scope);
-                }
+            "declaration" if self.inside_function(node.start_byte() as u32) => {
+                self.emit_local_declaration(node, &active_scope);
             }
             _ => {}
         }
@@ -369,12 +369,8 @@ impl<'a> Ctx<'a> {
         // type_identifier child.
         let name_node = node.child_by_field_name("name").or_else(|| {
             let mut c = node.walk();
-            for child in node.named_children(&mut c) {
-                if child.kind() == "type_identifier" {
-                    return Some(child);
-                }
-            }
-            None
+            node.named_children(&mut c)
+                .find(|&child| child.kind() == "type_identifier")
         });
         let Some(name_node) = name_node else {
             return;
@@ -519,9 +515,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "identifier" | "type_identifier" | "field_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     if is_defining_identifier(node) {
@@ -637,7 +631,11 @@ mod tests {
     fn block_scope_emitted() {
         let b = run("void f() { { int x = 1; } }", "main.cpp");
         let blocks = b.scopes.iter().filter(|s| s.kind == "block").count();
-        assert!(blocks >= 2, "expected >=2 block scopes, got: {:?}", b.scopes);
+        assert!(
+            blocks >= 2,
+            "expected >=2 block scopes, got: {:?}",
+            b.scopes
+        );
     }
 
     #[test]
@@ -661,7 +659,11 @@ mod tests {
             .iter()
             .filter(|x| x.binding_kind == "definition" && x.name == "x")
             .collect();
-        assert!(!xs.is_empty(), "local `x` definition missing, got: {:?}", b.bindings);
+        assert!(
+            !xs.is_empty(),
+            "local `x` definition missing, got: {:?}",
+            b.bindings
+        );
         let block_scope_ids: std::collections::HashSet<&str> = b
             .scopes
             .iter()
@@ -669,7 +671,8 @@ mod tests {
             .map(|s| s.id.as_str())
             .collect();
         assert!(
-            xs.iter().any(|x| block_scope_ids.contains(x.scope_id.as_str())),
+            xs.iter()
+                .any(|x| block_scope_ids.contains(x.scope_id.as_str())),
             "`x` local must bind at a block scope, got scope_ids: {:?}",
             xs.iter().map(|x| &x.scope_id).collect::<Vec<_>>()
         );

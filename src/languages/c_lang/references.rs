@@ -29,7 +29,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -165,15 +167,14 @@ impl<'a> Ctx<'a> {
             "preproc_include" => {
                 self.emit_include(node, scope_id);
             }
-            "declaration" => {
+            "declaration"
                 // Local declarations inside a function body — emit
                 // `definition` bindings in the innermost block scope.
                 // File-scope declarations are already handled by
                 // `emit_file_definitions`.
-                if self.inside_function(node.start_byte() as u32) {
+                if self.inside_function(node.start_byte() as u32) => {
                     self.emit_local_declaration(node, &active_scope);
                 }
-            }
             _ => {}
         }
 
@@ -422,15 +423,10 @@ fn is_defining_identifier(node: Node) -> bool {
 /// `->` / `.` selectors in value position).
 fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     let kind = node.kind();
-    if !matches!(
-        kind,
-        "identifier" | "type_identifier" | "field_identifier"
-    ) {
+    if !matches!(kind, "identifier" | "type_identifier" | "field_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Defining identifiers — not occurrences.
@@ -526,22 +522,20 @@ mod tests {
 
     #[test]
     fn block_scope_emitted() {
-        let b = run(
-            "void f(void) { { int x = 1; } }",
-            "main.c",
-        );
+        let b = run("void f(void) { { int x = 1; } }", "main.c");
         // At least two block scopes: the function body and the nested
         // `{ ... }` block.
         let blocks = b.scopes.iter().filter(|s| s.kind == "block").count();
-        assert!(blocks >= 2, "expected >=2 block scopes, got: {:?}", b.scopes);
+        assert!(
+            blocks >= 2,
+            "expected >=2 block scopes, got: {:?}",
+            b.scopes
+        );
     }
 
     #[test]
     fn parameter_binding_emitted() {
-        let b = run(
-            "int add(int a, int b) { return a + b; }",
-            "main.c",
-        );
+        let b = run("int add(int a, int b) { return a + b; }", "main.c");
         let names: Vec<&str> = b
             .bindings
             .iter()
@@ -554,10 +548,7 @@ mod tests {
 
     #[test]
     fn pointer_parameter_binding_emitted() {
-        let b = run(
-            "void set(int *p, char **argv) { }",
-            "main.c",
-        );
+        let b = run("void set(int *p, char **argv) { }", "main.c");
         let names: Vec<&str> = b
             .bindings
             .iter()
@@ -576,7 +567,11 @@ mod tests {
             .iter()
             .filter(|x| x.binding_kind == "parameter")
             .count();
-        assert_eq!(params, 0, "unnamed param should produce no binding, got: {:?}", b.bindings);
+        assert_eq!(
+            params, 0,
+            "unnamed param should produce no binding, got: {:?}",
+            b.bindings
+        );
     }
 
     #[test]
@@ -596,8 +591,16 @@ mod tests {
             .iter()
             .filter(|x| x.binding_kind == "definition" && x.name == "y")
             .collect();
-        assert!(!xs.is_empty(), "local `x` definition missing, got: {:?}", b.bindings);
-        assert!(!ys.is_empty(), "local `y` definition missing, got: {:?}", b.bindings);
+        assert!(
+            !xs.is_empty(),
+            "local `x` definition missing, got: {:?}",
+            b.bindings
+        );
+        assert!(
+            !ys.is_empty(),
+            "local `y` definition missing, got: {:?}",
+            b.bindings
+        );
         // The binding must point at a block scope, not the file scope.
         let block_scope_ids: std::collections::HashSet<&str> = b
             .scopes
@@ -606,7 +609,8 @@ mod tests {
             .map(|s| s.id.as_str())
             .collect();
         assert!(
-            xs.iter().any(|x| block_scope_ids.contains(x.scope_id.as_str())),
+            xs.iter()
+                .any(|x| block_scope_ids.contains(x.scope_id.as_str())),
             "`x` local must bind at a block scope, got scope_ids: {:?}",
             xs.iter().map(|x| &x.scope_id).collect::<Vec<_>>()
         );
@@ -690,6 +694,10 @@ mod tests {
             .occurrences
             .iter()
             .any(|o| o.name == "main" && o.occurrence_kind != "call");
-        assert!(!read_main, "main should not emit a non-call occurrence, got: {:?}", b.occurrences);
+        assert!(
+            !read_main,
+            "main should not emit a non-call occurrence, got: {:?}",
+            b.occurrences
+        );
     }
 }

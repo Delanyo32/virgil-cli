@@ -32,6 +32,7 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
   - `store.rs` — `CozoStore` thin wrapper over `cozo::DbInstance` (in-memory; on-disk lands in the persistence issue)
   - `writer.rs` — `CozoWriter` batched row accumulator (~10k rows per transaction)
   - `from_code_graph.rs` — walks a finished `CodeGraph` and emits the equivalent facts
+  - `resolver.rs` — staged Cozoscript resolver that materialises the `references` relation from `occurrence` / `scope` / `binding` / `imports` facts (see "Reference resolver" below)
 - `src/queries/` — user-facing query surface
   - `runner.rs` — `run(QueryRequest)`: loads/dispatches, detects audit-shape output
   - `templates.rs` — embeds `builtin/*.cozoql` via `include_dir`
@@ -124,11 +125,32 @@ Java extracts the declared `throws` clause on method/constructor declarations. C
 `CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.cozo`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold ~850ms, warm ~17ms on the reference workspace.
 
 **Schema-version bumps**
-`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically.
+`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically. Currently at `5` (added `imports:by_importer` index for the resolver's chain stage).
 
 **Cozoscript rule-head gotcha**
 Cozo does not accept literals in rule-head positions. `caller[c, 1] := ...` fails to parse; bind the constant in the body instead: `caller[c, d] := d = 1, ...`. All recursive built-in templates use this pattern.
 
+**Cozo silently drops relations whose names start with `_`**
+A `:replace _foo {...}` or `:create _foo {...}` returns `Ok(status: OK)` but the relation is never actually materialised; subsequent `*_foo{}` reads fail with `Cannot find requested stored relation '_foo'`. The resolver uses an `rsv_` prefix for its temp relations to dodge this. Don't add new `_`-prefixed names.
+
+**Reference resolver is staged, not one big program**
+`src/cozo/resolver.rs` runs eight sequential Cozo programs (`ancestor`, `innermost`, `chain_eligible`, `chain`, `wildcard_eligible`, `wildcard`, `resolved`, `resolved_joined`) followed by a Rust finalize step and a Cozoscript `write_null`. Each stage writes into a `rsv_*` stored relation and is wrapped in its own `info_span!` for per-stage timing.
+
+The split exists for both diagnostic and performance reasons:
+- Cozo's planner cannot push the `imports` filter through `count(s) where s <= sym` aggregations or through `not has_*` negation. Pre-staging the eligibility set drives joins from the smallest input (`imports`, often <0.1% of bindings).
+- `chain_eligible` and `wildcard_eligible` fold `imports` in upfront — without this, the chain stage runs full `occurrence × scope × binding` expansion before the import filter applies (20+ minutes on a 5k-file workload).
+
+**`match_index` is assigned in Rust, not Cozoscript**
+The original `count(s) where s <= sym` self-join in `:put references` did not scale (~4 min for 388k multi-candidate rows on the 5k-file workload, even after pre-staging). Cozo's optimiser can't simplify it. `finalize_resolved` in `resolver.rs` reads `rsv_resolved_joined`, groups by `occ` in Rust, sorts each group by `sym` (lex), assigns `match_index = 0..n-1`, and batch-writes via `:put references` in 10k-row chunks. The null fallback (`write_null`) stays Cozoscript — it's a single linear pass with no self-join.
+
+<!-- GSD:skills-start source:skills/ -->
+## Project Skills
+
+| Skill | Description | Path |
+|-------|-------------|------|
+| grill-me | Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions "grill me". | `.agents/skills/grill-me/SKILL.md` |
+| skill-creator | Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations. | `.agents/skills/skill-creator/SKILL.md` |
+| virgil | > Explore and query codebases using virgil-cli. Covers project registration, Cozoscript templates for symbol search and call graph traversal, file reading. Use when asked to analyze a codebase, understand architecture, find symbols, trace callers/callees, onboard to a project, investigate bugs, or map the API surface of any TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebase. | `.agents/skills/virgil/SKILL.md` |
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

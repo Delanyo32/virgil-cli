@@ -196,7 +196,13 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn emit_occurrence(&mut self, node: Node, scope_id: &str, kind: &str, _enclosing_fn: Option<&str>) {
+    fn emit_occurrence(
+        &mut self,
+        node: Node,
+        scope_id: &str,
+        kind: &str,
+        _enclosing_fn: Option<&str>,
+    ) {
         let Ok(name) = node.utf8_text(self.source) else {
             return;
         };
@@ -316,9 +322,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     ) {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     match parent.kind() {
         // Declaring positions — these names are bindings, not occurrences.
         "function_item"
@@ -351,8 +355,9 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
             Some("read")
         }
         // Inside a `use ...` path → import_use.
-        "use_declaration" | "use_list" | "scoped_use_list" | "use_as_clause"
-        | "use_wildcard" => Some("import_use"),
+        "use_declaration" | "use_list" | "scoped_use_list" | "use_as_clause" | "use_wildcard" => {
+            Some("import_use")
+        }
         // Inside a call's function position → call.
         "call_expression" => {
             if parent.child_by_field_name("function").map(|n| n.id()) == Some(node.id()) {
@@ -415,7 +420,11 @@ mod tests {
     #[test]
     fn file_scope_emitted() {
         let b = run("fn main() {}", "src/main.rs");
-        assert!(b.scopes.iter().any(|s| s.kind == "file" && s.parent_id.is_none()));
+        assert!(
+            b.scopes
+                .iter()
+                .any(|s| s.kind == "file" && s.parent_id.is_none())
+        );
     }
 
     #[test]
@@ -427,10 +436,11 @@ mod tests {
     #[test]
     fn definition_binding_emitted() {
         let b = run("fn main() {}", "src/main.rs");
-        assert!(b
-            .bindings
-            .iter()
-            .any(|x| x.binding_kind == "definition" && x.name == "main"));
+        assert!(
+            b.bindings
+                .iter()
+                .any(|x| x.binding_kind == "definition" && x.name == "main")
+        );
     }
 
     #[test]
@@ -466,7 +476,10 @@ mod tests {
     #[test]
     fn wildcard_import_binding_emitted() {
         let b = run("use foo::*;", "src/lib.rs");
-        let w = b.bindings.iter().find(|x| x.binding_kind == "wildcard_import");
+        let w = b
+            .bindings
+            .iter()
+            .find(|x| x.binding_kind == "wildcard_import");
         assert!(w.is_some(), "got: {:?}", b.bindings);
     }
 

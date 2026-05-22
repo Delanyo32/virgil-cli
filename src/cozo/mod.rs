@@ -34,4 +34,8 @@ pub use writer::CozoWriter;
 /// relations added per ADR-0005. The `references` relation is now
 /// materialised by a Cozoscript resolver after fact emission completes,
 /// not directly by extractors.
-pub const SCHEMA_VERSION: u32 = 4;
+///
+/// 5: Added `imports:by_importer {importer_file_id}` index — the chain
+/// resolution stage was scanning the full `imports` relation per
+/// occurrence.
+pub const SCHEMA_VERSION: u32 = 5;

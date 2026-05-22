@@ -57,13 +57,7 @@ fn wildcard_import_resolves_to_exported_symbol() {
 
     // Wildcard binding: `use file_b::*` records one row with
     // binding_kind = wildcard_import. name = "*" by convention.
-    w.push_binding(
-        "file_a.rs|0|file",
-        "*",
-        10,
-        None,
-        "wildcard_import",
-    );
+    w.push_binding("file_a.rs|0|file", "*", 10, None, "wildcard_import");
 
     // imports relation: file_a imports file_b.
     w.push_imports("file_a.rs", "file_b.rs");
@@ -163,13 +157,7 @@ fn wildcard_skipped_when_scoped_binding_present() {
         "definition",
     );
     // Wildcard binding for file_b::*.
-    w.push_binding(
-        "file_a.rs|0|file",
-        "*",
-        10,
-        None,
-        "wildcard_import",
-    );
+    w.push_binding("file_a.rs|0|file", "*", 10, None, "wildcard_import");
     w.push_imports("file_a.rs", "file_b.rs");
 
     w.push_occurrence(
@@ -194,5 +182,8 @@ fn wildcard_skipped_when_scoped_binding_present() {
         .expect("query");
     assert_eq!(rows.rows.len(), 1, "expected one row, got {:?}", rows.rows);
     // Local foo wins, not the wildcard-imported one.
-    assert_eq!(rows.rows[0][0], DataValue::from("file_a.rs|2|0|foo|function"));
+    assert_eq!(
+        rows.rows[0][0],
+        DataValue::from("file_a.rs|2|0|foo|function")
+    );
 }

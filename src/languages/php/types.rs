@@ -7,21 +7,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
-    ThrowsRow, TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, ThrowsRow, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
@@ -47,51 +37,50 @@ fn walk_throws(
     out: &mut Vec<ThrowsRow>,
 ) {
     let mut next_enclosing = enclosing.clone();
-    if matches!(node.kind(), "function_definition" | "method_declaration") {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            if let Ok(name) = name_node.utf8_text(source) {
-                // Match symbol IDs — they're built from the whole
-                // declaration's start position, not the name node's.
-                let (l, c) = node_pos(node);
-                let kind = if node.kind() == "method_declaration" {
-                    SymbolKind::Method
-                } else {
-                    SymbolKind::Function
-                };
-                next_enclosing = Some((name.to_string(), l, c, kind));
-            }
-        }
+    if matches!(node.kind(), "function_definition" | "method_declaration")
+        && let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        // Match symbol IDs — they're built from the whole
+        // declaration's start position, not the name node's.
+        let (l, c) = node_pos(node);
+        let kind = if node.kind() == "method_declaration" {
+            SymbolKind::Method
+        } else {
+            SymbolKind::Function
+        };
+        next_enclosing = Some((name.to_string(), l, c, kind));
     }
 
-    if node.kind() == "throw_expression" {
-        if let Some((ref fn_name, fn_line, fn_col, fn_kind)) = next_enclosing {
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                if child.kind() == "object_creation_expression" {
-                    // PHP grammar exposes the class as the first named
-                    // child of `object_creation_expression` (no `type`
-                    // field). It can be `name`, `qualified_name`, or a
-                    // `variable_name` (dynamic) — only the first two
-                    // give a static type.
-                    let mut cc = child.walk();
-                    for inner in child.named_children(&mut cc) {
-                        if matches!(inner.kind(), "name" | "qualified_name") {
-                            let display = render_type(inner, source);
-                            if !display.is_empty() {
-                                out.push(ThrowsRow {
-                                    file_path: file_path.to_string(),
-                                    function_start_line: fn_line,
-                                    function_start_col: fn_col,
-                                    function_name: fn_name.clone(),
-                                    function_kind: fn_kind,
-                                    exception_display_name: display,
-                                });
-                            }
-                            break;
+    if node.kind() == "throw_expression"
+        && let Some((ref fn_name, fn_line, fn_col, fn_kind)) = next_enclosing
+    {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "object_creation_expression" {
+                // PHP grammar exposes the class as the first named
+                // child of `object_creation_expression` (no `type`
+                // field). It can be `name`, `qualified_name`, or a
+                // `variable_name` (dynamic) — only the first two
+                // give a static type.
+                let mut cc = child.walk();
+                for inner in child.named_children(&mut cc) {
+                    if matches!(inner.kind(), "name" | "qualified_name") {
+                        let display = render_type(inner, source);
+                        if !display.is_empty() {
+                            out.push(ThrowsRow {
+                                file_path: file_path.to_string(),
+                                function_start_line: fn_line,
+                                function_start_col: fn_col,
+                                function_name: fn_name.clone(),
+                                function_kind: fn_kind,
+                                exception_display_name: display,
+                            });
                         }
+                        break;
                     }
-                    break;
                 }
+                break;
             }
         }
     }
@@ -139,15 +128,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -228,14 +209,12 @@ impl<'a> Ctx<'a> {
         let mut cursor = clause.walk();
         for child in clause.named_children(&mut cursor) {
             match child.kind() {
-                "qualified_name" | "namespace_name" | "name" => {
-                    if path.is_empty() {
-                        path = child
-                            .utf8_text(self.source)
-                            .unwrap_or("")
-                            .trim()
-                            .to_string();
-                    }
+                "qualified_name" | "namespace_name" | "name" if path.is_empty() => {
+                    path = child
+                        .utf8_text(self.source)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
                 }
                 "namespace_aliasing_clause" => {
                     // `as Alias` — find the `name` child.
@@ -679,12 +658,8 @@ fn is_type_position_node(kind: &str) -> bool {
 
 fn first_type_child(node: Node) -> Option<Node> {
     let mut cursor = node.walk();
-    for c in node.named_children(&mut cursor) {
-        if is_type_position_node(c.kind()) {
-            return Some(c);
-        }
-    }
-    None
+    node.named_children(&mut cursor)
+        .find(|&c| is_type_position_node(c.kind()))
 }
 
 fn node_pos(n: Node) -> (u32, u32) {
@@ -757,16 +732,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::Php).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)

@@ -56,7 +56,7 @@ fn has_decorator(def_node: tree_sitter::Node, source: &[u8], targets: &[&str]) -
         // Last dotted segment matches the bare decorator name
         // (e.g. `abc.abstractmethod` → `abstractmethod`).
         let bare = head.rsplit('.').next().unwrap_or(head);
-        if targets.iter().any(|t| *t == bare) {
+        if targets.contains(&bare) {
             return true;
         }
     }
@@ -222,12 +222,13 @@ pub fn extract_symbols(
         // inside a given function counts as the binding site. Subsequent
         // re-assignments are writes against the same binding; they don't
         // get their own symbol row.
-        if def_node.kind() == "assignment" && kind == SymbolKind::Variable {
-            if let Some(scope) = enclosing_function_node(def_node) {
-                let key = (scope.id(), name.clone());
-                if !seen_locals.insert(key) {
-                    continue;
-                }
+        if def_node.kind() == "assignment"
+            && kind == SymbolKind::Variable
+            && let Some(scope) = enclosing_function_node(def_node)
+        {
+            let key = (scope.id(), name.clone());
+            if !seen_locals.insert(key) {
+                continue;
             }
         }
 
@@ -581,8 +582,8 @@ pub fn extract_comments(
                 file_path: file_path.to_string(),
                 text,
                 kind: "line".to_string(),
-            start_byte: node.start_byte() as u32,
-            end_byte: node.end_byte() as u32,
+                start_byte: node.start_byte() as u32,
+                end_byte: node.end_byte() as u32,
                 start_line: node.start_position().row as u32 + 1,
                 start_column: node.start_position().column as u32,
                 end_line: node.end_position().row as u32 + 1,
@@ -614,8 +615,8 @@ pub fn extract_comments(
                     file_path: file_path.to_string(),
                     text,
                     kind: "doc".to_string(),
-            start_byte: node.start_byte() as u32,
-            end_byte: node.end_byte() as u32,
+                    start_byte: node.start_byte() as u32,
+                    end_byte: node.end_byte() as u32,
                     start_line: node.start_position().row as u32 + 1,
                     start_column: node.start_position().column as u32,
                     end_line: node.end_position().row as u32 + 1,
@@ -946,17 +947,21 @@ mod tests {
             .filter(|s| s.kind == SymbolKind::Parameter)
             .collect();
         let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
-        assert!(names.contains(&"name"), "expected `name` param, got {names:?}");
-        assert!(names.contains(&"age"), "expected `age` param, got {names:?}");
+        assert!(
+            names.contains(&"name"),
+            "expected `name` param, got {names:?}"
+        );
+        assert!(
+            names.contains(&"age"),
+            "expected `age` param, got {names:?}"
+        );
     }
 
     #[test]
     fn extract_parameters_defaults_and_splats() {
         // covers default_parameter, typed_default_parameter,
         // list_splat_pattern (*args), dictionary_splat_pattern (**kwargs).
-        let syms = parse_and_extract(
-            "def f(a, b=1, c: int = 2, *args, **kwargs):\n    pass",
-        );
+        let syms = parse_and_extract("def f(a, b=1, c: int = 2, *args, **kwargs):\n    pass");
         let names: Vec<&str> = syms
             .iter()
             .filter(|s| s.kind == SymbolKind::Parameter)
@@ -984,14 +989,16 @@ mod tests {
     fn dedupe_local_variable_first_assignment_only() {
         // Two assignments to the same name inside the same function — only
         // the first should produce a symbol row (per issue #11 #3).
-        let syms = parse_and_extract(
-            "def f():\n    x = 1\n    x = 2\n    return x",
-        );
+        let syms = parse_and_extract("def f():\n    x = 1\n    x = 2\n    return x");
         let locals: Vec<&SymbolInfo> = syms
             .iter()
             .filter(|s| s.kind == SymbolKind::Variable && s.name == "x")
             .collect();
-        assert_eq!(locals.len(), 1, "second assignment must not emit a new symbol");
+        assert_eq!(
+            locals.len(),
+            1,
+            "second assignment must not emit a new symbol"
+        );
         assert_eq!(locals[0].start_line, 2, "first assignment wins");
     }
 
@@ -1028,6 +1035,9 @@ mod tests {
             .filter(|s| s.kind == SymbolKind::Parameter)
             .map(|s| s.name.as_str())
             .collect();
-        assert!(params.contains(&"x") && params.contains(&"y"), "got {params:?}");
+        assert!(
+            params.contains(&"x") && params.contains(&"y"),
+            "got {params:?}"
+        );
     }
 }

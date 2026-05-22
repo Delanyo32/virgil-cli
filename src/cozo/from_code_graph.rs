@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use cozo::DataValue;
 use rayon::prelude::*;
+use tracing::{debug, info, info_span};
 
 use crate::classify::{is_barrel_file, is_test_file};
 use crate::graph::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight};
@@ -31,6 +32,11 @@ use super::{CozoStore, CozoWriter};
 /// populates `file_classification`, scans each file's source for `nolint`
 /// comments, and writes `build_meta_files`.
 pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
+    info!(
+        nodes = graph.nodes.len(),
+        files = workspace.map(|w| w.file_count()).unwrap_or(0),
+        "cozo populate starting"
+    );
     // Derive repo_id from the workspace root's basename. S3 workspaces
     // have synthetic `s3://bucket/prefix` roots — the last path segment
     // is acceptable. Per ADR/Q9 Option A: real project names (when the
@@ -46,6 +52,7 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         .unwrap_or_default();
 
     // Step 1: per-node writers, in parallel.
+    let _step1 = info_span!("cozo.populate.nodes", nodes = graph.nodes.len()).entered();
     let node_writer: CozoWriter = (0..graph.nodes.len())
         .into_par_iter()
         .fold(CozoWriter::new, |mut writer, node_idx| {
@@ -57,7 +64,9 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
             a
         });
 
+    drop(_step1);
     // Step 2: per-edge writers, in parallel.
+    let _step2 = info_span!("cozo.populate.edges").entered();
     let edge_writer: CozoWriter = (0..graph.nodes.len())
         .into_par_iter()
         .fold(CozoWriter::new, |mut writer, source_idx| {
@@ -77,7 +86,9 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         writer.merge(&mut e);
     }
 
+    drop(_step2);
     // Step 3: sequential tail work.
+    let _step3 = info_span!("cozo.populate.tail").entered();
     for (file_path, imports) in &graph.raw_imports {
         let lang_str = workspace
             .and_then(|ws| ws.file_language(file_path))
@@ -103,12 +114,21 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         record_build_meta_files(ws, &mut writer);
     }
 
-    writer.flush(store)?;
+    drop(_step3);
+    {
+        let _fs = info_span!("cozo.populate.flush").entered();
+        writer.flush(store)?;
+    }
+    debug!("populate flushed; running reference resolver");
 
-    // Issue #16 ADR-0005: resolve `references` from the now-flushed
-    // occurrence / scope / binding / imports / symbol facts.
-    super::resolver::resolve_references(store)?;
+    {
+        let _rs = info_span!("cozo.resolve_references").entered();
+        // Issue #16 ADR-0005: resolve `references` from the now-flushed
+        // occurrence / scope / binding / imports / symbol facts.
+        super::resolver::resolve_references(store)?;
+    }
 
+    info!("cozo populate complete");
     Ok(())
 }
 
@@ -151,7 +171,7 @@ fn emit_references_facts(graph: &CodeGraph, writer: &mut CozoWriter) {
 
 /// Issue #15: walk `graph.attrs` and dispatch per-language push.
 fn emit_attrs(graph: &CodeGraph, writer: &mut CozoWriter) {
-    for (_, bucket) in &graph.attrs {
+    for bucket in graph.attrs.values() {
         for r in &bucket.rust {
             writer.push_rust_attrs(&r.symbol_id, r.is_unsafe, r.is_const, &r.derives);
         }

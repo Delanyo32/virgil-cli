@@ -20,20 +20,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
@@ -86,15 +77,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -239,6 +222,7 @@ impl<'a> Ctx<'a> {
     /// Walk a `parameter_list` emitting one `ParameterTypeRow` per name
     /// (Go allows `func f(a, b int)` — both `a` and `b` get the same
     /// type but their own row). Returns the next free `position`.
+    #[allow(clippy::too_many_arguments)]
     fn emit_param_list_as_params(
         &mut self,
         params: Node,
@@ -782,9 +766,9 @@ impl<'a> Ctx<'a> {
         }
         let returns_str = if rest.is_empty() {
             String::new()
-        } else if rest.starts_with('(') {
-            let rclose = find_matching_bracket(&rest[1..], b'(', b')')?;
-            let inner = &rest[1..1 + rclose];
+        } else if let Some(rest_after) = rest.strip_prefix('(') {
+            let rclose = find_matching_bracket(rest_after, b'(', b')')?;
+            let inner = &rest_after[..rclose];
             let rets = split_top_level_commas(inner);
             let mut canon_rets = Vec::with_capacity(rets.len());
             for r in rets {
@@ -812,12 +796,7 @@ fn node_pos(n: Node) -> (u32, u32) {
 
 fn first_named_child<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    for c in node.named_children(&mut cursor) {
-        if c.kind() == kind {
-            return Some(c);
-        }
-    }
-    None
+    node.named_children(&mut cursor).find(|&c| c.kind() == kind)
 }
 
 /// tree-sitter exposes multi-valued fields by repeating the field name on
@@ -1088,16 +1067,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::Go).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)

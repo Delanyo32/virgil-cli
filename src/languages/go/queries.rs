@@ -196,9 +196,7 @@ fn determine_go_kind(def_node: tree_sitter::Node, source: &[u8]) -> Option<Symbo
         "const_spec" => Some(SymbolKind::Constant),
         "var_spec" => Some(SymbolKind::Variable),
         "field_declaration" => Some(SymbolKind::Field),
-        "parameter_declaration" | "variadic_parameter_declaration" => {
-            Some(SymbolKind::Parameter)
-        }
+        "parameter_declaration" | "variadic_parameter_declaration" => Some(SymbolKind::Parameter),
         "short_var_declaration" => Some(SymbolKind::Variable),
         _ => {
             // For parent nodes like type_declaration, const_declaration, var_declaration
@@ -637,9 +635,8 @@ mod tests {
 
     #[test]
     fn extract_method_receiver_parameter() {
-        let syms = parse_and_extract(
-            "package main\ntype Foo struct{}\nfunc (f Foo) Bar(arg int) {}",
-        );
+        let syms =
+            parse_and_extract("package main\ntype Foo struct{}\nfunc (f Foo) Bar(arg int) {}");
         let recv = syms
             .iter()
             .find(|s| s.name == "f" && s.kind == SymbolKind::Parameter)

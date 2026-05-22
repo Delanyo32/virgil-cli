@@ -410,12 +410,8 @@ fn head_identifier(node: Node) -> Option<Node> {
         return Some(node);
     }
     let mut c = node.walk();
-    for child in node.named_children(&mut c) {
-        if child.kind() == "identifier" {
-            return Some(child);
-        }
-    }
-    None
+    node.named_children(&mut c)
+        .find(|&child| child.kind() == "identifier")
 }
 
 /// Classify the occurrence_kind of an identifier-shaped node based on
@@ -425,9 +421,7 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     if node.kind() != "identifier" {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pkind = parent.kind();
 
     // Attribute tails: `obj.attr` — only the head `obj` produces a
@@ -482,8 +476,7 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     }
 
     // Call: bare identifier in `function` field of a `call` node.
-    if pkind == "call"
-        && parent.child_by_field_name("function").map(|n| n.id()) == Some(node.id())
+    if pkind == "call" && parent.child_by_field_name("function").map(|n| n.id()) == Some(node.id())
     {
         return Some("call");
     }
@@ -559,13 +552,13 @@ fn is_inside_parameter_header(node: Node) -> bool {
             // does NOT include a `value` field traversal. Simpler:
             // if the identifier's parent is `default_parameter` and the
             // identifier is the `value` field, return false.
-            "default_parameter" | "typed_default_parameter" => {
-                if p.child_by_field_name("value").map(|n| n.id()) == Some(node.id()) {
-                    return false;
-                }
-                // Otherwise this identifier is the parameter name —
-                // continue walking up (we expect `parameters` next).
+            "default_parameter" | "typed_default_parameter"
+                if p.child_by_field_name("value").map(|n| n.id()) == Some(node.id()) =>
+            {
+                return false;
             }
+            // Otherwise this identifier is the parameter name —
+            // continue walking up (we expect `parameters` next).
             "function_definition" | "lambda" => return false,
             _ => {}
         }

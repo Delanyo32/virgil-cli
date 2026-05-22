@@ -130,9 +130,7 @@ fn is_inside_interface(def_node: tree_sitter::Node) -> bool {
                 current = parent.parent();
                 continue;
             }
-            "class_declaration"
-            | "struct_declaration"
-            | "record_declaration"
+            "class_declaration" | "struct_declaration" | "record_declaration"
             | "enum_declaration" => return false,
             _ => return false,
         }
@@ -704,8 +702,7 @@ mod tests {
 
     #[test]
     fn extract_method_parameters() {
-        let syms =
-            parse_and_extract("public class Foo { public void Bar(int x, string y) { } }");
+        let syms = parse_and_extract("public class Foo { public void Bar(int x, string y) { } }");
         let x = syms.iter().find(|s| s.name == "x");
         let y = syms.iter().find(|s| s.name == "y");
         assert!(x.is_some(), "expected parameter `x`");
@@ -716,9 +713,7 @@ mod tests {
 
     #[test]
     fn extract_typed_local_variable() {
-        let syms = parse_and_extract(
-            "public class Foo { public void Bar() { int x = 1; } }",
-        );
+        let syms = parse_and_extract("public class Foo { public void Bar() { int x = 1; } }");
         let x = syms.iter().find(|s| s.name == "x");
         assert!(x.is_some(), "expected local `x`");
         assert_eq!(x.unwrap().kind, SymbolKind::Variable);
@@ -726,9 +721,7 @@ mod tests {
 
     #[test]
     fn extract_var_local_variable() {
-        let syms = parse_and_extract(
-            "public class Foo { public void Bar() { var y = 2; } }",
-        );
+        let syms = parse_and_extract("public class Foo { public void Bar() { var y = 2; } }");
         let y = syms.iter().find(|s| s.name == "y");
         assert!(y.is_some(), "expected local `y`");
         assert_eq!(y.unwrap().kind, SymbolKind::Variable);
@@ -736,9 +729,7 @@ mod tests {
 
     #[test]
     fn extract_params_varargs() {
-        let syms = parse_and_extract(
-            "public class Foo { public void Bar(params int[] xs) { } }",
-        );
+        let syms = parse_and_extract("public class Foo { public void Bar(params int[] xs) { } }");
         let xs = syms.iter().find(|s| s.name == "xs");
         assert!(xs.is_some(), "expected params varargs `xs`");
         assert_eq!(xs.unwrap().kind, SymbolKind::Parameter);

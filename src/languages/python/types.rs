@@ -7,20 +7,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
@@ -71,15 +62,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -507,20 +490,17 @@ impl<'a> Ctx<'a> {
                         }
                     }
                 }
-                ("subscript", _) => {
+                ("subscript", _)
                     // older grammars: `value` + `subscript` children
-                    if c.kind() == "type" {
+                    if c.kind() == "type" => {
                         self.emit_type_with_subtree(c);
                     }
-                }
                 ("binary_operator", _) => {
                     // PEP 604 — operands are themselves `type` nodes or
                     // bare identifiers.
-                    if c.kind() == "type" {
-                        self.emit_type_with_subtree(c);
-                    } else if matches!(
+                    if matches!(
                         c.kind(),
-                        "identifier" | "attribute" | "none" | "binary_operator"
+                        "type" | "identifier" | "attribute" | "none" | "binary_operator"
                     ) {
                         self.emit_type_with_subtree(c);
                     }
@@ -945,16 +925,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::Python).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)
@@ -1044,8 +1015,7 @@ mod tests {
 
     #[test]
     fn class_typed_attribute_emits_field_type_row() {
-        let (_, _, _, _, fields) =
-            run("class C:\n    x: int = 5\n    y = 6\n", "app/m.py");
+        let (_, _, _, _, fields) = run("class C:\n    x: int = 5\n    y = 6\n", "app/m.py");
         assert_eq!(fields.len(), 1, "got {fields:?}");
         assert_eq!(fields[0].field_name, "x");
         assert_eq!(fields[0].type_display_name, "int");

@@ -24,7 +24,7 @@ fn visibility_php(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibilit
         "simple_parameter"
         | "variadic_parameter"
         | "property_promotion_parameter"
-        | "assignment_expression" => return SymbolVisibility::Private,
+        | "assignment_expression" => SymbolVisibility::Private,
         "method_declaration" | "property_declaration" | "const_declaration" => {
             let mut cursor = def_node.walk();
             for child in def_node.children(&mut cursor) {
@@ -962,8 +962,12 @@ mod tests {
     #[test]
     fn extract_function_parameters() {
         let syms = parse_and_extract("<?php\nfunction add($a, $b) { return $a + $b; }");
-        let a = syms.iter().find(|s| s.name == "a" && s.kind == SymbolKind::Parameter);
-        let b = syms.iter().find(|s| s.name == "b" && s.kind == SymbolKind::Parameter);
+        let a = syms
+            .iter()
+            .find(|s| s.name == "a" && s.kind == SymbolKind::Parameter);
+        let b = syms
+            .iter()
+            .find(|s| s.name == "b" && s.kind == SymbolKind::Parameter);
         assert!(a.is_some(), "expected parameter `a`, got: {:?}", syms);
         assert!(b.is_some(), "expected parameter `b`, got: {:?}", syms);
         // Names must NOT include the `$` prefix.
@@ -972,9 +976,7 @@ mod tests {
 
     #[test]
     fn extract_local_variable_first_assignment() {
-        let syms = parse_and_extract(
-            "<?php\nfunction tally() { $x = 1; $x = 2; $y = 3; }",
-        );
+        let syms = parse_and_extract("<?php\nfunction tally() { $x = 1; $x = 2; $y = 3; }");
         let xs: Vec<_> = syms
             .iter()
             .filter(|s| s.name == "x" && s.kind == SymbolKind::Variable)
@@ -983,8 +985,18 @@ mod tests {
             .iter()
             .filter(|s| s.name == "y" && s.kind == SymbolKind::Variable)
             .collect();
-        assert_eq!(xs.len(), 1, "expected exactly one Variable for `x`, got: {:?}", syms);
-        assert_eq!(ys.len(), 1, "expected exactly one Variable for `y`, got: {:?}", syms);
+        assert_eq!(
+            xs.len(),
+            1,
+            "expected exactly one Variable for `x`, got: {:?}",
+            syms
+        );
+        assert_eq!(
+            ys.len(),
+            1,
+            "expected exactly one Variable for `y`, got: {:?}",
+            syms
+        );
         // Names must NOT include the `$` prefix.
         assert!(syms.iter().all(|s| !s.name.starts_with('$')));
     }
@@ -994,18 +1006,36 @@ mod tests {
         let syms = parse_and_extract(
             "<?php\nclass User { public function __construct(public string $name, private int $age) {} }",
         );
-        let name = syms.iter().find(|s| s.name == "name" && s.kind == SymbolKind::Parameter);
-        let age = syms.iter().find(|s| s.name == "age" && s.kind == SymbolKind::Parameter);
-        assert!(name.is_some(), "expected promoted parameter `name`, got: {:?}", syms);
-        assert!(age.is_some(), "expected promoted parameter `age`, got: {:?}", syms);
+        let name = syms
+            .iter()
+            .find(|s| s.name == "name" && s.kind == SymbolKind::Parameter);
+        let age = syms
+            .iter()
+            .find(|s| s.name == "age" && s.kind == SymbolKind::Parameter);
+        assert!(
+            name.is_some(),
+            "expected promoted parameter `name`, got: {:?}",
+            syms
+        );
+        assert!(
+            age.is_some(),
+            "expected promoted parameter `age`, got: {:?}",
+            syms
+        );
         assert!(syms.iter().all(|s| !s.name.starts_with('$')));
     }
 
     #[test]
     fn variadic_parameter_emitted() {
         let syms = parse_and_extract("<?php\nfunction sum(int ...$nums) {}");
-        let n = syms.iter().find(|s| s.name == "nums" && s.kind == SymbolKind::Parameter);
-        assert!(n.is_some(), "expected variadic parameter `nums`, got: {:?}", syms);
+        let n = syms
+            .iter()
+            .find(|s| s.name == "nums" && s.kind == SymbolKind::Parameter);
+        assert!(
+            n.is_some(),
+            "expected variadic parameter `nums`, got: {:?}",
+            syms
+        );
         assert!(syms.iter().all(|s| !s.name.starts_with('$')));
     }
 }

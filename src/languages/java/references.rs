@@ -35,7 +35,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind};
+use crate::models::{
+    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -425,9 +427,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "identifier" | "type_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Declaring positions — these names are bindings, not occurrences.
@@ -444,10 +444,10 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
         | "catch_formal_parameter"
         | "variable_declarator"
         | "enum_constant"
-        | "type_parameter" => {
-            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) {
-                return None;
-            }
+        | "type_parameter"
+            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) =>
+        {
+            return None;
         }
         _ => {}
     }
@@ -498,10 +498,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
 
     // `super(...)` / `this(...)` explicit constructor invocations.
     if pk == "explicit_constructor_invocation" {
-        let text_is_call_keyword = matches!(
-            node.utf8_text(&[]).unwrap_or(""),
-            "this" | "super"
-        );
+        let text_is_call_keyword = matches!(node.utf8_text(&[]).unwrap_or(""), "this" | "super");
         // We can't compare without source here, but the constructor
         // node's first identifier child IS the `this`/`super` token in
         // most grammars. Conservatively emit a `call` if it's the
@@ -587,8 +584,7 @@ mod tests {
         let mut parser = create_parser(Language::Java).expect("parser");
         let tree = parser.parse(src.as_bytes(), None).expect("parse");
         let q = languages::compile_symbol_query(Language::Java).expect("query");
-        let symbols =
-            languages::extract_symbols(&tree, src.as_bytes(), &q, path, Language::Java);
+        let symbols = languages::extract_symbols(&tree, src.as_bytes(), &q, path, Language::Java);
         extract_references(&tree, src.as_bytes(), path, &symbols)
     }
 
@@ -624,10 +620,7 @@ mod tests {
 
     #[test]
     fn parameter_binding_emitted() {
-        let b = run(
-            "class Foo { void bar(int x, String y) {} }",
-            "Foo.java",
-        );
+        let b = run("class Foo { void bar(int x, String y) {} }", "Foo.java");
         let names: Vec<&str> = b
             .bindings
             .iter()
@@ -640,10 +633,7 @@ mod tests {
 
     #[test]
     fn local_var_binding_emitted() {
-        let b = run(
-            "class Foo { void bar() { int x = 1; } }",
-            "Foo.java",
-        );
+        let b = run("class Foo { void bar() { int x = 1; } }", "Foo.java");
         let d = b
             .bindings
             .iter()

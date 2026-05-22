@@ -10,20 +10,10 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
+    ExtractedTypes, FieldTypeRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
@@ -60,15 +50,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         // C has no inheritance — InheritanceRow is always empty.
         (
             self.types,
@@ -869,9 +851,7 @@ fn is_primitive(s: &str) -> bool {
 }
 
 fn is_integer_literal(s: &str) -> bool {
-    let s = s
-        .trim()
-        .trim_end_matches(|c: char| matches!(c, 'u' | 'U' | 'l' | 'L'));
+    let s = s.trim().trim_end_matches(['u', 'U', 'l', 'L']);
     !s.is_empty()
         && (s.chars().all(|c| c.is_ascii_digit())
             || (s.starts_with("0x") && s[2..].chars().all(|c| c.is_ascii_hexdigit())))
@@ -969,16 +949,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::C).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)
@@ -1023,7 +994,8 @@ mod tests {
 
     #[test]
     fn double_pointer_param() {
-        let (types, params, _, _, _) = run("int main(int argc, char **argv) { return 0; }", "src/a.c");
+        let (types, params, _, _, _) =
+            run("int main(int argc, char **argv) { return 0; }", "src/a.c");
         // expect ptr<ptr<char>>
         assert!(
             types
@@ -1125,12 +1097,12 @@ mod tests {
         let displays: Vec<&str> = types.iter().map(|t| t.display_name.as_str()).collect();
         // Expect the inner fn(...) type and the outer ptr<...> wrapper.
         assert!(
-            displays.iter().any(|d| *d == "fn(int, int) -> int"),
+            displays.contains(&"fn(int, int) -> int"),
             "got {:?}",
             displays
         );
         assert!(
-            displays.iter().any(|d| *d == "ptr<fn(int, int) -> int>"),
+            displays.contains(&"ptr<fn(int, int) -> int>"),
             "got {:?}",
             displays
         );

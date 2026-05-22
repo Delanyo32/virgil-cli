@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
+use tracing::info;
 
 use crate::language::Language;
 use crate::storage::discovery;
@@ -80,13 +81,13 @@ impl Workspace {
             prefix: prefix.to_string(),
         };
 
-        eprintln!("Listing objects in s3://{bucket}/{prefix}...");
+        info!(bucket = %bucket, prefix = %prefix, "listing S3 objects");
         let keys = crate::storage::s3::list_objects(&location, languages, exclude)?;
-        eprintln!("Found {} files, downloading...", keys.len());
+        info!(count = keys.len(), "S3 objects matched, starting download");
 
         let (file_map, size_map) =
             crate::storage::s3::download_objects(&location, &keys, max_file_size)?;
-        eprintln!("Downloaded {} files into memory", file_map.len());
+        info!(count = file_map.len(), "S3 download complete");
 
         // Build language map from extensions
         let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(file_map.len());
