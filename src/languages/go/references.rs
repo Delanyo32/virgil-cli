@@ -399,9 +399,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "identifier" | "type_identifier" | "field_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Defining-identifier positions — these names are bindings, not
@@ -416,10 +414,10 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
         | "variadic_parameter_declaration"
         | "field_declaration"
         | "type_parameter_declaration"
-        | "import_spec" => {
-            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) {
-                return None;
-            }
+        | "import_spec"
+            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) =>
+        {
+            return None;
         }
         _ => {}
     }

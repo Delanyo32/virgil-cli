@@ -23,7 +23,8 @@
 //!   - `use X\Y\Z;` → `import` (last segment)
 //!   - `use X\Y\Z as W;` → `import_alias` (`W`)
 //!   - grouped `use X\{A, B as C};` → one row per item.
-//!   PHP has no wildcard `use`.
+//!
+//! PHP has no wildcard `use`.
 
 use tree_sitter::{Node, Tree};
 
@@ -349,9 +350,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "name" | "variable_name") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Declaring positions — these names are bindings, not occurrences.

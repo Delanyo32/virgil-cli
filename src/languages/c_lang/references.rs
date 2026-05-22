@@ -167,15 +167,14 @@ impl<'a> Ctx<'a> {
             "preproc_include" => {
                 self.emit_include(node, scope_id);
             }
-            "declaration" => {
+            "declaration"
                 // Local declarations inside a function body — emit
                 // `definition` bindings in the innermost block scope.
                 // File-scope declarations are already handled by
                 // `emit_file_definitions`.
-                if self.inside_function(node.start_byte() as u32) {
+                if self.inside_function(node.start_byte() as u32) => {
                     self.emit_local_declaration(node, &active_scope);
                 }
-            }
             _ => {}
         }
 
@@ -427,9 +426,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "identifier" | "type_identifier" | "field_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Defining identifiers — not occurrences.

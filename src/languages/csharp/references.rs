@@ -500,9 +500,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if kind != "identifier" {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     if is_defining_identifier(node) {

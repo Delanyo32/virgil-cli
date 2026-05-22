@@ -208,20 +208,18 @@ impl<'a> Ctx<'a> {
 
     fn emit_function_params(&mut self, node: Node, scope_id: &str) {
         // Arrow-function bare-identifier parameter: `x => x + 1`.
-        if node.kind() == "arrow_function" {
-            if let Some(p) = node.child_by_field_name("parameter") {
-                if p.kind() == "identifier" {
-                    if let Ok(name) = p.utf8_text(self.source) {
-                        self.bucket.bindings.push(BindingRow {
-                            scope_id: scope_id.to_string(),
-                            name: name.to_string(),
-                            start_byte: p.start_byte() as u32,
-                            symbol_id: None,
-                            binding_kind: "parameter".to_string(),
-                        });
-                    }
-                }
-            }
+        if node.kind() == "arrow_function"
+            && let Some(p) = node.child_by_field_name("parameter")
+            && p.kind() == "identifier"
+            && let Ok(name) = p.utf8_text(self.source)
+        {
+            self.bucket.bindings.push(BindingRow {
+                scope_id: scope_id.to_string(),
+                name: name.to_string(),
+                start_byte: p.start_byte() as u32,
+                symbol_id: None,
+                binding_kind: "parameter".to_string(),
+            });
         }
 
         let Some(params) = node.child_by_field_name("parameters") else {
@@ -339,10 +337,10 @@ impl<'a> Ctx<'a> {
     fn emit_variable_declarators(&mut self, decl_node: Node, scope_id: &str) {
         let mut c = decl_node.walk();
         for child in decl_node.named_children(&mut c) {
-            if child.kind() == "variable_declarator" {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    self.emit_pattern_bindings(name_node, scope_id, "definition");
-                }
+            if child.kind() == "variable_declarator"
+                && let Some(name_node) = child.child_by_field_name("name")
+            {
+                self.emit_pattern_bindings(name_node, scope_id, "definition");
             }
         }
     }
@@ -376,16 +374,16 @@ impl<'a> Ctx<'a> {
                         // import * as ns from ...
                         let mut nc = sub.walk();
                         for nchild in sub.children(&mut nc) {
-                            if nchild.kind() == "identifier" {
-                                if let Ok(name) = nchild.utf8_text(self.source) {
-                                    self.bucket.bindings.push(BindingRow {
-                                        scope_id: scope_id.to_string(),
-                                        name: name.to_string(),
-                                        start_byte: nchild.start_byte() as u32,
-                                        symbol_id: None,
-                                        binding_kind: "import_alias".to_string(),
-                                    });
-                                }
+                            if nchild.kind() == "identifier"
+                                && let Ok(name) = nchild.utf8_text(self.source)
+                            {
+                                self.bucket.bindings.push(BindingRow {
+                                    scope_id: scope_id.to_string(),
+                                    name: name.to_string(),
+                                    start_byte: nchild.start_byte() as u32,
+                                    symbol_id: None,
+                                    binding_kind: "import_alias".to_string(),
+                                });
                             }
                         }
                     }
@@ -420,16 +418,16 @@ impl<'a> Ctx<'a> {
                     binding_kind: "import_alias".to_string(),
                 });
             }
-        } else if let Some(imp) = imported {
-            if let Ok(name) = imp.utf8_text(self.source) {
-                self.bucket.bindings.push(BindingRow {
-                    scope_id: scope_id.to_string(),
-                    name: name.to_string(),
-                    start_byte: imp.start_byte() as u32,
-                    symbol_id: None,
-                    binding_kind: "import".to_string(),
-                });
-            }
+        } else if let Some(imp) = imported
+            && let Ok(name) = imp.utf8_text(self.source)
+        {
+            self.bucket.bindings.push(BindingRow {
+                scope_id: scope_id.to_string(),
+                name: name.to_string(),
+                start_byte: imp.start_byte() as u32,
+                symbol_id: None,
+                binding_kind: "import".to_string(),
+            });
         }
     }
 
@@ -471,16 +469,16 @@ impl<'a> Ctx<'a> {
 
     fn emit_export_specifier(&mut self, spec: Node, scope_id: &str) {
         let alias = spec.child_by_field_name("alias");
-        if let Some(alias) = alias {
-            if let Ok(local) = alias.utf8_text(self.source) {
-                self.bucket.bindings.push(BindingRow {
-                    scope_id: scope_id.to_string(),
-                    name: local.to_string(),
-                    start_byte: alias.start_byte() as u32,
-                    symbol_id: None,
-                    binding_kind: "import_alias".to_string(),
-                });
-            }
+        if let Some(alias) = alias
+            && let Ok(local) = alias.utf8_text(self.source)
+        {
+            self.bucket.bindings.push(BindingRow {
+                scope_id: scope_id.to_string(),
+                name: local.to_string(),
+                start_byte: alias.start_byte() as u32,
+                symbol_id: None,
+                binding_kind: "import_alias".to_string(),
+            });
         }
     }
 
@@ -683,9 +681,7 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
     if !is_id {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
 
     // Skip property-name positions (member_expression `.foo`, object
     // literal keys, JSX attributes).
@@ -716,10 +712,10 @@ fn occurrence_kind_for(node: Node, _source: &[u8]) -> Option<&'static str> {
         | "required_parameter"
         | "optional_parameter"
         | "enum_assignment"
-        | "property_signature" => {
-            if is_name_field(node, parent) {
-                return None;
-            }
+        | "property_signature"
+            if is_name_field(node, parent) =>
+        {
+            return None;
         }
         // `shorthand_property_identifier` in an object literal: `{ foo }`
         // — emit as `read` per contract; do NOT skip.

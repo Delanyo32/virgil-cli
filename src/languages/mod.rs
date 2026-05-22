@@ -17,8 +17,7 @@ use tree_sitter::{Query, Tree};
 use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::models::{
-    AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
-    ReferencesBucket, ReturnsTypeRow, SymbolInfo, ThrowsRow, TypeRow,
+    AttrsBucket, CommentInfo, ExtractedTypes, ImportInfo, ReferencesBucket, SymbolInfo, ThrowsRow,
 };
 
 pub fn compile_symbol_query(language: Language) -> Result<Arc<Query>> {
@@ -164,13 +163,7 @@ pub fn extract_types(
     source: &[u8],
     file_path: &str,
     language: Language,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+) -> ExtractedTypes {
     match language {
         Language::Rust => rust_lang::extract_types(tree, source, file_path),
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {

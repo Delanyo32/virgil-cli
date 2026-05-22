@@ -70,11 +70,11 @@ fn node_is_readonly(node: Node, sym: &SymbolInfo) -> bool {
         SymbolKind::Variable => {
             // `node` is typically the symbol-name node or the
             // variable_declarator; walk up to find the declarator.
-            if let Some(declarator) = enclosing_kind(node, "variable_declarator") {
-                if let Some(t) = declarator.child_by_field_name("type") {
-                    let inner = unwrap_type_annotation(t);
-                    return has_readonly_type(inner);
-                }
+            if let Some(declarator) = enclosing_kind(node, "variable_declarator")
+                && let Some(t) = declarator.child_by_field_name("type")
+            {
+                let inner = unwrap_type_annotation(t);
+                return has_readonly_type(inner);
             }
             false
         }
@@ -128,11 +128,11 @@ fn parse_type_parameters(tp: Node, source: &[u8]) -> Vec<String> {
     let mut cursor = tp.walk();
     for child in tp.named_children(&mut cursor) {
         if child.kind() == "type_parameter" {
-            if let Some(name) = child.child_by_field_name("name") {
-                if let Ok(text) = name.utf8_text(source) {
-                    out.push(text.to_string());
-                    continue;
-                }
+            if let Some(name) = child.child_by_field_name("name")
+                && let Ok(text) = name.utf8_text(source)
+            {
+                out.push(text.to_string());
+                continue;
             }
             // Fallback: first type_identifier child.
             let mut inner = child.walk();
@@ -152,10 +152,10 @@ fn parse_type_parameters(tp: Node, source: &[u8]) -> Vec<String> {
 fn has_readonly_modifier(node: Node) -> bool {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "readonly" || child.kind() == "accessibility_modifier" {
-            if child.kind() == "readonly" {
-                return true;
-            }
+        if (child.kind() == "readonly" || child.kind() == "accessibility_modifier")
+            && child.kind() == "readonly"
+        {
+            return true;
         }
         // Some grammars expose the keyword as an anonymous token.
         if child.kind() == "readonly" {
@@ -169,19 +169,19 @@ fn has_readonly_type(node: Node) -> bool {
     if node.kind() == "readonly_type" {
         return true;
     }
-    if node.kind() == "parenthesized_type" {
-        if let Some(inner) = node.named_child(0) {
-            return has_readonly_type(inner);
-        }
+    if node.kind() == "parenthesized_type"
+        && let Some(inner) = node.named_child(0)
+    {
+        return has_readonly_type(inner);
     }
     false
 }
 
 fn unwrap_type_annotation(node: Node) -> Node {
-    if node.kind() == "type_annotation" {
-        if let Some(inner) = node.named_child(0) {
-            return inner;
-        }
+    if node.kind() == "type_annotation"
+        && let Some(inner) = node.named_child(0)
+    {
+        return inner;
     }
     node
 }

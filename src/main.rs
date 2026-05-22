@@ -82,10 +82,9 @@ fn dispatch(command: Command) -> Result<()> {
                 registry::delete_project(&name)?;
                 if let Ok(cache_path) = cozo::cache_dir_for(&name)
                     && cache_path.exists()
+                    && let Err(e) = std::fs::remove_dir_all(&cache_path)
                 {
-                    if let Err(e) = std::fs::remove_dir_all(&cache_path) {
-                        warn!(path = %cache_path.display(), error = %e, "failed to remove cache dir");
-                    }
+                    warn!(path = %cache_path.display(), error = %e, "failed to remove cache dir");
                 }
                 info!(project = %name, "deleted project");
                 Ok(())

@@ -175,10 +175,8 @@ impl<'a> Ctx<'a> {
             "alias_declaration" => {
                 self.emit_alias_declaration(node, &active_scope);
             }
-            "declaration" => {
-                if self.inside_function(node.start_byte() as u32) {
-                    self.emit_local_declaration(node, &active_scope);
-                }
+            "declaration" if self.inside_function(node.start_byte() as u32) => {
+                self.emit_local_declaration(node, &active_scope);
             }
             _ => {}
         }
@@ -371,12 +369,8 @@ impl<'a> Ctx<'a> {
         // type_identifier child.
         let name_node = node.child_by_field_name("name").or_else(|| {
             let mut c = node.walk();
-            for child in node.named_children(&mut c) {
-                if child.kind() == "type_identifier" {
-                    return Some(child);
-                }
-            }
-            None
+            node.named_children(&mut c)
+                .find(|&child| child.kind() == "type_identifier")
         });
         let Some(name_node) = name_node else {
             return;
@@ -521,9 +515,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "identifier" | "type_identifier" | "field_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     if is_defining_identifier(node) {

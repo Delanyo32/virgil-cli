@@ -15,9 +15,8 @@ use crate::models::{CommentInfo, ImportInfo, SymbolInfo, SymbolKind, SymbolVisib
 ///   (translation-unit local linkage).
 /// - Everything else is `Public`. C has no scoped visibility keywords.
 fn visibility_c(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibility {
-    match def_node.kind() {
-        "parameter_declaration" => return SymbolVisibility::Private,
-        _ => {}
+    if def_node.kind() == "parameter_declaration" {
+        return SymbolVisibility::Private;
     }
     if is_block_scope(def_node) {
         return SymbolVisibility::Private;

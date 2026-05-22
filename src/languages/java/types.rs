@@ -11,21 +11,11 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow, ReturnsTypeRow, SymbolKind,
-    ThrowsRow, TypeRow,
+    ExtractedTypes, FieldTypeRow, InheritanceKind, InheritanceRow, ParameterTypeRow,
+    ReturnsTypeRow, SymbolKind, ThrowsRow, TypeRow,
 };
 
-pub fn extract_types(
-    tree: &Tree,
-    source: &[u8],
-    file_path: &str,
-) -> (
-    Vec<TypeRow>,
-    Vec<ParameterTypeRow>,
-    Vec<ReturnsTypeRow>,
-    Vec<InheritanceRow>,
-    Vec<FieldTypeRow>,
-) {
+pub fn extract_types(tree: &Tree, source: &[u8], file_path: &str) -> ExtractedTypes {
     let mut ctx = Ctx::new(file_path, source);
     ctx.collect_file_level(tree.root_node());
     ctx.walk(tree.root_node());
@@ -46,37 +36,37 @@ pub fn extract_throws(tree: &Tree, source: &[u8], file_path: &str) -> Vec<Throws
 fn walk_throws(node: Node, source: &[u8], file_path: &str, out: &mut Vec<ThrowsRow>) {
     match node.kind() {
         "method_declaration" | "constructor_declaration" => {
-            if let Some(name_node) = node.child_by_field_name("name") {
-                if let Ok(name) = name_node.utf8_text(source) {
-                    // Symbol IDs come from `def_node` (the whole
-                    // method/constructor declaration), not the name
-                    // identifier — match that so the join in
-                    // `from_code_graph::emit_types_and_hierarchy`
-                    // succeeds.
-                    let (line, col) = node_pos(node);
-                    let mut cursor = node.walk();
-                    for child in node.children(&mut cursor) {
-                        if child.kind() != "throws" {
+            if let Some(name_node) = node.child_by_field_name("name")
+                && let Ok(name) = name_node.utf8_text(source)
+            {
+                // Symbol IDs come from `def_node` (the whole
+                // method/constructor declaration), not the name
+                // identifier — match that so the join in
+                // `from_code_graph::emit_types_and_hierarchy`
+                // succeeds.
+                let (line, col) = node_pos(node);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() != "throws" {
+                        continue;
+                    }
+                    let mut cc = child.walk();
+                    for tnode in child.named_children(&mut cc) {
+                        if !is_type_position_node(tnode.kind()) {
                             continue;
                         }
-                        let mut cc = child.walk();
-                        for tnode in child.named_children(&mut cc) {
-                            if !is_type_position_node(tnode.kind()) {
-                                continue;
-                            }
-                            let display = render_type(tnode, source);
-                            if display.is_empty() {
-                                continue;
-                            }
-                            out.push(ThrowsRow {
-                                file_path: file_path.to_string(),
-                                function_start_line: line,
-                                function_start_col: col,
-                                function_name: name.to_string(),
-                                function_kind: SymbolKind::Method,
-                                exception_display_name: display,
-                            });
+                        let display = render_type(tnode, source);
+                        if display.is_empty() {
+                            continue;
                         }
+                        out.push(ThrowsRow {
+                            file_path: file_path.to_string(),
+                            function_start_line: line,
+                            function_start_col: col,
+                            function_name: name.to_string(),
+                            function_kind: SymbolKind::Method,
+                            exception_display_name: display,
+                        });
                     }
                 }
             }
@@ -135,15 +125,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(
-        self,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn finish(self) -> ExtractedTypes {
         (
             self.types,
             self.param_types,
@@ -639,10 +621,10 @@ impl<'a> Ctx<'a> {
     }
 
     fn visit_instanceof(&mut self, node: Node) {
-        if let Some(t) = node.child_by_field_name("right") {
-            if is_type_position_node(t.kind()) {
-                self.emit_type_with_subtree(t);
-            }
+        if let Some(t) = node.child_by_field_name("right")
+            && is_type_position_node(t.kind())
+        {
+            self.emit_type_with_subtree(t);
         }
     }
 
@@ -1021,12 +1003,8 @@ fn find_type_child(node: Node) -> Option<Node> {
         return Some(t);
     }
     let mut cursor = node.walk();
-    for c in node.named_children(&mut cursor) {
-        if is_type_position_node(c.kind()) {
-            return Some(c);
-        }
-    }
-    None
+    node.named_children(&mut cursor)
+        .find(|&c| is_type_position_node(c.kind()))
 }
 
 /// Render a type node into the normalised `display_name`.
@@ -1111,16 +1089,7 @@ mod tests {
     use crate::language::Language;
     use crate::parser::create_parser;
 
-    fn run(
-        source: &str,
-        path: &str,
-    ) -> (
-        Vec<TypeRow>,
-        Vec<ParameterTypeRow>,
-        Vec<ReturnsTypeRow>,
-        Vec<InheritanceRow>,
-        Vec<FieldTypeRow>,
-    ) {
+    fn run(source: &str, path: &str) -> ExtractedTypes {
         let mut parser = create_parser(Language::Java).expect("parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
         extract_types(&tree, source.as_bytes(), path)

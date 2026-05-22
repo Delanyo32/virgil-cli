@@ -197,12 +197,8 @@ fn collect_attribute_names(list: Node, source: &[u8], out: &mut Vec<String>) {
 
 fn find_child<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut cursor)
+        .find(|&child| child.kind() == kind)
 }
 
 /// Locate the deepest tree-sitter node spanning exactly

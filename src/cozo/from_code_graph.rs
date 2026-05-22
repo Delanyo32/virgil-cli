@@ -171,7 +171,7 @@ fn emit_references_facts(graph: &CodeGraph, writer: &mut CozoWriter) {
 
 /// Issue #15: walk `graph.attrs` and dispatch per-language push.
 fn emit_attrs(graph: &CodeGraph, writer: &mut CozoWriter) {
-    for (_, bucket) in &graph.attrs {
+    for bucket in graph.attrs.values() {
         for r in &bucket.rust {
             writer.push_rust_attrs(&r.symbol_id, r.is_unsafe, r.is_const, &r.derives);
         }

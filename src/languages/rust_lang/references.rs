@@ -322,9 +322,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     ) {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     match parent.kind() {
         // Declaring positions — these names are bindings, not occurrences.
         "function_item"

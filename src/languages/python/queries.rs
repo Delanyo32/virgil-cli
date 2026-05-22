@@ -56,7 +56,7 @@ fn has_decorator(def_node: tree_sitter::Node, source: &[u8], targets: &[&str]) -
         // Last dotted segment matches the bare decorator name
         // (e.g. `abc.abstractmethod` → `abstractmethod`).
         let bare = head.rsplit('.').next().unwrap_or(head);
-        if targets.iter().any(|t| *t == bare) {
+        if targets.contains(&bare) {
             return true;
         }
     }
@@ -222,12 +222,13 @@ pub fn extract_symbols(
         // inside a given function counts as the binding site. Subsequent
         // re-assignments are writes against the same binding; they don't
         // get their own symbol row.
-        if def_node.kind() == "assignment" && kind == SymbolKind::Variable {
-            if let Some(scope) = enclosing_function_node(def_node) {
-                let key = (scope.id(), name.clone());
-                if !seen_locals.insert(key) {
-                    continue;
-                }
+        if def_node.kind() == "assignment"
+            && kind == SymbolKind::Variable
+            && let Some(scope) = enclosing_function_node(def_node)
+        {
+            let key = (scope.id(), name.clone());
+            if !seen_locals.insert(key) {
+                continue;
             }
         }
 

@@ -24,7 +24,7 @@ fn visibility_php(def_node: tree_sitter::Node, source: &[u8]) -> SymbolVisibilit
         "simple_parameter"
         | "variadic_parameter"
         | "property_promotion_parameter"
-        | "assignment_expression" => return SymbolVisibility::Private,
+        | "assignment_expression" => SymbolVisibility::Private,
         "method_declaration" | "property_declaration" | "const_declaration" => {
             let mut cursor = def_node.walk();
             for child in def_node.children(&mut cursor) {

@@ -99,10 +99,11 @@ fn is_async_ts(def_node: tree_sitter::Node, value_node: Option<tree_sitter::Node
     if async_targets.contains(&def_node.kind()) && has_keyword_child(def_node, "async") {
         return true;
     }
-    if let Some(v) = value_node {
-        if async_targets.contains(&v.kind()) && has_keyword_child(v, "async") {
-            return true;
-        }
+    if let Some(v) = value_node
+        && async_targets.contains(&v.kind())
+        && has_keyword_child(v, "async")
+    {
+        return true;
     }
     false
 }

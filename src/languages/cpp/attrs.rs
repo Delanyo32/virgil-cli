@@ -3,7 +3,7 @@
 //! Per `docs/attrs-cpp.md`, emit one row per C++ symbol with:
 //! - `is_virtual`   — `virtual` keyword on a method, or `override` present
 //! - `is_const`     — trailing `const` on a method signature, or `const`
-//!                    qualifier on a variable/field
+//!   qualifier on a variable/field
 //! - `is_noexcept`  — `noexcept` specifier (except `noexcept(false)`)
 //! - `is_template`  — defining node wrapped in a `template_declaration`
 //! - `is_constexpr` — `constexpr` keyword

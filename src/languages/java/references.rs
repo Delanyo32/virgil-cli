@@ -427,9 +427,7 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
     if !matches!(kind, "identifier" | "type_identifier") {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return None;
-    };
+    let parent = node.parent()?;
     let pk = parent.kind();
 
     // Declaring positions — these names are bindings, not occurrences.
@@ -446,10 +444,10 @@ fn occurrence_kind_for(node: Node) -> Option<&'static str> {
         | "catch_formal_parameter"
         | "variable_declarator"
         | "enum_constant"
-        | "type_parameter" => {
-            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) {
-                return None;
-            }
+        | "type_parameter"
+            if parent.child_by_field_name("name").map(|n| n.id()) == Some(node.id()) =>
+        {
+            return None;
         }
         _ => {}
     }

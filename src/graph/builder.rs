@@ -193,7 +193,7 @@ impl<'a> GraphBuilder<'a> {
                                     lang, rel_path, workspace, &sym_q, &imp_q, &com_q,
                                 ) {
                                     let n = parsed_ref.fetch_add(1, Ordering::Relaxed) + 1;
-                                    if n % 500 == 0 {
+                                    if n.is_multiple_of(500) {
                                         debug!(parsed = n, of = target_files, "parsing progress");
                                     }
                                     let _ = tx.send(data);
@@ -214,7 +214,7 @@ impl<'a> GraphBuilder<'a> {
                     );
                     tracing::Span::current().pb_inc(1);
                     let n = absorbed_files.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n % 500 == 0 {
+                    if n.is_multiple_of(500) {
                         debug!(absorbed = n, of = target_files, last = %path, "absorption progress");
                     }
                 }
@@ -559,7 +559,7 @@ fn absorb_file_data(
             .comments
             .entry(path.clone())
             .or_default()
-            .extend(comments.into_iter());
+            .extend(comments);
     }
 
     // Queue imports for cross-file resolution. Also stash them on the

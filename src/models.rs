@@ -256,6 +256,17 @@ pub struct FieldTypeRow {
     pub type_display_name: String,
 }
 
+/// Tuple returned by `languages::*::extract_types`. The five members
+/// are, in order: type-position nodes, parameter→type edges,
+/// return→type edges, inheritance edges, and field→type edges.
+pub type ExtractedTypes = (
+    Vec<TypeRow>,
+    Vec<ParameterTypeRow>,
+    Vec<ReturnsTypeRow>,
+    Vec<InheritanceRow>,
+    Vec<FieldTypeRow>,
+);
+
 /// Issue #16 fact-emission rows per ADR-0005. Each per-language
 /// extractor emits these; the Cozoscript resolver consumes them to
 /// materialise the `references` view.
