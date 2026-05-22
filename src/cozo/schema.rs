@@ -116,6 +116,7 @@ pub fn index_statements() -> &'static [&'static str] {
         "::index create calls:by_callee {callee_id}",
         "::index create references:by_referent {referent_id}",
         "::index create imports:by_imported {imported_id}",
+        "::index create imports:by_importer {importer_file_id}",
         "::index create comment:by_file {file_path}",
         "::index create comment:by_documents {documents_id}",
         // Issue #16 — resolver-critical indices per ADR-0005.
