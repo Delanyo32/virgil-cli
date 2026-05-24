@@ -1,0 +1,39 @@
+# unused_symbols — exported symbols with no in-scope reference anywhere
+# in the workspace. Heuristic; locals and parameters are excluded
+# because they're never expected to show up via cross-file resolution.
+#
+# WARNING: this query inlines the full reference resolver as a single
+# Cozo program — including the ancestor closure over every scope in
+# the workspace (the same `rsv_ancestor` stage that dominated the old
+# eager build path). On large repos it will be slow and memory-heavy.
+#
+# For workspaces past a few hundred files, prefer the staged approach
+# in `resolve_references_full.md`: materialise an ad-hoc references
+# relation once, then run a small downstream query that reads it.
+
+# Workspace-wide ancestor closure. This is the expensive bit.
+ancestor[s, a] := *scope{id: s}, a = s
+ancestor[s, a] :=
+    ancestor[s, mid],
+    *scope{id: mid, parent_id: a},
+    a != null
+
+# Any (occurrence, target_symbol) pair where the binding lives in an
+# ancestor scope of the occurrence's enclosing scope.
+scoped[occ, sym] :=
+    *occurrence{id: occ, name: n, enclosing_scope_id: occ_scope},
+    ancestor[occ_scope, sid],
+    *binding{scope_id: sid, name: n, symbol_id: sym, binding_kind: bk},
+    bk != "wildcard_import",
+    sym != null
+
+# A symbol is "referenced" if any occurrence resolves to it.
+referenced[sym] := scoped[_, sym]
+
+?[id, name, kind, file_path, start_line] :=
+    *symbol{id, name, kind, file_path, exported: true},
+    *span{entity_id: id, file_path, start_line},
+    kind != "parameter",
+    kind != "variable",
+    not referenced[id]
+:order file_path, start_line
