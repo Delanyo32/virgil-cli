@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::language::Language;
 use crate::storage::discovery;
-use crate::storage::file_source::{DiskFileSource, FileSource, MemoryFileSource};
+use crate::storage::file_source::{DiskFileSource, FileSource, MemoryFileSource, S3FileSource};
 
 pub struct Workspace {
     root: PathBuf,
@@ -68,7 +68,10 @@ impl Workspace {
         })
     }
 
-    /// Load files from S3 into memory, return ready-to-use workspace.
+    /// Set up an S3-backed workspace. Lists objects + sizes up-front;
+    /// file bodies are fetched on demand and cached in an LRU
+    /// (see [`crate::storage::file_source::S3FileSource`]).
+    /// Replaces the previous pre-download-everything path.
     pub fn load_from_s3(
         bucket: &str,
         prefix: &str,
@@ -82,30 +85,31 @@ impl Workspace {
         };
 
         info!(bucket = %bucket, prefix = %prefix, "listing S3 objects");
-        let keys = crate::storage::s3::list_objects(&location, languages, exclude)?;
-        info!(count = keys.len(), "S3 objects matched, starting download");
+        let listings = crate::storage::s3::list_object_sizes(&location, languages, exclude)?;
+        info!(count = listings.len(), "S3 listing complete");
 
-        let (file_map, size_map) =
-            crate::storage::s3::download_objects(&location, &keys, max_file_size)?;
-        info!(count = file_map.len(), "S3 download complete");
-
-        // Build language map from extensions
-        let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(file_map.len());
-        for key in file_map.keys() {
-            if let Some(ext) = std::path::Path::new(key)
+        let mut size_map: HashMap<String, u64> = HashMap::with_capacity(listings.len());
+        let mut file_list: Vec<String> = Vec::with_capacity(listings.len());
+        let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(listings.len());
+        for (key, size) in listings {
+            if let Some(max) = max_file_size
+                && size > max
+            {
+                continue;
+            }
+            if let Some(ext) = std::path::Path::new(&key)
                 .extension()
                 .and_then(|e| e.to_str())
                 && let Some(lang) = Language::from_extension(ext)
             {
                 lang_map.insert(key.clone(), lang);
             }
+            size_map.insert(key.clone(), size);
+            file_list.push(key);
         }
 
-        let source = Box::new(MemoryFileSource::new(file_map, size_map));
-
-        // Use a synthetic root path for S3 workspaces
+        let source = Box::new(S3FileSource::new(location, file_list, size_map));
         let root = PathBuf::from(format!("s3://{bucket}/{prefix}"));
-
         Ok(Self {
             root,
             source,

@@ -64,6 +64,67 @@ impl FileSource for MemoryFileSource {
 /// approximately one file per rayon worker, so even a small cap stays warm.
 const DISK_LRU_CAPACITY: usize = 256;
 
+/// On-demand S3 file source with a bounded LRU. Replaces the previous
+/// `MemoryFileSource` that pre-downloaded every file body — that pattern
+/// OOM'd on multi-thousand-file repos.
+pub struct S3FileSource {
+    location: crate::storage::s3::S3Location,
+    file_list: Vec<String>,
+    sizes: HashMap<String, u64>,
+    cache: Mutex<LruCache<String, Arc<str>>>,
+}
+
+impl S3FileSource {
+    pub fn new(
+        location: crate::storage::s3::S3Location,
+        file_list: Vec<String>,
+        sizes: HashMap<String, u64>,
+    ) -> Self {
+        let mut file_list = file_list;
+        file_list.sort();
+        let cap = NonZeroUsize::new(DISK_LRU_CAPACITY).expect("non-zero capacity");
+        Self {
+            location,
+            file_list,
+            sizes,
+            cache: Mutex::new(LruCache::new(cap)),
+        }
+    }
+}
+
+impl FileSource for S3FileSource {
+    fn read_file(&self, relative_path: &str) -> Option<Arc<str>> {
+        if !self.sizes.contains_key(relative_path) {
+            return None;
+        }
+        if let Some(hit) = self
+            .cache
+            .lock()
+            .ok()
+            .and_then(|mut c| c.get(relative_path).cloned())
+        {
+            return Some(hit);
+        }
+        let s = crate::storage::s3::fetch_object(&self.location, relative_path).ok()?;
+        if let Ok(mut c) = self.cache.lock() {
+            c.put(relative_path.to_string(), s.clone());
+        }
+        Some(s)
+    }
+
+    fn list_files(&self) -> &[String] {
+        &self.file_list
+    }
+
+    fn file_exists(&self, relative_path: &str) -> bool {
+        self.sizes.contains_key(relative_path)
+    }
+
+    fn file_size(&self, relative_path: &str) -> Option<u64> {
+        self.sizes.get(relative_path).copied()
+    }
+}
+
 /// Disk-backed file source with a bounded LRU. Files are read on demand and
 /// the cache evicts the least-recently-used entry once it exceeds capacity.
 ///

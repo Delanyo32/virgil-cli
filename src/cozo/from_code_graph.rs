@@ -81,13 +81,18 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         });
 
     let mut writer = node_writer;
+    // Periodic-flush #1: drain the node-emit buffers before stacking on
+    // edge rows. Caps peak writer-buffer memory at one phase's worth
+    // (~symbol+span+file rows) instead of the sum of all phases.
+    writer.flush(store)?;
     {
         let mut e = edge_writer;
         writer.merge(&mut e);
     }
+    writer.flush(store)?;
 
     drop(_step2);
-    // Step 3: sequential tail work.
+    // Step 3: sequential tail work, flushing between sub-phases.
     let _step3 = info_span!("cozo.populate.tail").entered();
     for (file_path, imports) in &graph.raw_imports {
         let lang_str = workspace
@@ -104,11 +109,16 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
             );
         }
     }
+    writer.flush(store)?;
 
     emit_comments(graph, &mut writer);
+    writer.flush(store)?;
     emit_types_and_hierarchy(graph, workspace, &mut writer);
+    writer.flush(store)?;
     emit_attrs(graph, &mut writer);
+    writer.flush(store)?;
     emit_references_facts(graph, &mut writer);
+    writer.flush(store)?;
 
     if let Some(ws) = workspace {
         record_build_meta_files(ws, &mut writer);

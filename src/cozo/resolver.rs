@@ -20,7 +20,7 @@
 //! Note: Cozo silently drops relations whose names begin with `_`, so
 //! the temp relations use a `rsv_` prefix instead.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 use cozo::{DataValue, Num};
@@ -235,12 +235,12 @@ pub fn resolve_references(store: &CozoStore) -> Result<()> {
     Ok(())
 }
 
-/// Pull the joined resolved rows into Rust, group by `occ`, sort each
-/// group by `sym` to assign `match_index`, and batch-write to
-/// `references`. Replaces the Cozoscript `count(s) where s <= sym`
-/// self-join — that one scaled quadratically in `|rsv_resolved|` on the
-/// 5k-file workload (4 minutes on ext), whereas this is linear after a
-/// per-group sort.
+/// Read rows ordered by `occ` then stream-assign `match_index` in one
+/// forward pass, flushing in batches of [`FINALIZE_BATCH`]. Eliminates
+/// the previous per-occ HashMap + full output Vec (the #4 OOM suspect:
+/// on the reference workspace those buffers peaked at ~100-200 MB).
+/// Peak memory now: read buffer (still all-rows-at-once — Cozo doesn't
+/// expose cursored reads yet) + one in-flight write batch.
 fn finalize_resolved(store: &CozoStore) -> Result<()> {
     let _s = info_span!("cozo.resolver.stage", stage = "finalize").entered();
 
@@ -249,7 +249,8 @@ fn finalize_resolved(store: &CozoStore) -> Result<()> {
         store
             .run_query(
                 "?[occ, sym, referrer_id, site_file, site_start_byte, ref_kind] := \
-                 *rsv_resolved_joined{occ, sym, referrer_id, site_file, site_start_byte, ref_kind}",
+                 *rsv_resolved_joined{occ, sym, referrer_id, site_file, site_start_byte, ref_kind} \
+                 :order occ, sym",
                 BTreeMap::new(),
             )
             .map_err(|e| anyhow::anyhow!("finalize: read rsv_resolved_joined: {e}"))?
@@ -257,55 +258,56 @@ fn finalize_resolved(store: &CozoStore) -> Result<()> {
     };
     debug!(rows_in = rows.len(), "finalize read");
 
-    // Group (sym, referrer, file, byte, kind) tuples per occ.
-    type Candidate = (String, String, String, i64, String);
-    let mut by_occ: HashMap<String, Vec<Candidate>> = HashMap::with_capacity(rows.len() / 2);
-    for row in rows {
-        let occ = take_str(&row, 0)?;
-        let sym = take_str(&row, 1)?;
-        let referrer = take_str(&row, 2)?;
-        let file = take_str(&row, 3)?;
-        let byte = take_int(&row, 4)?;
-        let kind = take_str(&row, 5)?;
-        by_occ
-            .entry(occ)
-            .or_default()
-            .push((sym, referrer, file, byte, kind));
-    }
+    let mut batch: Vec<DataValue> = Vec::with_capacity(FINALIZE_BATCH);
+    let mut current_occ: Option<String> = None;
+    let mut match_index: i64 = 0;
+    let mut total: usize = 0;
 
-    // Each candidate becomes one references row: (referrer_id,
-    // site_file, site_start_byte, match_index, referent_id, ref_kind).
-    let mut out: Vec<Vec<DataValue>> = Vec::with_capacity(by_occ.values().map(Vec::len).sum());
-    for (_occ, mut group) in by_occ {
-        group.sort_by(|a, b| a.0.cmp(&b.0));
-        for (mi, (sym, referrer, file, byte, kind)) in group.into_iter().enumerate() {
-            out.push(vec![
-                DataValue::from(referrer),
-                DataValue::from(file),
-                DataValue::Num(Num::Int(byte)),
-                DataValue::Num(Num::Int(mi as i64)),
-                DataValue::from(sym),
-                DataValue::from(kind),
-            ]);
+    fn flush(store: &CozoStore, batch: &mut Vec<DataValue>) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
         }
+        let mut params = BTreeMap::new();
+        params.insert("rows".to_string(), DataValue::List(std::mem::take(batch)));
+        store
+            .run_script(
+                "?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] <- $rows \
+                 :put references {referrer_id, site_file, site_start_byte, match_index => referent_id, ref_kind}",
+                params,
+            )
+            .map_err(|e| anyhow::anyhow!("finalize: put references: {e}"))?;
+        Ok(())
     }
-    let total = out.len();
-    debug!(rows_out = total, "finalize grouped");
 
     {
         let _w = info_span!("cozo.resolver.finalize.write").entered();
-        for chunk in out.chunks(FINALIZE_BATCH) {
-            let batch: Vec<DataValue> = chunk.iter().map(|r| DataValue::List(r.clone())).collect();
-            let mut params = BTreeMap::new();
-            params.insert("rows".to_string(), DataValue::List(batch));
-            store
-                .run_script(
-                    "?[referrer_id, site_file, site_start_byte, match_index, referent_id, ref_kind] <- $rows \
-                     :put references {referrer_id, site_file, site_start_byte, match_index => referent_id, ref_kind}",
-                    params,
-                )
-                .map_err(|e| anyhow::anyhow!("finalize: put references: {e}"))?;
+        for row in rows {
+            let occ = take_str(&row, 0)?;
+            let sym = take_str(&row, 1)?;
+            let referrer = take_str(&row, 2)?;
+            let file = take_str(&row, 3)?;
+            let byte = take_int(&row, 4)?;
+            let kind = take_str(&row, 5)?;
+            if current_occ.as_deref() != Some(occ.as_str()) {
+                current_occ = Some(occ);
+                match_index = 0;
+            } else {
+                match_index += 1;
+            }
+            batch.push(DataValue::List(vec![
+                DataValue::from(referrer),
+                DataValue::from(file),
+                DataValue::Num(Num::Int(byte)),
+                DataValue::Num(Num::Int(match_index)),
+                DataValue::from(sym),
+                DataValue::from(kind),
+            ]));
+            total += 1;
+            if batch.len() >= FINALIZE_BATCH {
+                flush(store, &mut batch)?;
+            }
         }
+        flush(store, &mut batch)?;
     }
     debug!(
         references_rows = count_relation(store, "references", "referrer_id"),

@@ -99,11 +99,29 @@ impl<'a> GraphBuilder<'a> {
             languages = self.languages.len(),
             "graph build starting"
         );
-        // Step 1: Pre-compile queries per language
+        // Step 1: Pre-compile queries — only for languages actually
+        // present in the workspace. Each tree-sitter Query carries the
+        // grammar tables; lazy-compiling avoids the ~10-30 MB cost per
+        // unused language for single-lang projects.
+        let mut present_langs: Vec<Language> = self
+            .workspace
+            .files()
+            .iter()
+            .filter_map(|p| self.workspace.file_language(p))
+            .filter(|l| self.languages.contains(l))
+            .collect();
+        present_langs.sort_by_key(|l| l.as_str());
+        present_langs.dedup();
+        info!(
+            languages_loaded = present_langs.len(),
+            languages_requested = self.languages.len(),
+            "compiling grammars for languages actually present"
+        );
+
         let mut symbol_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         let mut import_queries: HashMap<Language, Arc<Query>> = HashMap::new();
         let mut comment_queries: HashMap<Language, Arc<Query>> = HashMap::new();
-        for &lang in self.languages {
+        for &lang in &present_langs {
             symbol_queries.insert(lang, languages::compile_symbol_query(lang)?);
             import_queries.insert(lang, languages::compile_import_query(lang)?);
             if let Ok(q) = languages::compile_comment_query(lang) {

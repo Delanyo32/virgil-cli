@@ -195,6 +195,124 @@ pub fn list_objects(
     })
 }
 
+/// Fetch a single object's body as UTF-8. Used by the LRU on-demand
+/// `S3FileSource` to avoid pre-downloading the whole workspace into RAM.
+pub fn fetch_object(location: &S3Location, relative_key: &str) -> Result<Arc<str>> {
+    block_on(async {
+        let client = build_client().await;
+        let prefix = if location.prefix.is_empty() {
+            String::new()
+        } else if location.prefix.ends_with('/') {
+            location.prefix.clone()
+        } else {
+            format!("{}/", location.prefix)
+        };
+        let full_key = format!("{prefix}{relative_key}");
+        let resp = client
+            .get_object()
+            .bucket(&location.bucket)
+            .key(&full_key)
+            .send()
+            .await
+            .with_context(|| format!("fetch s3://{}/{}", location.bucket, full_key))?;
+        let bytes = resp.body.collect().await.context("read S3 body")?.into_bytes();
+        let s =
+            std::str::from_utf8(&bytes).map_err(|_| anyhow::anyhow!("S3 object not utf-8: {full_key}"))?;
+        Ok(Arc::from(s))
+    })
+}
+
+/// List object sizes — used by `S3FileSource::new` to seed the size map
+/// without downloading bodies. Same listing flow as [`list_objects`], but
+/// returns `(key, size)` pairs.
+pub fn list_object_sizes(
+    location: &S3Location,
+    languages: &[Language],
+    exclude_patterns: &[String],
+) -> Result<Vec<(String, u64)>> {
+    block_on(async {
+        let client = build_client().await;
+        let extensions: Vec<&str> = languages
+            .iter()
+            .flat_map(|l| l.all_extensions().iter().copied())
+            .collect();
+        let exclude_set = if !exclude_patterns.is_empty() {
+            let mut builder = GlobSetBuilder::new();
+            for pattern in exclude_patterns {
+                builder.add(
+                    Glob::new(pattern)
+                        .with_context(|| format!("invalid exclude glob: {pattern}"))?,
+                );
+            }
+            Some(builder.build().context("failed to build exclude globset")?)
+        } else {
+            None
+        };
+        let prefix = if location.prefix.is_empty() {
+            None
+        } else {
+            let p = if location.prefix.ends_with('/') {
+                location.prefix.clone()
+            } else {
+                format!("{}/", location.prefix)
+            };
+            Some(p)
+        };
+
+        let mut out = Vec::new();
+        let mut continuation_token: Option<String> = None;
+        loop {
+            let mut req = client
+                .list_objects_v2()
+                .bucket(&location.bucket)
+                .max_keys(1000);
+            if let Some(ref p) = prefix {
+                req = req.prefix(p);
+            }
+            if let Some(ref token) = continuation_token {
+                req = req.continuation_token(token);
+            }
+            let resp = req
+                .send()
+                .await
+                .with_context(|| format!("listing s3://{}", location.bucket))?;
+            for obj in resp.contents() {
+                let key: &str = obj.key().unwrap_or_default();
+                if key.is_empty() {
+                    continue;
+                }
+                let relative: &str = match &prefix {
+                    Some(p) => key.strip_prefix(p.as_str()).unwrap_or(key),
+                    None => key,
+                };
+                if relative.is_empty() || relative.ends_with('/') {
+                    continue;
+                }
+                let has_valid_ext = relative
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|ext| extensions.contains(&ext));
+                if !has_valid_ext {
+                    continue;
+                }
+                if let Some(ref excludes) = exclude_set
+                    && excludes.is_match(relative)
+                {
+                    continue;
+                }
+                let size = obj.size().unwrap_or(0).max(0) as u64;
+                out.push((relative.to_string(), size));
+            }
+            if resp.is_truncated() == Some(true) {
+                continuation_token = resp.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+        Ok(out)
+    })
+}
+
 /// Download objects concurrently, returning file contents and sizes.
 /// Skips non-UTF-8 files with a warning.
 #[allow(clippy::type_complexity)]
