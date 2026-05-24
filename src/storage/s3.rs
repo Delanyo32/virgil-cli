@@ -215,9 +215,14 @@ pub fn fetch_object(location: &S3Location, relative_key: &str) -> Result<Arc<str
             .send()
             .await
             .with_context(|| format!("fetch s3://{}/{}", location.bucket, full_key))?;
-        let bytes = resp.body.collect().await.context("read S3 body")?.into_bytes();
-        let s =
-            std::str::from_utf8(&bytes).map_err(|_| anyhow::anyhow!("S3 object not utf-8: {full_key}"))?;
+        let bytes = resp
+            .body
+            .collect()
+            .await
+            .context("read S3 body")?
+            .into_bytes();
+        let s = std::str::from_utf8(&bytes)
+            .map_err(|_| anyhow::anyhow!("S3 object not utf-8: {full_key}"))?;
         Ok(Arc::from(s))
     })
 }

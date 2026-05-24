@@ -910,6 +910,7 @@ fn call_expression_types(language: Language) -> Vec<&'static str> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_calls_in_range(
     node: tree_sitter::Node,
     source: &[u8],
@@ -1005,10 +1006,7 @@ mod tests {
 
     fn count_calls_total(store: &CozoStore) -> i64 {
         let rows = store
-            .run_query(
-                "?[count(c)] := *calls{caller_id: c}",
-                BTreeMap::new(),
-            )
+            .run_query("?[count(c)] := *calls{caller_id: c}", BTreeMap::new())
             .unwrap();
         match rows.rows.first().and_then(|r| r.first()) {
             Some(cozo::DataValue::Num(cozo::Num::Int(n))) => *n,

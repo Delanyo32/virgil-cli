@@ -36,7 +36,11 @@ use super::{CozoStore, CozoWriter};
 /// resolver against the now-flushed fact relations.
 pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
     info!(
-        symbols = graph.symbol_ids_by_name.values().map(|v| v.len()).sum::<usize>(),
+        symbols = graph
+            .symbol_ids_by_name
+            .values()
+            .map(|v| v.len())
+            .sum::<usize>(),
         files = workspace.map(|w| w.file_count()).unwrap_or(0),
         "cozo populate starting"
     );
@@ -197,7 +201,7 @@ fn emit_types_and_hierarchy(
             // candidate that sits at the right line/col; otherwise pick
             // the first same-file match by name.
             let Some(child_id) = pick_symbol_id(
-                &symbol_ids_by_name,
+                symbol_ids_by_name,
                 file_path,
                 &row.child_name,
                 Some((row.child_start_line, row.child_start_col)),
@@ -218,7 +222,7 @@ fn emit_types_and_hierarchy(
                 .next()
                 .unwrap_or("")
                 .trim();
-            let parent_id = pick_symbol_id(&symbol_ids_by_name, file_path, parent_leaf, None)
+            let parent_id = pick_symbol_id(symbol_ids_by_name, file_path, parent_leaf, None)
                 .or_else(|| {
                     symbol_ids_by_global_name
                         .get(parent_leaf)

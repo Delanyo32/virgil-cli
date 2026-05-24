@@ -854,5 +854,4 @@ mod tests {
         assert_eq!(calls.rows[0][0], DataValue::from("login"));
         assert_eq!(calls.rows[0][1], DataValue::from("checkPassword"));
     }
-
 }
