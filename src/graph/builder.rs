@@ -10,6 +10,8 @@ use tracing::{debug, info, info_span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
+use crate::classify::{is_barrel_file, is_test_file};
+use crate::cozo::from_code_graph::{extract_nolints, is_generated_marker, symbol_id};
 use crate::cozo::{CozoStore, CozoWriter};
 use crate::language::Language;
 use crate::languages;
@@ -20,13 +22,22 @@ use crate::models::{
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
-use super::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight, Spur};
+use super::{CodeGraph, Spur};
 
 /// Flush the streaming writer every this many files. Caps peak writer
-/// memory to roughly N files' worth of per-file rows (refs/attrs/
-/// raw_imports). Picked to amortise Cozo transaction overhead — too low
-/// thrashes SQLite, too high defeats streaming.
+/// memory to roughly N files' worth of in-flight rows. Picked to
+/// amortise Cozo transaction overhead — too low thrashes SQLite, too
+/// high defeats streaming.
 const STREAM_FLUSH_EVERY_N_FILES: u32 = 200;
+
+/// Minimal record kept in build-local lookup maps that replaces the
+/// old `NodeIndex`. Carries just enough to filter call targets by kind
+/// and to write `*calls` rows by id.
+#[derive(Clone)]
+struct AbsorbedSymbol {
+    id: String,
+    kind: SymbolKind,
+}
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -54,19 +65,16 @@ struct FileGraphData {
     references: ReferencesBucket,
 }
 
-/// A call site extracted from within a symbol's line range.
+/// A call site extracted from within a symbol's line range. After
+/// Slice B the only consumer is the deferred-Calls resolver, which
+/// needs caller location to write `*calls.call_site_*` columns —
+/// nothing else is read off this record, so it stays minimal.
 struct CallSiteData {
     callee_name: String,
     caller_file: String,
     caller_symbol_line: u32,
-    /// Line of the call expression itself (1-based).
-    line: u32,
     start_byte: u32,
     end_byte: u32,
-    /// Literal arguments (strings/numbers/bools) — non-literal args are skipped.
-    arg_literals: Vec<String>,
-    /// Name of the enclosing test function, when the caller is inside one.
-    enclosing_test_name: Option<String>,
 }
 
 /// An import deferred until all File nodes are present.
@@ -76,14 +84,19 @@ struct DeferredImport {
     import: ImportInfo,
 }
 
-/// A Calls-edge deferred until all Symbol nodes and cross-file edges are
-/// present. Resolution is scoped to the caller's file: same-file symbols
-/// always match; symbols in other files match only if the caller's file
-/// imports that file and the callee symbol is exported.
+/// A Calls-edge deferred until every file's symbol table is fully
+/// populated. Resolution is scoped to the caller's file: same-file
+/// symbols always match; symbols in other files match only if the
+/// caller's file imports that file and the callee symbol is exported.
+/// Carries the call-site location so the resolver can emit a `*calls`
+/// row directly without a second lookup pass.
 struct DeferredCall {
-    caller_idx: NodeIndex,
+    caller_id: String,
     caller_file_spur: Spur,
     callee_spur: Spur,
+    site_file: String,
+    site_start_byte: u32,
+    site_end_byte: u32,
 }
 
 pub struct GraphBuilder<'a> {
@@ -176,14 +189,30 @@ impl<'a> GraphBuilder<'a> {
         let mut deferred_imports: Vec<DeferredImport> = Vec::new();
         let mut deferred_calls: Vec<DeferredCall> = Vec::new();
         // Per-file name lookups built during absorption. Used by the
-        // import-scoped Calls-edge resolver below.
-        let mut file_symbols_by_name: HashMap<(Spur, Spur), Vec<NodeIndex>> = HashMap::new();
-        let mut file_exports_by_name: HashMap<(Spur, Spur), Vec<NodeIndex>> = HashMap::new();
-        // Streaming writer for per-file buckets that have no cross-file
-        // dependency (references/attrs/raw_imports). Emitted to Cozo
-        // during absorb and never stashed on the graph.
+        // import-scoped Calls resolver below. Holds slim
+        // `AbsorbedSymbol`s in place of the old `NodeIndex`.
+        let mut file_symbols_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>> = HashMap::new();
+        let mut file_exports_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>> = HashMap::new();
+        // Set of file-path spurs that have been absorbed. Replaces the
+        // old `graph.file_nodes` map (we don't need the file's id, just
+        // existence, since cross-file `Imports` rows key on path).
+        let mut file_known_spurs: HashSet<Spur> = HashSet::new();
+        // Streaming writer for all node + edge Cozo rows. Drained
+        // periodically during absorb and once after cross-file
+        // resolution so peak memory stays bounded.
         let mut stream_writer = CozoWriter::new();
         let mut files_since_flush: u32 = 0;
+        // repo_id derives from the workspace root's basename. S3
+        // workspaces have synthetic `s3://bucket/prefix` roots — the
+        // last path segment is acceptable here. Mirrors what
+        // `cozo::populate` used to derive.
+        let repo_id = self
+            .workspace
+            .root()
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
 
         let workspace = self.workspace;
         let sym_q = Arc::clone(&symbol_queries);
@@ -237,10 +266,13 @@ impl<'a> GraphBuilder<'a> {
                     absorb_file_data(
                         &mut graph,
                         data,
+                        workspace,
+                        &repo_id,
                         &mut deferred_imports,
                         &mut deferred_calls,
                         &mut file_symbols_by_name,
                         &mut file_exports_by_name,
+                        &mut file_known_spurs,
                         &mut stream_writer,
                     );
                     files_since_flush += 1;
@@ -272,84 +304,97 @@ impl<'a> GraphBuilder<'a> {
 
         let _resolve_span = info_span!("graph.resolve_refs").entered();
 
-        // Resolve deferred imports now that every File node exists. Track
-        // each resolved import in `file_imports` so the call resolver below
-        // can scope name lookups to the caller's import set.
+        // Resolve deferred imports now that every file has been
+        // absorbed. Emit `*imports` Cozo rows directly; the in-memory
+        // `file_imports` map only exists long enough for the call
+        // resolver to scope its lookups.
         let mut file_imports: HashMap<Spur, Vec<Spur>> = HashMap::new();
+        let mut imports_emitted: usize = 0;
         for di in deferred_imports {
             let Some(from_spur) = graph.symbols.get(&di.from_file_path) else {
                 continue;
             };
-            let Some(&from_file_idx) = graph.file_nodes.get(&from_spur) else {
+            if !file_known_spurs.contains(&from_spur) {
                 continue;
-            };
+            }
             if let Some(resolved) =
                 resolve_import_to_file(&di.from_file_path, &di.import, di.language, &known_files)
                 && let Some(to_spur) = graph.symbols.get(&resolved)
-                && let Some(&to_file_idx) = graph.file_nodes.get(&to_spur)
-                && from_file_idx != to_file_idx
+                && file_known_spurs.contains(&to_spur)
+                && from_spur != to_spur
             {
-                graph.add_edge(from_file_idx, to_file_idx, EdgeWeight::Imports);
+                stream_writer.push_imports(&di.from_file_path, &resolved);
                 file_imports.entry(from_spur).or_default().push(to_spur);
+                imports_emitted += 1;
             }
         }
 
-        // Resolve deferred Calls edges with import-scoped name lookup:
+        // Resolve deferred Calls with import-scoped name lookup:
         //
         //   - Same-file: any symbol in the caller's file with a matching name.
         //   - Cross-file: only symbols whose file the caller imports, and
         //     which are themselves exported.
         //
         // Drops the global name-collision noise that the old resolver
-        // produced (one Calls edge per same-named symbol anywhere in the
-        // workspace). Method calls and otherwise-unresolved names simply
-        // don't get a cross-file edge — that's the intended behaviour.
-        let mut targets: Vec<NodeIndex> = Vec::new();
+        // produced (one Calls row per same-named symbol anywhere in
+        // the workspace). Method calls and otherwise-unresolved names
+        // simply don't get a cross-file edge — that's the intended
+        // behaviour. Emits `*calls` Cozo rows directly; Cozo's `:put`
+        // semantics dedupe on the (caller_id, callee_id) key, matching
+        // the pre-Slice-B in-graph dedup.
+        let mut targets: Vec<AbsorbedSymbol> = Vec::new();
+        let mut calls_emitted: usize = 0;
         for dc in deferred_calls {
             targets.clear();
 
             if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur)) {
-                targets.extend(syms.iter().copied());
+                targets.extend(syms.iter().cloned());
             }
 
             if let Some(imp_files) = file_imports.get(&dc.caller_file_spur) {
                 for &imp_file in imp_files {
                     if let Some(syms) = file_exports_by_name.get(&(imp_file, dc.callee_spur)) {
-                        targets.extend(syms.iter().copied());
+                        targets.extend(syms.iter().cloned());
                     }
                 }
             }
 
             // Filter out non-callable targets (parameters, locals, types) —
             // a name match on a parameter or `let` binding is never a real
-            // call edge. Constants are kept because some Rust constants
-            // can be function pointers, but the heuristic stays
-            // intentionally conservative.
-            targets.retain(|&idx| {
+            // call edge.
+            targets.retain(|s| {
                 matches!(
-                    &graph.nodes[idx],
-                    NodeWeight::Symbol {
-                        kind: SymbolKind::Function
-                            | SymbolKind::Method
-                            | SymbolKind::ArrowFunction
-                            | SymbolKind::Macro,
-                        ..
-                    }
+                    s.kind,
+                    SymbolKind::Function
+                        | SymbolKind::Method
+                        | SymbolKind::ArrowFunction
+                        | SymbolKind::Macro
                 )
             });
-            targets.sort_unstable();
-            targets.dedup();
-            for &target_idx in &targets {
-                if target_idx != dc.caller_idx {
-                    graph.add_edge(dc.caller_idx, target_idx, EdgeWeight::Calls);
+            targets.sort_by(|a, b| a.id.cmp(&b.id));
+            targets.dedup_by(|a, b| a.id == b.id);
+            for t in &targets {
+                if t.id != dc.caller_id {
+                    stream_writer.push_calls(
+                        &dc.caller_id,
+                        &t.id,
+                        &dc.site_file,
+                        dc.site_start_byte as i64,
+                        dc.site_end_byte as i64,
+                        true,
+                    );
+                    calls_emitted += 1;
                 }
             }
         }
 
-        let edge_count: usize = graph.out_edges.iter().map(|v| v.len()).sum();
+        // Flush whatever the resolver added.
+        stream_writer.flush(store)?;
+
         info!(
-            nodes = graph.nodes.len(),
-            edges = edge_count,
+            files = file_known_spurs.len(),
+            imports = imports_emitted,
+            calls = calls_emitted,
             "graph build complete"
         );
         Ok(graph)
@@ -382,7 +427,6 @@ fn parse_one_file(
     };
 
     let call_node_types = call_expression_types(lang);
-    let is_test = crate::classify::is_test_file(rel_path);
     let mut call_sites = Vec::new();
     for sym in &symbols {
         // Only function-like symbols can be call-site owners. Parameters
@@ -398,11 +442,6 @@ fn parse_one_file(
         ) {
             continue;
         }
-        let enclosing_test = if is_test && is_test_function_name(&sym.name) {
-            Some(sym.name.clone())
-        } else {
-            None
-        };
         collect_calls_in_range(
             tree.root_node(),
             source.as_bytes(),
@@ -412,7 +451,6 @@ fn parse_one_file(
             lang,
             rel_path,
             sym.start_line,
-            enclosing_test.as_deref(),
             &mut call_sites,
         );
     }
@@ -455,10 +493,13 @@ fn parse_one_file(
 fn absorb_file_data(
     graph: &mut CodeGraph,
     data: FileGraphData,
+    workspace: &Workspace,
+    repo_id: &str,
     deferred_imports: &mut Vec<DeferredImport>,
     deferred_calls: &mut Vec<DeferredCall>,
-    file_symbols_by_name: &mut HashMap<(Spur, Spur), Vec<NodeIndex>>,
-    file_exports_by_name: &mut HashMap<(Spur, Spur), Vec<NodeIndex>>,
+    file_symbols_by_name: &mut HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
+    file_exports_by_name: &mut HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
+    file_known_spurs: &mut HashSet<Spur>,
     stream_writer: &mut CozoWriter,
 ) {
     let FileGraphData {
@@ -478,66 +519,67 @@ fn absorb_file_data(
         references,
     } = data;
 
-    // File node
     let path_spur = graph.symbols.intern(&path);
-    let file_idx = graph.add_node(NodeWeight::File {
-        path: path_spur,
-        language,
-    });
-    graph.file_nodes.insert(path_spur, file_idx);
+    file_known_spurs.insert(path_spur);
+    let language_str = language.as_str();
 
-    // Pass 1: allocate Symbol nodes in original extraction order. This
-    // preserves the baseline behaviour where `symbol_nodes[(f, line)]`
-    // resolves to whichever same-line symbol the extractor emitted *last*
-    // — existing call-site attribution and baseline snapshot counts
-    // depend on that mapping. `qualified_name` defaults to the leaf name
-    // here; pass 2 rewrites it with the parent-chain join.
-    let mut sym_indices: Vec<NodeIndex> = Vec::with_capacity(symbols.len());
+    // *file row + classification + nolints. These used to be emitted by
+    // `from_code_graph::emit_node` for `NodeWeight::File`; folding them
+    // into absorb lets the File "node" exist only as a Cozo row.
+    stream_writer.push_file(&path, language_str, repo_id);
+    let src_for_marker = workspace.read_file(&path);
+    let is_generated = src_for_marker
+        .as_ref()
+        .map(|src| is_generated_marker(src))
+        .unwrap_or(false);
+    stream_writer.push_file_classification(
+        &path,
+        is_test_file(&path),
+        is_barrel_file(&path),
+        is_generated,
+    );
+    if let Some(src) = src_for_marker {
+        extract_nolints(&path, &src, stream_writer);
+    }
+
+    // Pass 1: compute symbol IDs + populate file-local lookup maps.
+    // `local_id_by_line` mirrors the old `graph.symbol_nodes` map
+    // semantics — same-line collisions keep whichever symbol the
+    // extractor emitted last, so call-site attribution matches the
+    // pre-Slice-B baseline.
+    let mut symbol_ids: Vec<String> = Vec::with_capacity(symbols.len());
+    let mut local_id_by_line: HashMap<u32, String> = HashMap::with_capacity(symbols.len());
     for sym in &symbols {
+        let id = symbol_id(
+            &sym.file_path,
+            sym.start_line,
+            sym.start_column,
+            &sym.name,
+            sym.kind,
+        );
         let sym_file_spur = graph.symbols.intern(&sym.file_path);
         let sym_name_spur = graph.symbols.intern(&sym.name);
-        let sym_idx = graph.add_node(NodeWeight::Symbol {
-            name: sym_name_spur,
-            qualified_name: sym_name_spur,
+        let absorbed = AbsorbedSymbol {
+            id: id.clone(),
             kind: sym.kind,
-            file_path: sym_file_spur,
-            start_byte: sym.start_byte,
-            end_byte: sym.end_byte,
-            start_line: sym.start_line,
-            start_col: sym.start_column,
-            end_line: sym.end_line,
-            end_col: sym.end_column,
-            exported: sym.is_exported,
-            visibility: sym.visibility,
-            is_async: sym.is_async,
-            is_static: sym.is_static,
-            is_abstract: sym.is_abstract,
-            is_mutable: sym.is_mutable,
-        });
-        graph.add_edge(sym_idx, file_idx, EdgeWeight::DefinedIn);
-        graph.add_edge(file_idx, sym_idx, EdgeWeight::Contains);
-        if sym.is_exported {
-            graph.add_edge(file_idx, sym_idx, EdgeWeight::Exports);
-        }
-        graph
-            .symbol_nodes
-            .insert((sym_file_spur, sym.start_line), sym_idx);
-        graph
-            .symbols_by_name
-            .entry(sym_name_spur)
-            .or_default()
-            .push(sym_idx);
+        };
         file_symbols_by_name
             .entry((sym_file_spur, sym_name_spur))
             .or_default()
-            .push(sym_idx);
+            .push(absorbed.clone());
         if sym.is_exported {
             file_exports_by_name
                 .entry((sym_file_spur, sym_name_spur))
                 .or_default()
-                .push(sym_idx);
+                .push(absorbed);
         }
-        sym_indices.push(sym_idx);
+        graph
+            .symbol_ids_by_name
+            .entry((sym.file_path.clone(), sym.name.clone()))
+            .or_default()
+            .push(id.clone());
+        local_id_by_line.insert(sym.start_line, id.clone());
+        symbol_ids.push(id);
     }
 
     // Pass 2: derive parent-symbol containment via byte ranges and
@@ -573,8 +615,7 @@ fn absorb_file_data(
         open.push((i, sym.end_byte));
     }
 
-    // Compute qualified_name in outer-first order and add Symbol→Symbol
-    // Contains edges between each child and its parent.
+    // Compute qualified_name in outer-first order.
     let mut qnames: Vec<String> = vec![String::new(); symbols.len()];
     for &i in &order {
         let sym = &symbols[i];
@@ -582,20 +623,45 @@ fn absorb_file_data(
             Some(p) => format!("{}{}{}", &qnames[p], sep, sym.name),
             None => sym.name.clone(),
         };
-        if let Some(p) = parent_of[i] {
-            graph.add_edge(sym_indices[p], sym_indices[i], EdgeWeight::Contains);
-        }
     }
 
-    // Patch each symbol node's qualified_name spur.
-    for (i, qname) in qnames.into_iter().enumerate() {
-        let qname_spur = graph.symbols.intern(&qname);
-        if let NodeWeight::Symbol { qualified_name, .. } = &mut graph.nodes[sym_indices[i]] {
-            *qualified_name = qname_spur;
-        }
+    // Stream *symbol + *span rows. parent_id is the parent symbol's
+    // stringly id when one exists — pre-Slice-B this was looked up by
+    // walking the Contains edge during populate; computing it inline
+    // here removes the need for the adjacency lists.
+    for (i, sym) in symbols.iter().enumerate() {
+        let parent_id = parent_of[i].map(|p| symbol_ids[p].as_str());
+        stream_writer.push_symbol(
+            &symbol_ids[i],
+            sym.kind.to_string().as_str(),
+            &sym.name,
+            &qnames[i],
+            language_str,
+            sym.visibility.as_str(),
+            &sym.file_path,
+            parent_id,
+            sym.is_async,
+            sym.is_static,
+            sym.is_abstract,
+            sym.is_mutable,
+            sym.is_exported,
+        );
+        stream_writer.push_span(
+            &symbol_ids[i],
+            &sym.file_path,
+            sym.start_byte as i64,
+            sym.end_byte as i64,
+            sym.start_line as i64,
+            sym.end_line as i64,
+            sym.start_column as i64,
+            sym.end_column as i64,
+        );
     }
 
-    // Stash comments per file so the Cozo writer can emit `comment` rows.
+    // Stash comments per file so the populate phase can emit `comment`
+    // rows. (Comments still need cross-file symbol-id lookup via
+    // `graph.symbol_ids_by_name`, so eviction is deferred — Slice A
+    // proved it's not the dominant memory term.)
     if !comments.is_empty() {
         graph
             .comments
@@ -763,47 +829,26 @@ fn absorb_file_data(
         );
     }
 
-    // CallSite nodes + Contains edges. Calls edges are deferred until
-    // every Symbol is registered.
+    // Defer Calls resolution until every file is absorbed. The original
+    // pipeline materialised a `NodeWeight::CallSite` here and walked
+    // the adjacency lists later; we now keep just the caller_id + site
+    // location, which is everything the post-absorb resolver needs to
+    // emit `*calls` rows. CallSite has no Cozo relation of its own —
+    // its location folds into the `calls` row's
+    // call_site_file/start_byte/end_byte fields.
     for cs in call_sites {
-        let caller_file_spur = graph.symbols.intern(&cs.caller_file);
-        let caller_key = (caller_file_spur, cs.caller_symbol_line);
-        let caller_idx = graph.symbol_nodes.get(&caller_key).copied();
-
-        let callee_spur = graph.symbols.intern(&cs.callee_name);
-        let arg_literal_spurs: Option<Box<[Spur]>> = if cs.arg_literals.is_empty() {
-            None
-        } else {
-            Some(
-                cs.arg_literals
-                    .iter()
-                    .map(|s| graph.symbols.intern(s))
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            )
+        let Some(caller_id) = local_id_by_line.get(&cs.caller_symbol_line).cloned() else {
+            continue;
         };
-        let enclosing_spur = cs
-            .enclosing_test_name
-            .as_deref()
-            .map(|s| graph.symbols.intern(s));
-        let callsite_idx = graph.add_node(NodeWeight::CallSite {
-            name: callee_spur,
-            file_path: caller_file_spur,
-            line: cs.line,
-            start_byte: cs.start_byte,
-            end_byte: cs.end_byte,
-            arg_literals: arg_literal_spurs,
-            enclosing_test_name: enclosing_spur,
-            caller_symbol: caller_idx,
+        let callee_spur = graph.symbols.intern(&cs.callee_name);
+        deferred_calls.push(DeferredCall {
+            caller_id,
+            caller_file_spur: path_spur,
+            callee_spur,
+            site_file: cs.caller_file,
+            site_start_byte: cs.start_byte,
+            site_end_byte: cs.end_byte,
         });
-        if let Some(caller_idx) = caller_idx {
-            graph.add_edge(caller_idx, callsite_idx, EdgeWeight::Contains);
-            deferred_calls.push(DeferredCall {
-                caller_idx,
-                caller_file_spur,
-                callee_spur,
-            });
-        }
     }
 }
 
@@ -865,7 +910,6 @@ fn call_expression_types(language: Language) -> Vec<&'static str> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn collect_calls_in_range(
     node: tree_sitter::Node,
     source: &[u8],
@@ -875,7 +919,6 @@ fn collect_calls_in_range(
     language: Language,
     file_path: &str,
     caller_symbol_line: u32,
-    enclosing_test_name: Option<&str>,
     out: &mut Vec<CallSiteData>,
 ) {
     let node_start = node.start_position().row as u32 + 1;
@@ -888,17 +931,12 @@ fn collect_calls_in_range(
     if call_types.contains(&node.kind())
         && let Some(name) = extract_callee_name(node, source, language)
     {
-        let line = node.start_position().row as u32 + 1;
-        let arg_literals = extract_call_args(node, source);
         out.push(CallSiteData {
             callee_name: name,
             caller_file: file_path.to_string(),
             caller_symbol_line,
-            line,
             start_byte: node.start_byte() as u32,
             end_byte: node.end_byte() as u32,
-            arg_literals,
-            enclosing_test_name: enclosing_test_name.map(|s| s.to_string()),
         });
     }
 
@@ -913,88 +951,9 @@ fn collect_calls_in_range(
             language,
             file_path,
             caller_symbol_line,
-            enclosing_test_name,
             out,
         );
     }
-}
-
-fn extract_call_args(node: tree_sitter::Node, source: &[u8]) -> Vec<String> {
-    let args_node = match node
-        .child_by_field_name("arguments")
-        .or_else(|| node.child_by_field_name("argument_list"))
-    {
-        Some(n) => n,
-        None => return Vec::new(),
-    };
-
-    let mut out = Vec::new();
-    let mut cursor = args_node.walk();
-    for child in args_node.named_children(&mut cursor) {
-        if !is_literal_kind(child.kind()) {
-            continue;
-        }
-        if let Ok(text) = child.utf8_text(source) {
-            out.push(strip_quotes(text).to_string());
-        }
-    }
-    out
-}
-
-fn is_literal_kind(kind: &str) -> bool {
-    matches!(
-        kind,
-        "string"
-            | "string_literal"
-            | "interpreted_string_literal"
-            | "raw_string_literal"
-            | "number"
-            | "number_literal"
-            | "integer"
-            | "integer_literal"
-            | "float"
-            | "float_literal"
-            | "decimal_integer_literal"
-            | "decimal_floating_point_literal"
-            | "true"
-            | "false"
-            | "boolean"
-            | "boolean_literal"
-            | "true_lit"
-            | "false_lit"
-            | "null"
-            | "null_literal"
-            | "nil"
-            | "none"
-            | "encapsed_string"
-            | "shell_command_string"
-    )
-}
-
-fn strip_quotes(s: &str) -> &str {
-    let bytes = s.as_bytes();
-    if bytes.len() >= 2 {
-        let first = bytes[0];
-        let last = bytes[bytes.len() - 1];
-        if (first == b'"' || first == b'\'' || first == b'`') && last == first {
-            return &s[1..s.len() - 1];
-        }
-    }
-    s
-}
-
-/// Heuristic: does this symbol name look like a test function?
-fn is_test_function_name(name: &str) -> bool {
-    if name.starts_with("test_") || name.starts_with("Test") || name.ends_with("_test") {
-        return true;
-    }
-    if name.ends_with("Test") && name.len() > 4 {
-        return true;
-    }
-    if name.starts_with("it ") || name.starts_with("describe ") {
-        return true;
-    }
-    false
 }
 
 fn extract_callee_name(
@@ -1029,149 +988,67 @@ fn extract_callee_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cozo::CozoStore;
     use crate::storage::workspace::Workspace;
+    use std::collections::BTreeMap;
 
-    fn build_graph(dir: &std::path::Path, langs: &[Language]) -> CodeGraph {
+    /// Build the workspace into a fresh in-memory store. Tests query
+    /// the resulting Cozo relations directly — `CodeGraph` no longer
+    /// carries the per-symbol/per-edge inspection points the original
+    /// tests used.
+    fn build_into_store(dir: &std::path::Path, langs: &[Language]) -> CozoStore {
         let ws = Workspace::load(dir, langs, None).unwrap();
-        let store = crate::cozo::CozoStore::open_in_memory().unwrap();
-        GraphBuilder::new(&ws, langs).build(&store).unwrap()
+        let store = CozoStore::open_in_memory().unwrap();
+        GraphBuilder::new(&ws, langs).build(&store).unwrap();
+        store
     }
 
-    fn collect_callsites(graph: &CodeGraph) -> Vec<&NodeWeight> {
-        graph
-            .nodes
-            .iter()
-            .filter(|nw| matches!(nw, NodeWeight::CallSite { .. }))
+    fn count_calls_total(store: &CozoStore) -> i64 {
+        let rows = store
+            .run_query(
+                "?[count(c)] := *calls{caller_id: c}",
+                BTreeMap::new(),
+            )
+            .unwrap();
+        match rows.rows.first().and_then(|r| r.first()) {
+            Some(cozo::DataValue::Num(cozo::Num::Int(n))) => *n,
+            _ => 0,
+        }
+    }
+
+    fn calls_from(store: &CozoStore, caller_name: &str) -> Vec<(String, String)> {
+        let rows = store
+            .run_query(
+                "?[callee_name, callee_file] := \
+                 *symbol{id: caller_id, name: $name}, \
+                 *calls{caller_id, callee_id}, \
+                 *symbol{id: callee_id, name: callee_name, file_path: callee_file}",
+                BTreeMap::from([("name".to_string(), cozo::DataValue::from(caller_name))]),
+            )
+            .unwrap();
+        rows.rows
+            .into_iter()
+            .filter_map(|r| {
+                let mut it = r.into_iter();
+                let callee_name = to_str(&it.next()?)?;
+                let callee_file = to_str(&it.next()?)?;
+                Some((callee_name, callee_file))
+            })
             .collect()
     }
 
-    #[test]
-    fn test_callsite_node_emitted_per_call_expression() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("a.rs"),
-            r#"fn foo() { bar(); baz(); qux(); }
-fn bar() {}
-fn baz() {}
-fn qux() {}
-"#,
-        )
-        .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
-        let callsites = collect_callsites(&graph);
-        assert!(
-            callsites.len() >= 3,
-            "expected >= 3 callsites, got {}",
-            callsites.len()
-        );
-    }
-
-    #[test]
-    fn test_callsite_arg_literals_strings() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("a.rs"),
-            r#"fn foo() { bar("hello", 42); }
-fn bar(_a: &str, _b: i32) {}
-"#,
-        )
-        .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
-        let bar_call = graph
-            .nodes
-            .iter()
-            .find_map(|nw| match nw {
-                NodeWeight::CallSite {
-                    name, arg_literals, ..
-                } if graph.symbols.resolve(*name) == "bar" => Some(arg_literals.clone()),
-                _ => None,
-            })
-            .expect("bar callsite");
-        let slice = bar_call.expect("bar should have arg literals");
-        let resolved: Vec<&str> = slice.iter().map(|s| graph.symbols.resolve(*s)).collect();
-        assert!(
-            resolved.contains(&"hello"),
-            "expected hello in {:?}",
-            resolved
-        );
-        assert!(resolved.contains(&"42"), "expected 42 in {:?}", resolved);
-    }
-
-    #[test]
-    fn test_callsite_skips_non_literal_args() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("a.rs"),
-            r#"fn foo(x: i32, y: i32) { bar(x + y); }
-fn bar(_z: i32) {}
-"#,
-        )
-        .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
-        let bar_call = graph
-            .nodes
-            .iter()
-            .find_map(|nw| match nw {
-                NodeWeight::CallSite {
-                    name, arg_literals, ..
-                } if graph.symbols.resolve(*name) == "bar" => Some(arg_literals.clone()),
-                _ => None,
-            })
-            .expect("bar callsite");
-        assert!(
-            bar_call.is_none(),
-            "expected no literals, got {:?}",
-            bar_call
-        );
-    }
-
-    #[test]
-    fn test_callsite_enclosing_test_name_python() {
-        let dir = tempfile::tempdir().unwrap();
-        let tests = dir.path().join("tests");
-        std::fs::create_dir_all(&tests).unwrap();
-        std::fs::write(
-            tests.join("test_login.py"),
-            r#"def test_login():
-    user_login("alice")
-
-def user_login(name):
-    pass
-"#,
-        )
-        .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Python]);
-        let cs = graph
-            .nodes
-            .iter()
-            .find_map(|nw| match nw {
-                NodeWeight::CallSite {
-                    name,
-                    enclosing_test_name,
-                    ..
-                } if graph.symbols.resolve(*name) == "user_login" => {
-                    Some(enclosing_test_name.map(|s| graph.symbols.resolve(s).to_string()))
-                }
-                _ => None,
-            })
-            .expect("user_login callsite");
-        assert_eq!(cs.as_deref(), Some("test_login"));
-    }
-
-    fn count_calls_edges(graph: &CodeGraph) -> usize {
-        graph
-            .out_edges
-            .iter()
-            .flat_map(|v| v.iter())
-            .filter(|(_, w)| matches!(w, EdgeWeight::Calls))
-            .count()
+    fn to_str(v: &cozo::DataValue) -> Option<String> {
+        match v {
+            cozo::DataValue::Str(s) => Some(s.to_string()),
+            _ => None,
+        }
     }
 
     #[test]
     fn test_call_resolution_scoped_to_imports_same_name_different_files() {
         // Two files each define `init`; a third file calls `init` and
-        // imports only one of them. The call must resolve to the imported
-        // `init` and not the unrelated one.
+        // imports only one of them. The Calls row must resolve to the
+        // imported `init` and not the unrelated one.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.rs"), "pub fn init() {}\n").unwrap();
         std::fs::write(dir.path().join("b.rs"), "pub fn init() {}\n").unwrap();
@@ -1180,27 +1057,17 @@ def user_login(name):
             "use self::a::init;\nfn run() { init(); }\n",
         )
         .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let store = build_into_store(dir.path(), &[Language::Rust]);
 
-        // Exactly one Calls edge: c.rs::run -> a.rs::init. No b.rs::init edge.
-        let run_idx = graph.find_symbols_by_name("run")[0];
-        let calls_from_run: Vec<&NodeWeight> = graph.out_edges[run_idx]
-            .iter()
-            .filter(|(_, w)| matches!(w, EdgeWeight::Calls))
-            .map(|(t, _)| &graph.nodes[*t])
-            .collect();
+        let calls = calls_from(&store, "run");
         assert_eq!(
-            calls_from_run.len(),
+            calls.len(),
             1,
-            "expected 1 Calls edge from run, got {}: {:?}",
-            calls_from_run.len(),
-            calls_from_run
+            "expected exactly 1 Calls row from run, got {:?}",
+            calls
         );
-        let target_file = match calls_from_run[0] {
-            NodeWeight::Symbol { file_path, .. } => graph.symbols.resolve(*file_path),
-            _ => panic!("Calls edge target was not a Symbol"),
-        };
-        assert_eq!(target_file, "a.rs");
+        assert_eq!(calls[0].0, "init");
+        assert_eq!(calls[0].1, "a.rs");
     }
 
     #[test]
@@ -1211,11 +1078,11 @@ def user_login(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.rs"), "fn alpha() { beta(); }\n").unwrap();
         std::fs::write(dir.path().join("b.rs"), "pub fn beta() {}\n").unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let store = build_into_store(dir.path(), &[Language::Rust]);
         assert_eq!(
-            count_calls_edges(&graph),
+            count_calls_total(&store),
             0,
-            "expected 0 Calls edges without an import"
+            "expected 0 Calls rows without an import"
         );
     }
 
@@ -1230,11 +1097,11 @@ def user_login(name):
         )
         .unwrap();
         std::fs::write(dir.path().join("b.rs"), "fn beta() {}\n").unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let store = build_into_store(dir.path(), &[Language::Rust]);
         assert_eq!(
-            count_calls_edges(&graph),
+            count_calls_total(&store),
             0,
-            "expected 0 Calls edges when target is not exported"
+            "expected 0 Calls rows when target is not exported"
         );
     }
 
@@ -1248,41 +1115,10 @@ def user_login(name):
             "fn caller() { callee(); }\nfn callee() {}\n",
         )
         .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Rust]);
+        let store = build_into_store(dir.path(), &[Language::Rust]);
         assert!(
-            count_calls_edges(&graph) >= 1,
-            "expected at least 1 same-file Calls edge"
+            count_calls_total(&store) >= 1,
+            "expected at least 1 same-file Calls row"
         );
-    }
-
-    #[test]
-    fn test_callsite_enclosing_test_name_none_in_prod_code() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("prod.py"),
-            r#"def login(name):
-    user_login(name)
-
-def user_login(name):
-    pass
-"#,
-        )
-        .unwrap();
-        let graph = build_graph(dir.path(), &[Language::Python]);
-        let cs = graph
-            .nodes
-            .iter()
-            .find_map(|nw| match nw {
-                NodeWeight::CallSite {
-                    name,
-                    enclosing_test_name,
-                    ..
-                } if graph.symbols.resolve(*name) == "user_login" => {
-                    Some(enclosing_test_name.map(|s| graph.symbols.resolve(s).to_string()))
-                }
-                _ => None,
-            })
-            .expect("user_login callsite");
-        assert_eq!(cs, None);
     }
 }

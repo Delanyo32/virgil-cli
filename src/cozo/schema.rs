@@ -3,10 +3,14 @@
 //! Defined in `docs/virgil-datalog-schema.md`. The shapes here are the
 //! authority — any divergence between this file and the doc is a bug.
 //!
-//! Phase 1 (this file) lands the relations with String IDs, the new
-//! `references` shape (match_index key, nullable `referent_id`), and the
-//! `field_type` relation. Per-language `*_attrs` tables are declared empty;
-//! they get populated in Phase 4 (issue #15).
+//! Phase 1 (this file) lands the relations with String IDs and the
+//! `field_type` relation. Per-language `*_attrs` tables are declared
+//! empty; they get populated in Phase 4 (issue #15).
+//!
+//! The eager Cozoscript reference resolver and its materialised
+//! `references` relation were removed (schema v6) — callers that need
+//! resolved references run their own Cozoscript over the raw
+//! `occurrence`/`scope`/`binding` facts at query time.
 
 /// All `:create` statements, applied in order when a fresh store is opened.
 pub fn create_statements() -> &'static [&'static str] {
@@ -28,13 +32,10 @@ pub fn create_statements() -> &'static [&'static str] {
         ":create calls {caller_id: String, callee_id: String => \
             call_site_file: String, call_site_start_byte: Int, \
             call_site_end_byte: Int, is_direct: Bool}",
-        ":create references {referrer_id: String, site_file: String, \
-            site_start_byte: Int, match_index: Int => \
-            referent_id: String?, ref_kind: String}",
         // ─── ADR-0005 fact-emission relations (issue #16) ──────────────────
-        // Every identifier occurrence in source code. Resolution turns each
-        // occurrence into zero-or-more `references` rows via scope + import
-        // walking (see docs/resolution.md).
+        // Raw facts emitted by per-language extractors. Callers that
+        // want resolved references join occurrence × scope × binding ×
+        // imports themselves in Cozoscript at query time.
         ":create occurrence {id: String => \
             name: String, file_path: String, \
             start_byte: Int, end_byte: Int, \
@@ -46,7 +47,7 @@ pub fn create_statements() -> &'static [&'static str] {
             parent_id: String?, file_path: String, kind: String, \
             start_byte: Int, end_byte: Int}",
         // name → symbol_id binding within a specific scope. Shadowing
-        // permitted; the resolver picks by `start_byte` order.
+        // is permitted; downstream resolution picks by `start_byte` order.
         ":create binding {scope_id: String, name: String, start_byte: Int => \
             symbol_id: String?, binding_kind: String}",
         ":create extends {child_id: String, parent_id: String}",
@@ -114,12 +115,12 @@ pub fn index_statements() -> &'static [&'static str] {
         "::index create symbol:by_qname {qualified_name}",
         "::index create symbol:by_file {file_path}",
         "::index create calls:by_callee {callee_id}",
-        "::index create references:by_referent {referent_id}",
         "::index create imports:by_imported {imported_id}",
         "::index create imports:by_importer {importer_file_id}",
         "::index create comment:by_file {file_path}",
         "::index create comment:by_documents {documents_id}",
-        // Issue #16 — resolver-critical indices per ADR-0005.
+        // Issue #16 — indices for callers writing their own resolution
+        // Cozoscript against the raw occurrence/scope/binding facts.
         "::index create occurrence:by_name {name}",
         "::index create binding:by_name {name}",
         "::index create scope:by_file {file_path}",

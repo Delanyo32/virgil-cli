@@ -29,18 +29,17 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
 
 - `src/cozo/` — fact store wrapper
   - `schema.rs` — `:create` statements for the cross-function graph + `file_classification` + `nolint`
-  - `store.rs` — `CozoStore` thin wrapper over `cozo::DbInstance` (in-memory; on-disk lands in the persistence issue)
-  - `writer.rs` — `CozoWriter` batched row accumulator (~10k rows per transaction)
-  - `from_code_graph.rs` — walks a finished `CodeGraph` and emits the equivalent facts
-  - `resolver.rs` — staged Cozoscript resolver that materialises the `references` relation from `occurrence` / `scope` / `binding` / `imports` facts (see "Reference resolver" below)
+  - `store.rs` — `CozoStore` thin wrapper over `cozo::DbInstance` (SQLite-backed via `cache_dir_for`)
+  - `writer.rs` — `CozoWriter` batched row accumulator (~10k rows per transaction); streamed during `GraphBuilder::build`
+  - `from_code_graph.rs` — tail of the build pipeline; emits `comment` rows and the type/inheritance/throws/field_type rows that still need cross-file symbol-id resolution
 - `src/queries/` — user-facing query surface
   - `runner.rs` — `run(QueryRequest)`: loads/dispatches, detects audit-shape output
   - `templates.rs` — embeds `builtin/*.cozoql` via `include_dir`
   - `rust_templates.rs` — handlers that need source access (currently only `complexity_hotspots`; `taint_paths`/`unreleased_resources` deferred until replacement CFG infra lands)
-  - `builtin/*.cozoql` — 9 pure-Cozoscript templates (find_callers/callees/cycles, find_function_by_name, find_implementations_of, find_writers_of, export_surface, import_depth, unused_symbols)
-- `src/graph/` — build-time graph data structures and builder
-  - `mod.rs` — `CodeGraph` (Vec-backed adjacency lists; no petgraph), `NodeWeight`, `EdgeWeight`, `NodeIndex = usize`
-  - `builder.rs` — `GraphBuilder` (parses workspace into `CodeGraph`); `find_node_at_line` used by `complexity_hotspots`
+  - `builtin/*.cozoql` — 7 pure-Cozoscript templates (find_callers/callees/cycles, find_function_by_name, find_implementations_of, export_surface, import_depth)
+- `src/graph/` — build-time scratch state
+  - `mod.rs` — `CodeGraph` — a slim build-time scratch struct (interner + `symbol_ids_by_name` lookup + per-file type/comment/inheritance buckets). No node Vec, no adjacency lists — `*file`/`*symbol`/`*span`/`*calls`/`*imports` rows stream straight to Cozo during absorb.
+  - `builder.rs` — `GraphBuilder` (parses workspace into the slim graph + streams rows); `find_node_at_line` used by `complexity_hotspots`
   - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.) — called on-demand from `rust_templates::complexity_hotspots`
 - `src/classify.rs` — `is_test_file`, `is_barrel_file` — used at build time to populate `file_classification` facts
 - `src/languages/` — one deep module per language, plus shared facade
@@ -125,23 +124,16 @@ Java extracts the declared `throws` clause on method/constructor declarations. C
 `CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.cozo`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold ~850ms, warm ~17ms on the reference workspace.
 
 **Schema-version bumps**
-`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically. Currently at `5` (added `imports:by_importer` index for the resolver's chain stage).
+`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically. Currently at `6` (removed the eager `references` relation and its resolver).
+
+**No eager reference resolution**
+The build path emits the raw facts only — `occurrence`, `scope`, `binding`, `imports`, `symbol`, and so on. There is no `*references` relation and no built-in resolver. The earlier staged Cozoscript resolver materialised that relation eagerly at build end; on big repos its `rsv_ancestor` transitive-closure stage dominated build memory + time (django: 4.6 GB / 5.8 min vs 465 MB / 12 s without it; 5.5k-file repos went from OOM to ~600 MB / 27 s). Removing it shifted the cost: callers that want resolved references write their own Cozoscript over the raw facts at query time, scoped to whatever demand set they actually need. See `docs/resolution.md` for the staged-resolver algorithm if you want to port it back into a per-query template.
 
 **Cozoscript rule-head gotcha**
 Cozo does not accept literals in rule-head positions. `caller[c, 1] := ...` fails to parse; bind the constant in the body instead: `caller[c, d] := d = 1, ...`. All recursive built-in templates use this pattern.
 
 **Cozo silently drops relations whose names start with `_`**
-A `:replace _foo {...}` or `:create _foo {...}` returns `Ok(status: OK)` but the relation is never actually materialised; subsequent `*_foo{}` reads fail with `Cannot find requested stored relation '_foo'`. The resolver uses an `rsv_` prefix for its temp relations to dodge this. Don't add new `_`-prefixed names.
-
-**Reference resolver is staged, not one big program**
-`src/cozo/resolver.rs` runs eight sequential Cozo programs (`ancestor`, `innermost`, `chain_eligible`, `chain`, `wildcard_eligible`, `wildcard`, `resolved`, `resolved_joined`) followed by a Rust finalize step and a Cozoscript `write_null`. Each stage writes into a `rsv_*` stored relation and is wrapped in its own `info_span!` for per-stage timing.
-
-The split exists for both diagnostic and performance reasons:
-- Cozo's planner cannot push the `imports` filter through `count(s) where s <= sym` aggregations or through `not has_*` negation. Pre-staging the eligibility set drives joins from the smallest input (`imports`, often <0.1% of bindings).
-- `chain_eligible` and `wildcard_eligible` fold `imports` in upfront — without this, the chain stage runs full `occurrence × scope × binding` expansion before the import filter applies (20+ minutes on a 5k-file workload).
-
-**`match_index` is assigned in Rust, not Cozoscript**
-The original `count(s) where s <= sym` self-join in `:put references` did not scale (~4 min for 388k multi-candidate rows on the 5k-file workload, even after pre-staging). Cozo's optimiser can't simplify it. `finalize_resolved` in `resolver.rs` reads `rsv_resolved_joined`, groups by `occ` in Rust, sorts each group by `sym` (lex), assigns `match_index = 0..n-1`, and batch-writes via `:put references` in 10k-row chunks. The null fallback (`write_null`) stays Cozoscript — it's a single linear pass with no self-join.
+A `:replace _foo {...}` or `:create _foo {...}` returns `Ok(status: OK)` but the relation is never actually materialised; subsequent `*_foo{}` reads fail with `Cannot find requested stored relation '_foo'`. Don't add new `_`-prefixed names — prefix scratch relations with `rsv_` or similar.
 
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills

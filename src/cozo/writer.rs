@@ -6,8 +6,8 @@
 //!
 //! Phase 1: all IDs are `String` per [ADR-0002]. Per-language `*_attrs`
 //! tables and the new graph relations (`extends`, `implements`,
-//! `references`, `field_type`, `type`, `comment`, `span`) have push methods
-//! and a corresponding `flush` line each; most stay empty until later
+//! `field_type`, `type`, `comment`, `span`) have push methods and a
+//! corresponding `flush` line each; most stay empty until later
 //! phases fill them.
 //!
 //! [ADR-0002]: docs/adr/0002-symbol-id-scheme.md
@@ -28,7 +28,6 @@ pub struct CozoWriter {
     symbol: Vec<Vec<DataValue>>,
     span: Vec<Vec<DataValue>>,
     calls: Vec<Vec<DataValue>>,
-    references: Vec<Vec<DataValue>>,
     extends: Vec<Vec<DataValue>>,
     implements: Vec<Vec<DataValue>>,
     imports: Vec<Vec<DataValue>>,
@@ -72,7 +71,6 @@ impl CozoWriter {
         self.symbol.append(&mut other.symbol);
         self.span.append(&mut other.span);
         self.calls.append(&mut other.calls);
-        self.references.append(&mut other.references);
         self.extends.append(&mut other.extends);
         self.implements.append(&mut other.implements);
         self.imports.append(&mut other.imports);
@@ -184,25 +182,6 @@ impl CozoWriter {
             DataValue::from(call_site_start_byte),
             DataValue::from(call_site_end_byte),
             DataValue::from(is_direct),
-        ]);
-    }
-
-    pub fn push_references(
-        &mut self,
-        referrer_id: &str,
-        site_file: &str,
-        site_start_byte: i64,
-        match_index: i64,
-        referent_id: Option<&str>,
-        ref_kind: &str,
-    ) {
-        self.references.push(vec![
-            DataValue::from(referrer_id),
-            DataValue::from(site_file),
-            DataValue::from(site_start_byte),
-            DataValue::from(match_index),
-            referent_id.map(DataValue::from).unwrap_or(DataValue::Null),
-            DataValue::from(ref_kind),
         ]);
     }
 
@@ -625,14 +604,6 @@ impl CozoWriter {
         )?;
         flush(
             store,
-            "?[referrer_id, site_file, site_start_byte, match_index, \
-              referent_id, ref_kind] <- $rows \
-             :put references {referrer_id, site_file, site_start_byte, match_index \
-                              => referent_id, ref_kind}",
-            std::mem::take(&mut self.references),
-        )?;
-        flush(
-            store,
             "?[child_id, parent_id] <- $rows :put extends {child_id, parent_id}",
             std::mem::take(&mut self.extends),
         )?;
@@ -884,26 +855,4 @@ mod tests {
         assert_eq!(calls.rows[0][1], DataValue::from("checkPassword"));
     }
 
-    #[test]
-    fn writer_handles_nullable_references() {
-        let store = CozoStore::open_in_memory().expect("open");
-        let mut writer = CozoWriter::new();
-
-        // unresolved reference → referent_id = null
-        writer.push_references("caller-1", "src/api.ts", 100, 0, None, "read");
-        // overload candidate 0
-        writer.push_references("caller-2", "src/api.ts", 200, 0, Some("target-a"), "read");
-        // overload candidate 1 (same site, different match_index)
-        writer.push_references("caller-2", "src/api.ts", 200, 1, Some("target-b"), "read");
-
-        writer.flush(&store).expect("flush");
-
-        let rows = store
-            .run_query(
-                "?[r, m, ref] := *references{referrer_id: r, match_index: m, referent_id: ref}",
-                BTreeMap::new(),
-            )
-            .expect("query");
-        assert_eq!(rows.rows.len(), 3);
-    }
 }

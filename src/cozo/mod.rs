@@ -8,7 +8,6 @@
 pub mod from_code_graph;
 pub mod incremental;
 pub mod queries;
-pub mod resolver;
 pub mod schema;
 pub mod store;
 pub mod writer;
@@ -25,17 +24,17 @@ pub use writer::CozoWriter;
 /// so a mismatch wipes the old store and triggers a clean repopulate.
 ///
 /// 3: Datalog-model migration (Phase 1). Symbol IDs become String, edge
-/// relations renamed, `references` shape changed (match_index key,
-/// nullable `referent_id`), `field_type`/`type`/`extends`/`implements`/
+/// relations renamed, `field_type`/`type`/`extends`/`implements`/
 /// `throws`/`comment` relations added, per-language `*_attrs` tables
 /// declared (empty until Phase 4).
 ///
 /// 4: Issue #16 — `occurrence`, `scope`, `binding` fact-emission
-/// relations added per ADR-0005. The `references` relation is now
-/// materialised by a Cozoscript resolver after fact emission completes,
-/// not directly by extractors.
+/// relations added per ADR-0005.
 ///
-/// 5: Added `imports:by_importer {importer_file_id}` index — the chain
-/// resolution stage was scanning the full `imports` relation per
-/// occurrence.
-pub const SCHEMA_VERSION: u32 = 5;
+/// 5: Added `imports:by_importer {importer_file_id}` index.
+///
+/// 6: Removed the `references` relation and the eager Cozoscript
+/// resolver that materialised it. The raw `occurrence`/`scope`/
+/// `binding` facts stay — callers needing resolved references run
+/// their own Cozoscript over those at query time.
+pub const SCHEMA_VERSION: u32 = 6;

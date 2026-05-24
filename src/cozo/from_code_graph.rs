@@ -17,87 +17,31 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use cozo::DataValue;
-use rayon::prelude::*;
-use tracing::{debug, info, info_span};
+use tracing::{info, info_span};
 
-use crate::classify::{is_barrel_file, is_test_file};
-use crate::graph::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight};
+use crate::graph::CodeGraph;
 use crate::models::{InheritanceKind, SymbolKind};
 use crate::storage::workspace::Workspace;
 
 use super::{CozoStore, CozoWriter};
 
-/// Walk every node and edge of `graph` and emit the corresponding Cozo
-/// rows, flushing at the end. When `workspace` is provided, also
-/// populates `file_classification`, scans each file's source for `nolint`
-/// comments, and writes `build_meta_files`.
+/// After Slice B, `*file`, `*symbol`, `*span`, `*calls`, `*imports`,
+/// `*raw_import`, `*scope`, `*binding`, `*occurrence`, and per-language
+/// `*_attrs` rows are all streamed to Cozo during
+/// `GraphBuilder::build`. This function handles only the tail work
+/// that still needs cross-file symbol-id resolution against the
+/// workspace symbol table: comments (`documents_id`), types/inheritance
+/// (parameter / returns_type / extends / implements / throws /
+/// field_type), and `build_meta_files`. Then runs the reference
+/// resolver against the now-flushed fact relations.
 pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
     info!(
-        nodes = graph.nodes.len(),
+        symbols = graph.symbol_ids_by_name.values().map(|v| v.len()).sum::<usize>(),
         files = workspace.map(|w| w.file_count()).unwrap_or(0),
         "cozo populate starting"
     );
-    // Derive repo_id from the workspace root's basename. S3 workspaces
-    // have synthetic `s3://bucket/prefix` roots — the last path segment
-    // is acceptable. Per ADR/Q9 Option A: real project names (when the
-    // user registered via `projects create <name>`) thread in here in a
-    // follow-up; Phase 1 uses path basename.
-    let repo_id = workspace
-        .and_then(|ws| {
-            ws.root()
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_default();
+    let mut writer = CozoWriter::new();
 
-    // Step 1: per-node writers, in parallel.
-    let _step1 = info_span!("cozo.populate.nodes", nodes = graph.nodes.len()).entered();
-    let node_writer: CozoWriter = (0..graph.nodes.len())
-        .into_par_iter()
-        .fold(CozoWriter::new, |mut writer, node_idx| {
-            emit_node(&mut writer, graph, workspace, &repo_id, node_idx);
-            writer
-        })
-        .reduce(CozoWriter::new, |mut a, mut b| {
-            a.merge(&mut b);
-            a
-        });
-
-    drop(_step1);
-    // Step 2: per-edge writers, in parallel.
-    let _step2 = info_span!("cozo.populate.edges").entered();
-    let edge_writer: CozoWriter = (0..graph.nodes.len())
-        .into_par_iter()
-        .fold(CozoWriter::new, |mut writer, source_idx| {
-            for (target_idx, weight) in &graph.out_edges[source_idx] {
-                emit_edge(&mut writer, graph, source_idx, *target_idx, weight);
-            }
-            writer
-        })
-        .reduce(CozoWriter::new, |mut a, mut b| {
-            a.merge(&mut b);
-            a
-        });
-
-    let mut writer = node_writer;
-    // Periodic-flush #1: drain the node-emit buffers before stacking on
-    // edge rows. Caps peak writer-buffer memory at one phase's worth
-    // (~symbol+span+file rows) instead of the sum of all phases.
-    writer.flush(store)?;
-    {
-        let mut e = edge_writer;
-        writer.merge(&mut e);
-    }
-    writer.flush(store)?;
-
-    drop(_step2);
-    // Step 3: sequential tail work, flushing between sub-phases.
-    //
-    // raw_import / attrs / scope+binding+occurrence rows are streamed
-    // to Cozo during the absorb phase (see `builder::absorb_file_data`),
-    // so this tail handles only the buckets that still need cross-file
-    // symbol-id resolution against `graph.nodes`.
     let _step3 = info_span!("cozo.populate.tail").entered();
     emit_comments(graph, &mut writer);
     writer.flush(store)?;
@@ -113,15 +57,6 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         let _fs = info_span!("cozo.populate.flush").entered();
         writer.flush(store)?;
     }
-    debug!("populate flushed; running reference resolver");
-
-    {
-        let _rs = info_span!("cozo.resolve_references").entered();
-        // Issue #16 ADR-0005: resolve `references` from the now-flushed
-        // occurrence / scope / binding / imports / symbol facts.
-        super::resolver::resolve_references(store)?;
-    }
-
     info!("cozo populate complete");
     Ok(())
 }
@@ -179,37 +114,16 @@ fn emit_types_and_hierarchy(
         }
     }
 
-    // (file_path, name) → list of symbol ids. Used to resolve
-    // parameter.function_id and inheritance.{child,parent}_id by name.
-    // The same name can appear multiple times in a file (overloads,
-    // shadowing); we keep all candidates and let the join pick.
-    let mut symbol_ids_by_name: std::collections::HashMap<(String, String), Vec<String>> =
-        std::collections::HashMap::new();
-    for node in &graph.nodes {
-        if let NodeWeight::Symbol {
-            name,
-            file_path,
-            start_line,
-            start_col,
-            kind,
-            ..
-        } = node
-        {
-            let name_s = graph.symbols.resolve(*name);
-            let file_s = graph.symbols.resolve(*file_path);
-            let id = symbol_id(file_s, *start_line, *start_col, name_s, *kind);
-            symbol_ids_by_name
-                .entry((file_s.to_string(), name_s.to_string()))
-                .or_default()
-                .push(id);
-        }
-    }
+    // (file_path, name) → list of symbol ids — pre-built during
+    // `GraphBuilder::build` from the absorbed symbol records (replaces
+    // the Slice-A-and-earlier walk of `graph.nodes`).
+    let symbol_ids_by_name = &graph.symbol_ids_by_name;
 
     // Workspace-wide (name → ids): used to resolve inheritance parents
     // that don't live in the same file as the child.
     let mut symbol_ids_by_global_name: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
-    for ((_, name), ids) in &symbol_ids_by_name {
+    for ((_, name), ids) in symbol_ids_by_name {
         symbol_ids_by_global_name
             .entry(name.clone())
             .or_default()
@@ -401,44 +315,23 @@ fn pick_symbol_id(
         .and_then(|v| v.first().cloned())
 }
 
-/// Build an index `(file_path, name) -> symbol id` for resolving
-/// `comment.documents_id` back to a concrete symbol when the comment
-/// extractor identified an associated symbol by name.
-fn build_name_index(graph: &CodeGraph) -> std::collections::HashMap<(String, String), String> {
-    let mut idx = std::collections::HashMap::new();
-    for node in &graph.nodes {
-        if let NodeWeight::Symbol {
-            name,
-            kind,
-            file_path,
-            start_line,
-            start_col,
-            ..
-        } = node
-        {
-            let name = graph.symbols.resolve(*name);
-            let fp = graph.symbols.resolve(*file_path);
-            let id = symbol_id(fp, *start_line, *start_col, name, *kind);
-            // Multiple symbols can share a name in a file; first wins for
-            // doc attachment — extractors emit the symbol the comment
-            // textually precedes, so the first match is the right one.
-            idx.entry((fp.to_string(), name.to_string())).or_insert(id);
-        }
-    }
-    idx
-}
-
 fn emit_comments(graph: &CodeGraph, writer: &mut CozoWriter) {
     if graph.comments.is_empty() {
         return;
     }
-    let name_idx = build_name_index(graph);
+    // `documents_id` resolution: first symbol with the matching name in
+    // the same file wins (extractors emit the symbol the comment
+    // textually precedes). Reuses the same `graph.symbol_ids_by_name`
+    // map built during absorb; takes `.first()` per (file, name) for
+    // the "first wins" semantics.
+    let by_name = &graph.symbol_ids_by_name;
     for (file_path, comments) in &graph.comments {
         for (i, c) in comments.iter().enumerate() {
             let id = format!("{}|{}|{}|comment", file_path, c.start_byte, i);
             let documents_id = c.associated_symbol.as_ref().and_then(|name| {
-                name_idx
+                by_name
                     .get(&(file_path.clone(), name.clone()))
+                    .and_then(|v| v.first())
                     .map(|s| s.as_str())
             });
             let is_doc = is_doc_comment(&c.kind, &c.text);
@@ -517,202 +410,11 @@ pub fn type_id(language: &str, file_path: &str, display_name: &str) -> String {
     format!("type:{h:016x}")
 }
 
-fn emit_node(
-    writer: &mut CozoWriter,
-    graph: &CodeGraph,
-    workspace: Option<&Workspace>,
-    repo_id: &str,
-    node_idx: usize,
-) {
-    match &graph.nodes[node_idx] {
-        NodeWeight::File { path, language } => {
-            let path = graph.symbols.resolve(*path);
-            writer.push_file(path, language.as_str(), repo_id);
-            if let Some(ws) = workspace {
-                let is_generated = ws
-                    .read_file(path)
-                    .map(|src| is_generated_marker(&src))
-                    .unwrap_or(false);
-                writer.push_file_classification(
-                    path,
-                    is_test_file(path),
-                    is_barrel_file(path),
-                    is_generated,
-                );
-                if let Some(src) = ws.read_file(path) {
-                    extract_nolints(path, &src, writer);
-                }
-            } else {
-                writer.push_file_classification(
-                    path,
-                    is_test_file(path),
-                    is_barrel_file(path),
-                    false,
-                );
-            }
-        }
-        NodeWeight::Symbol {
-            name,
-            qualified_name,
-            kind,
-            file_path,
-            start_byte,
-            end_byte,
-            start_line,
-            start_col,
-            end_line,
-            end_col,
-            exported,
-            visibility,
-            is_async,
-            is_static,
-            is_abstract,
-            is_mutable,
-        } => {
-            let name = graph.symbols.resolve(*name);
-            let qualified_name = graph.symbols.resolve(*qualified_name);
-            let file_path = graph.symbols.resolve(*file_path);
-            let id = symbol_id(file_path, *start_line, *start_col, name, *kind);
-            let kind_str = kind.to_string();
-            let language = workspace
-                .and_then(|ws| ws.file_language(file_path))
-                .map(|l| l.as_str())
-                .unwrap_or("");
-            let parent_id = parent_symbol_id(graph, node_idx);
-            writer.push_symbol(
-                &id,
-                &kind_str,
-                name,
-                qualified_name,
-                language,
-                visibility.as_str(),
-                file_path,
-                parent_id.as_deref(),
-                *is_async,
-                *is_static,
-                *is_abstract,
-                *is_mutable,
-                *exported,
-            );
-            writer.push_span(
-                &id,
-                file_path,
-                *start_byte as i64,
-                *end_byte as i64,
-                *start_line as i64,
-                *end_line as i64,
-                *start_col as i64,
-                *end_col as i64,
-            );
-        }
-        NodeWeight::CallSite { .. } => {
-            // CallSite nodes are no longer emitted as their own relation;
-            // their location folds into `calls` rows at edge emit time.
-        }
-    }
-}
-
-fn emit_edge(
-    writer: &mut CozoWriter,
-    graph: &CodeGraph,
-    source_idx: usize,
-    target_idx: usize,
-    weight: &EdgeWeight,
-) {
-    match weight {
-        EdgeWeight::DefinedIn => {}
-        EdgeWeight::Calls => {
-            let (Some(caller_id), Some(callee_id)) = (
-                symbol_id_of(graph, source_idx),
-                symbol_id_of(graph, target_idx),
-            ) else {
-                return;
-            };
-            let (call_site_file, call_site_start_byte, call_site_end_byte) =
-                first_call_site_location(graph, source_idx, target_idx)
-                    .unwrap_or_else(|| (String::new(), 0, 0));
-            writer.push_calls(
-                &caller_id,
-                &callee_id,
-                &call_site_file,
-                call_site_start_byte,
-                call_site_end_byte,
-                true,
-            );
-        }
-        EdgeWeight::Imports => {
-            if let (NodeWeight::File { path: from_p, .. }, NodeWeight::File { path: to_p, .. }) =
-                (&graph.nodes[source_idx], &graph.nodes[target_idx])
-            {
-                let from_path = graph.symbols.resolve(*from_p);
-                let to_path = graph.symbols.resolve(*to_p);
-                writer.push_imports(from_path, to_path);
-            }
-        }
-        EdgeWeight::Exports => {}
-        EdgeWeight::Contains => {}
-    }
-}
-
-fn symbol_id_of(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
-    let NodeWeight::Symbol {
-        name,
-        kind,
-        file_path,
-        start_line,
-        start_col,
-        ..
-    } = &graph.nodes[idx]
-    else {
-        return None;
-    };
-    let name = graph.symbols.resolve(*name);
-    let file_path = graph.symbols.resolve(*file_path);
-    Some(symbol_id(file_path, *start_line, *start_col, name, *kind))
-}
-
-fn parent_symbol_id(graph: &CodeGraph, idx: NodeIndex) -> Option<String> {
-    graph.in_edges[idx].iter().find_map(|(src, edge)| {
-        if !matches!(edge, EdgeWeight::Contains) {
-            return None;
-        }
-        symbol_id_of(graph, *src)
-    })
-}
-
-fn first_call_site_location(
-    graph: &CodeGraph,
-    caller_idx: NodeIndex,
-    callee_idx: NodeIndex,
-) -> Option<(String, i64, i64)> {
-    let NodeWeight::Symbol {
-        name: callee_name, ..
-    } = &graph.nodes[callee_idx]
-    else {
-        return None;
-    };
-    let callee_name = graph.symbols.resolve(*callee_name);
-    for (child_idx, edge) in &graph.out_edges[caller_idx] {
-        if !matches!(edge, EdgeWeight::Contains) {
-            continue;
-        }
-        if let NodeWeight::CallSite {
-            name,
-            file_path,
-            start_byte,
-            end_byte,
-            ..
-        } = &graph.nodes[*child_idx]
-        {
-            let cs_name = graph.symbols.resolve(*name);
-            if cs_name == callee_name {
-                let file_path = graph.symbols.resolve(*file_path).to_string();
-                return Some((file_path, *start_byte as i64, *end_byte as i64));
-            }
-        }
-    }
-    None
-}
+// emit_node / emit_edge / symbol_id_of / parent_symbol_id /
+// first_call_site_location were all removed in Slice B. Their roles
+// (emit *file/*symbol/*span/*imports/*calls rows) are now performed
+// by the streaming writer threaded through `GraphBuilder::build` and
+// `absorb_file_data`.
 
 /// Wipe every relation populated by [`populate`].
 pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
@@ -723,9 +425,6 @@ pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
          :rm span {entity_id, file_path}",
         "?[caller_id, callee_id] := *calls{caller_id, callee_id} \
          :rm calls {caller_id, callee_id}",
-        "?[referrer_id, site_file, site_start_byte, match_index] := \
-         *references{referrer_id, site_file, site_start_byte, match_index} \
-         :rm references {referrer_id, site_file, site_start_byte, match_index}",
         "?[child_id, parent_id] := *extends{child_id, parent_id} \
          :rm extends {child_id, parent_id}",
         "?[impl_id, interface_id] := *implements{impl_id, interface_id} \
@@ -853,7 +552,7 @@ fn record_build_meta_files(workspace: &Workspace, writer: &mut CozoWriter) {
     }
 }
 
-fn is_generated_marker(source: &str) -> bool {
+pub(crate) fn is_generated_marker(source: &str) -> bool {
     const MARKERS: &[&str] = &[
         "@generated",
         "Code generated by",
@@ -874,7 +573,7 @@ fn is_generated_marker(source: &str) -> bool {
     false
 }
 
-fn extract_nolints(file_path: &str, source: &str, writer: &mut CozoWriter) {
+pub(crate) fn extract_nolints(file_path: &str, source: &str, writer: &mut CozoWriter) {
     for (i, line) in source.lines().enumerate() {
         let line_no = (i + 1) as i64;
         if let Some(pat) = find_nolint(line) {

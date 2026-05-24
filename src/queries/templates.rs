@@ -52,9 +52,7 @@ mod tests {
                 "find_cycles".to_string(),
                 "find_function_by_name".to_string(),
                 "find_implementations_of".to_string(),
-                "find_writers_of".to_string(),
                 "import_depth".to_string(),
-                "unused_symbols".to_string(),
             ],
         );
     }
