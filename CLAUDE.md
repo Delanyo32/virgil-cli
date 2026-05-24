@@ -1,6 +1,6 @@
 # virgil-cli
 
-Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand and exposes them as CozoDB relations queryable via Cozoscript. No database to manage — projects are registered by name and parsed at query time into an in-memory Cozo store. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) via `--s3 s3://bucket/prefix`.
+Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases and exposes them as CozoDB relations queryable via Cozoscript. Projects are registered by name; first query parses the workspace and persists a SQLite-backed Cozo fact store at `~/.cache/virgil/<hash>.sqlite`. Subsequent queries warm-start in tens of milliseconds. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) via `--s3 s3://bucket/prefix`.
 
 ## Build & Run
 
@@ -92,13 +92,10 @@ Critical gotchas and design decisions that are not obvious from reading the code
 - `decorated_definition` nodes: unwrap to inner function/class; skip the bare `function_definition`/`class_definition` if its parent is a `decorated_definition`. This deduplication prevents double-reporting decorated symbols.
 
 **Call graph**
-Name-based resolution via `symbols_by_name` lookup — heuristic only, no type info. BFS with configurable depth (max 5). Replaces old `call_graph.rs`.
-
-**CallSite nodes are materialised during absorption**
-`NodeWeight::CallSite` is emitted for *every* call expression encountered inside a symbol's line range. The node carries `arg_literals` (string/number/bool literals only), `enclosing_test_name` (set when `is_test_file(path) && is_test_function_name(symbol)`), and `caller_symbol`. A `Contains` edge from the caller `Symbol` to the `CallSite` is added. Literal extraction uses a single union node-kind whitelist across grammars (`is_literal_kind` in `builder.rs`); per-language refinement is a follow-up.
+Name-based resolution scoped to the caller's imports (`file_symbols_by_name` for same-file matches; `file_exports_by_name` filtered by `file_imports` for cross-file). Heuristic only, no type info. Resolved during the post-absorb `DeferredCall` loop in `builder.rs`; emits `*calls` rows directly to Cozo.
 
 **Streaming graph builder**
-`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). Per-file work — File/Symbol/CallSite nodes plus DefinedIn/Contains/Exports edges — happens during absorption. Cross-file refs (`Imports`, `Calls` edges) are queued in `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains.
+`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). During absorption each file's `*file` / `*symbol` / `*span` / per-language `*_attrs` / `*scope` / `*binding` / `*occurrence` / `*raw_import` rows stream straight into a `CozoWriter` that flushes every `STREAM_FLUSH_EVERY_N_FILES` files. Cross-file refs (`Imports`, `Calls`) are queued as `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains; those resolve to `*imports`/`*calls` rows on the same writer. The graph keeps no per-node Vec — `CodeGraph` is just an interner, a `(file, name) -> [symbol_id]` lookup, and the per-file `comment`/`type`/`inheritance`/`throws`/`field_type` buckets that the populate tail still needs.
 
 **Local workspace is disk-backed**
 `Workspace::load` no longer reads file contents up front. It records sizes + language extensions only; `DiskFileSource` (`src/storage/file_source.rs`) reads on demand and caches in a small LRU (`lru` crate, cap 256). S3 workspaces still use the in-memory `MemoryFileSource` since fetches are batched at startup.
@@ -109,7 +106,7 @@ Name-based resolution via `symbols_by_name` lookup — heuristic only, no type i
 - Server mode (`serve`) is S3-only — no `--path` flag. Used by Virgil Live (cloud service).
 
 **Cozo store lifecycle**
-The query pipeline builds the `CodeGraph` first, then calls `cozo::populate(&store, &graph, Some(&workspace))` to materialise the cross-function relations + `file_classification` + `nolint` into an in-memory `CozoStore`. `NodeIndex::index()` is used as the monotonic `Int` id for `symbol`/`callsite` rows. On-disk persistence is a separate follow-up issue.
+The query pipeline opens (or creates) the SQLite-backed `CozoStore`, runs `GraphBuilder::build(&store)` which streams `*file`/`*symbol`/`*span`/`*calls`/`*imports`/`*scope`/`*binding`/`*occurrence`/`*raw_import`/`*_attrs` rows during absorb, then calls `cozo::populate(&store, &graph, Some(&workspace))` to emit the tail-phase rows that need cross-file symbol-id resolution (`comment`, `type`, `parameter`, `returns_type`, `extends`/`implements`, `throws`, `field_type`, `file_classification`, `nolint`, `build_meta_files`). Symbol IDs are ADR-0002 stringly ids — `path|start_line|start_col|name|kind` — computed by `from_code_graph::symbol_id`.
 
 **Rust-side template, not pure Cozoscript**
 `complexity_hotspots` lives in `src/queries/rust_templates.rs`. It escapes Cozoscript because metrics aren't materialised as facts — the handler queries `*symbol` + `*span` + `*file_classification` from Cozo, then calls `graph::metrics::compute_*` on demand for each function. All other built-in templates are pure Cozoscript.
@@ -121,7 +118,7 @@ Java extracts the declared `throws` clause on method/constructor declarations. C
 `class C: x: int = 5` (and untyped `x = 5`) produce a `kind=field` `Symbol` row in addition to whatever the type extractor emits. This is what makes `*symbol{kind: "field"} JOIN *field_type` non-empty.
 
 **Persistence + warm-start**
-`CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.cozo`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold ~850ms, warm ~17ms on the reference workspace.
+`CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.sqlite`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold-build benchmarks across reference workloads: ripgrep 100 rs / 1 s / 260 MB; tokio 778 rs / 3 s / 307 MB; django 2.9k py / 11 s / 451 MB; openclaw/extensions 5.5k ts / 27 s / 580 MB. Warm reopen ~17 ms.
 
 **Schema-version bumps**
 `SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically. Currently at `6` (removed the eager `references` relation and its resolver).

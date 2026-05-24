@@ -108,12 +108,18 @@ Templates live under `src/queries/builtin/` (pure Cozoscript) and `src/queries/r
 | `find_cycles` | — | Pairs of mutually-reachable symbols in the call graph |
 | `import_depth` | — | Longest file-import chain ending at each file |
 | `export_surface` | — | Public exported symbols whose host file is imported elsewhere |
-| `unused_symbols` | — | Exported symbols with no inbound `references` rows |
 | `find_implementations_of` | `name` | Types that `implements`/`extends` `$name` |
-| `find_writers_of` | `name` | Source locations writing to a symbol named `$name` (`references.ref_kind = "write"`) |
 | `complexity_hotspots` | `cc_threshold`, `length_threshold` | Functions exceeding cyclomatic or length thresholds; excludes tests |
 
 `complexity_hotspots` is a Rust-side handler — it queries `*symbol` + `*span` + `*file_classification` from Cozo, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
+
+### Reference resolution (on-demand)
+
+The build path emits raw `occurrence` / `scope` / `binding` / `imports` facts but does not materialise a `references` relation — resolving every occurrence in the workspace at build time dominated memory and time on large repos (10× RSS and 30× time on django alone). Callers who need resolved references write their own Cozoscript over the raw facts at query time, scoped to whatever demand set they actually need. `examples/cozoscript/` ships three starting points:
+
+- `find_writers_of.cozoql` — demand-scoped writer lookup (one `$name`).
+- `unused_symbols.cozoql` — workspace-wide, inlines the full resolver (slow on big repos).
+- `resolve_references_full.md` — the original 8-stage staged resolver, runnable as a series of programs that materialise an ad-hoc `references_ad_hoc` relation once per session.
 
 ## Audit-shape Output
 
@@ -149,8 +155,7 @@ Authored queries can reach into any of these relations. See `src/cozo/schema.rs`
 | `symbol` | `{id => kind, name, qualified_name, language, visibility, file_path, parent_id?, is_async, is_static, is_abstract, is_mutable, exported}` |
 | `span` | `{entity_id, file_path => start_byte, end_byte, start_line, end_line, start_col, end_col}` — positional metadata for symbols/comments/call sites |
 | `calls` | `{caller_id, callee_id => call_site_file, call_site_start_byte, call_site_end_byte, is_direct}` |
-| `references` | `{referrer_id, site_file, site_start_byte, match_index => referent_id?, ref_kind}` — `ref_kind` is `read`/`write`/`call`/`type_use`/`import_use`; `referent_id` is null when unresolved |
-| `occurrence` | `{id => name, file_path, start_byte, end_byte, enclosing_symbol_id?, enclosing_scope_id, occurrence_kind}` — raw identifier occurrences (input to the resolver) |
+| `occurrence` | `{id => name, file_path, start_byte, end_byte, enclosing_symbol_id?, enclosing_scope_id, occurrence_kind}` — raw identifier occurrences, input for on-demand reference resolution |
 | `scope` | `{id => parent_id?, file_path, kind, start_byte, end_byte}` — lexical scope chain |
 | `binding` | `{scope_id, name, start_byte => symbol_id?, binding_kind}` — name → symbol within a scope |
 | `extends` | `{child_id, parent_id}` |
@@ -175,7 +180,7 @@ The fact store is persisted to `~/.cache/virgil/<hash>.cozo` (a single SQLite fi
 
 - **Schema version check**: `build_meta.schema_version` is compared on open; mismatch wipes the file and triggers a clean rebuild.
 - **Warm-start check**: each file's `(size, mtime)` is compared against `build_meta_files`. Unchanged workspace → skip parsing entirely.
-- **Incremental refresh**: when files change, only the touched ones re-parse; deletions cascade-delete owned facts; cross-file edges (`edge_calls`, `edge_imports`) are re-resolved from facts.
+- **Incremental refresh**: when files change, only the touched ones re-parse; deletions cascade-delete owned facts; cross-file edges (`calls`, `imports`) are re-resolved from facts.
 - **Force a cold rebuild** with `--rebuild`.
 
 ## Examples
@@ -309,8 +314,8 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 - **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP via tree-sitter
 - **Cozoscript query language** — Datalog over a fact store
 - **Persistent fact store** — SQLite-backed Cozo store cached at `~/.cache/virgil/<hash>.cozo`
-- **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely; ~17ms on the reference workspace vs ~850ms cold
-- **Scales to multi-thousand-file codebases** — staged Cozoscript resolver + Rust-side `match_index` assignment; cold-builds a 5k-file workload in ~3 min
+- **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely; ~17 ms warm vs ~1–11 s cold on a few-thousand-file repo
+- **Scales to multi-thousand-file codebases** — streamed Cozo writes during absorb + no eager reference materialisation; cold-builds a 5.5k-file workload in ~27 s with ~580 MB peak RSS
 - **Incremental refresh** — modifying / adding / removing one file re-parses only that file and re-resolves cross-file edges
 - **Audit-shape output convention** — `(file, line, severity, pattern, message)` columns auto-format as findings
 - **Parameter binding** — `--param key=value`; user input never interpolated into the script body
