@@ -220,14 +220,18 @@ fn run_cozo_query(
     let cache_path = cozo::cache_dir_for(&project_name)?;
     if rebuild && cache_path.exists() {
         info!(path = %cache_path.display(), "rebuild requested, wiping cache");
-        std::fs::remove_dir_all(&cache_path)?;
+        if cache_path.is_dir() {
+            std::fs::remove_dir_all(&cache_path)?;
+        } else {
+            std::fs::remove_file(&cache_path)?;
+        }
     }
     let store = CozoStore::open_persistent(&cache_path)?;
     let cache_state = if store.fresh() {
         let _span = info_span!("cozo.cold_build").entered();
         let graph = {
             let _gs = info_span!("graph.build").entered();
-            virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build()?
+            virgil_cli::graph::builder::GraphBuilder::new(&workspace, &languages).build(&store)?
         };
         {
             let _ps = info_span!("cozo.populate").entered();

@@ -10,6 +10,7 @@ use tracing::{debug, info, info_span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
+use crate::cozo::{CozoStore, CozoWriter};
 use crate::language::Language;
 use crate::languages;
 use crate::models::{
@@ -20,6 +21,12 @@ use crate::parser;
 use crate::storage::workspace::Workspace;
 
 use super::{CodeGraph, EdgeWeight, NodeIndex, NodeWeight, Spur};
+
+/// Flush the streaming writer every this many files. Caps peak writer
+/// memory to roughly N files' worth of per-file rows (refs/attrs/
+/// raw_imports). Picked to amortise Cozo transaction overhead — too low
+/// thrashes SQLite, too high defeats streaming.
+const STREAM_FLUSH_EVERY_N_FILES: u32 = 200;
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -92,7 +99,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn build(&self) -> Result<CodeGraph> {
+    pub fn build(&self, store: &CozoStore) -> Result<CodeGraph> {
         let total_files = self.workspace.file_count();
         info!(
             files = total_files,
@@ -172,6 +179,11 @@ impl<'a> GraphBuilder<'a> {
         // import-scoped Calls-edge resolver below.
         let mut file_symbols_by_name: HashMap<(Spur, Spur), Vec<NodeIndex>> = HashMap::new();
         let mut file_exports_by_name: HashMap<(Spur, Spur), Vec<NodeIndex>> = HashMap::new();
+        // Streaming writer for per-file buckets that have no cross-file
+        // dependency (references/attrs/raw_imports). Emitted to Cozo
+        // during absorb and never stashed on the graph.
+        let mut stream_writer = CozoWriter::new();
+        let mut files_since_flush: u32 = 0;
 
         let workspace = self.workspace;
         let sym_q = Arc::clone(&symbol_queries);
@@ -229,7 +241,13 @@ impl<'a> GraphBuilder<'a> {
                         &mut deferred_calls,
                         &mut file_symbols_by_name,
                         &mut file_exports_by_name,
+                        &mut stream_writer,
                     );
+                    files_since_flush += 1;
+                    if files_since_flush >= STREAM_FLUSH_EVERY_N_FILES {
+                        stream_writer.flush(store)?;
+                        files_since_flush = 0;
+                    }
                     tracing::Span::current().pb_inc(1);
                     let n = absorbed_files.fetch_add(1, Ordering::Relaxed) + 1;
                     if n.is_multiple_of(500) {
@@ -239,6 +257,10 @@ impl<'a> GraphBuilder<'a> {
 
                 Ok(())
             })?;
+            // Flush the streaming writer's tail rows before cross-file
+            // resolution runs — keeps populate's later phases from
+            // racing with leftover per-file rows.
+            stream_writer.flush(store)?;
             info!(
                 parsed = parsed.load(Ordering::Relaxed),
                 absorbed = absorbed_files.load(Ordering::Relaxed),
@@ -429,6 +451,7 @@ fn parse_one_file(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn absorb_file_data(
     graph: &mut CodeGraph,
     data: FileGraphData,
@@ -436,6 +459,7 @@ fn absorb_file_data(
     deferred_calls: &mut Vec<DeferredCall>,
     file_symbols_by_name: &mut HashMap<(Spur, Spur), Vec<NodeIndex>>,
     file_exports_by_name: &mut HashMap<(Spur, Spur), Vec<NodeIndex>>,
+    stream_writer: &mut CozoWriter,
 ) {
     let FileGraphData {
         path,
@@ -580,14 +604,21 @@ fn absorb_file_data(
             .extend(comments);
     }
 
-    // Queue imports for cross-file resolution. Also stash them on the
-    // graph so the Cozo writer can persist raw_imports for incremental
-    // refresh (issue 08).
-    graph
-        .raw_imports
-        .entry(path.clone())
-        .or_default()
-        .extend(imports.iter().cloned());
+    // Queue imports for cross-file resolution AND stream the raw_import
+    // rows directly to Cozo — they're per-file with no cross-file
+    // dependency, so we don't need to keep them on the graph for the
+    // populate phase to walk later (issue 08 incremental-refresh path
+    // reads from Cozo).
+    let lang_str = language.as_str();
+    for (idx, import) in imports.iter().enumerate() {
+        stream_writer.push_raw_import(
+            &path,
+            idx as i64,
+            &import.module_specifier,
+            lang_str,
+            &import.kind,
+        );
+    }
     for import in imports {
         deferred_imports.push(DeferredImport {
             from_file_path: path.clone(),
@@ -633,27 +664,103 @@ fn absorb_file_data(
     if !throws.is_empty() {
         graph.throws.entry(path.clone()).or_default().extend(throws);
     }
-    // Issue #15: stash per-file attrs bucket. Each language's extractor
-    // populates only its own variant; the bucket as a whole has no
-    // "is empty" check because rust_attrs et al. are expected 1:1 with
-    // the file's symbols.
-    let attrs_nonempty = !attrs.rust.is_empty()
-        || !attrs.python.is_empty()
-        || !attrs.typescript.is_empty()
-        || !attrs.cpp.is_empty()
-        || !attrs.csharp.is_empty()
-        || !attrs.go.is_empty()
-        || !attrs.php.is_empty()
-        || !attrs.c.is_empty()
-        || !attrs.java.is_empty();
-    if attrs_nonempty {
-        graph.attrs.insert(path.clone(), attrs);
+    // Issue #15: stream per-language attrs directly to Cozo. Each row
+    // carries its own symbol_id, so no cross-file resolution is needed.
+    for r in &attrs.rust {
+        stream_writer.push_rust_attrs(&r.symbol_id, r.is_unsafe, r.is_const, &r.derives);
     }
-    if !references.occurrences.is_empty()
-        || !references.scopes.is_empty()
-        || !references.bindings.is_empty()
-    {
-        graph.references.insert(path.clone(), references);
+    for r in &attrs.python {
+        stream_writer.push_python_attrs(
+            &r.symbol_id,
+            &r.decorators,
+            r.is_generator,
+            r.is_coroutine,
+            r.docstring_style.as_deref(),
+        );
+    }
+    for r in &attrs.typescript {
+        stream_writer.push_typescript_attrs(
+            &r.symbol_id,
+            r.is_readonly,
+            r.is_optional,
+            &r.type_parameters,
+        );
+    }
+    for r in &attrs.cpp {
+        stream_writer.push_cpp_attrs(
+            &r.symbol_id,
+            r.is_virtual,
+            r.is_const,
+            r.is_noexcept,
+            r.is_template,
+            r.is_constexpr,
+            r.is_override,
+            r.is_final,
+        );
+    }
+    for r in &attrs.csharp {
+        stream_writer.push_csharp_attrs(&r.symbol_id, &r.attributes, r.is_partial, r.is_sealed);
+    }
+    for r in &attrs.go {
+        stream_writer.push_go_attrs(&r.symbol_id, r.is_exported, r.has_receiver, &r.build_tags);
+    }
+    for r in &attrs.php {
+        stream_writer.push_php_attrs(&r.symbol_id, r.is_final, &r.uses_traits, &r.attributes);
+    }
+    for r in &attrs.c {
+        stream_writer.push_c_attrs(
+            &r.symbol_id,
+            r.is_file_static,
+            r.is_extern,
+            r.is_inline,
+            r.is_const,
+            r.is_volatile,
+            r.is_restrict,
+            &r.gcc_attributes,
+        );
+    }
+    for r in &attrs.java {
+        stream_writer.push_java_attrs(
+            &r.symbol_id,
+            &r.annotations,
+            r.is_final,
+            r.is_synchronized,
+            &r.throws_clause,
+        );
+    }
+    // Issue #16: stream occurrence/scope/binding facts directly. Each
+    // row is self-contained (ids are file-local) and the resolver reads
+    // them from Cozo anyway, so there's no reason to keep them on graph.
+    for r in &references.scopes {
+        stream_writer.push_scope(
+            &r.id,
+            r.parent_id.as_deref(),
+            &r.file_path,
+            &r.kind,
+            r.start_byte as i64,
+            r.end_byte as i64,
+        );
+    }
+    for r in &references.bindings {
+        stream_writer.push_binding(
+            &r.scope_id,
+            &r.name,
+            r.start_byte as i64,
+            r.symbol_id.as_deref(),
+            &r.binding_kind,
+        );
+    }
+    for r in &references.occurrences {
+        stream_writer.push_occurrence(
+            &r.id,
+            &r.name,
+            &r.file_path,
+            r.start_byte as i64,
+            r.end_byte as i64,
+            r.enclosing_symbol_id.as_deref(),
+            &r.enclosing_scope_id,
+            &r.occurrence_kind,
+        );
     }
 
     // CallSite nodes + Contains edges. Calls edges are deferred until
@@ -926,7 +1033,8 @@ mod tests {
 
     fn build_graph(dir: &std::path::Path, langs: &[Language]) -> CodeGraph {
         let ws = Workspace::load(dir, langs, None).unwrap();
-        GraphBuilder::new(&ws, langs).build().unwrap()
+        let store = crate::cozo::CozoStore::open_in_memory().unwrap();
+        GraphBuilder::new(&ws, langs).build(&store).unwrap()
     }
 
     fn collect_callsites(graph: &CodeGraph) -> Vec<&NodeWeight> {

@@ -54,10 +54,10 @@ fn snapshot_symbol_metadata_for(lang_name: &str, languages: &[Language], bench_r
     };
 
     let ws = Workspace::load(&bench, languages, None).expect("load workspace");
-    let graph = GraphBuilder::new(&ws, languages)
-        .build()
-        .expect("build graph");
     let store = CozoStore::open_in_memory().expect("open store");
+    let graph = GraphBuilder::new(&ws, languages)
+        .build(&store)
+        .expect("build graph");
     populate(&store, &graph, Some(&ws)).expect("populate");
 
     let counts = [

@@ -170,7 +170,7 @@ pub fn incremental_refresh(
         "incremental refresh: wiping + rebuilding"
     );
     super::wipe_workspace_relations(store)?;
-    let graph = GraphBuilder::new(workspace, languages).build()?;
+    let graph = GraphBuilder::new(workspace, languages).build(store)?;
     super::populate(store, &graph, Some(workspace))?;
     Ok(())
 }
@@ -179,13 +179,14 @@ pub fn incremental_refresh(
 /// for potential reuse once per-file refresh comes back.
 #[allow(dead_code)]
 fn build_partial_graph(
+    store: &CozoStore,
     workspace: &Workspace,
     languages: &[Language],
     files: &[String],
 ) -> Result<CodeGraph> {
     let allowed: HashSet<&str> = files.iter().map(|s| s.as_str()).collect();
     let partial = workspace.subset(|path| allowed.contains(path));
-    GraphBuilder::new(&partial, languages).build()
+    GraphBuilder::new(&partial, languages).build(store)
 }
 
 #[cfg(test)]
@@ -200,10 +201,10 @@ mod tests {
         std::fs::write(dir.path().join("b.rs"), "fn b() {}\n").expect("b");
 
         let ws = Workspace::load(dir.path(), &[Language::Rust], None).expect("load");
-        let graph = GraphBuilder::new(&ws, &[Language::Rust])
-            .build()
-            .expect("build");
         let store = CozoStore::open_in_memory().expect("store");
+        let graph = GraphBuilder::new(&ws, &[Language::Rust])
+            .build(&store)
+            .expect("build");
         super::super::populate(&store, &graph, Some(&ws)).expect("populate");
 
         let d = workspace_diff(&store, &ws).expect("diff");
@@ -232,10 +233,10 @@ mod tests {
         std::fs::write(dir.path().join("b.rs"), "pub fn beta() {}\n").expect("b");
 
         let ws = Workspace::load(dir.path(), &[Language::Rust], None).expect("load");
-        let graph = GraphBuilder::new(&ws, &[Language::Rust])
-            .build()
-            .expect("build");
         let store = CozoStore::open_in_memory().expect("store");
+        let graph = GraphBuilder::new(&ws, &[Language::Rust])
+            .build(&store)
+            .expect("build");
         super::super::populate(&store, &graph, Some(&ws)).expect("populate");
 
         let calls = store

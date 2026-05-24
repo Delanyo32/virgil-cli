@@ -61,7 +61,7 @@ pub async fn run_server(
     let cache_path = cozo::cache_dir_for(source_id)?;
     let store = CozoStore::open_persistent(&cache_path)?;
     if store.fresh() {
-        let code_graph = GraphBuilder::new(&workspace, &languages).build()?;
+        let code_graph = GraphBuilder::new(&workspace, &languages).build(&store)?;
         cozo::populate(&store, &code_graph, Some(&workspace))?;
     } else {
         let diff = cozo::workspace_diff(&store, &workspace)?;

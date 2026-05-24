@@ -93,31 +93,15 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
 
     drop(_step2);
     // Step 3: sequential tail work, flushing between sub-phases.
+    //
+    // raw_import / attrs / scope+binding+occurrence rows are streamed
+    // to Cozo during the absorb phase (see `builder::absorb_file_data`),
+    // so this tail handles only the buckets that still need cross-file
+    // symbol-id resolution against `graph.nodes`.
     let _step3 = info_span!("cozo.populate.tail").entered();
-    for (file_path, imports) in &graph.raw_imports {
-        let lang_str = workspace
-            .and_then(|ws| ws.file_language(file_path))
-            .map(|l| l.as_str())
-            .unwrap_or("");
-        for (idx, import) in imports.iter().enumerate() {
-            writer.push_raw_import(
-                file_path,
-                idx as i64,
-                &import.module_specifier,
-                lang_str,
-                &import.kind,
-            );
-        }
-    }
-    writer.flush(store)?;
-
     emit_comments(graph, &mut writer);
     writer.flush(store)?;
     emit_types_and_hierarchy(graph, workspace, &mut writer);
-    writer.flush(store)?;
-    emit_attrs(graph, &mut writer);
-    writer.flush(store)?;
-    emit_references_facts(graph, &mut writer);
     writer.flush(store)?;
 
     if let Some(ws) = workspace {
@@ -142,110 +126,9 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
     Ok(())
 }
 
-/// Issue #16: walk per-file occurrence / scope / binding buckets.
-fn emit_references_facts(graph: &CodeGraph, writer: &mut CozoWriter) {
-    for bucket in graph.references.values() {
-        for r in &bucket.scopes {
-            writer.push_scope(
-                &r.id,
-                r.parent_id.as_deref(),
-                &r.file_path,
-                &r.kind,
-                r.start_byte as i64,
-                r.end_byte as i64,
-            );
-        }
-        for r in &bucket.bindings {
-            writer.push_binding(
-                &r.scope_id,
-                &r.name,
-                r.start_byte as i64,
-                r.symbol_id.as_deref(),
-                &r.binding_kind,
-            );
-        }
-        for r in &bucket.occurrences {
-            writer.push_occurrence(
-                &r.id,
-                &r.name,
-                &r.file_path,
-                r.start_byte as i64,
-                r.end_byte as i64,
-                r.enclosing_symbol_id.as_deref(),
-                &r.enclosing_scope_id,
-                &r.occurrence_kind,
-            );
-        }
-    }
-}
-
-/// Issue #15: walk `graph.attrs` and dispatch per-language push.
-fn emit_attrs(graph: &CodeGraph, writer: &mut CozoWriter) {
-    for bucket in graph.attrs.values() {
-        for r in &bucket.rust {
-            writer.push_rust_attrs(&r.symbol_id, r.is_unsafe, r.is_const, &r.derives);
-        }
-        for r in &bucket.python {
-            writer.push_python_attrs(
-                &r.symbol_id,
-                &r.decorators,
-                r.is_generator,
-                r.is_coroutine,
-                r.docstring_style.as_deref(),
-            );
-        }
-        for r in &bucket.typescript {
-            writer.push_typescript_attrs(
-                &r.symbol_id,
-                r.is_readonly,
-                r.is_optional,
-                &r.type_parameters,
-            );
-        }
-        for r in &bucket.cpp {
-            writer.push_cpp_attrs(
-                &r.symbol_id,
-                r.is_virtual,
-                r.is_const,
-                r.is_noexcept,
-                r.is_template,
-                r.is_constexpr,
-                r.is_override,
-                r.is_final,
-            );
-        }
-        for r in &bucket.csharp {
-            writer.push_csharp_attrs(&r.symbol_id, &r.attributes, r.is_partial, r.is_sealed);
-        }
-        for r in &bucket.go {
-            writer.push_go_attrs(&r.symbol_id, r.is_exported, r.has_receiver, &r.build_tags);
-        }
-        for r in &bucket.php {
-            writer.push_php_attrs(&r.symbol_id, r.is_final, &r.uses_traits, &r.attributes);
-        }
-        for r in &bucket.c {
-            writer.push_c_attrs(
-                &r.symbol_id,
-                r.is_file_static,
-                r.is_extern,
-                r.is_inline,
-                r.is_const,
-                r.is_volatile,
-                r.is_restrict,
-                &r.gcc_attributes,
-            );
-        }
-        for r in &bucket.java {
-            writer.push_java_attrs(
-                &r.symbol_id,
-                &r.annotations,
-                r.is_final,
-                r.is_synchronized,
-                &r.throws_clause,
-            );
-        }
-    }
-}
+// `emit_references_facts` and `emit_attrs` removed — those buckets are
+// streamed during absorb (see `builder::absorb_file_data`). They never
+// land on the graph, so there's nothing to walk here.
 
 /// Issue #13: walk `graph.types` / `graph.param_types` /
 /// `graph.returns_types` / `graph.inheritance` and emit the
@@ -1040,10 +923,10 @@ mod tests {
 
         let workspace =
             Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
-        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
-            .build()
-            .expect("build graph");
         let store = CozoStore::open_in_memory().expect("open store");
+        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
+            .build(&store)
+            .expect("build graph");
         populate(&store, &graph, Some(&workspace)).expect("populate");
 
         let calls = store
@@ -1077,10 +960,10 @@ mod tests {
         std::fs::write(dir.path().join("a.rs"), "fn alpha() {}\n").expect("write");
         let workspace =
             Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
-        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
-            .build()
-            .expect("build graph");
         let store = CozoStore::open_in_memory().expect("open store");
+        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
+            .build(&store)
+            .expect("build graph");
         populate(&store, &graph, Some(&workspace)).expect("populate");
 
         let spans = store
@@ -1119,10 +1002,10 @@ mod tests {
 
         let workspace =
             Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
-        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
-            .build()
-            .expect("build graph");
         let store = CozoStore::open_in_memory().expect("open store");
+        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
+            .build(&store)
+            .expect("build graph");
         populate(&store, &graph, Some(&workspace)).expect("populate");
 
         let rows = store
@@ -1168,10 +1051,10 @@ mod tests {
 
         let workspace =
             Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
-        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
-            .build()
-            .expect("build graph");
         let store = CozoStore::open_in_memory().expect("open store");
+        let graph = GraphBuilder::new(&workspace, &[Language::Rust])
+            .build(&store)
+            .expect("build graph");
         populate(&store, &graph, Some(&workspace)).expect("populate");
 
         let rows = store

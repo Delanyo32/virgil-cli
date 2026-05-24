@@ -59,10 +59,10 @@ fn rust_baseline_snapshot_matches() {
     };
 
     let ws = Workspace::load(&bench, &[Language::Rust], None).expect("load workspace");
-    let graph = GraphBuilder::new(&ws, &[Language::Rust])
-        .build()
-        .expect("build graph");
     let store = CozoStore::open_in_memory().expect("open store");
+    let graph = GraphBuilder::new(&ws, &[Language::Rust])
+        .build(&store)
+        .expect("build graph");
     populate(&store, &graph, Some(&ws)).expect("populate");
 
     // Run individual count queries; the combined cozoscript in baseline.cozoql
