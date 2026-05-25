@@ -12,6 +12,11 @@
 # Each <subdir> is benched at its full file count. The script does not
 # slice files itself — pick subdirs whose file counts span the range you
 # want (~50 / ~500 / ~2000 / ~5000).
+#
+# Env vars:
+#   BENCH_NO_WIPE=1   Skip the per-run cache wipe (warm-query measurement).
+#                     Run the script once normally to populate the cache,
+#                     then re-run with BENCH_NO_WIPE=1 to time warm queries.
 
 set -euo pipefail
 
@@ -65,7 +70,10 @@ run_one() {
 
   # Cold start: wipe the cache AFTER registration so the timed query does
   # the full cold build (projects create does not touch the SQLite store).
-  rm -rf "$CACHE_DIR"/*.sqlite 2>/dev/null || true
+  # Set BENCH_NO_WIPE=1 to skip this (warm-query mode).
+  if [[ "${BENCH_NO_WIPE:-0}" != "1" ]]; then
+    rm -rf "$CACHE_DIR"/*.sqlite 2>/dev/null || true
+  fi
 
   # Capture full stderr (time -lp is on stderr; resolver's call_edge_count too).
   local time_out
@@ -87,13 +95,12 @@ run_one() {
 
   local rss_mb
   if [[ -n "${rss_kb:-}" ]]; then
-    # On macOS the time -lp RSS is in bytes; on linux it's in KB. Detect:
-    # values >1e8 are almost certainly bytes (≥100MB).
-    if (( rss_kb > 100000000 )); then
-      rss_mb=$(awk "BEGIN{printf \"%.1f\", $rss_kb / 1048576}")
-    else
-      rss_mb=$(awk "BEGIN{printf \"%.1f\", $rss_kb / 1024}")
-    fi
+    # On macOS, /usr/bin/time -lp reports RSS in bytes; on Linux it's in KB.
+    case "$(uname -s)" in
+      Darwin) rss_mb=$(awk "BEGIN{printf \"%.1f\", $rss_kb / 1048576}") ;;
+      Linux)  rss_mb=$(awk "BEGIN{printf \"%.1f\", $rss_kb / 1024}") ;;
+      *)      rss_mb="NA" ;;
+    esac
   else
     rss_mb="NA"
   fi

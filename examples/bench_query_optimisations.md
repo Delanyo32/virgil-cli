@@ -41,18 +41,40 @@ Columns: `binary, subdir, files, wall_s, user_s, sys_s, max_rss_mb, call_edge_co
 - **Speedup** = baseline_wall / optimised_wall, per subdir.
 - **CPU spread** = user_s / wall_s. >1.0 means the work used multiple
   cores; ≈1.0 means single-threaded.
-- **call_edge_count** is your sanity check. If it's 0 on either binary,
-  the comparison is invalid (likely a schema or extractor mismatch).
+- **call_edge_count** is your sanity check. `NA` on baseline rows is
+  expected — the resolver only runs on the optimised binary. It must be
+  >0 on optimised rows; 0 means the bench is invalid.
 
-## Optional: warm-query-only run
+## Warm-query-only run
 
-Each scripted run is cold (cache wiped) and includes the build. To
-isolate the query speedup from the build cost:
+To isolate query time from build time:
 
-1. Comment out the `rm -rf "$CACHE_DIR"/*.sqlite` line in `run_one`.
-2. Run the script twice — second run uses the warm cache.
+1. First run normally (cold — populates the cache and gives end-to-end timing):
+   ```bash
+   ./examples/bench_query_optimisations.sh /tmp/openclaw <subdir1> <subdir2>
+   mv bench-results.csv bench-results-cold.csv
+   ```
+2. Re-run with the wipe disabled (uses the cache built above; ~query-only):
+   ```bash
+   BENCH_NO_WIPE=1 ./examples/bench_query_optimisations.sh /tmp/openclaw <subdir1> <subdir2>
+   mv bench-results.csv bench-results-warm.csv
+   ```
 
-The second run's wall time is roughly query-only.
+The second CSV's `wall_s` column is approximately the query time alone
+(plus minimal store-open + script overhead). Compare warm rows across
+baseline vs optimised to see the pure query speedup.
+
+Note: between the two runs the script re-checks-out master and rebuilds.
+That's incremental cargo work and adds ~5s. The cache built by the cold
+run survives because BENCH_NO_WIPE=1 prevents the rm -rf.
+
+## Verify call_edge_count > 0 for every optimised row
+
+```bash
+awk -F, 'NR>1 && $1=="optimised" && ($8=="0" || $8=="NA") {print "INVALID:", $0}' bench-results.csv
+```
+
+Expected: no output.
 
 ## Why these particular changes?
 
