@@ -1,0 +1,9 @@
+?[file, line, severity, pattern, message] :=
+    *call_edge{caller_id: c, callee_id: t, file_path: file},
+    *file_classification{path: file, is_test: true},
+    *symbol{id: c, name: caller_name},
+    *symbol{id: t, name: callee_name},
+    *span{entity_id: c, file_path: file, start_line: line},
+    severity = "info",
+    pattern = "test_call",
+    message = concat("test=", caller_name, "|callee=", callee_name)

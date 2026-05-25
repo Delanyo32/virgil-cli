@@ -1,0 +1,23 @@
+call_edge[caller_id, callee_id, file] :=
+    *call_site{caller_id, callee_name, file_path: file},
+    *symbol{id: callee_id, name: callee_name, file_path: file, kind: k},
+    k in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+call_edge[caller_id, callee_id, file] :=
+    *call_site{caller_id, callee_name, file_path: file},
+    *imports{importer_file_id: file, imported_id: callee_file},
+    *symbol{id: callee_id, name: callee_name, file_path: callee_file,
+            kind: k, exported: true},
+    k in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+?[file, line, severity, pattern, message] :=
+    call_edge[c, t, file],
+    *symbol{id: c, name: caller_name},
+    *symbol{id: t, name: callee_name},
+    regex_matches(file, "(?i)(test|spec|__tests__|\\.test\\.|\\.spec\\.)"),
+    *span{entity_id: c, file_path: file, start_line: line},
+    severity = "info",
+    pattern = "test_call",
+    message = concat("test=", caller_name, "|callee=", callee_name)
