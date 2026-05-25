@@ -43,6 +43,11 @@ pub fn create_statements() -> &'static [&'static str] {
         ":create call_site {id: String => \
             caller_id: String?, callee_name: String, file_path: String, \
             start_byte: Int, end_byte: Int}",
+        // Resolved call edges, materialised at build time. Each row
+        // corresponds to one call site whose callee_name resolved to a
+        // single symbol id (intra-file by name+kind, cross-file via
+        // *imports + exported=true). Schema v9.
+        ":create call_edge {caller_id: String, callee_id: String => file_path: String}",
         // ─── ADR-0005 fact-emission relations (issue #16) ──────────────────
         // Raw facts emitted by per-language extractors. Callers that
         // want resolved references join occurrence × scope × binding ×
@@ -140,5 +145,9 @@ pub fn index_statements() -> &'static [&'static str] {
         // find_cycles) and by callee_name (find_callers).
         "::index create call_site:by_caller {caller_id}",
         "::index create call_site:by_name {callee_name}",
+        // call_edge resolution scans *symbol by (name, kind) on the
+        // cross-file branch. The existing symbol:by_name index alone
+        // forces a kind filter scan; the compound covers both.
+        "::index create symbol:by_name_kind {name, kind}",
     ]
 }
