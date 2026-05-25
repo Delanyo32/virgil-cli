@@ -34,9 +34,23 @@ The script:
 
 Output: `bench-results.csv` at the repo root.
 
+## Phase-separated measurement
+
+By default (`BENCH_PHASES=parse,query`) the script measures each binary in two passes:
+
+1. **parse phase** — cold cache, no-op query (`noop.cozoql`). Wall time captures
+   the full parse + populate cost, with essentially zero query work.
+2. **query phase** — warm cache (the cache the same binary just built), real query.
+   Wall time is the query-only cost.
+
+Each binary builds its own cache and its own warm query runs against that cache —
+the baseline never sees an optimised binary's pre-populated `*call_edge` data.
+
+Set `BENCH_PHASES=all` to restore the legacy single-phase cold end-to-end run.
+
 ## Reading the results
 
-Columns: `binary, subdir, files, wall_s, user_s, sys_s, max_rss_mb, call_edge_count`.
+Columns: `binary, phase, subdir, files, wall_s, user_s, sys_s, max_rss_mb, call_edge_count`.
 
 - **Speedup** = baseline_wall / optimised_wall, per subdir.
 - **CPU spread** = user_s / wall_s. >1.0 means the work used multiple

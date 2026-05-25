@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bench: master vs feat/test-to-function-map-optimisations on openclaw subdirs.
-# Outputs bench-results.csv with one row per (binary, subdir) pair.
+# Outputs bench-results.csv with one row per (binary, phase, subdir) pair.
 #
 # Usage:
 #   ./examples/bench_query_optimisations.sh <openclaw-clone-path> <subdir1> [<subdir2> ...]
@@ -17,6 +17,14 @@
 #   BENCH_NO_WIPE=1   Skip the per-run cache wipe (warm-query measurement).
 #                     Run the script once normally to populate the cache,
 #                     then re-run with BENCH_NO_WIPE=1 to time warm queries.
+#
+#   BENCH_PHASES      Controls which phases are measured (default: parse,query).
+#                     parse,query  Run each binary in two passes:
+#                                  1. cold-cache with a no-op query (parse phase)
+#                                  2. warm-cache with the real query (query phase)
+#                                  The warm pass reuses the cache the same binary
+#                                  just built — baseline never sees optimised data.
+#                     all          Legacy: end-to-end cold run for each real query.
 
 set -euo pipefail
 
@@ -34,7 +42,7 @@ BASELINE_BIN="$REPO_ROOT/target/release/virgil-cli-baseline"
 OPTIMISED_BIN="$REPO_ROOT/target/release/virgil-cli-optimised"
 RESULTS="$REPO_ROOT/bench-results.csv"
 
-echo "binary,subdir,files,wall_s,user_s,sys_s,max_rss_mb,call_edge_count" > "$RESULTS"
+echo "binary,phase,subdir,files,wall_s,user_s,sys_s,max_rss_mb,call_edge_count" > "$RESULTS"
 
 build_baseline() {
   echo "[bench] building master binary..."
@@ -57,7 +65,7 @@ build_optimised() {
 }
 
 run_one() {
-  local label="$1" binary="$2" subdir="$3" query_file="$4"
+  local label="$1" binary="$2" subdir="$3" query_file="$4" phase="$5"
   local target="$OPENCLAW/$subdir"
   local files
   files=$(find "$target" -type f | wc -l | tr -d ' ')
@@ -108,42 +116,36 @@ run_one() {
     rss_mb="NA"
   fi
 
-  echo "$label,$subdir,$files,$wall,$user,$sys,$rss_mb,$call_edges" >> "$RESULTS"
-  echo "[bench] $label $subdir files=$files wall=${wall}s rss=${rss_mb}MB call_edges=$call_edges"
+  echo "$label,$phase,$subdir,$files,$wall,$user,$sys,$rss_mb,$call_edges" >> "$RESULTS"
+  echo "[bench] $label $phase $subdir files=$files wall=${wall}s rss=${rss_mb}MB call_edges=$call_edges"
   rm -f "$time_out"
 }
 
 build_baseline
 build_optimised
 
-# In warm mode: pre-populate all caches (untimed) before the timed loops.
-# Each run_one uses a stable project name, so the cache built here is reused
-# by the timed run below. Without this step the first timed warm run would
-# still be cold (sqlite doesn't exist yet for that project).
-if [[ "${BENCH_NO_WIPE:-0}" == "1" ]]; then
-  echo "[bench] pre-warming caches..."
-  for subdir in "${SUBDIRS[@]}"; do
-    _prewarm_proj="bench-baseline-${subdir//\//-}"
-    "$BASELINE_BIN" projects create "$_prewarm_proj" --path "$OPENCLAW/$subdir" >/dev/null 2>&1 || true
-    "$BASELINE_BIN" projects query "$_prewarm_proj" \
-      --file "$REPO_ROOT/examples/test_to_function_map.baseline.cozoql" >/dev/null 2>&1 || true
-    "$BASELINE_BIN" projects delete "$_prewarm_proj" >/dev/null 2>&1 || true
-  done
-  for subdir in "${SUBDIRS[@]}"; do
-    _prewarm_proj="bench-optimised-${subdir//\//-}"
-    "$OPTIMISED_BIN" projects create "$_prewarm_proj" --path "$OPENCLAW/$subdir" >/dev/null 2>&1 || true
-    "$OPTIMISED_BIN" projects query "$_prewarm_proj" \
-      --file "$REPO_ROOT/examples/test_to_function_map.optimised.cozoql" >/dev/null 2>&1 || true
-    "$OPTIMISED_BIN" projects delete "$_prewarm_proj" >/dev/null 2>&1 || true
-  done
-  echo "[bench] caches warmed."
-fi
+PHASES="${BENCH_PHASES:-parse,query}"
 
 for subdir in "${SUBDIRS[@]}"; do
-  run_one baseline  "$BASELINE_BIN"  "$subdir" "$REPO_ROOT/examples/test_to_function_map.baseline.cozoql"
-done
-for subdir in "${SUBDIRS[@]}"; do
-  run_one optimised "$OPTIMISED_BIN" "$subdir" "$REPO_ROOT/examples/test_to_function_map.optimised.cozoql"
+  case "$PHASES" in
+    "parse,query")
+      # Baseline: parse (cold, noop), then query (warm, real).
+      run_one baseline "$BASELINE_BIN" "$subdir" "$REPO_ROOT/examples/noop.cozoql" parse
+      BENCH_NO_WIPE=1 run_one baseline "$BASELINE_BIN" "$subdir" "$REPO_ROOT/examples/test_to_function_map.baseline.cozoql" query
+      # Optimised: same pattern, fresh cache.
+      run_one optimised "$OPTIMISED_BIN" "$subdir" "$REPO_ROOT/examples/noop.cozoql" parse
+      BENCH_NO_WIPE=1 run_one optimised "$OPTIMISED_BIN" "$subdir" "$REPO_ROOT/examples/test_to_function_map.optimised.cozoql" query
+      ;;
+    all)
+      # Legacy: end-to-end cold for the real query.
+      run_one baseline  "$BASELINE_BIN"  "$subdir" "$REPO_ROOT/examples/test_to_function_map.baseline.cozoql"  all
+      run_one optimised "$OPTIMISED_BIN" "$subdir" "$REPO_ROOT/examples/test_to_function_map.optimised.cozoql" all
+      ;;
+    *)
+      echo "[bench] unknown BENCH_PHASES=$PHASES (use parse,query or all)" >&2
+      exit 1
+      ;;
+  esac
 done
 
 echo
