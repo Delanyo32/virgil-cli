@@ -61,7 +61,71 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
         let _fs = info_span!("cozo.populate.flush").entered();
         writer.flush(store)?;
     }
+    {
+        let _r = info_span!("cozo.populate.call_edge_flush").entered();
+        let mut ce_writer = CozoWriter::new();
+        resolve_and_emit_call_edges(store, &mut ce_writer)?;
+        ce_writer.flush(store)?;
+    }
     info!("cozo populate complete");
+    Ok(())
+}
+
+/// Resolve every `*call_site` to a target `*symbol.id` and emit one
+/// `*call_edge{caller_id, callee_id => file_path}` row per resolution.
+///
+/// Algorithm mirrors the rules that lived inline in the old
+/// `test_to_function_map.cozoql`:
+///   1. Intra-file: callee_name matches a *symbol{name, file_path, kind}
+///      where kind in (function, method, arrow_function, macro) and the
+///      callee is not the caller itself.
+///   2. Cross-file: caller's file imports a file via *imports; that
+///      imported file exports a *symbol{name = callee_name, kind in (...),
+///      exported = true}.
+///
+/// Cost shifts from per-query to once-per-build. Read by any future query
+/// that needs resolved call edges.
+fn resolve_and_emit_call_edges(store: &CozoStore, writer: &mut CozoWriter) -> Result<()> {
+    let _s = info_span!("cozo.populate.call_edge").entered();
+
+    // Two-rule Cozoscript that emits both intra-file and cross-file edges.
+    // Mirrors the call_edge rules in find_callers.cozoql / find_callees.cozoql.
+    let rows = store.run_query(
+        "edge[caller_id, callee_id, file] := \
+            *call_site{caller_id, callee_name, file_path: file}, \
+            *symbol{id: callee_id, name: callee_name, file_path: file, kind: k}, \
+            k in ['function', 'method', 'arrow_function', 'macro'], \
+            caller_id != callee_id \
+         edge[caller_id, callee_id, file] := \
+            *call_site{caller_id, callee_name, file_path: file}, \
+            *imports{importer_file_id: file, imported_id: callee_file}, \
+            *symbol{id: callee_id, name: callee_name, file_path: callee_file, \
+                    kind: k, exported: true}, \
+            k in ['function', 'method', 'arrow_function', 'macro'], \
+            caller_id != callee_id \
+         ?[caller_id, callee_id, file] := edge[caller_id, callee_id, file]",
+        BTreeMap::new(),
+    )?;
+
+    let mut count = 0usize;
+    for row in &rows.rows {
+        let caller_id = match &row[0] {
+            DataValue::Str(s) => s.as_str(),
+            _ => continue,
+        };
+        let callee_id = match &row[1] {
+            DataValue::Str(s) => s.as_str(),
+            _ => continue,
+        };
+        let file = match &row[2] {
+            DataValue::Str(s) => s.as_str(),
+            _ => continue,
+        };
+        writer.push_call_edge(caller_id, callee_id, file);
+        count += 1;
+    }
+    eprintln!("[bench] call_edge_count={count}");
+    info!(call_edges = count, "cozo call_edge resolution complete");
     Ok(())
 }
 
