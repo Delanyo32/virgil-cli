@@ -62,8 +62,11 @@ run_one() {
   local files
   files=$(find "$target" -type f | wc -l | tr -d ' ')
 
-  # Unique project name for this run.
-  local proj="bench-$$-$label-$RANDOM"
+  # Stable project name so that the warm pass (BENCH_NO_WIPE=1) reuses the
+  # sqlite cache built by the preceding cold pass. Projects are deleted after
+  # each run so the name doesn't linger in the registry.
+  local safe_subdir="${subdir//\//-}"
+  local proj="bench-${label}-${safe_subdir}"
 
   # Register the project (cheap — writes metadata only, no cache work).
   "$binary" projects create "$proj" --path "$target" >/dev/null 2>&1
@@ -112,6 +115,29 @@ run_one() {
 
 build_baseline
 build_optimised
+
+# In warm mode: pre-populate all caches (untimed) before the timed loops.
+# Each run_one uses a stable project name, so the cache built here is reused
+# by the timed run below. Without this step the first timed warm run would
+# still be cold (sqlite doesn't exist yet for that project).
+if [[ "${BENCH_NO_WIPE:-0}" == "1" ]]; then
+  echo "[bench] pre-warming caches..."
+  for subdir in "${SUBDIRS[@]}"; do
+    _prewarm_proj="bench-baseline-${subdir//\//-}"
+    "$BASELINE_BIN" projects create "$_prewarm_proj" --path "$OPENCLAW/$subdir" >/dev/null 2>&1 || true
+    "$BASELINE_BIN" projects query "$_prewarm_proj" \
+      --file "$REPO_ROOT/examples/test_to_function_map.baseline.cozoql" >/dev/null 2>&1 || true
+    "$BASELINE_BIN" projects delete "$_prewarm_proj" >/dev/null 2>&1 || true
+  done
+  for subdir in "${SUBDIRS[@]}"; do
+    _prewarm_proj="bench-optimised-${subdir//\//-}"
+    "$OPTIMISED_BIN" projects create "$_prewarm_proj" --path "$OPENCLAW/$subdir" >/dev/null 2>&1 || true
+    "$OPTIMISED_BIN" projects query "$_prewarm_proj" \
+      --file "$REPO_ROOT/examples/test_to_function_map.optimised.cozoql" >/dev/null 2>&1 || true
+    "$OPTIMISED_BIN" projects delete "$_prewarm_proj" >/dev/null 2>&1 || true
+  done
+  echo "[bench] caches warmed."
+fi
 
 for subdir in "${SUBDIRS[@]}"; do
   run_one baseline  "$BASELINE_BIN"  "$subdir" "$REPO_ROOT/examples/test_to_function_map.baseline.cozoql"
