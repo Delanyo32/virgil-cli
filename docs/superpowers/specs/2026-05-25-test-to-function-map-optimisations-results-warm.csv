@@ -1,0 +1,5 @@
+binary,subdir,files,wall_s,user_s,sys_s,max_rss_mb,call_edge_count,speedup
+baseline,extensions/googlechat/src,46,0.52,0.39,0.00,24.3,NA,1.00
+baseline,extensions/discord/src,488,9.03,8.79,0.07,27.1,NA,1.00
+optimised,extensions/googlechat/src,46,0.26,0.00,0.00,21.4,NA,2.00
+optimised,extensions/discord/src,488,0.26,0.01,0.00,25.2,NA,34.73
