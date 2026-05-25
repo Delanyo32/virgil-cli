@@ -375,7 +375,8 @@ impl<'a> GraphBuilder<'a> {
             for dc in deferred_calls {
                 targets.clear();
 
-                if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur)) {
+                if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur))
+                {
                     targets.extend(syms.iter().cloned());
                 }
 
@@ -415,7 +416,12 @@ impl<'a> GraphBuilder<'a> {
         } else {
             // Consume the bindings so the compiler doesn't warn when
             // the eager block is gated off.
-            let _ = (deferred_calls, file_symbols_by_name, file_exports_by_name, file_imports);
+            let _ = (
+                deferred_calls,
+                file_symbols_by_name,
+                file_exports_by_name,
+                file_imports,
+            );
         }
 
         // Flush whatever the resolver added.
