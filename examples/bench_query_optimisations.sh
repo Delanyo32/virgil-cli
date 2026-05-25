@@ -57,15 +57,25 @@ run_one() {
   local files
   files=$(find "$target" -type f | wc -l | tr -d ' ')
 
-  # Cold start: wipe the project's cache.
+  # Unique project name for this run.
+  local proj="bench-$$-$label-$RANDOM"
+
+  # Register the project (cheap — writes metadata only, no cache work).
+  "$binary" projects create "$proj" --path "$target" >/dev/null 2>&1
+
+  # Cold start: wipe the cache AFTER registration so the timed query does
+  # the full cold build (projects create does not touch the SQLite store).
   rm -rf "$CACHE_DIR"/*.sqlite 2>/dev/null || true
 
   # Capture full stderr (time -lp is on stderr; resolver's call_edge_count too).
   local time_out
   time_out=$(mktemp)
   # `--cozoscript` would require shell escaping; --file is cleaner.
-  /usr/bin/time -lp "$binary" projects query bench-$$-$label-$RANDOM \
-    --path "$target" --file "$query_file" >/dev/null 2>"$time_out" || true
+  /usr/bin/time -lp "$binary" projects query "$proj" \
+    --file "$query_file" >/dev/null 2>"$time_out" || true
+
+  # Clean up the registry entry.
+  "$binary" projects delete "$proj" >/dev/null 2>&1 || true
 
   local wall user sys rss_kb call_edges
   wall=$(awk '/^real / {print $2}' "$time_out")
