@@ -95,8 +95,8 @@ fn call_edge_is_populated_with_intra_and_cross_file_edges() {
 fn baseline_and_optimised_queries_return_identical_rows() {
     let dir = tempdir().expect("tempdir");
 
-    // Two test files (so file_classification.is_test = true) and one
-    // non-test file. Each contains a call. Uses `self::a::beta` style
+    // One test file (widget_test.rs, so file_classification.is_test = true)
+    // and two non-test files (helper.rs, plain.rs). Each contains a call. Uses `self::a::beta` style
     // import for the same reason as the prior test in this file.
     std::fs::write(
         dir.path().join("helper.rs"),
