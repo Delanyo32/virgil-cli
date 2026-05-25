@@ -2,7 +2,53 @@
 
 Per [ADR-0005](adr/0005-datalog-resolution.md), resolution lives in Cozoscript rules over the `occurrence` / `scope` / `binding` / `imports` factbase. This document is the spec the rules implement.
 
-The rules materialise the `references` relation. They do not themselves run at query time — the build pipeline executes them after fact-emission completes (during `populate`), so queries against `*references{...}` are cheap fact-lookups.
+> **Build-time vs query-time, current state (schema v7):**
+>
+> | Eager at build? | Relation |
+> |---|---|
+> | yes | `*imports{importer_file_id, imported_id}` — module-resolution is per-language Rust, hard to port to Cozoscript. |
+> | **no (since v7)** | `*calls{caller_id, callee_id, ...}` — relation still exists in the schema but is **empty after build**. Derive call edges at query time over `*occurrence{occurrence_kind: 'call'}` + `*imports` + `*symbol`. See [Calls at query time](#calls-at-query-time) below. |
+> | no (since v6) | `*references{...}` — same model: raw facts only, callers resolve at query time. See the rest of this document for the algorithm.|
+>
+> The v7 change was driven by container OOM on large C++ repos: openclaw (14,852 files) peaked at 3.26 GiB → SIGKILL under a 4 GiB cap. The `deferred_calls` Vec + `file_symbols_by_name`/`file_exports_by_name` HashMaps in `GraphBuilder::build` were the dominant RAM term. After the change, the same workload peaks at ~800 MiB. Imports were left eager because they're small (~30 MiB) and per-language module resolution is impractical to express in Cozoscript.
+
+## Calls at query time
+
+The replacement pattern lives in [`examples/cozoscript/calls_at_query_time.cozoql`](../examples/cozoscript/calls_at_query_time.cozoql); the built-in templates `find_callers`, `find_callees`, and `find_cycles` inline the same rules. Shape:
+
+```cozo
+# Same-file: callee is a symbol named N in the caller's own file.
+call_edge[caller_id, callee_id, call_site_file, call_site_start_byte] :=
+    *occurrence{name: callee_name, file_path: call_site_file,
+                start_byte: call_site_start_byte,
+                enclosing_symbol_id: caller_id,
+                occurrence_kind: 'call'},
+    *symbol{id: callee_id, name: callee_name,
+            file_path: call_site_file, kind: callee_kind},
+    callee_kind in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+# Cross-file: callee is an *exported* symbol named N in a file the
+# caller's file imports.
+call_edge[caller_id, callee_id, call_site_file, call_site_start_byte] :=
+    *occurrence{name: callee_name, file_path: call_site_file,
+                start_byte: call_site_start_byte,
+                enclosing_symbol_id: caller_id,
+                occurrence_kind: 'call'},
+    *imports{importer_file_id: call_site_file, imported_id: callee_file},
+    *symbol{id: callee_id, name: callee_name, file_path: callee_file,
+            kind: callee_kind, exported: true},
+    callee_kind in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+```
+
+Accuracy matches the build-time resolver (same algorithm); the cost moves to the caller. Demand-scoped queries (e.g. "all callers of `foo`") are cheap because Cozo's planner can push the `$name` filter into the `*symbol` lookup before the join. Workspace-wide call enumeration costs roughly what it cost to populate `*calls` at build under v6.
+
+---
+
+## References (legacy section)
+
+Below: the (now also query-time) `*references` algorithm. Same model as `call_edge` above — emit raw facts at build, resolve in Cozoscript on demand. The rules below were the spec for the v5-and-earlier eager resolver; today they are the reference implementation for callers who want to materialise references in their own scratch relation.
 
 ## Inputs
 

@@ -1,0 +1,54 @@
+# calls_at_query_time — derive caller→callee edges at query time.
+#
+# Virgil's build path emits raw call-site facts in `*call_site`
+# (`{id => caller_id?, callee_name, file_path, start_byte, end_byte}`)
+# but does NOT resolve them to callee symbol ids during build (schema
+# v8 — see `docs/resolution.md` for the rationale, openclaw container
+# OOM). The built-in `find_callers` / `find_callees` / `find_cycles`
+# templates use the pattern below; copy it as a prelude into your own
+# --file or --cozoscript queries.
+#
+# Params (optional):
+#   $name — caller short name; constrains output to calls *out of*
+#           any symbol with that name. Drop the filter to materialise
+#           every call edge in the workspace.
+#
+# Algorithm:
+#   - Each `*call_site{caller_id, callee_name, file_path, start_byte}`
+#     row says: "name N is called inside symbol caller_id at byte B".
+#   - Same-file rule: the callee is a symbol named N in the caller's
+#     own file.
+#   - Cross-file rule: the callee is an *exported* symbol named N in
+#     a file the caller's file imports (via the eagerly populated
+#     `*imports` relation).
+#   - Filter to callable kinds: function / method / arrow_function /
+#     macro. (A name-match on a parameter or local would not be a real
+#     call edge.)
+
+call_edge[caller_id, callee_id, call_site_file, call_site_start_byte] :=
+    *call_site{caller_id, callee_name,
+               file_path: call_site_file,
+               start_byte: call_site_start_byte},
+    *symbol{id: callee_id, name: callee_name,
+            file_path: call_site_file, kind: callee_kind},
+    callee_kind in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+call_edge[caller_id, callee_id, call_site_file, call_site_start_byte] :=
+    *call_site{caller_id, callee_name,
+               file_path: call_site_file,
+               start_byte: call_site_start_byte},
+    *imports{importer_file_id: call_site_file, imported_id: callee_file},
+    *symbol{id: callee_id, name: callee_name, file_path: callee_file,
+            kind: callee_kind, exported: true},
+    callee_kind in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+# Report. Drop the `caller_name = $name` filter to dump every resolved
+# call edge in the workspace.
+?[caller_name, callee_name, call_site_file, call_site_start_byte] :=
+    call_edge[caller_id, callee_id, call_site_file, call_site_start_byte],
+    *symbol{id: caller_id, name: caller_name},
+    *symbol{id: callee_id, name: callee_name},
+    caller_name = $name
+:order call_site_file, call_site_start_byte

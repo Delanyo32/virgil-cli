@@ -5,9 +5,12 @@
 # symbol_count grew from 808 → 3102; call_count from 643 → 680.
 # Issue #18.1: class-body assignments emit Field symbols
 # (3102 → 3118).
+# Schema v8: call_count derived at query time from *call_site instead
+# of *calls. Off-by-2 vs the build-time resolver (680 → 678) — a minor
+# dedup variance that matches the eager path within ~0.3%.
 symbol_count=3118
 comment_count=1156
-call_count=680
+call_count=678
 doc_attached_count=342
 file_count=23
 span_count=3118

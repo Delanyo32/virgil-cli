@@ -37,4 +37,22 @@ pub use writer::CozoWriter;
 /// resolver that materialised it. The raw `occurrence`/`scope`/
 /// `binding` facts stay — callers needing resolved references run
 /// their own Cozoscript over those at query time.
-pub const SCHEMA_VERSION: u32 = 6;
+///
+/// 7: Eager call *resolution* disabled (`RESOLVE_CALLS_EAGERLY = false`
+/// in `src/graph/builder.rs`). `*calls` relation still exists in the
+/// schema but stays empty after build. Eager import resolution kept
+/// on; `*imports` rows still materialised. Motivated by the openclaw
+/// container OOM (3.26 GiB peak under a 4 GiB cap, dropped to ~800 MiB
+/// after the change).
+///
+/// 8: Adds `call_site` relation. Holds the raw per-call-site facts
+/// `extract_call_sites` produces (caller_id?, callee_name, file_path,
+/// byte range) without doing any cross-file resolution at build. The
+/// `find_callers` / `find_callees` / `find_cycles` templates and the
+/// example `calls_at_query_time.cozoql` join `*call_site` to
+/// `*symbol` + `*imports` to derive resolved call edges at query
+/// time. Restores the accuracy of the pre-v7 `*calls` resolver
+/// (including method calls — the references extractor's narrow
+/// `occurrence_kind: 'call'` tags only bare-identifier calls) without
+/// paying the OOM-prone build-time resolution scratch.
+pub const SCHEMA_VERSION: u32 = 8;

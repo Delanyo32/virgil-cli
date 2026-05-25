@@ -28,6 +28,8 @@ pub struct CozoWriter {
     symbol: Vec<Vec<DataValue>>,
     span: Vec<Vec<DataValue>>,
     calls: Vec<Vec<DataValue>>,
+    // Schema v8 — raw per-call-site facts, unresolved.
+    call_site: Vec<Vec<DataValue>>,
     extends: Vec<Vec<DataValue>>,
     implements: Vec<Vec<DataValue>>,
     imports: Vec<Vec<DataValue>>,
@@ -71,6 +73,7 @@ impl CozoWriter {
         self.symbol.append(&mut other.symbol);
         self.span.append(&mut other.span);
         self.calls.append(&mut other.calls);
+        self.call_site.append(&mut other.call_site);
         self.extends.append(&mut other.extends);
         self.implements.append(&mut other.implements);
         self.imports.append(&mut other.imports);
@@ -182,6 +185,30 @@ impl CozoWriter {
             DataValue::from(call_site_start_byte),
             DataValue::from(call_site_end_byte),
             DataValue::from(is_direct),
+        ]);
+    }
+
+    /// Push one raw call-site row. `caller_id` is `None` for calls at
+    /// top level outside any function/method.
+    pub fn push_call_site(
+        &mut self,
+        id: &str,
+        caller_id: Option<&str>,
+        callee_name: &str,
+        file_path: &str,
+        start_byte: i64,
+        end_byte: i64,
+    ) {
+        self.call_site.push(vec![
+            DataValue::from(id),
+            match caller_id {
+                Some(s) => DataValue::from(s),
+                None => DataValue::Null,
+            },
+            DataValue::from(callee_name),
+            DataValue::from(file_path),
+            DataValue::from(start_byte),
+            DataValue::from(end_byte),
         ]);
     }
 
@@ -601,6 +628,13 @@ impl CozoWriter {
              :put calls {caller_id, callee_id => call_site_file, \
                          call_site_start_byte, call_site_end_byte, is_direct}",
             std::mem::take(&mut self.calls),
+        )?;
+        flush(
+            store,
+            "?[id, caller_id, callee_name, file_path, start_byte, end_byte] \
+             <- $rows :put call_site {id => caller_id, callee_name, file_path, \
+                                      start_byte, end_byte}",
+            std::mem::take(&mut self.call_site),
         )?;
         flush(
             store,

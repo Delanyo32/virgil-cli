@@ -65,10 +65,31 @@ fn snapshot_for(lang_name: &str, languages: &[Language], bench_rel: &str) {
         .expect("build graph");
     populate(&store, &graph, Some(&ws)).expect("populate");
 
-    let counts = [
+    // call_count is derived at query time over `*call_site` + `*imports`
+    // + `*symbol` (schema v8 — `*calls` no longer materialised at build;
+    // `*call_site` holds raw per-call-site facts). The predicate mirrors
+    // `examples/cozoscript/calls_at_query_time.cozoql` and the built-in
+    // find_callers/callees/cycles templates.
+    let call_count_query = "\
+        call_edge[caller_id, callee_id] := \
+            *call_site{caller_id, callee_name, file_path: f}, \
+            *symbol{id: callee_id, name: callee_name, \
+                    file_path: f, kind: callee_kind}, \
+            callee_kind in ['function', 'method', 'arrow_function', 'macro'], \
+            caller_id != callee_id\n\
+        call_edge[caller_id, callee_id] := \
+            *call_site{caller_id, callee_name, file_path: f}, \
+            *imports{importer_file_id: f, imported_id: cf}, \
+            *symbol{id: callee_id, name: callee_name, file_path: cf, \
+                    kind: callee_kind, exported: true}, \
+            callee_kind in ['function', 'method', 'arrow_function', 'macro'], \
+            caller_id != callee_id\n\
+        ?[count(c)] := call_edge[c, _]";
+
+    let counts: [(&str, &str); 6] = [
         ("symbol_count", "?[count(s)] := *symbol{id: s}"),
         ("comment_count", "?[count(c)] := *comment{id: c}"),
-        ("call_count", "?[count(c)] := *calls{caller_id: c}"),
+        ("call_count", call_count_query),
         (
             "doc_attached_count",
             "?[count(d)] := *comment{documents_id: d, is_doc: true}, d != null",

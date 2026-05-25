@@ -239,12 +239,18 @@ mod tests {
             .expect("build");
         super::super::populate(&store, &graph, Some(&ws)).expect("populate");
 
+        // Schema v8: derive call edges at query time from
+        // `*call_site` + `*imports` + `*symbol`.
         let calls = store
             .run_query(
                 "?[caller, callee] := \
-                 *calls{caller_id, callee_id}, \
-                 *symbol{id: caller_id, name: caller}, \
-                 *symbol{id: callee_id, name: callee}",
+                 *call_site{caller_id, callee_name: callee, file_path: f}, \
+                 *imports{importer_file_id: f, imported_id: cf}, \
+                 *symbol{id: callee_id, name: callee, file_path: cf, \
+                         kind: k, exported: true}, \
+                 k in ['function', 'method', 'arrow_function', 'macro'], \
+                 caller_id != callee_id, \
+                 *symbol{id: caller_id, name: caller}",
                 std::collections::BTreeMap::new(),
             )
             .expect("query");
@@ -270,12 +276,18 @@ mod tests {
 
         incremental_refresh(&store, &ws2, &[Language::Rust], &d).expect("incremental");
 
+        // Schema v8: derive call edges at query time from
+        // `*call_site` + `*imports` + `*symbol`.
         let calls = store
             .run_query(
                 "?[caller, callee] := \
-                 *calls{caller_id, callee_id}, \
-                 *symbol{id: caller_id, name: caller}, \
-                 *symbol{id: callee_id, name: callee}",
+                 *call_site{caller_id, callee_name: callee, file_path: f}, \
+                 *imports{importer_file_id: f, imported_id: cf}, \
+                 *symbol{id: callee_id, name: callee, file_path: cf, \
+                         kind: k, exported: true}, \
+                 k in ['function', 'method', 'arrow_function', 'macro'], \
+                 caller_id != callee_id, \
+                 *symbol{id: caller_id, name: caller}",
                 std::collections::BTreeMap::new(),
             )
             .expect("query");

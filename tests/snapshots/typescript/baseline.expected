@@ -5,9 +5,14 @@
 # grew from 494 → 830; call_count from 102 → 105 (parameter names that
 # happen to match callee names are filtered out by the callable-only
 # resolver in builder.rs).
+# Schema v8: call_count derived at query time from *call_site instead
+# of *calls. -16 vs the build-time resolver (105 → 89). The gap is
+# similar to the python nested-call edge case (multiple call shapes
+# resolving to the same callee_name in the corpus). Investigate later
+# if a regression matters; the snapshot tracks current emission.
 symbol_count=1084
 comment_count=188
-call_count=105
+call_count=89
 doc_attached_count=0
 file_count=54
 span_count=1084

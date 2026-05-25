@@ -429,6 +429,7 @@ pub fn wipe_workspace_relations(store: &CozoStore) -> Result<()> {
          :rm span {entity_id, file_path}",
         "?[caller_id, callee_id] := *calls{caller_id, callee_id} \
          :rm calls {caller_id, callee_id}",
+        "?[id] := *call_site{id} :rm call_site {id}",
         "?[child_id, parent_id] := *extends{child_id, parent_id} \
          :rm extends {child_id, parent_id}",
         "?[impl_id, interface_id] := *implements{impl_id, interface_id} \
@@ -632,12 +633,16 @@ mod tests {
             .expect("build graph");
         populate(&store, &graph, Some(&workspace)).expect("populate");
 
+        // Schema v8: `*calls` empty; raw call sites live in
+        // `*call_site`. Derive the edge at query time.
         let calls = store
             .run_query(
                 "?[caller, callee] := \
-                 *calls{caller_id, callee_id}, \
-                 *symbol{id: caller_id, name: caller}, \
-                 *symbol{id: callee_id, name: callee}",
+                 *call_site{caller_id, callee_name: callee, file_path: f}, \
+                 *symbol{id: callee_id, name: callee, file_path: f, kind: k}, \
+                 k in ['function', 'method', 'arrow_function', 'macro'], \
+                 caller_id != callee_id, \
+                 *symbol{id: caller_id, name: caller}",
                 BTreeMap::new(),
             )
             .expect("query");

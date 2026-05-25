@@ -1,11 +1,32 @@
 # find_cycles — surface call-graph cycles.
-# Reports each cycle as a (a_name, b_name) pair where a calls b transitively
-# and b calls a transitively. To keep output finite, only the seed pair is
-# returned — walk `calls` further from either endpoint to enumerate the
-# full cycle path.
+#
+# Reports each cycle as a (a_name, b_name) pair where a calls b
+# transitively and b calls a transitively. To keep output finite, only
+# the seed pair is returned — walk `call_edge` further from either
+# endpoint to enumerate the full cycle path.
+#
+# Call edges are derived at query time from `*call_site` (raw call
+# facts, unresolved) joined to `*symbol` + `*imports`. See
+# `examples/cozoscript/calls_at_query_time.cozoql` and
+# `docs/resolution.md` (schema v8).
 
-reachable[a, b] := *calls{caller_id: a, callee_id: b}
-reachable[a, b] := reachable[a, mid], *calls{caller_id: mid, callee_id: b}
+call_edge[caller_id, callee_id] :=
+    *call_site{caller_id, callee_name, file_path: call_site_file},
+    *symbol{id: callee_id, name: callee_name,
+            file_path: call_site_file, kind: callee_kind},
+    callee_kind in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+call_edge[caller_id, callee_id] :=
+    *call_site{caller_id, callee_name, file_path: call_site_file},
+    *imports{importer_file_id: call_site_file, imported_id: callee_file},
+    *symbol{id: callee_id, name: callee_name, file_path: callee_file,
+            kind: callee_kind, exported: true},
+    callee_kind in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+reachable[a, b] := call_edge[a, b]
+reachable[a, b] := reachable[a, mid], call_edge[mid, b]
 
 ?[a_name, b_name, a_id, b_id] :=
     reachable[a_id, b_id],

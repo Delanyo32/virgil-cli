@@ -13,6 +13,7 @@ of the staged algorithm we used to run eagerly.
 |---|---|---|
 | `find_writers_of.cozoql` | Lists every byte where `$name` is written, resolving each occurrence to its target symbol through the lexical scope chain. Demand-scoped — only the scopes that contain a `$name` occurrence get walked. | Cheap on any repo. |
 | `unused_symbols.cozoql` | Workspace-wide: exported symbols with no scope-chain reference. Inlines the full ancestor closure over every scope. | **Expensive on big repos.** See "scaling" below. |
+| `calls_at_query_time.cozoql` | Derives caller→callee edges from `*occurrence` + `*imports` + `*symbol`. Paste the `call_edge` rules as a prelude in your own queries to get a `*calls`-equivalent view. Filter `$name` constrains to outgoing calls from any symbol with that name. | Demand-scoped is cheap; workspace-wide (no filter) materialises one row per call site, like the old `*calls` relation. |
 | `resolve_references_full.md` | The original 8-stage staged resolver, written as a series of programs you can run sequentially. Use when you want a `references_ad_hoc` relation materialised once and queried many times within a session. | Workspace-wide, mostly fixed cost — same as the old eager build. |
 
 ## Running an example

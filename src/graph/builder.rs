@@ -30,6 +30,33 @@ use super::{CodeGraph, Spur};
 /// high defeats streaming.
 const STREAM_FLUSH_EVERY_N_FILES: u32 = 200;
 
+/// Eager import resolution. Build-time resolver maps each
+/// `*raw_import{module_specifier}` to a concrete file path using the
+/// per-language `languages::resolve_import` logic, then emits
+/// `*imports{importer_file_id, imported_id}` rows. Kept eager because
+/// per-language module-resolution rules (Node, Python sys.path, Java
+/// classpath, etc.) are pages of Rust per language — not practical to
+/// express in Cozoscript at query time. Memory cost is small: ~30 MB
+/// peak on openclaw (14k files).
+const RESOLVE_IMPORTS_EAGERLY: bool = true;
+
+/// Eager call resolution. Previously the build walked every call site,
+/// resolved the callee to a symbol id via an import-scoped name lookup
+/// (file_symbols_by_name / file_exports_by_name HashMaps), and emitted
+/// a `*calls{caller_id, callee_id, ...}` row. On large C++ repos this
+/// resolution scratch dominated RAM and caused container OOM at the
+/// 4 GiB cap (openclaw, 14k files, peaked at 3.26 GiB → SIGKILL).
+///
+/// Now disabled: `*calls` rows are no longer materialised at build.
+/// Callers compute them at query time via Cozoscript over
+/// `*occurrence{occurrence_kind: 'call', enclosing_symbol_id, name}`
+/// joined to `*imports` + `*symbol` — same accuracy as the build-time
+/// resolver, deferred. See `examples/calls_at_query_time.cozoql` and
+/// `docs/resolution.md` for the replacement pattern; the affected
+/// built-in templates (`find_callers`, `find_callees`, `find_cycles`)
+/// have been rewritten to use it.
+const RESOLVE_CALLS_EAGERLY: bool = false;
+
 /// Minimal record kept in build-local lookup maps that replaces the
 /// old `NodeIndex`. Carries just enough to filter call targets by kind
 /// and to write `*calls` rows by id.
@@ -307,7 +334,7 @@ impl<'a> GraphBuilder<'a> {
         // Resolve deferred imports now that every file has been
         // absorbed. Emit `*imports` Cozo rows directly; the in-memory
         // `file_imports` map only exists long enough for the call
-        // resolver to scope its lookups.
+        // resolver to scope its lookups (when eager calls are enabled).
         let mut file_imports: HashMap<Spur, Vec<Spur>> = HashMap::new();
         let mut imports_emitted: usize = 0;
         for di in deferred_imports {
@@ -335,57 +362,60 @@ impl<'a> GraphBuilder<'a> {
         //   - Cross-file: only symbols whose file the caller imports, and
         //     which are themselves exported.
         //
-        // Drops the global name-collision noise that the old resolver
-        // produced (one Calls row per same-named symbol anywhere in
-        // the workspace). Method calls and otherwise-unresolved names
-        // simply don't get a cross-file edge — that's the intended
-        // behaviour. Emits `*calls` Cozo rows directly; Cozo's `:put`
-        // semantics dedupe on the (caller_id, callee_id) key, matching
-        // the pre-Slice-B in-graph dedup.
-        let mut targets: Vec<AbsorbedSymbol> = Vec::new();
+        // Disabled by default (RESOLVE_CALLS_EAGERLY = false); call
+        // edges are derived at query time over `*occurrence` +
+        // `*imports` + `*symbol`. See `examples/calls_at_query_time.cozoql`
+        // and `docs/resolution.md`. The block is kept compiled (rather
+        // than deleted) so the eager path can be re-enabled without a
+        // refactor if some future workload makes the RAM/latency
+        // trade-off worth flipping again.
         let mut calls_emitted: usize = 0;
-        for dc in deferred_calls {
-            targets.clear();
+        if RESOLVE_CALLS_EAGERLY {
+            let mut targets: Vec<AbsorbedSymbol> = Vec::new();
+            for dc in deferred_calls {
+                targets.clear();
 
-            if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur)) {
-                targets.extend(syms.iter().cloned());
-            }
+                if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur)) {
+                    targets.extend(syms.iter().cloned());
+                }
 
-            if let Some(imp_files) = file_imports.get(&dc.caller_file_spur) {
-                for &imp_file in imp_files {
-                    if let Some(syms) = file_exports_by_name.get(&(imp_file, dc.callee_spur)) {
-                        targets.extend(syms.iter().cloned());
+                if let Some(imp_files) = file_imports.get(&dc.caller_file_spur) {
+                    for &imp_file in imp_files {
+                        if let Some(syms) = file_exports_by_name.get(&(imp_file, dc.callee_spur)) {
+                            targets.extend(syms.iter().cloned());
+                        }
+                    }
+                }
+
+                targets.retain(|s| {
+                    matches!(
+                        s.kind,
+                        SymbolKind::Function
+                            | SymbolKind::Method
+                            | SymbolKind::ArrowFunction
+                            | SymbolKind::Macro
+                    )
+                });
+                targets.sort_by(|a, b| a.id.cmp(&b.id));
+                targets.dedup_by(|a, b| a.id == b.id);
+                for t in &targets {
+                    if t.id != dc.caller_id {
+                        stream_writer.push_calls(
+                            &dc.caller_id,
+                            &t.id,
+                            &dc.site_file,
+                            dc.site_start_byte as i64,
+                            dc.site_end_byte as i64,
+                            true,
+                        );
+                        calls_emitted += 1;
                     }
                 }
             }
-
-            // Filter out non-callable targets (parameters, locals, types) —
-            // a name match on a parameter or `let` binding is never a real
-            // call edge.
-            targets.retain(|s| {
-                matches!(
-                    s.kind,
-                    SymbolKind::Function
-                        | SymbolKind::Method
-                        | SymbolKind::ArrowFunction
-                        | SymbolKind::Macro
-                )
-            });
-            targets.sort_by(|a, b| a.id.cmp(&b.id));
-            targets.dedup_by(|a, b| a.id == b.id);
-            for t in &targets {
-                if t.id != dc.caller_id {
-                    stream_writer.push_calls(
-                        &dc.caller_id,
-                        &t.id,
-                        &dc.site_file,
-                        dc.site_start_byte as i64,
-                        dc.site_end_byte as i64,
-                        true,
-                    );
-                    calls_emitted += 1;
-                }
-            }
+        } else {
+            // Consume the bindings so the compiler doesn't warn when
+            // the eager block is gated off.
+            let _ = (deferred_calls, file_symbols_by_name, file_exports_by_name, file_imports);
         }
 
         // Flush whatever the resolver added.
@@ -559,19 +589,26 @@ fn absorb_file_data(
         );
         let sym_file_spur = graph.symbols.intern(&sym.file_path);
         let sym_name_spur = graph.symbols.intern(&sym.name);
-        let absorbed = AbsorbedSymbol {
-            id: id.clone(),
-            kind: sym.kind,
-        };
-        file_symbols_by_name
-            .entry((sym_file_spur, sym_name_spur))
-            .or_default()
-            .push(absorbed.clone());
-        if sym.is_exported {
-            file_exports_by_name
+        // file_symbols_by_name / file_exports_by_name only feed the
+        // eager calls resolver. When that's disabled, skip them — they
+        // were the dominant RAM term on large C++ repos.
+        if RESOLVE_CALLS_EAGERLY {
+            let absorbed = AbsorbedSymbol {
+                id: id.clone(),
+                kind: sym.kind,
+            };
+            file_symbols_by_name
                 .entry((sym_file_spur, sym_name_spur))
                 .or_default()
-                .push(absorbed);
+                .push(absorbed.clone());
+            if sym.is_exported {
+                file_exports_by_name
+                    .entry((sym_file_spur, sym_name_spur))
+                    .or_default()
+                    .push(absorbed);
+            }
+        } else {
+            let _ = (sym_file_spur, sym_name_spur);
         }
         graph
             .symbol_ids_by_name
@@ -685,12 +722,16 @@ fn absorb_file_data(
             &import.kind,
         );
     }
-    for import in imports {
-        deferred_imports.push(DeferredImport {
-            from_file_path: path.clone(),
-            language,
-            import,
-        });
+    if RESOLVE_IMPORTS_EAGERLY {
+        for import in imports {
+            deferred_imports.push(DeferredImport {
+                from_file_path: path.clone(),
+                language,
+                import,
+            });
+        }
+    } else {
+        let _ = imports;
     }
 
     // Issue #13: stash per-file type / signature / inheritance rows so
@@ -829,26 +870,48 @@ fn absorb_file_data(
         );
     }
 
-    // Defer Calls resolution until every file is absorbed. The original
-    // pipeline materialised a `NodeWeight::CallSite` here and walked
-    // the adjacency lists later; we now keep just the caller_id + site
-    // location, which is everything the post-absorb resolver needs to
-    // emit `*calls` rows. CallSite has no Cozo relation of its own —
-    // its location folds into the `calls` row's
-    // call_site_file/start_byte/end_byte fields.
+    // Emit one `*call_site` row per call expression. caller_id is
+    // None for calls that sit outside any function/method (e.g.
+    // top-level script statements). `id` is a deterministic
+    // `file:start_byte` slug — each call site has at most one row.
+    //
+    // When eager resolution is enabled (RESOLVE_CALLS_EAGERLY), we
+    // ALSO push a DeferredCall so the post-channel resolver can emit
+    // *calls rows. Templates that want resolved call edges read
+    // *call_site at query time — see find_callers.cozoql.
     for cs in call_sites {
-        let Some(caller_id) = local_id_by_line.get(&cs.caller_symbol_line).cloned() else {
-            continue;
-        };
-        let callee_spur = graph.symbols.intern(&cs.callee_name);
-        deferred_calls.push(DeferredCall {
-            caller_id,
-            caller_file_spur: path_spur,
-            callee_spur,
-            site_file: cs.caller_file,
-            site_start_byte: cs.start_byte,
-            site_end_byte: cs.end_byte,
-        });
+        let caller_id_opt = local_id_by_line.get(&cs.caller_symbol_line).cloned();
+        // Nested calls (`super().__init__(...)` etc.) share start_byte
+        // — inner and outer call expressions start at the same source
+        // position. Include `end_byte` in the key so the outer call
+        // (longer range) doesn't get overwritten by the inner one.
+        let site_id = format!("{}:{}:{}", cs.caller_file, cs.start_byte, cs.end_byte);
+        stream_writer.push_call_site(
+            &site_id,
+            caller_id_opt.as_deref(),
+            &cs.callee_name,
+            &cs.caller_file,
+            cs.start_byte as i64,
+            cs.end_byte as i64,
+        );
+
+        if RESOLVE_CALLS_EAGERLY {
+            let Some(caller_id) = caller_id_opt else {
+                continue;
+            };
+            let callee_spur = graph.symbols.intern(&cs.callee_name);
+            deferred_calls.push(DeferredCall {
+                caller_id,
+                caller_file_spur: path_spur,
+                callee_spur,
+                site_file: cs.caller_file,
+                site_start_byte: cs.start_byte,
+                site_end_byte: cs.end_byte,
+            });
+        }
+    }
+    if !RESOLVE_CALLS_EAGERLY {
+        let _ = path_spur;
     }
 }
 
@@ -1004,10 +1067,37 @@ mod tests {
         store
     }
 
+    /// Query-time call-edge derivation. Mirrors the `call_edge`
+    /// predicate in `src/queries/builtin/find_callers.cozoql` and
+    /// `examples/cozoscript/calls_at_query_time.cozoql`. Build no
+    /// longer materialises `*calls` (schema v7+); raw call sites
+    /// live in `*call_site` (v8). The test helpers derive call edges
+    /// from `*call_site` + `*imports` + `*symbol` so the assertions
+    /// still reflect the resolution algorithm.
+    const CALL_EDGE_PRELUDE: &str = "\
+        call_edge[caller_id, callee_id] := \
+            *call_site{caller_id, callee_name, file_path: call_site_file}, \
+            *symbol{id: callee_id, name: callee_name, \
+                    file_path: call_site_file, kind: callee_kind}, \
+            callee_kind in ['function', 'method', 'arrow_function', 'macro'], \
+            caller_id != callee_id\n\
+        call_edge[caller_id, callee_id] := \
+            *call_site{caller_id, callee_name, file_path: call_site_file}, \
+            *imports{importer_file_id: call_site_file, imported_id: callee_file}, \
+            *symbol{id: callee_id, name: callee_name, file_path: callee_file, \
+                    kind: callee_kind, exported: true}, \
+            callee_kind in ['function', 'method', 'arrow_function', 'macro'], \
+            caller_id != callee_id\n";
+
     fn count_calls_total(store: &CozoStore) -> i64 {
-        let rows = store
-            .run_query("?[count(c)] := *calls{caller_id: c}", BTreeMap::new())
-            .unwrap();
+        // Cozo doesn't materialise duplicates in a derived predicate
+        // (deduped on the head tuple). Count distinct (caller_id,
+        // callee_id) pairs.
+        let q = format!(
+            "{prelude}?[count(c)] := call_edge[c, _]",
+            prelude = CALL_EDGE_PRELUDE
+        );
+        let rows = store.run_query(&q, BTreeMap::new()).unwrap();
         match rows.rows.first().and_then(|r| r.first()) {
             Some(cozo::DataValue::Num(cozo::Num::Int(n))) => *n,
             _ => 0,
@@ -1015,12 +1105,17 @@ mod tests {
     }
 
     fn calls_from(store: &CozoStore, caller_name: &str) -> Vec<(String, String)> {
+        let q = format!(
+            "{prelude}?[callee_name, callee_file] := \
+             *symbol{{id: caller_id, name: target}}, \
+             target = $name, \
+             call_edge[caller_id, callee_id], \
+             *symbol{{id: callee_id, name: callee_name, file_path: callee_file}}",
+            prelude = CALL_EDGE_PRELUDE
+        );
         let rows = store
             .run_query(
-                "?[callee_name, callee_file] := \
-                 *symbol{id: caller_id, name: $name}, \
-                 *calls{caller_id, callee_id}, \
-                 *symbol{id: callee_id, name: callee_name, file_path: callee_file}",
+                &q,
                 BTreeMap::from([("name".to_string(), cozo::DataValue::from(caller_name))]),
             )
             .unwrap();

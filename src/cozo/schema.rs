@@ -32,6 +32,17 @@ pub fn create_statements() -> &'static [&'static str] {
         ":create calls {caller_id: String, callee_id: String => \
             call_site_file: String, call_site_start_byte: Int, \
             call_site_end_byte: Int, is_direct: Bool}",
+        // Raw call sites — one row per call expression (post Phase-1
+        // extraction). `caller_id` is null for top-level calls outside
+        // any function/method. `callee_name` is the unresolved short
+        // name (the part after the last `.` / `::`). Cross-file
+        // resolution to a callee symbol id is done at query time —
+        // see `examples/cozoscript/calls_at_query_time.cozoql` and the
+        // `find_callers` / `find_callees` / `find_cycles` templates.
+        // Schema v8.
+        ":create call_site {id: String => \
+            caller_id: String?, callee_name: String, file_path: String, \
+            start_byte: Int, end_byte: Int}",
         // ─── ADR-0005 fact-emission relations (issue #16) ──────────────────
         // Raw facts emitted by per-language extractors. Callers that
         // want resolved references join occurrence × scope × binding ×
@@ -124,5 +135,10 @@ pub fn index_statements() -> &'static [&'static str] {
         "::index create occurrence:by_name {name}",
         "::index create binding:by_name {name}",
         "::index create scope:by_file {file_path}",
+        // Query-time call resolution joins *call_site to *symbol +
+        // *imports. The two hot lookups are by caller (find_callees,
+        // find_cycles) and by callee_name (find_callers).
+        "::index create call_site:by_caller {caller_id}",
+        "::index create call_site:by_name {callee_name}",
     ]
 }
