@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use tempfile::tempdir;
 
-use virgil_cli::cozo::{populate, CozoStore};
+use virgil_cli::cozo::{CozoStore, populate};
 use virgil_cli::graph::builder::GraphBuilder;
 use virgil_cli::language::Language;
 use virgil_cli::storage::workspace::Workspace;
@@ -35,8 +35,7 @@ fn call_edge_is_populated_with_intra_and_cross_file_edges() {
     )
     .expect("write b.rs");
 
-    let workspace =
-        Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
     let store = CozoStore::open_in_memory().expect("open store");
     let graph = GraphBuilder::new(&workspace, &[Language::Rust])
         .build(&store)
@@ -98,11 +97,7 @@ fn baseline_and_optimised_queries_return_identical_rows() {
     // One test file (widget_test.rs, so file_classification.is_test = true)
     // and two non-test files (helper.rs, plain.rs). Each contains a call. Uses `self::a::beta` style
     // import for the same reason as the prior test in this file.
-    std::fs::write(
-        dir.path().join("helper.rs"),
-        "pub fn target() {}\n",
-    )
-    .expect("write helper");
+    std::fs::write(dir.path().join("helper.rs"), "pub fn target() {}\n").expect("write helper");
     std::fs::write(
         dir.path().join("widget_test.rs"),
         "use self::helper::target;\nfn test_widget() { target(); }\n",
@@ -114,8 +109,7 @@ fn baseline_and_optimised_queries_return_identical_rows() {
     )
     .expect("write plain");
 
-    let workspace =
-        Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
+    let workspace = Workspace::load(dir.path(), &[Language::Rust], None).expect("load workspace");
     let store = CozoStore::open_in_memory().expect("open store");
     let graph = GraphBuilder::new(&workspace, &[Language::Rust])
         .build(&store)
@@ -127,8 +121,12 @@ fn baseline_and_optimised_queries_return_identical_rows() {
     let optimised = std::fs::read_to_string("examples/test_to_function_map.optimised.cozoql")
         .expect("read optimised");
 
-    let b_rows = store.run_query(&baseline, BTreeMap::new()).expect("baseline");
-    let o_rows = store.run_query(&optimised, BTreeMap::new()).expect("optimised");
+    let b_rows = store
+        .run_query(&baseline, BTreeMap::new())
+        .expect("baseline");
+    let o_rows = store
+        .run_query(&optimised, BTreeMap::new())
+        .expect("optimised");
 
     let mut b: Vec<Vec<String>> = b_rows
         .rows
@@ -148,7 +146,10 @@ fn baseline_and_optimised_queries_return_identical_rows() {
         "baseline and optimised queries returned different row sets"
     );
     // Sanity: we should have rows for the test file only, not for plain.rs.
-    assert!(!b.is_empty(), "expected at least one row (test_widget -> target)");
+    assert!(
+        !b.is_empty(),
+        "expected at least one row (test_widget -> target)"
+    );
     for row in &o {
         assert!(
             row[0].contains("widget_test.rs"),
