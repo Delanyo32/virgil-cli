@@ -106,11 +106,19 @@ impl DbStore {
 
     fn load_duckpgq(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        // INSTALL is idempotent; LOAD must run per-connection. INSTALL
-        // hits the network only on the first cold connect — DuckDB
-        // caches the extension binary under ~/.duckdb/extensions/.
-        conn.execute_batch("INSTALL duckpgq FROM community; LOAD duckpgq;")
-            .map_err(|e| anyhow!("failed to load duckpgq extension: {e}"))?;
+        // Community extensions require an explicit allow on some
+        // builds (no-op where already allowed).
+        let _ = conn.execute_batch("SET allow_community_extensions = true;");
+        // INSTALL fetches the extension on first cold connect; DuckDB
+        // caches the binary under ~/.duckdb/extensions/. LOAD must
+        // run per-connection. Split into two calls so the actual
+        // failure surfaces — execute_batch swallowed the INSTALL
+        // error when both ran together, leaving only "Extension not
+        // found" from LOAD.
+        conn.execute_batch("INSTALL duckpgq FROM community;")
+            .map_err(|e| anyhow!("INSTALL duckpgq FROM community failed: {e}"))?;
+        conn.execute_batch("LOAD duckpgq;")
+            .map_err(|e| anyhow!("LOAD duckpgq failed: {e}"))?;
         Ok(())
     }
 
