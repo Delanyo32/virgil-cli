@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "virgil-cli",
-    about = "Parse and query codebases on-demand (DuckDB backend — experimental)",
+    about = "Parse and query codebases on-demand — DuckDB-backed fact store, SQL + PGQ queries",
     version
 )]
 pub struct Cli {
@@ -37,8 +37,8 @@ pub enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
-    // `Serve` subcommand and `--s3` flag are dropped on this branch —
-    // see docs/experiments/duckdb-swap.md (Q9 decision: local CLI only).
+    // `Serve` subcommand and `--s3` flag dropped during the DuckDB
+    // swap — see docs/experiments/duckdb-swap.md (Q9: local CLI only).
 }
 
 #[derive(Subcommand, Debug)]

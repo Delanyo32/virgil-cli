@@ -1,6 +1,6 @@
 # virgil-cli
 
-A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/), materialises them into a [CozoDB](https://www.cozodb.org/) fact store, and answers queries via Cozoscript. Persistent on-disk cache with warm-start in tens of milliseconds. Supports S3-compatible storage (AWS S3, Cloudflare R2, MinIO) for querying remote codebases directly.
+A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/), materialises them into a [DuckDB](https://duckdb.org/) fact store, and answers queries via SQL — including graph traversal via the [duckpgq](https://duckpgq.org/) SQL/PGQ extension. Persistent on-disk cache with warm-start in tens of milliseconds.
 
 ## Installation
 
@@ -22,25 +22,24 @@ irm https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.ps1 | 
 cargo install --path .
 ```
 
-## Usage
+The DuckDB backend is bundled (no system DuckDB required). `duckpgq` is installed from the community extension repository the first time you run a cold build; the binary is cached under `~/.duckdb/extensions/` for subsequent runs.
 
-Two top-level command groups:
+## Usage
 
 ```bash
 virgil-cli projects <COMMAND>
-virgil-cli serve --s3 <URI> [OPTIONS]
 ```
 
 ## Projects
 
-All project commands are nested under `virgil-cli projects`:
+All commands are nested under `virgil-cli projects`:
 
 | Command | Description |
 |---------|-------------|
 | `create` | Register a project for querying (scans files, saves to `~/.virgil-cli/projects.json`) |
 | `list` | List registered projects with file counts |
 | `delete` | Remove a registered project |
-| `query` | Run a Cozoscript template, file, or inline query against the project's fact store |
+| `query` | Run a SQL template, file, or inline query against the project's fact store |
 
 ### `projects create`
 
@@ -72,99 +71,60 @@ virgil-cli projects delete <NAME>
 ### `projects query`
 
 ```bash
-# Query a registered project — exactly one of --template / --cozoscript / --file required
+# Exactly one of --template / --sql / --file required
 virgil-cli projects query <NAME> --template <name> [--param k=v ...] [OPTIONS]
-virgil-cli projects query <NAME> --cozoscript '<inline>' [--param k=v ...] [OPTIONS]
-virgil-cli projects query <NAME> --file <path.cozoql> [--param k=v ...] [OPTIONS]
-
-# Query an S3/R2 codebase directly (no registration needed)
-virgil-cli projects query --s3 s3://bucket/prefix --template <name> [OPTIONS]
+virgil-cli projects query <NAME> --sql '<inline>' [--param k=v ...] [OPTIONS]
+virgil-cli projects query <NAME> --file <path.sql> [--param k=v ...] [OPTIONS]
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `<NAME>` | Project name (not needed with `--s3`) | — |
-| `--s3` | S3 URI — query codebase directly from S3/R2 | — |
-| `-l`, `--lang` | Comma-separated language filter (used with `--s3`) | all supported |
-| `-e`, `--exclude` | Glob patterns to exclude (used with `--s3`, repeatable) | none |
+| `<NAME>` | Project name | required |
+| `-l`, `--lang` | Comma-separated language filter | all supported |
+| `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
 | `--template` | Built-in template name (see list below) | — |
-| `--cozoscript` | Inline Cozoscript query | — |
-| `-f`, `--file` | Path to a Cozoscript file | — |
+| `--sql` | Inline SQL query | — |
+| `-f`, `--file` | Path to a SQL file | — |
 | `--param` | Parameter binding for `$param` references in the script (repeatable; `key=value`) | none |
 | `--rebuild` | Force a fresh rebuild of the cached fact store | false |
 | `--pretty` | Pretty-print JSON output | false |
 
-Parameter values bind via `BTreeMap<String, DataValue>` — integers and `true`/`false` are auto-coerced, everything else binds as a string. User input is never interpolated into the script body.
+Parameters substitute into `$name` placeholders in the SQL as quoted literals. Integers and `true`/`false` are auto-coerced; everything else binds as a string. (DuckDB's positional `?` binding isn't used because duckpgq's `GRAPH_TABLE(... WHERE ...)` doesn't consume placeholders — see [`docs/experiments/duckdb-swap.md`](docs/experiments/duckdb-swap.md) for the long story.)
 
 ## Built-in Templates
 
-Templates live under `src/queries/builtin/` (pure Cozoscript) and `src/queries/rust_templates.rs` (Rust-side handlers that need source-level access).
+Templates live under `src/queries/builtin/` (pure SQL) and `src/queries/rust_templates.rs` (Rust-side handlers that need source-level access).
 
 | Template | Params | What it returns |
 |---|---|---|
 | `find_function_by_name` | `name` | Function/method symbols whose `name` or `qualified_name` matches |
-| `find_callers` | `name` | Direct callers of the callee `$name` |
-| `find_callees` | `name` | Direct callees of the caller `$name` |
-| `find_cycles` | — | Pairs of mutually-reachable symbols in the call graph |
-| `import_depth` | — | Longest file-import chain ending at each file |
+| `find_callers` | `name` | Direct callers of the callee `$name` (PGQ MATCH on `call_edge`) |
+| `find_callees` | `name` | Direct callees of the caller `$name` (PGQ MATCH on `call_edge`) |
+| `find_cycles` | — | Pairs of mutually-reachable symbols (recursive CTE over `call_edge`) |
+| `import_depth` | — | Longest file-import chain ending at each file (recursive CTE) |
 | `export_surface` | — | Public exported symbols whose host file is imported elsewhere |
 | `find_implementations_of` | `name` | Types that `implements`/`extends` `$name` |
 | `complexity_hotspots` | `cc_threshold`, `length_threshold` | Functions exceeding cyclomatic or length thresholds; excludes tests |
 
-`complexity_hotspots` is a Rust-side handler — it queries `*symbol` + `*span` + `*file_classification` from Cozo, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
+`complexity_hotspots` is a Rust-side handler — it queries `symbol` + `span` + `file_classification` from DuckDB, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
 
-### Reference resolution (on-demand)
+### Why PGQ for some templates and plain SQL for others
 
-The build path emits raw `occurrence` / `scope` / `binding` / `imports` facts but does not materialise a `references` relation — resolving every occurrence in the workspace at build time dominated memory and time on large repos (10× RSS and 30× time on django alone). Callers who need resolved references write their own Cozoscript over the raw facts at query time, scoped to whatever demand set they actually need. `examples/cozoscript/` ships three starting points:
+The schema defines `CREATE PROPERTY GRAPH codegraph` with vertex tables `file` + `symbol` and edge tables `call_edge`, `imports`, `extends`, `implements`. Templates that traverse those edges single-hop (`find_callers`, `find_callees`) use the PGQ `GRAPH_TABLE(... MATCH ...)` form for declarative clarity. Templates that need transitive closure (`find_cycles`, `import_depth`) fall back to `WITH RECURSIVE` CTEs over the underlying tables — duckpgq 1.x crashes when `GRAPH_TABLE` is wrapped in a `WITH` clause.
 
-- `find_writers_of.cozoql` — demand-scoped writer lookup (one `$name`).
-- `unused_symbols.cozoql` — workspace-wide, inlines the full resolver (slow on big repos).
-- `resolve_references_full.md` — the original 8-stage staged resolver, runnable as a series of programs that materialise an ad-hoc `references_ad_hoc` relation once per session.
+### Resolved call edges (`call_edge`)
 
-### Resolved call edges (`*call_edge`)
+`call_edge {caller_id, callee_id, file_path}` is a precomputed call-graph edge table populated at build time by the parallel Rust resolver in `from_code_graph::resolve_and_emit_call_edges`. Intra-file matches by `(name, kind)` plus cross-file via `imports` + `exported=true`. Queries join it directly instead of recomputing the resolution.
 
-`*call_edge {caller_id, callee_id => file_path}` is a precomputed call-graph edge relation populated at build time by the parallel Rust resolver in `from_code_graph::resolve_and_emit_call_edges`.
-
-**Why it exists.** Queries that need resolved call edges used to recompute the two-rule join inline. That was the dominant cost in audit queries like the orchestrator's `test_to_function_map` — ~285 s on a 6k-file workload. Pre-materialising shifts that work from query time into the build step, so warm queries finish in <1 s.
-
-**How to use it.** Replace the inline `call_edge[...] :=` prelude rules with a direct `*call_edge{...}` join. Pair with `*file_classification{path, is_test: true}` instead of a regex match on the file path.
-
-**Before (inline resolution at query time):**
-
-```cozoscript
-call_edge[caller_id, callee_id, file] :=
-    *call_site{caller_id, callee_name, file_path: file},
-    *symbol{id: callee_id, name: callee_name, file_path: file, kind: k},
-    k in ['function', 'method', 'arrow_function', 'macro'],
-    caller_id != callee_id
-call_edge[caller_id, callee_id, file] :=
-    *call_site{caller_id, callee_name, file_path: file},
-    *imports{importer_file_id: file, imported_id: callee_file},
-    *symbol{id: callee_id, name: callee_name, file_path: callee_file,
-            kind: k, exported: true},
-    k in ['function', 'method', 'arrow_function', 'macro'],
-    caller_id != callee_id
-
-?[file, line, ...] :=
-    call_edge[c, t, file],
-    regex_matches(file, "(?i)(test|spec|__tests__|\\.test\\.|\\.spec\\.)"),
-    *symbol{id: c, name: caller_name},
-    ...
+```sql
+-- All symbols that transitively call `parse`:
+SELECT DISTINCT caller.name, caller.file_path
+FROM GRAPH_TABLE (codegraph
+    MATCH ANY ACYCLIC (caller:symbol)-[e:calls]->+(callee:symbol)
+    WHERE callee.name = 'parse'
+    COLUMNS (caller.name AS name, caller.file_path AS file_path)
+);
 ```
-
-**After (uses persistent `*call_edge` + `*file_classification`):**
-
-```cozoscript
-?[file, line, ...] :=
-    *call_edge{caller_id: c, callee_id: t, file_path: file},
-    *file_classification{path: file, is_test: true},
-    *symbol{id: c, name: caller_name},
-    ...
-```
-
-One rule, three indexed joins, no recursion, no regex.
-
-**Trade-off:** cold build pays ~16% extra wall + ~150 MB RSS to materialise call edges at build time; warm queries that join `*call_edge` get a ~500× speedup. See `examples/cozoscript/calls_via_call_edge.cozoql` for the recommended query pattern and `examples/cozoscript/calls_at_query_time.cozoql` for the inline fallback (still useful when you need byte-level `*call_site` detail not stored in `*call_edge`).
 
 ## Audit-shape Output
 
@@ -187,62 +147,62 @@ A query (or template handler) returning columns `(file, line, severity, pattern,
 `cache` is one of:
 
 - `cold` — full parse + populate (first run on a fresh workspace)
-- `warm` — reused the persistent SQLite store without any rebuild
-- `incremental` — re-parsed only the changed files since last build
+- `warm` — reused the persistent DuckDB store without any rebuild
 
-## Cozoscript Schema (queryable relations)
+(Incremental refresh is not implemented in the DuckDB branch — pass `--rebuild` to force a fresh parse.)
 
-Authored queries can reach into any of these relations. See `src/cozo/schema.rs` for the canonical definitions.
+## Schema (queryable tables)
 
-| Relation | Keys / Values |
+Authored queries can reach into any of these tables. See `src/db/schema.rs` for the canonical DDL.
+
+| Table | Columns |
 |---|---|
-| `file` | `{path => language, repo_id}` |
-| `symbol` | `{id => kind, name, qualified_name, language, visibility, file_path, parent_id?, is_async, is_static, is_abstract, is_mutable, exported}` |
-| `span` | `{entity_id, file_path => start_byte, end_byte, start_line, end_line, start_col, end_col}` — positional metadata for symbols/comments/call sites |
-| `calls` | `{caller_id, callee_id => call_site_file, call_site_start_byte, call_site_end_byte, is_direct}` |
-| `call_edge` | `{caller_id, callee_id => file_path}` — resolved direct call edges, materialised at build time by `from_code_graph::resolve_and_emit_call_edges`. Intra-file matches plus cross-file via `*imports` + `exported=true`. Schema v9. |
-| `occurrence` | `{id => name, file_path, start_byte, end_byte, enclosing_symbol_id?, enclosing_scope_id, occurrence_kind}` — raw identifier occurrences, input for on-demand reference resolution |
-| `scope` | `{id => parent_id?, file_path, kind, start_byte, end_byte}` — lexical scope chain |
-| `binding` | `{scope_id, name, start_byte => symbol_id?, binding_kind}` — name → symbol within a scope |
-| `extends` | `{child_id, parent_id}` |
-| `implements` | `{impl_id, interface_id}` |
-| `imports` | `{importer_file_id, imported_id}` |
-| `raw_import` | `{file_path, position => raw_path, language, kind}` (pre-resolution imports for incremental refresh) |
-| `parameter` | `{id => name, function_id, position, type_id?, is_optional, has_default, is_taint_source}` |
-| `returns_type` | `{function_id => type_id}` |
-| `throws` | `{function_id, exception_type_id}` |
-| `field_type` | `{symbol_id => type_id}` |
-| `type` | `{id => kind, language, display_name, canonical_name?}` — `kind` is `primitive`/`named`/`generic`/`union`/`intersection`/`function`/`tuple`/`array` |
-| `comment` | `{id => documents_id?, file_path, kind, is_doc, text, todo_kind?, start_byte, end_byte}` |
+| `file` | `path PK, language, repo_id` |
+| `symbol` | `id PK, kind, name, qualified_name, language, visibility, file_path, parent_id, is_async, is_static, is_abstract, is_mutable, exported` |
+| `span` | `(entity_id, file_path) PK, start_byte, end_byte, start_line, end_line, start_col, end_col` — positional metadata for symbols / comments / call sites |
+| `calls` | `(caller_id, callee_id) PK, call_site_file, call_site_start_byte, call_site_end_byte, is_direct` |
+| `call_site` | `id PK, caller_id, callee_name, file_path, start_byte, end_byte` — raw, unresolved call sites |
+| `call_edge` | `(caller_id, callee_id) PK, file_path` — resolved direct call edges (PGQ edge table for `codegraph`) |
+| `occurrence` | `id PK, name, file_path, start_byte, end_byte, enclosing_symbol_id, enclosing_scope_id, occurrence_kind` |
+| `scope` | `id PK, parent_id, file_path, kind, start_byte, end_byte` |
+| `binding` | `(scope_id, name, start_byte) PK, symbol_id, binding_kind` |
+| `extends` | `(child_id, parent_id) PK` (PGQ edge table for `codegraph`) |
+| `implements` | `(impl_id, interface_id) PK` (PGQ edge table for `codegraph`) |
+| `imports` | `(importer_file_id, imported_id) PK` (PGQ edge table for `codegraph`) |
+| `raw_import` | `(file_path, position) PK, raw_path, language, kind` |
+| `parameter` | `id PK, name, function_id, position, type_id, is_optional, has_default, is_taint_source` |
+| `returns_type` | `function_id PK, type_id` |
+| `throws` | `(function_id, exception_type_id) PK` |
+| `field_type` | `symbol_id PK, type_id` |
+| `type` | `id PK, kind, language, display_name, canonical_name` |
+| `comment` | `id PK, documents_id, file_path, kind, is_doc, text, todo_kind, start_byte, end_byte` |
 | `<lang>_attrs` | per-language attribute table (`rust_attrs`, `python_attrs`, `typescript_attrs`, `cpp_attrs`, `csharp_attrs`, `go_attrs`, `php_attrs`, `c_attrs`, `java_attrs`) |
-| `file_classification` | `{path => is_test, is_barrel, is_generated}` |
-| `nolint` | `{file_path, line => suppressed_pattern}` |
-| `build_meta` | `{key => value}` — includes `schema_version` |
-| `build_meta_files` | `{file_path => hash, size, mtime}` |
+| `file_classification` | `path PK, is_test, is_barrel, is_generated` |
+| `nolint` | `(file_path, line) PK, suppressed_pattern` |
+| `build_meta` | `key PK, value` — includes `schema_version` |
+| `build_meta_files` | `file_path PK, hash, size, mtime` |
 
 ## Persistence
 
-The fact store is persisted to `~/.cache/virgil/<hash>.cozo` (a single SQLite file). Subsequent invocations against the same workspace warm-start by reopening the existing store.
+The fact store is persisted to `~/.cache/virgil/<hash>.duckdb` (a single DuckDB file). Subsequent invocations against the same workspace warm-start by reopening the existing store.
 
 - **Schema version check**: `build_meta.schema_version` is compared on open; mismatch wipes the file and triggers a clean rebuild.
-- **Warm-start check**: each file's `(size, mtime)` is compared against `build_meta_files`. Unchanged workspace → skip parsing entirely.
-- **Incremental refresh**: when files change, only the touched ones re-parse; deletions cascade-delete owned facts; cross-file edges (`calls`, `imports`) are re-resolved from facts.
 - **Force a cold rebuild** with `--rebuild`.
+- **No incremental refresh** in this branch — changing files requires `--rebuild` to pick up the change. (See `docs/experiments/duckdb-swap.md` for why incremental was deferred.)
 
-### Build + query benchmarks
+### Benchmark snapshot
 
-End-to-end cost on openclaw `extensions` (6079 files, ~5.5k source) — phased,
-cold parse + warm query. From `examples/bench_query_optimisations.sh`.
+From `docs/experiments/duckdb-swap-findings.md` (DuckDB branch vs Cozo on the same machine, 2 corpora available):
 
-| Phase | Baseline | With `*call_edge` |
-|---|---|---|
-| Parse (cold, 1 noop query) | 33.3 s wall, 1030 MB RSS, 1.47 cores | 38.7 s wall, 1179 MB RSS, 1.36 cores |
-| Query (warm, `test_to_function_map`) | 276.6 s wall, 52 MB RSS, single-core | 0.51 s wall, 38 MB RSS, single-core |
+| Repo | Phase | Cozo | DuckDB | Speedup |
+|---|---|---:|---:|---:|
+| openclaw/discord (522 ts/tsx) | parse cold | 1.79 s / 204 MB | **0.47 s / 110 MB** | 3.8× / 1.9× memory |
+| openclaw/discord | find_cycles | 12.23 s | **0.28 s** | 43× |
+| openclaw/discord | import_depth | 30 s (TIMEOUT) / 2.8 GB | **0.28 s / 44 MB** | >100× |
+| openclaw/ui (461 ts/tsx) | parse cold | 1.78 s / 248 MB | **0.45 s / 129 MB** | 4.0× / 1.9× memory |
+| openclaw/ui | find_cycles | 30 s (TIMEOUT) | **0.28 s** | >100× |
 
-The build phase pays a small wall + RSS tax to materialise ~48k call_edge
-rows; warm queries that join `*call_edge` get a ~520× speedup. Net win for
-any workflow that runs >1 query per cold build (e.g. orchestrator-style
-audit suites).
+Flat queries (`find_function_by_name`, `find_callers`, `find_callees`, etc.) tie within process-startup noise (~0.26-0.28s) because both engines are dominated by binary launch + extension load, not real query work.
 
 ## Examples
 
@@ -256,101 +216,22 @@ virgil-cli projects query myapp --template find_function_by_name --param name=lo
 # Who calls `authenticate`?
 virgil-cli projects query myapp --template find_callers --param name=authenticate
 
-# Import cycles
+# Cycle detection (recursive CTE over the materialised call graph)
 virgil-cli projects query myapp --template find_cycles --pretty
 
-# Complexity hotspots above threshold
+# Complexity hotspots above threshold (Rust-side handler)
 virgil-cli projects query myapp --template complexity_hotspots \
     --param cc_threshold=15 --param length_threshold=100
 
-# Custom Cozoscript inline
-virgil-cli projects query myapp --cozoscript \
-    '?[name, file] := *symbol{name, file_path: file, exported: true}'
+# Custom inline SQL
+virgil-cli projects query myapp --sql \
+    "SELECT name, file_path FROM symbol WHERE exported = true ORDER BY file_path"
 
-# Cozoscript from a file
-virgil-cli projects query myapp --file my_query.cozoql --param target=login
+# SQL from a file
+virgil-cli projects query myapp --file my_query.sql --param target=login
 
 # Force a fresh rebuild
 virgil-cli projects query myapp --template find_cycles --rebuild
-
-# S3 / Cloudflare R2 (no project registration)
-virgil-cli projects query --s3 s3://bucket/my-repo --template find_cycles --pretty
-virgil-cli projects query --s3 s3://bucket/my-repo --template find_function_by_name \
-    --param name=handle --lang rs
-
-# Server mode (Virgil Live)
-virgil-cli serve --s3 s3://bucket/my-repo
-virgil-cli serve --s3 s3://bucket/my-repo --lang rs --port 8080
-virgil-cli serve --s3 s3://bucket/my-repo --host 0.0.0.0 --port 8080
-```
-
-## Serve (Server Mode)
-
-Persistent HTTP server that loads a codebase from S3 once and serves Cozoscript queries over HTTP. The same persistence and warm-start logic as the CLI — the cached SQLite store is shared.
-
-```bash
-virgil-cli serve --s3 <URI> [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--s3` | S3 URI — load codebase at startup | required (unless `--dir`) |
-| `--dir` | Local directory (alternative to `--s3`) | — |
-| `--host` | Host to bind (use `0.0.0.0` for all interfaces) | `127.0.0.1` |
-| `--port` | Port to bind (use `0` for OS-assigned) | `0` |
-| `-l`, `--lang` | Comma-separated language filter | all supported |
-| `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
-
-### Lifecycle
-
-1. Loads codebase (S3 download or local read) and builds / opens the fact store.
-2. Prints ready signal to stdout: `{"ready": true, "port": <actual_port>}`.
-3. Serves HTTP requests until killed (SIGTERM/SIGINT).
-
-### HTTP API
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check — returns `{"status": "ok"}` |
-| `/query` | POST | Runs a Cozoscript template or inline body against the store |
-
-**Query request body** — exactly one of `cozoscript` or `template`:
-
-```json
-{
-  "template": "find_callers",
-  "params": {"name": "authenticate"}
-}
-```
-
-```json
-{
-  "cozoscript": "?[name, file] := *symbol{name, file_path: file, exported: true}",
-  "params": {}
-}
-```
-
-Response shape mirrors the CLI's `result` envelope.
-
-## S3 Configuration
-
-S3 support works with AWS S3, Cloudflare R2, MinIO, and any S3-compatible storage. Configure via environment variables:
-
-| Variable | Fallback | Description |
-|----------|----------|-------------|
-| `S3_ENDPOINT` | `AWS_ENDPOINT_URL` | Custom endpoint URL (required for R2/MinIO) |
-| `S3_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | Access key |
-| `S3_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | Secret key |
-| `AWS_REGION` | `auto` | AWS region (defaults to `auto` for R2) |
-
-Standard AWS credential chain (env vars, `~/.aws/credentials`, IAM roles) is also supported.
-
-Example `.env` for Cloudflare R2:
-
-```bash
-S3_ACCESS_KEY_ID=your_access_key
-S3_SECRET_ACCESS_KEY=your_secret_key
-S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 ```
 
 ## Supported Languages
@@ -373,15 +254,13 @@ S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
 ## Features
 
 - **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP via tree-sitter
-- **Cozoscript query language** — Datalog over a fact store
-- **Persistent fact store** — SQLite-backed Cozo store cached at `~/.cache/virgil/<hash>.cozo`
-- **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely; ~17 ms warm vs ~1–11 s cold on a few-thousand-file repo
-- **Scales to multi-thousand-file codebases** — streamed Cozo writes during absorb + no eager reference materialisation; cold-builds a 5.5k-file workload in ~27 s with ~580 MB peak RSS
-- **Incremental refresh** — modifying / adding / removing one file re-parses only that file and re-resolves cross-file edges
+- **SQL query language** — standard SQL with `WITH RECURSIVE` for graph closures; SQL/PGQ via duckpgq for declarative `MATCH` patterns
+- **Persistent fact store** — single-file DuckDB store cached at `~/.cache/virgil/<hash>.duckdb`
+- **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely
+- **Scales to multi-thousand-file codebases** — streamed DuckDB writes during absorb (Arrow-backed `Appender` for scalar tables, batched `INSERT` for array columns)
 - **Audit-shape output convention** — `(file, line, severity, pattern, message)` columns auto-format as findings
-- **Parameter binding** — `--param key=value`; user input never interpolated into the script body
-- **S3 support** — AWS S3, Cloudflare R2, MinIO, or any S3-compatible storage
-- **Server mode** — persistent HTTP server that loads a codebase once and serves Cozoscript queries
+- **Parameter binding** — `--param key=value` substitutes into `$name` placeholders
+- **Materialised call graph** — `call_edge` built at parse time so warm queries hit a join instead of a recursive resolver
 
 ## License
 
