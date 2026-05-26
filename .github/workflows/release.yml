@@ -60,6 +60,11 @@ jobs:
 
       - name: Build (cargo)
         if: matrix.build == 'cargo'
+        env:
+          # libduckdb-sys's bundled DuckDB C++ source uses exception
+          # handling; MSVC won't compile it without /EHsc. Harmless
+          # no-op on the macOS targets that share this step.
+          CXXFLAGS: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '/EHsc' || '' }}
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build (zigbuild)
