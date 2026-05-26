@@ -4,11 +4,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use tracing::info;
 
 use crate::language::Language;
 use crate::storage::discovery;
-use crate::storage::file_source::{DiskFileSource, FileSource, MemoryFileSource, S3FileSource};
+use crate::storage::file_source::{DiskFileSource, FileSource};
 
 pub struct Workspace {
     root: PathBuf,
@@ -68,55 +67,6 @@ impl Workspace {
         })
     }
 
-    /// Set up an S3-backed workspace. Lists objects + sizes up-front;
-    /// file bodies are fetched on demand and cached in an LRU
-    /// (see [`crate::storage::file_source::S3FileSource`]).
-    /// Replaces the previous pre-download-everything path.
-    pub fn load_from_s3(
-        bucket: &str,
-        prefix: &str,
-        languages: &[Language],
-        exclude: &[String],
-        max_file_size: Option<u64>,
-    ) -> Result<Self> {
-        let location = crate::storage::s3::S3Location {
-            bucket: bucket.to_string(),
-            prefix: prefix.to_string(),
-        };
-
-        info!(bucket = %bucket, prefix = %prefix, "listing S3 objects");
-        let listings = crate::storage::s3::list_object_sizes(&location, languages, exclude)?;
-        info!(count = listings.len(), "S3 listing complete");
-
-        let mut size_map: HashMap<String, u64> = HashMap::with_capacity(listings.len());
-        let mut file_list: Vec<String> = Vec::with_capacity(listings.len());
-        let mut lang_map: HashMap<String, Language> = HashMap::with_capacity(listings.len());
-        for (key, size) in listings {
-            if let Some(max) = max_file_size
-                && size > max
-            {
-                continue;
-            }
-            if let Some(ext) = std::path::Path::new(&key)
-                .extension()
-                .and_then(|e| e.to_str())
-                && let Some(lang) = Language::from_extension(ext)
-            {
-                lang_map.insert(key.clone(), lang);
-            }
-            size_map.insert(key.clone(), size);
-            file_list.push(key);
-        }
-
-        let source = Box::new(S3FileSource::new(location, file_list, size_map));
-        let root = PathBuf::from(format!("s3://{bucket}/{prefix}"));
-        Ok(Self {
-            root,
-            source,
-            languages: lang_map,
-        })
-    }
-
     /// Read file content by relative path.
     pub fn read_file(&self, relative_path: &str) -> Option<Arc<str>> {
         self.source.read_file(relative_path)
@@ -167,28 +117,11 @@ impl Workspace {
             }
         }
 
-        if self.root.exists() {
-            let source = Box::new(DiskFileSource::new(self.root.clone(), kept, sizes));
-            Workspace {
-                root: self.root.clone(),
-                source,
-                languages: langs,
-            }
-        } else {
-            // S3 workspace — pull file contents into memory for the
-            // subset so MemoryFileSource has them.
-            let mut files: HashMap<String, Arc<str>> = HashMap::with_capacity(kept.len());
-            for p in &kept {
-                if let Some(s) = self.source.read_file(p) {
-                    files.insert(p.clone(), s);
-                }
-            }
-            let source = Box::new(MemoryFileSource::new(files, sizes));
-            Workspace {
-                root: self.root.clone(),
-                source,
-                languages: langs,
-            }
+        let source = Box::new(DiskFileSource::new(self.root.clone(), kept, sizes));
+        Workspace {
+            root: self.root.clone(),
+            source,
+            languages: langs,
         }
     }
 }

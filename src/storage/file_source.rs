@@ -5,9 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
 
-/// Read-only file source abstraction.
-/// Implementations: MemoryFileSource (in-memory, used for S3), DiskFileSource
-/// (bounded read-through LRU over a local directory).
+/// Read-only file source abstraction. Only implementation is
+/// [`DiskFileSource`]; the prior `MemoryFileSource` / `S3FileSource`
+/// dropped with the S3 + serve scope (see
+/// `docs/experiments/duckdb-swap.md`).
 pub trait FileSource: Send + Sync {
     /// Read file content by relative path. Returns None if not found.
     fn read_file(&self, relative_path: &str) -> Option<Arc<str>>;
@@ -22,108 +23,9 @@ pub trait FileSource: Send + Sync {
     fn file_size(&self, relative_path: &str) -> Option<u64>;
 }
 
-/// In-memory file source backed by a HashMap.
-/// After construction, all reads are zero-copy via Arc<str>.
-pub struct MemoryFileSource {
-    files: HashMap<String, Arc<str>>,
-    file_list: Vec<String>,
-    sizes: HashMap<String, u64>,
-}
-
-impl MemoryFileSource {
-    pub fn new(files: HashMap<String, Arc<str>>, sizes: HashMap<String, u64>) -> Self {
-        let mut file_list: Vec<String> = files.keys().cloned().collect();
-        file_list.sort();
-        Self {
-            files,
-            file_list,
-            sizes,
-        }
-    }
-}
-
-impl FileSource for MemoryFileSource {
-    fn read_file(&self, relative_path: &str) -> Option<Arc<str>> {
-        self.files.get(relative_path).cloned()
-    }
-
-    fn list_files(&self) -> &[String] {
-        &self.file_list
-    }
-
-    fn file_exists(&self, relative_path: &str) -> bool {
-        self.files.contains_key(relative_path)
-    }
-
-    fn file_size(&self, relative_path: &str) -> Option<u64> {
-        self.sizes.get(relative_path).copied()
-    }
-}
-
 /// Default capacity for the disk LRU cache. The working set during a build is
 /// approximately one file per rayon worker, so even a small cap stays warm.
 const DISK_LRU_CAPACITY: usize = 256;
-
-/// On-demand S3 file source with a bounded LRU. Replaces the previous
-/// `MemoryFileSource` that pre-downloaded every file body — that pattern
-/// OOM'd on multi-thousand-file repos.
-pub struct S3FileSource {
-    location: crate::storage::s3::S3Location,
-    file_list: Vec<String>,
-    sizes: HashMap<String, u64>,
-    cache: Mutex<LruCache<String, Arc<str>>>,
-}
-
-impl S3FileSource {
-    pub fn new(
-        location: crate::storage::s3::S3Location,
-        file_list: Vec<String>,
-        sizes: HashMap<String, u64>,
-    ) -> Self {
-        let mut file_list = file_list;
-        file_list.sort();
-        let cap = NonZeroUsize::new(DISK_LRU_CAPACITY).expect("non-zero capacity");
-        Self {
-            location,
-            file_list,
-            sizes,
-            cache: Mutex::new(LruCache::new(cap)),
-        }
-    }
-}
-
-impl FileSource for S3FileSource {
-    fn read_file(&self, relative_path: &str) -> Option<Arc<str>> {
-        if !self.sizes.contains_key(relative_path) {
-            return None;
-        }
-        if let Some(hit) = self
-            .cache
-            .lock()
-            .ok()
-            .and_then(|mut c| c.get(relative_path).cloned())
-        {
-            return Some(hit);
-        }
-        let s = crate::storage::s3::fetch_object(&self.location, relative_path).ok()?;
-        if let Ok(mut c) = self.cache.lock() {
-            c.put(relative_path.to_string(), s.clone());
-        }
-        Some(s)
-    }
-
-    fn list_files(&self) -> &[String] {
-        &self.file_list
-    }
-
-    fn file_exists(&self, relative_path: &str) -> bool {
-        self.sizes.contains_key(relative_path)
-    }
-
-    fn file_size(&self, relative_path: &str) -> Option<u64> {
-        self.sizes.get(relative_path).copied()
-    }
-}
 
 /// Disk-backed file source with a bounded LRU. Files are read on demand and
 /// the cache evicts the least-recently-used entry once it exceeds capacity.
@@ -188,41 +90,6 @@ impl FileSource for DiskFileSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn memory_file_source_basic() {
-        let mut files = HashMap::new();
-        files.insert("src/main.rs".to_string(), Arc::from("fn main() {}"));
-        files.insert("src/lib.rs".to_string(), Arc::from("pub mod foo;"));
-
-        let mut sizes = HashMap::new();
-        sizes.insert("src/main.rs".to_string(), 12);
-        sizes.insert("src/lib.rs".to_string(), 12);
-
-        let source = MemoryFileSource::new(files, sizes);
-
-        assert_eq!(source.list_files().len(), 2);
-        assert!(source.file_exists("src/main.rs"));
-        assert!(!source.file_exists("src/missing.rs"));
-        assert_eq!(
-            source.read_file("src/main.rs").unwrap().as_ref(),
-            "fn main() {}"
-        );
-        assert_eq!(source.file_size("src/main.rs"), Some(12));
-        assert_eq!(source.file_size("missing"), None);
-    }
-
-    #[test]
-    fn file_list_is_sorted() {
-        let mut files = HashMap::new();
-        files.insert("z.rs".to_string(), Arc::from(""));
-        files.insert("a.rs".to_string(), Arc::from(""));
-        files.insert("m.rs".to_string(), Arc::from(""));
-
-        let source = MemoryFileSource::new(files, HashMap::new());
-        let list = source.list_files();
-        assert_eq!(list, &["a.rs", "m.rs", "z.rs"]);
-    }
 
     #[test]
     fn disk_file_source_reads_from_disk() {

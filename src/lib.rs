@@ -1,6 +1,6 @@
 pub mod classify;
 pub mod cli;
-pub mod cozo;
+pub mod db;
 pub mod graph;
 pub mod language;
 pub mod languages;
@@ -8,6 +8,5 @@ pub mod models;
 pub mod observability;
 pub mod parser;
 pub mod queries;
-pub mod server;
 pub mod signature;
 pub mod storage;

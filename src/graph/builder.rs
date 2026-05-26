@@ -11,8 +11,8 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
 use crate::classify::{is_barrel_file, is_test_file};
-use crate::cozo::from_code_graph::{extract_nolints, is_generated_marker, symbol_id};
-use crate::cozo::{CozoStore, CozoWriter};
+use crate::db::from_code_graph::{extract_nolints, is_generated_marker, symbol_id};
+use crate::db::{DbStore, DbWriter};
 use crate::language::Language;
 use crate::languages;
 use crate::models::{
@@ -139,7 +139,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn build(&self, store: &CozoStore) -> Result<CodeGraph> {
+    pub fn build(&self, store: &DbStore) -> Result<CodeGraph> {
         let total_files = self.workspace.file_count();
         info!(
             files = total_files,
@@ -227,7 +227,7 @@ impl<'a> GraphBuilder<'a> {
         // Streaming writer for all node + edge Cozo rows. Drained
         // periodically during absorb and once after cross-file
         // resolution so peak memory stays bounded.
-        let mut stream_writer = CozoWriter::new();
+        let mut stream_writer = DbWriter::new();
         let mut files_since_flush: u32 = 0;
         // repo_id derives from the workspace root's basename. S3
         // workspaces have synthetic `s3://bucket/prefix` roots — the
@@ -536,7 +536,7 @@ fn absorb_file_data(
     file_symbols_by_name: &mut HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
     file_exports_by_name: &mut HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
     file_known_spurs: &mut HashSet<Spur>,
-    stream_writer: &mut CozoWriter,
+    stream_writer: &mut DbWriter,
 ) {
     let FileGraphData {
         path,
@@ -1058,73 +1058,44 @@ fn extract_callee_name(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cozo::CozoStore;
+    use crate::db::DbStore;
+    use crate::db::from_code_graph as fcg;
     use crate::storage::workspace::Workspace;
+    use duckdb::types::Value;
     use std::collections::BTreeMap;
 
-    /// Build the workspace into a fresh in-memory store. Tests query
-    /// the resulting Cozo relations directly — `CodeGraph` no longer
-    /// carries the per-symbol/per-edge inspection points the original
-    /// tests used.
-    fn build_into_store(dir: &std::path::Path, langs: &[Language]) -> CozoStore {
+    /// Build the workspace into a fresh in-memory store and run the
+    /// populate tail so `*call_edge` is materialised. Tests query the
+    /// resulting DuckDB tables directly.
+    fn build_into_store(dir: &std::path::Path, langs: &[Language]) -> DbStore {
         let ws = Workspace::load(dir, langs, None).unwrap();
-        let store = CozoStore::open_in_memory().unwrap();
-        GraphBuilder::new(&ws, langs).build(&store).unwrap();
+        let store = DbStore::open_in_memory().unwrap();
+        let graph = GraphBuilder::new(&ws, langs).build(&store).unwrap();
+        fcg::populate(&store, &graph, Some(&ws)).unwrap();
         store
     }
 
-    /// Query-time call-edge derivation. Mirrors the `call_edge`
-    /// predicate in `src/queries/builtin/find_callers.cozoql` and
-    /// `examples/cozoscript/calls_at_query_time.cozoql`. Build no
-    /// longer materialises `*calls` (schema v7+); raw call sites
-    /// live in `*call_site` (v8). The test helpers derive call edges
-    /// from `*call_site` + `*imports` + `*symbol` so the assertions
-    /// still reflect the resolution algorithm.
-    const CALL_EDGE_PRELUDE: &str = "\
-        call_edge[caller_id, callee_id] := \
-            *call_site{caller_id, callee_name, file_path: call_site_file}, \
-            *symbol{id: callee_id, name: callee_name, \
-                    file_path: call_site_file, kind: callee_kind}, \
-            callee_kind in ['function', 'method', 'arrow_function', 'macro'], \
-            caller_id != callee_id\n\
-        call_edge[caller_id, callee_id] := \
-            *call_site{caller_id, callee_name, file_path: call_site_file}, \
-            *imports{importer_file_id: call_site_file, imported_id: callee_file}, \
-            *symbol{id: callee_id, name: callee_name, file_path: callee_file, \
-                    kind: callee_kind, exported: true}, \
-            callee_kind in ['function', 'method', 'arrow_function', 'macro'], \
-            caller_id != callee_id\n";
-
-    fn count_calls_total(store: &CozoStore) -> i64 {
-        // Cozo doesn't materialise duplicates in a derived predicate
-        // (deduped on the head tuple). Count distinct (caller_id,
-        // callee_id) pairs.
-        let q = format!(
-            "{prelude}?[count(c)] := call_edge[c, _]",
-            prelude = CALL_EDGE_PRELUDE
-        );
-        let rows = store.run_query(&q, BTreeMap::new()).unwrap();
+    fn count_calls_total(store: &DbStore) -> i64 {
+        let rows = store
+            .run_query("SELECT COUNT(*) FROM call_edge", BTreeMap::new())
+            .unwrap();
         match rows.rows.first().and_then(|r| r.first()) {
-            Some(cozo::DataValue::Num(cozo::Num::Int(n))) => *n,
+            Some(Value::BigInt(n)) => *n,
+            Some(Value::Int(n)) => *n as i64,
             _ => 0,
         }
     }
 
-    fn calls_from(store: &CozoStore, caller_name: &str) -> Vec<(String, String)> {
-        let q = format!(
-            "{prelude}?[callee_name, callee_file] := \
-             *symbol{{id: caller_id, name: target}}, \
-             target = $name, \
-             call_edge[caller_id, callee_id], \
-             *symbol{{id: callee_id, name: callee_name, file_path: callee_file}}",
-            prelude = CALL_EDGE_PRELUDE
+    fn calls_from(store: &DbStore, caller_name: &str) -> Vec<(String, String)> {
+        let sql = format!(
+            "SELECT callee.name, callee.file_path \
+             FROM call_edge ce \
+             JOIN symbol caller ON caller.id = ce.caller_id \
+             JOIN symbol callee ON callee.id = ce.callee_id \
+             WHERE caller.name = '{}'",
+            caller_name.replace('\'', "''")
         );
-        let rows = store
-            .run_query(
-                &q,
-                BTreeMap::from([("name".to_string(), cozo::DataValue::from(caller_name))]),
-            )
-            .unwrap();
+        let rows = store.run_query(&sql, BTreeMap::new()).unwrap();
         rows.rows
             .into_iter()
             .filter_map(|r| {
@@ -1136,9 +1107,9 @@ mod tests {
             .collect()
     }
 
-    fn to_str(v: &cozo::DataValue) -> Option<String> {
+    fn to_str(v: &Value) -> Option<String> {
         match v {
-            cozo::DataValue::Str(s) => Some(s.to_string()),
+            Value::Text(s) => Some(s.clone()),
             _ => None,
         }
     }

@@ -27,14 +27,16 @@ globset = "0.4"
 dirs = "5"
 regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
-aws-sdk-s3 = "1"
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal", "time"] }
-axum = "0.8"
 include_dir = "0.7"
 lru = "0.12"
 lasso = { version = "0.7", features = ["multi-threaded"] }
-cozo = { package = "cozo-ce", version = "0.7.13-alpha.3", default-features = false, features = ["storage-sqlite", "storage-new-rocksdb", "storage-sled", "rayon"] }
+# DuckDB backend (formerly Cozo — replaced as the fact store, see
+# docs/experiments/duckdb-swap.md). Bundled so we don't depend on a
+# system DuckDB. vtab-arrow + appender-arrow give us the Arrow ingest
+# path; duckpgq is loaded at runtime from the community repo on first
+# cold-build and cached under ~/.duckdb/extensions/.
+duckdb = { version = "1", features = ["bundled", "vtab-arrow", "appender-arrow"] }
+arrow = "53"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 tracing-indicatif = "0.3"
