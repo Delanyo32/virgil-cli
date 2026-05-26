@@ -594,7 +594,12 @@ impl DbWriter {
             flush_table(conn, "field_type", 1, &mut self.field_type)?;
             flush_table(conn, "type", 1, &mut self.ty)?;
             flush_table(conn, "comment", 1, &mut self.comment)?;
-            flush_table(conn, "file_classification", 1, &mut self.file_classification)?;
+            flush_table(
+                conn,
+                "file_classification",
+                1,
+                &mut self.file_classification,
+            )?;
             flush_table(conn, "nolint", 2, &mut self.nolint)?;
             flush_table(conn, "build_meta", 1, &mut self.build_meta)?;
             flush_table(conn, "build_meta_files", 1, &mut self.build_meta_files)?;
@@ -687,12 +692,7 @@ fn pk_key(row: &Row, pk_cols: usize) -> String {
     s
 }
 
-fn flush_table(
-    conn: &Connection,
-    table: &str,
-    pk_cols: usize,
-    rows: &mut Vec<Row>,
-) -> Result<()> {
+fn flush_table(conn: &Connection, table: &str, pk_cols: usize, rows: &mut Vec<Row>) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
