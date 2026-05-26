@@ -61,7 +61,9 @@ fn dispatch(command: Command) -> Result<()> {
                 let projects = registry::list_projects()?;
                 if projects.is_empty() {
                     println!("No projects registered.");
-                    println!("Use 'virgil-cli projects create <name> --path <dir>' to register one.");
+                    println!(
+                        "Use 'virgil-cli projects create <name> --path <dir>' to register one."
+                    );
                 } else {
                     for p in &projects {
                         println!(

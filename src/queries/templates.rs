@@ -64,8 +64,8 @@ mod tests {
 
     #[test]
     fn known_name_loads_a_non_empty_body() {
-        let body = load_sql_template("find_function_by_name")
-            .expect("find_function_by_name template");
+        let body =
+            load_sql_template("find_function_by_name").expect("find_function_by_name template");
         assert!(
             body.to_uppercase().contains("SELECT"),
             "expected SQL SELECT, got {body}"

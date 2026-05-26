@@ -84,7 +84,8 @@ impl DbWriter {
         self.field_type.append(&mut other.field_type);
         self.ty.append(&mut other.ty);
         self.comment.append(&mut other.comment);
-        self.file_classification.append(&mut other.file_classification);
+        self.file_classification
+            .append(&mut other.file_classification);
         self.nolint.append(&mut other.nolint);
         self.build_meta.append(&mut other.build_meta);
         self.build_meta_files.append(&mut other.build_meta_files);
@@ -103,7 +104,8 @@ impl DbWriter {
     }
 
     pub fn push_file(&mut self, path: &str, language: &str, repo_id: &str) {
-        self.file.push(vec![text(path), text(language), text(repo_id)]);
+        self.file
+            .push(vec![text(path), text(language), text(repo_id)]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -203,7 +205,8 @@ impl DbWriter {
     }
 
     pub fn push_call_edge(&mut self, caller_id: &str, callee_id: &str, file_path: &str) {
-        self.call_edge.push(vec![text(caller_id), text(callee_id), text(file_path)]);
+        self.call_edge
+            .push(vec![text(caller_id), text(callee_id), text(file_path)]);
     }
 
     pub fn push_extends(&mut self, child_id: &str, parent_id: &str) {
@@ -211,11 +214,13 @@ impl DbWriter {
     }
 
     pub fn push_implements(&mut self, impl_id: &str, interface_id: &str) {
-        self.implements.push(vec![text(impl_id), text(interface_id)]);
+        self.implements
+            .push(vec![text(impl_id), text(interface_id)]);
     }
 
     pub fn push_imports(&mut self, importer_file_id: &str, imported_id: &str) {
-        self.imports.push(vec![text(importer_file_id), text(imported_id)]);
+        self.imports
+            .push(vec![text(importer_file_id), text(imported_id)]);
     }
 
     pub fn push_raw_import(
@@ -260,11 +265,13 @@ impl DbWriter {
     }
 
     pub fn push_returns_type(&mut self, function_id: &str, type_id: &str) {
-        self.returns_type.push(vec![text(function_id), text(type_id)]);
+        self.returns_type
+            .push(vec![text(function_id), text(type_id)]);
     }
 
     pub fn push_throws(&mut self, function_id: &str, exception_type_id: &str) {
-        self.throws.push(vec![text(function_id), text(exception_type_id)]);
+        self.throws
+            .push(vec![text(function_id), text(exception_type_id)]);
     }
 
     pub fn push_field_type(&mut self, symbol_id: &str, type_id: &str) {
@@ -330,7 +337,8 @@ impl DbWriter {
     }
 
     pub fn push_nolint(&mut self, file_path: &str, line: i64, suppressed_pattern: &str) {
-        self.nolint.push(vec![text(file_path), big(line), text(suppressed_pattern)]);
+        self.nolint
+            .push(vec![text(file_path), big(line), text(suppressed_pattern)]);
     }
 
     pub fn push_build_meta(&mut self, key: &str, value: &str) {
@@ -338,12 +346,8 @@ impl DbWriter {
     }
 
     pub fn push_build_meta_file(&mut self, file_path: &str, hash: &str, size: i64, mtime: i64) {
-        self.build_meta_files.push(vec![
-            text(file_path),
-            text(hash),
-            big(size),
-            big(mtime),
-        ]);
+        self.build_meta_files
+            .push(vec![text(file_path), text(hash), big(size), big(mtime)]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -657,7 +661,13 @@ fn flush_table_with_arrays(conn: &Connection, table: &str, rows: &mut Vec<Row>) 
 fn value_to_sql_literal(v: &Value) -> String {
     match v {
         Value::Null => "NULL".to_string(),
-        Value::Boolean(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+        Value::Boolean(b) => {
+            if *b {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }
+        }
         Value::TinyInt(n) => n.to_string(),
         Value::SmallInt(n) => n.to_string(),
         Value::Int(n) => n.to_string(),
@@ -719,7 +729,11 @@ mod tests {
             "public",
             "src/a.ts",
             None,
-            false, false, false, false, true,
+            false,
+            false,
+            false,
+            false,
+            true,
         );
         writer.push_symbol(
             "src/a.ts|11|0|checkPassword|function",
@@ -730,13 +744,19 @@ mod tests {
             "private",
             "src/a.ts",
             None,
-            false, false, false, false, false,
+            false,
+            false,
+            false,
+            false,
+            false,
         );
         writer.push_calls(
             "src/a.ts|1|0|login|function",
             "src/a.ts|11|0|checkPassword|function",
             "src/a.ts",
-            42, 55, true,
+            42,
+            55,
+            true,
         );
 
         writer.flush(&store).expect("flush");
@@ -764,7 +784,10 @@ mod tests {
         w.flush(&store).expect("flush");
 
         let rows = store
-            .run_query("SELECT caller_id, callee_id, file_path FROM call_edge ORDER BY caller_id", BTreeMap::new())
+            .run_query(
+                "SELECT caller_id, callee_id, file_path FROM call_edge ORDER BY caller_id",
+                BTreeMap::new(),
+            )
             .expect("query");
         assert_eq!(rows.rows.len(), 2);
     }
@@ -776,8 +799,18 @@ mod tests {
         w.push_file("src/lib.rs", "rust", "");
         w.push_symbol(
             "src/lib.rs|1|0|foo|function",
-            "function", "foo", "foo", "rust", "public", "src/lib.rs",
-            None, false, false, false, false, true,
+            "function",
+            "foo",
+            "foo",
+            "rust",
+            "public",
+            "src/lib.rs",
+            None,
+            false,
+            false,
+            false,
+            false,
+            true,
         );
         w.push_rust_attrs(
             "src/lib.rs|1|0|foo|function",

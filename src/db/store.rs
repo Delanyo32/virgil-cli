@@ -109,10 +109,8 @@ impl DbStore {
         // INSTALL is idempotent; LOAD must run per-connection. INSTALL
         // hits the network only on the first cold connect — DuckDB
         // caches the extension binary under ~/.duckdb/extensions/.
-        conn.execute_batch(
-            "INSTALL duckpgq FROM community; LOAD duckpgq;",
-        )
-        .map_err(|e| anyhow!("failed to load duckpgq extension: {e}"))?;
+        conn.execute_batch("INSTALL duckpgq FROM community; LOAD duckpgq;")
+            .map_err(|e| anyhow!("failed to load duckpgq extension: {e}"))?;
         Ok(())
     }
 
@@ -164,11 +162,7 @@ impl DbStore {
     /// statement after `query()` materialises the result set. Calling
     /// `column_count` on a prepared-but-not-yet-queried statement
     /// panics in duckdb 1.2 — the schema isn't bound until execution.
-    pub fn run_query(
-        &self,
-        sql: &str,
-        params: BTreeMap<String, Value>,
-    ) -> Result<QueryRows> {
+    pub fn run_query(&self, sql: &str, params: BTreeMap<String, Value>) -> Result<QueryRows> {
         let conn = self.conn.lock().unwrap();
         let stripped = strip_sql_comments(sql);
         let inlined = inline_named_params(&stripped, &params);
@@ -343,7 +337,13 @@ fn inline_named_params(sql: &str, params: &BTreeMap<String, Value>) -> String {
 fn format_sql_literal(v: &Value) -> String {
     match v {
         Value::Null => "NULL".to_string(),
-        Value::Boolean(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+        Value::Boolean(b) => {
+            if *b {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }
+        }
         Value::TinyInt(n) => n.to_string(),
         Value::SmallInt(n) => n.to_string(),
         Value::Int(n) => n.to_string(),
@@ -482,10 +482,7 @@ mod tests {
     #[test]
     fn duckdb_handles_leading_sql_comments() {
         let store = DbStore::open_in_memory().expect("open");
-        let res = store.run_query(
-            "-- a comment\nSELECT 1 AS x",
-            BTreeMap::new(),
-        );
+        let res = store.run_query("-- a comment\nSELECT 1 AS x", BTreeMap::new());
         assert!(res.is_ok(), "prepare with leading comment: {res:?}");
     }
 
@@ -498,8 +495,8 @@ mod tests {
         // expects zero rows but no error. Reports every failure so we
         // see the full picture in one run.
         let store = DbStore::open_in_memory().expect("open");
-        let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/queries/builtin");
+        let templates_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/queries/builtin");
         let mut paths: Vec<_> = std::fs::read_dir(&templates_dir)
             .expect("read templates dir")
             .filter_map(|e| e.ok().map(|x| x.path()))
@@ -521,7 +518,11 @@ mod tests {
             }
         }
         if !failures.is_empty() {
-            panic!("{} template(s) failed:\n{}", failures.len(), failures.join("\n"));
+            panic!(
+                "{} template(s) failed:\n{}",
+                failures.len(),
+                failures.join("\n")
+            );
         }
     }
 
