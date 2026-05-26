@@ -1,0 +1,5 @@
+binary,phase,subdir,files,wall_s,user_s,sys_s,max_rss_mb,call_edge_count,speedup
+baseline,parse,extensions,6079,33.30,51.28,10.81,1030.1,NA,1.00
+baseline,query,extensions,6079,276.62,266.39,8.13,52.4,NA,1.00
+optimised,parse,extensions,6079,38.69,52.56,12.46,1178.8,48097,0.86
+optimised,query,extensions,6079,0.51,0.09,0.07,37.7,NA,542.39
