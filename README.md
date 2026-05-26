@@ -181,6 +181,248 @@ Authored queries can reach into any of these tables. See `src/db/schema.rs` for 
 | `build_meta` | `key PK, value` — includes `schema_version` |
 | `build_meta_files` | `file_path PK, hash, size, mtime` |
 
+## Writing queries
+
+Three flavors:
+
+1. **Plain SQL** over the tables above. Works for everything except graph traversal patterns where PGQ is clearer.
+2. **SQL/PGQ via `GRAPH_TABLE(codegraph MATCH ...)`** — declarative pattern match against the property graph. Best for "find me a vertex/edge shape" questions where you don't want to write the join by hand.
+3. **`WITH RECURSIVE` CTEs** — for transitive closure (longest paths, reachability) or anything PGQ refuses to run (`find_cycles` is the canonical example: duckpgq crashes when `GRAPH_TABLE` is wrapped in a CTE).
+
+Pass any of them with `--sql '<inline>'` or `--file <path.sql>`. Reference parameters as `$name`; the runner substitutes them as quoted SQL literals at execution time.
+
+### PGQ syntax in 90 seconds
+
+The schema defines one property graph called `codegraph`:
+
+```
+vertex tables: file (KEY path), symbol (KEY id)
+edge tables:   call_edge   symbol → symbol   (LABEL calls)
+               imports     file   → symbol   (LABEL imports)
+               extends     symbol → symbol
+               implements  symbol → symbol
+```
+
+A `GRAPH_TABLE` clause is a `FROM`-able source you build with one or more `MATCH` patterns:
+
+```sql
+SELECT a_name, b_name
+FROM GRAPH_TABLE (codegraph
+    MATCH (a:symbol)-[e:calls]->(b:symbol)
+    WHERE a.kind = 'function'
+    COLUMNS (a.name AS a_name, b.name AS b_name)
+);
+```
+
+| Piece | Meaning |
+|---|---|
+| `(a:symbol)` | A vertex variable `a` bound to the `symbol` table |
+| `[e:calls]` | An edge variable `e` bound to edges labelled `calls` (= the `call_edge` table) |
+| `->` | Single hop in the edge's declared source→destination direction |
+| `->+` | One or more hops |
+| `->*` | Zero or more hops |
+| `->{1,5}` | Bounded quantifier |
+| `MATCH ANY ACYCLIC ...` | Path mode required for `->+` / `->*` (default `WALK` is rejected because cycles would produce infinite results) |
+| `COLUMNS (...)` | Projection — what flows out of `GRAPH_TABLE` |
+
+### duckpgq gotchas worth knowing as a user
+
+- **`$name` parameters do not bind inside `GRAPH_TABLE(... WHERE ...)`** — duckpgq's parser eats the WHERE before DuckDB sees the placeholder. The runner sidesteps this by substituting `$name` as a quoted SQL literal at runtime, so it still works in templates. Trust your `--param` input — there's no prepared-statement protection inside `MATCH WHERE`.
+- **Unbounded `->+` / `->*` need an explicit path mode.** Use `MATCH ANY ACYCLIC ...` (no repeated vertices) or `MATCH ANY TRAIL ...` (no repeated edges). Without one of these, duckpgq refuses to run the query.
+- **`GRAPH_TABLE` can't be wrapped in `WITH`** — duckpgq 1.x crashes with `INTERNAL Error: NULL unique_ptr`. If you need a CTE-shaped result for a graph query, materialise it into a regular table via `CREATE TEMP TABLE ... AS SELECT ... FROM GRAPH_TABLE(...)` and join the temp table.
+- **Leading `--` line comments and `/* */` blocks are stripped** before the SQL is sent to DuckDB — duckpgq's parser rejects leading `--`, so the runner removes both kinds preemptively. Side benefit: `$name` references inside comments aren't accidentally substituted.
+
+### Common code-analysis queries
+
+Copy-paste and adapt. Every example assumes you've registered a project and run it via `virgil-cli projects query <name> --sql '<query>'` (or save the query to a file and pass `--file`).
+
+**Functions with no callers (dead-code candidates):**
+
+```sql
+SELECT s.name, s.file_path, sp.start_line
+FROM symbol s
+JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path
+WHERE s.kind IN ('function', 'method')
+  AND NOT EXISTS (
+      SELECT 1 FROM call_edge ce WHERE ce.callee_id = s.id
+  )
+ORDER BY s.file_path, sp.start_line;
+```
+
+**All transitive callers of a function (acyclic paths):**
+
+```sql
+SELECT DISTINCT caller.name, caller.file_path
+FROM GRAPH_TABLE (codegraph
+    MATCH ANY ACYCLIC (caller:symbol)-[e:calls]->+(callee:symbol)
+    WHERE callee.name = $name
+    COLUMNS (caller.name AS name, caller.file_path AS file_path)
+);
+```
+
+**Most-called functions (call-graph hotspots):**
+
+```sql
+SELECT s.name, s.file_path, COUNT(*) AS incoming
+FROM call_edge ce
+JOIN symbol s ON s.id = ce.callee_id
+GROUP BY s.name, s.file_path
+ORDER BY incoming DESC
+LIMIT 20;
+```
+
+**Public API surface of a file (what other files import from it):**
+
+```sql
+SELECT s.name, s.qualified_name, s.kind, sp.start_line
+FROM symbol s
+JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path
+WHERE s.file_path = $path
+  AND s.exported = true
+  AND s.visibility = 'public'
+ORDER BY sp.start_line;
+```
+
+**Cross-file fan-out (files that import the most):**
+
+```sql
+SELECT importer_file_id AS file, COUNT(*) AS imports
+FROM imports
+GROUP BY importer_file_id
+ORDER BY imports DESC
+LIMIT 20;
+```
+
+**TODOs / FIXMEs grouped by file:**
+
+```sql
+SELECT file_path, todo_kind, COUNT(*) AS n
+FROM comment
+WHERE todo_kind IS NOT NULL
+GROUP BY file_path, todo_kind
+ORDER BY n DESC;
+```
+
+**Find a class's full inheritance chain (recursive):**
+
+```sql
+WITH RECURSIVE ancestors(child_id, parent_id, depth) AS (
+    SELECT e.child_id, e.parent_id, 1
+    FROM extends e
+    JOIN symbol c ON c.id = e.child_id
+    WHERE c.name = $name
+  UNION
+    SELECT a.child_id, e.parent_id, a.depth + 1
+    FROM ancestors a
+    JOIN extends e ON e.child_id = a.parent_id
+    WHERE a.depth < 32
+)
+SELECT s.name, s.file_path, a.depth
+FROM ancestors a
+JOIN symbol s ON s.id = a.parent_id
+ORDER BY a.depth;
+```
+
+**Find all classes that implement an interface (one-hop):**
+
+```sql
+SELECT impl.name, impl.file_path, sp.start_line
+FROM implements i
+JOIN symbol iface ON iface.id = i.interface_id
+JOIN symbol impl ON impl.id = i.impl_id
+JOIN span sp ON sp.entity_id = impl.id AND sp.file_path = impl.file_path
+WHERE iface.name = $name
+ORDER BY impl.file_path, sp.start_line;
+```
+
+**Tests that exercise a function (callers from test files):**
+
+```sql
+SELECT caller.name AS test_name, caller.file_path
+FROM call_edge ce
+JOIN symbol caller ON caller.id = ce.caller_id
+JOIN symbol callee ON callee.id = ce.callee_id
+JOIN file_classification fc ON fc.path = caller.file_path AND fc.is_test = true
+WHERE callee.name = $name;
+```
+
+**Symbols-per-file histogram:**
+
+```sql
+SELECT file_path, COUNT(*) AS symbols
+FROM symbol
+GROUP BY file_path
+ORDER BY symbols DESC
+LIMIT 50;
+```
+
+**Async functions only (TypeScript / JS / Rust / Python):**
+
+```sql
+SELECT name, kind, file_path
+FROM symbol
+WHERE is_async = true
+ORDER BY file_path, name;
+```
+
+**Throws of a specific exception type:**
+
+```sql
+SELECT s.name AS function, s.file_path, t.display_name AS exception
+FROM throws th
+JOIN symbol s ON s.id = th.function_id
+JOIN type t ON t.id = th.exception_type_id
+WHERE t.display_name = $type
+ORDER BY s.file_path;
+```
+
+**File-import cycle detection (transitive intersection):**
+
+```sql
+WITH RECURSIVE reach(a, b) AS (
+    SELECT importer_file_id, imported_id FROM imports
+  UNION
+    SELECT r.a, i.imported_id
+    FROM reach r
+    JOIN imports i ON i.importer_file_id = r.b
+)
+SELECT r1.a AS file_a, r1.b AS file_b
+FROM reach r1
+JOIN reach r2 ON r1.a = r2.b AND r1.b = r2.a
+WHERE r1.a < r1.b;
+```
+
+**Methods defined on a class (Python / TS / C# / Java):**
+
+```sql
+SELECT m.name, sp.start_line
+FROM symbol c
+JOIN symbol m ON m.parent_id = c.id
+JOIN span sp ON sp.entity_id = m.id AND sp.file_path = m.file_path
+WHERE c.kind = 'class'
+  AND c.name = $class_name
+  AND m.kind = 'method'
+ORDER BY sp.start_line;
+```
+
+**Audit-shape output — flag long functions:**
+
+When your query returns columns named exactly `(file, line, severity, pattern, message)`, the CLI auto-formats it as audit findings instead of a row table.
+
+```sql
+SELECT
+    s.file_path                                 AS file,
+    sp.start_line                               AS line,
+    'warning'                                   AS severity,
+    'long_function'                             AS pattern,
+    s.name || ' is ' || (sp.end_line - sp.start_line + 1) || ' lines' AS message
+FROM symbol s
+JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path
+WHERE s.kind IN ('function', 'method')
+  AND (sp.end_line - sp.start_line + 1) > 100
+ORDER BY (sp.end_line - sp.start_line) DESC;
+```
+
 ## Persistence
 
 The fact store is persisted to `~/.cache/virgil/<hash>.duckdb` (a single DuckDB file). Subsequent invocations against the same workspace warm-start by reopening the existing store.
