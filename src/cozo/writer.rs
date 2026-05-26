@@ -30,6 +30,7 @@ pub struct CozoWriter {
     calls: Vec<Vec<DataValue>>,
     // Schema v8 — raw per-call-site facts, unresolved.
     call_site: Vec<Vec<DataValue>>,
+    call_edge: Vec<Vec<DataValue>>,
     extends: Vec<Vec<DataValue>>,
     implements: Vec<Vec<DataValue>>,
     imports: Vec<Vec<DataValue>>,
@@ -74,6 +75,7 @@ impl CozoWriter {
         self.span.append(&mut other.span);
         self.calls.append(&mut other.calls);
         self.call_site.append(&mut other.call_site);
+        self.call_edge.append(&mut other.call_edge);
         self.extends.append(&mut other.extends);
         self.implements.append(&mut other.implements);
         self.imports.append(&mut other.imports);
@@ -209,6 +211,14 @@ impl CozoWriter {
             DataValue::from(file_path),
             DataValue::from(start_byte),
             DataValue::from(end_byte),
+        ]);
+    }
+
+    pub fn push_call_edge(&mut self, caller_id: &str, callee_id: &str, file_path: &str) {
+        self.call_edge.push(vec![
+            DataValue::from(caller_id),
+            DataValue::from(callee_id),
+            DataValue::from(file_path),
         ]);
     }
 
@@ -638,6 +648,12 @@ impl CozoWriter {
         )?;
         flush(
             store,
+            "?[caller_id, callee_id, file_path] <- $rows \
+             :put call_edge {caller_id, callee_id => file_path}",
+            std::mem::take(&mut self.call_edge),
+        )?;
+        flush(
+            store,
             "?[child_id, parent_id] <- $rows :put extends {child_id, parent_id}",
             std::mem::take(&mut self.extends),
         )?;
@@ -887,5 +903,22 @@ mod tests {
         assert_eq!(calls.rows.len(), 1);
         assert_eq!(calls.rows[0][0], DataValue::from("login"));
         assert_eq!(calls.rows[0][1], DataValue::from("checkPassword"));
+    }
+
+    #[test]
+    fn flush_writes_call_edge_rows() {
+        let store = CozoStore::open_in_memory().expect("open");
+        let mut w = CozoWriter::new();
+        w.push_call_edge("caller-id-1", "callee-id-1", "src/a.rs");
+        w.push_call_edge("caller-id-2", "callee-id-2", "src/b.rs");
+        w.flush(&store).expect("flush");
+
+        let rows = store
+            .run_query(
+                "?[c, t, f] := *call_edge{caller_id: c, callee_id: t, file_path: f}",
+                std::collections::BTreeMap::new(),
+            )
+            .expect("query");
+        assert_eq!(rows.rows.len(), 2);
     }
 }

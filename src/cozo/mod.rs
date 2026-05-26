@@ -55,4 +55,9 @@ pub use writer::CozoWriter;
 /// (including method calls — the references extractor's narrow
 /// `occurrence_kind: 'call'` tags only bare-identifier calls) without
 /// paying the OOM-prone build-time resolution scratch.
-pub const SCHEMA_VERSION: u32 = 8;
+///
+/// 9: Added `call_edge {caller_id, callee_id => file_path}` relation
+/// populated at build time by `from_code_graph::resolve_and_emit_call_edges`,
+/// plus `symbol:by_name_kind {name, kind}` index. Lets queries that need
+/// resolved call edges skip the per-query recursion.
+pub const SCHEMA_VERSION: u32 = 9;

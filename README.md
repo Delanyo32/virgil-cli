@@ -121,6 +121,51 @@ The build path emits raw `occurrence` / `scope` / `binding` / `imports` facts bu
 - `unused_symbols.cozoql` — workspace-wide, inlines the full resolver (slow on big repos).
 - `resolve_references_full.md` — the original 8-stage staged resolver, runnable as a series of programs that materialise an ad-hoc `references_ad_hoc` relation once per session.
 
+### Resolved call edges (`*call_edge`)
+
+`*call_edge {caller_id, callee_id => file_path}` is a precomputed call-graph edge relation populated at build time by the parallel Rust resolver in `from_code_graph::resolve_and_emit_call_edges`.
+
+**Why it exists.** Queries that need resolved call edges used to recompute the two-rule join inline. That was the dominant cost in audit queries like the orchestrator's `test_to_function_map` — ~285 s on a 6k-file workload. Pre-materialising shifts that work from query time into the build step, so warm queries finish in <1 s.
+
+**How to use it.** Replace the inline `call_edge[...] :=` prelude rules with a direct `*call_edge{...}` join. Pair with `*file_classification{path, is_test: true}` instead of a regex match on the file path.
+
+**Before (inline resolution at query time):**
+
+```cozoscript
+call_edge[caller_id, callee_id, file] :=
+    *call_site{caller_id, callee_name, file_path: file},
+    *symbol{id: callee_id, name: callee_name, file_path: file, kind: k},
+    k in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+call_edge[caller_id, callee_id, file] :=
+    *call_site{caller_id, callee_name, file_path: file},
+    *imports{importer_file_id: file, imported_id: callee_file},
+    *symbol{id: callee_id, name: callee_name, file_path: callee_file,
+            kind: k, exported: true},
+    k in ['function', 'method', 'arrow_function', 'macro'],
+    caller_id != callee_id
+
+?[file, line, ...] :=
+    call_edge[c, t, file],
+    regex_matches(file, "(?i)(test|spec|__tests__|\\.test\\.|\\.spec\\.)"),
+    *symbol{id: c, name: caller_name},
+    ...
+```
+
+**After (uses persistent `*call_edge` + `*file_classification`):**
+
+```cozoscript
+?[file, line, ...] :=
+    *call_edge{caller_id: c, callee_id: t, file_path: file},
+    *file_classification{path: file, is_test: true},
+    *symbol{id: c, name: caller_name},
+    ...
+```
+
+One rule, three indexed joins, no recursion, no regex.
+
+**Trade-off:** cold build pays ~16% extra wall + ~150 MB RSS to materialise call edges at build time; warm queries that join `*call_edge` get a ~500× speedup. See `examples/cozoscript/calls_via_call_edge.cozoql` for the recommended query pattern and `examples/cozoscript/calls_at_query_time.cozoql` for the inline fallback (still useful when you need byte-level `*call_site` detail not stored in `*call_edge`).
+
 ## Audit-shape Output
 
 A query (or template handler) returning columns `(file, line, severity, pattern, message)` is auto-formatted as audit findings. Extra columns are preserved alongside as `extras`. Other column shapes return raw row tables.
@@ -155,6 +200,7 @@ Authored queries can reach into any of these relations. See `src/cozo/schema.rs`
 | `symbol` | `{id => kind, name, qualified_name, language, visibility, file_path, parent_id?, is_async, is_static, is_abstract, is_mutable, exported}` |
 | `span` | `{entity_id, file_path => start_byte, end_byte, start_line, end_line, start_col, end_col}` — positional metadata for symbols/comments/call sites |
 | `calls` | `{caller_id, callee_id => call_site_file, call_site_start_byte, call_site_end_byte, is_direct}` |
+| `call_edge` | `{caller_id, callee_id => file_path}` — resolved direct call edges, materialised at build time by `from_code_graph::resolve_and_emit_call_edges`. Intra-file matches plus cross-file via `*imports` + `exported=true`. Schema v9. |
 | `occurrence` | `{id => name, file_path, start_byte, end_byte, enclosing_symbol_id?, enclosing_scope_id, occurrence_kind}` — raw identifier occurrences, input for on-demand reference resolution |
 | `scope` | `{id => parent_id?, file_path, kind, start_byte, end_byte}` — lexical scope chain |
 | `binding` | `{scope_id, name, start_byte => symbol_id?, binding_kind}` — name → symbol within a scope |
@@ -182,6 +228,21 @@ The fact store is persisted to `~/.cache/virgil/<hash>.cozo` (a single SQLite fi
 - **Warm-start check**: each file's `(size, mtime)` is compared against `build_meta_files`. Unchanged workspace → skip parsing entirely.
 - **Incremental refresh**: when files change, only the touched ones re-parse; deletions cascade-delete owned facts; cross-file edges (`calls`, `imports`) are re-resolved from facts.
 - **Force a cold rebuild** with `--rebuild`.
+
+### Build + query benchmarks
+
+End-to-end cost on openclaw `extensions` (6079 files, ~5.5k source) — phased,
+cold parse + warm query. From `examples/bench_query_optimisations.sh`.
+
+| Phase | Baseline | With `*call_edge` |
+|---|---|---|
+| Parse (cold, 1 noop query) | 33.3 s wall, 1030 MB RSS, 1.47 cores | 38.7 s wall, 1179 MB RSS, 1.36 cores |
+| Query (warm, `test_to_function_map`) | 276.6 s wall, 52 MB RSS, single-core | 0.51 s wall, 38 MB RSS, single-core |
+
+The build phase pays a small wall + RSS tax to materialise ~48k call_edge
+rows; warm queries that join `*call_edge` get a ~520× speedup. Net win for
+any workflow that runs >1 query per cold build (e.g. orchestrator-style
+audit suites).
 
 ## Examples
 
