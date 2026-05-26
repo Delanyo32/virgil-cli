@@ -567,55 +567,136 @@ impl DbWriter {
         ]);
     }
 
-    /// Flush every buffered relation to `store`. Empty buffers are skipped.
+    /// Flush every buffered relation to `store`. Empty buffers are
+    /// skipped.
+    ///
+    /// Each call passes the PK column count (always the first N
+    /// columns of the row, matching the schema declaration). The
+    /// flush helpers dedupe rows by their PK keys, keeping the last
+    /// write — this matches Cozo's `:put` upsert semantics, which the
+    /// extractors relied on (sometimes inadvertently) and DuckDB's
+    /// strict Appender otherwise rejects with PK violations.
     pub fn flush(&mut self, store: &DbStore) -> Result<()> {
         store.with_conn(|conn| -> Result<()> {
-            flush_table(conn, "file", &mut self.file)?;
-            flush_table(conn, "symbol", &mut self.symbol)?;
-            flush_table(conn, "span", &mut self.span)?;
-            flush_table(conn, "calls", &mut self.calls)?;
-            flush_table(conn, "call_site", &mut self.call_site)?;
-            flush_table(conn, "call_edge", &mut self.call_edge)?;
-            flush_table(conn, "extends", &mut self.extends)?;
-            flush_table(conn, "implements", &mut self.implements)?;
-            flush_table(conn, "imports", &mut self.imports)?;
-            flush_table(conn, "raw_import", &mut self.raw_import)?;
-            flush_table(conn, "parameter", &mut self.parameter)?;
-            flush_table(conn, "returns_type", &mut self.returns_type)?;
-            flush_table(conn, "throws", &mut self.throws)?;
-            flush_table(conn, "field_type", &mut self.field_type)?;
-            flush_table(conn, "type", &mut self.ty)?;
-            flush_table(conn, "comment", &mut self.comment)?;
-            flush_table(conn, "file_classification", &mut self.file_classification)?;
-            flush_table(conn, "nolint", &mut self.nolint)?;
-            flush_table(conn, "build_meta", &mut self.build_meta)?;
-            flush_table(conn, "build_meta_files", &mut self.build_meta_files)?;
-            flush_table(conn, "occurrence", &mut self.occurrence)?;
-            flush_table(conn, "scope", &mut self.scope)?;
-            flush_table(conn, "binding", &mut self.binding)?;
+            flush_table(conn, "file", 1, &mut self.file)?;
+            flush_table(conn, "symbol", 1, &mut self.symbol)?;
+            flush_table(conn, "span", 2, &mut self.span)?;
+            flush_table(conn, "calls", 2, &mut self.calls)?;
+            flush_table(conn, "call_site", 1, &mut self.call_site)?;
+            flush_table(conn, "call_edge", 2, &mut self.call_edge)?;
+            flush_table(conn, "extends", 2, &mut self.extends)?;
+            flush_table(conn, "implements", 2, &mut self.implements)?;
+            flush_table(conn, "imports", 2, &mut self.imports)?;
+            flush_table(conn, "raw_import", 2, &mut self.raw_import)?;
+            flush_table(conn, "parameter", 1, &mut self.parameter)?;
+            flush_table(conn, "returns_type", 1, &mut self.returns_type)?;
+            flush_table(conn, "throws", 2, &mut self.throws)?;
+            flush_table(conn, "field_type", 1, &mut self.field_type)?;
+            flush_table(conn, "type", 1, &mut self.ty)?;
+            flush_table(conn, "comment", 1, &mut self.comment)?;
+            flush_table(conn, "file_classification", 1, &mut self.file_classification)?;
+            flush_table(conn, "nolint", 2, &mut self.nolint)?;
+            flush_table(conn, "build_meta", 1, &mut self.build_meta)?;
+            flush_table(conn, "build_meta_files", 1, &mut self.build_meta_files)?;
+            flush_table(conn, "occurrence", 1, &mut self.occurrence)?;
+            flush_table(conn, "scope", 1, &mut self.scope)?;
+            flush_table(conn, "binding", 3, &mut self.binding)?;
             // Attrs tables have VARCHAR[] columns. The duckdb crate's
             // Appender path goes through `ValueRef::from(Value)`, which
             // is `unimplemented!()` for `Value::List` in duckdb 1.2.
             // Route them through a batched literal-inline INSERT
             // instead — one round trip per table.
-            flush_table_with_arrays(conn, "rust_attrs", &mut self.rust_attrs)?;
-            flush_table_with_arrays(conn, "python_attrs", &mut self.python_attrs)?;
-            flush_table_with_arrays(conn, "typescript_attrs", &mut self.typescript_attrs)?;
-            flush_table(conn, "cpp_attrs", &mut self.cpp_attrs)?;
-            flush_table_with_arrays(conn, "csharp_attrs", &mut self.csharp_attrs)?;
-            flush_table_with_arrays(conn, "go_attrs", &mut self.go_attrs)?;
-            flush_table_with_arrays(conn, "php_attrs", &mut self.php_attrs)?;
-            flush_table_with_arrays(conn, "c_attrs", &mut self.c_attrs)?;
-            flush_table_with_arrays(conn, "java_attrs", &mut self.java_attrs)?;
+            flush_table_with_arrays(conn, "rust_attrs", 1, &mut self.rust_attrs)?;
+            flush_table_with_arrays(conn, "python_attrs", 1, &mut self.python_attrs)?;
+            flush_table_with_arrays(conn, "typescript_attrs", 1, &mut self.typescript_attrs)?;
+            flush_table(conn, "cpp_attrs", 1, &mut self.cpp_attrs)?;
+            flush_table_with_arrays(conn, "csharp_attrs", 1, &mut self.csharp_attrs)?;
+            flush_table_with_arrays(conn, "go_attrs", 1, &mut self.go_attrs)?;
+            flush_table_with_arrays(conn, "php_attrs", 1, &mut self.php_attrs)?;
+            flush_table_with_arrays(conn, "c_attrs", 1, &mut self.c_attrs)?;
+            flush_table_with_arrays(conn, "java_attrs", 1, &mut self.java_attrs)?;
             Ok(())
         })
     }
 }
 
-fn flush_table(conn: &Connection, table: &str, rows: &mut Vec<Row>) -> Result<()> {
+/// Dedupe `rows` by the first `pk_cols` columns, keeping the LAST
+/// occurrence of each key. Mirrors Cozo's `:put` upsert semantics —
+/// extractors that emit overlapping rows (e.g. nested-symbol
+/// duplicates) rely on this to land cleanly under DuckDB's strict
+/// Appender path. O(n) using a HashMap of seen keys.
+fn dedupe_by_pk_keep_last(rows: &mut Vec<Row>, pk_cols: usize) {
+    if rows.len() < 2 || pk_cols == 0 {
+        return;
+    }
+    use std::collections::HashMap;
+    // `duckdb::types::Value` doesn't implement Hash/Eq (NaN floats),
+    // so render the PK cells as strings for the key. PK columns are
+    // all VARCHAR / BIGINT / BOOLEAN in our schema so the rendering
+    // is unambiguous.
+    let mut last_index: HashMap<String, usize> = HashMap::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        let key = pk_key(row, pk_cols);
+        last_index.insert(key, i);
+    }
+    if last_index.len() == rows.len() {
+        return;
+    }
+    let mut keep: Vec<bool> = vec![false; rows.len()];
+    for &i in last_index.values() {
+        keep[i] = true;
+    }
+    let mut idx = 0;
+    rows.retain(|_| {
+        let k = keep[idx];
+        idx += 1;
+        k
+    });
+}
+
+fn pk_key(row: &Row, pk_cols: usize) -> String {
+    let mut s = String::with_capacity(64);
+    for v in row.iter().take(pk_cols) {
+        match v {
+            Value::Text(t) => {
+                s.push('\u{1F}'); // unit separator, won't collide with content
+                s.push_str(t);
+            }
+            Value::BigInt(n) => {
+                s.push('\u{1F}');
+                s.push_str(&n.to_string());
+            }
+            Value::Int(n) => {
+                s.push('\u{1F}');
+                s.push_str(&n.to_string());
+            }
+            Value::Boolean(b) => {
+                s.push('\u{1F}');
+                s.push(if *b { 't' } else { 'f' });
+            }
+            Value::Null => {
+                s.push('\u{1F}');
+                s.push('\u{0}');
+            }
+            other => {
+                s.push('\u{1F}');
+                s.push_str(&format!("{other:?}"));
+            }
+        }
+    }
+    s
+}
+
+fn flush_table(
+    conn: &Connection,
+    table: &str,
+    pk_cols: usize,
+    rows: &mut Vec<Row>,
+) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
+    dedupe_by_pk_keep_last(rows, pk_cols);
     let mut app = conn
         .appender(table)
         .map_err(|e| anyhow!("opening appender for {table}: {e}"))?;
@@ -632,10 +713,16 @@ fn flush_table(conn: &Connection, table: &str, rows: &mut Vec<Row>) -> Result<()
 /// batched `INSERT INTO t VALUES (...), (...), ...` with values
 /// rendered as SQL literals. Slower per-row than Appender, but the
 /// attrs tables are sparse so the total cost stays small.
-fn flush_table_with_arrays(conn: &Connection, table: &str, rows: &mut Vec<Row>) -> Result<()> {
+fn flush_table_with_arrays(
+    conn: &Connection,
+    table: &str,
+    pk_cols: usize,
+    rows: &mut Vec<Row>,
+) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
+    dedupe_by_pk_keep_last(rows, pk_cols);
     for chunk in rows.chunks(FLUSH_BATCH) {
         let mut sql = format!("INSERT INTO {table} VALUES ");
         for (i, row) in chunk.iter().enumerate() {
