@@ -13,10 +13,11 @@
 //!
 //! [ADR-0002]: docs/adr/0002-symbol-id-scheme.md
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
 use cozo::DataValue;
+use rayon::prelude::*;
 use tracing::{info, info_span};
 
 use crate::graph::CodeGraph;
@@ -88,41 +89,143 @@ pub fn populate(store: &CozoStore, graph: &CodeGraph, workspace: Option<&Workspa
 fn resolve_and_emit_call_edges(store: &CozoStore, writer: &mut CozoWriter) -> Result<()> {
     let _s = info_span!("cozo.populate.call_edge").entered();
 
-    // Two-rule Cozoscript that emits both intra-file and cross-file edges.
-    // Mirrors the call_edge rules in find_callers.cozoql / find_callees.cozoql.
-    let rows = store.run_query(
-        "edge[caller_id, callee_id, file] := \
-            *call_site{caller_id, callee_name, file_path: file}, \
-            *symbol{id: callee_id, name: callee_name, file_path: file, kind: k}, \
-            k in ['function', 'method', 'arrow_function', 'macro'], \
-            caller_id != callee_id \
-         edge[caller_id, callee_id, file] := \
-            *call_site{caller_id, callee_name, file_path: file}, \
-            *imports{importer_file_id: file, imported_id: callee_file}, \
-            *symbol{id: callee_id, name: callee_name, file_path: callee_file, \
-                    kind: k, exported: true}, \
-            k in ['function', 'method', 'arrow_function', 'macro'], \
-            caller_id != callee_id \
-         ?[caller_id, callee_id, file] := edge[caller_id, callee_id, file]",
+    // --- Step 1: Read raw facts from Cozo into Rust data structures ---
+
+    // call_site rows: (caller_id, callee_name, file_path)
+    // Only rows where caller_id is non-null (Str variant).
+    let cs_rows = store.run_query(
+        "?[id, caller_id, callee_name, file_path] := *call_site{id, caller_id, callee_name, file_path}",
+        BTreeMap::new(),
+    )?;
+    let mut call_sites: Vec<(String, String, String)> = Vec::with_capacity(cs_rows.rows.len());
+    for row in &cs_rows.rows {
+        let caller_id = match &row[1] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue, // skip null caller_id
+        };
+        let callee_name = match &row[2] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
+        };
+        let file_path = match &row[3] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
+        };
+        call_sites.push((caller_id, callee_name, file_path));
+    }
+
+    // symbol rows: (id, name, file_path, kind, exported)
+    // kind filter: function, method, arrow_function, macro
+    let sym_rows = store.run_query(
+        "?[id, name, file_path, kind, exported] := \
+            *symbol{id, name, file_path, kind, exported}, \
+            kind in ['function', 'method', 'arrow_function', 'macro']",
         BTreeMap::new(),
     )?;
 
-    let mut count = 0usize;
-    for row in &rows.rows {
-        let caller_id = match &row[0] {
-            DataValue::Str(s) => s.as_str(),
+    // intra: (file_path, name) -> Vec<(kind, symbol_id)>
+    // exports: (file_path, name) -> Vec<(kind, symbol_id)> where exported=true
+    let mut intra: HashMap<(String, String), Vec<(String, String)>> =
+        HashMap::with_capacity(sym_rows.rows.len());
+    let mut exports: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
+
+    for row in &sym_rows.rows {
+        let symbol_id = match &row[0] {
+            DataValue::Str(s) => s.to_string(),
             _ => continue,
         };
-        let callee_id = match &row[1] {
-            DataValue::Str(s) => s.as_str(),
+        let name = match &row[1] {
+            DataValue::Str(s) => s.to_string(),
             _ => continue,
         };
-        let file = match &row[2] {
-            DataValue::Str(s) => s.as_str(),
+        let file_path = match &row[2] {
+            DataValue::Str(s) => s.to_string(),
             _ => continue,
         };
-        writer.push_call_edge(caller_id, callee_id, file);
-        count += 1;
+        let kind = match &row[3] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
+        };
+        let exported = matches!(&row[4], DataValue::Bool(true));
+
+        intra
+            .entry((file_path.clone(), name.clone()))
+            .or_default()
+            .push((kind.clone(), symbol_id.clone()));
+
+        if exported {
+            exports
+                .entry((file_path, name))
+                .or_default()
+                .push((kind, symbol_id));
+        }
+    }
+
+    // imports: importer_file_path -> Vec<imported_file_path>
+    let imp_rows = store.run_query(
+        "?[importer_file_id, imported_id] := *imports{importer_file_id, imported_id}",
+        BTreeMap::new(),
+    )?;
+    let mut imports_by_importer: HashMap<String, Vec<String>> =
+        HashMap::with_capacity(imp_rows.rows.len());
+    for row in &imp_rows.rows {
+        let importer = match &row[0] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
+        };
+        let imported = match &row[1] {
+            DataValue::Str(s) => s.to_string(),
+            _ => continue,
+        };
+        imports_by_importer
+            .entry(importer)
+            .or_default()
+            .push(imported);
+    }
+
+    // --- Step 2: Resolve in parallel with rayon ---
+    const CHUNK_SIZE: usize = 1024;
+
+    let resolved: Vec<(String, String, String)> = call_sites
+        .par_chunks(CHUNK_SIZE)
+        .flat_map(|chunk| {
+            let mut local: Vec<(String, String, String)> = Vec::new();
+            for (caller_id, callee_name, file) in chunk {
+                // Intra-file resolution.
+                if let Some(candidates) = intra.get(&(file.clone(), callee_name.clone())) {
+                    for (_kind, callee_id) in candidates {
+                        if caller_id != callee_id {
+                            local.push((caller_id.clone(), callee_id.clone(), file.clone()));
+                        }
+                    }
+                }
+                // Cross-file resolution via imports.
+                if let Some(imported_files) = imports_by_importer.get(file) {
+                    for imported_file in imported_files {
+                        if let Some(candidates) =
+                            exports.get(&(imported_file.clone(), callee_name.clone()))
+                        {
+                            for (_kind, callee_id) in candidates {
+                                if caller_id != callee_id {
+                                    local.push((
+                                        caller_id.clone(),
+                                        callee_id.clone(),
+                                        file.clone(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            local
+        })
+        .collect();
+
+    // --- Step 3: Write the resolved edges to the writer ---
+    let count = resolved.len();
+    for (caller_id, callee_id, file) in resolved {
+        writer.push_call_edge(&caller_id, &callee_id, &file);
     }
     eprintln!("[bench] call_edge_count={count}");
     info!(call_edges = count, "cozo call_edge resolution complete");
