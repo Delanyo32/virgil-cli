@@ -106,17 +106,12 @@ impl DbStore {
 
     fn load_duckpgq(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        // Community extensions require an explicit allow on some
-        // builds (no-op where already allowed).
-        let _ = conn.execute_batch("SET allow_community_extensions = true;");
-        // INSTALL fetches the extension on first cold connect; DuckDB
-        // caches the binary under ~/.duckdb/extensions/. LOAD must
-        // run per-connection. Split into two calls so the actual
-        // failure surfaces — execute_batch swallowed the INSTALL
-        // error when both ran together, leaving only "Extension not
-        // found" from LOAD.
-        conn.execute_batch("INSTALL duckpgq FROM community;")
-            .map_err(|e| anyhow!("INSTALL duckpgq FROM community failed: {e}"))?;
+        // INSTALL writes to the shared ~/.duckdb/extensions/ cache;
+        // cargo runs lib tests in parallel, so multiple connections
+        // can race the same INSTALL and either tread on each other's
+        // temp file or LOAD before the rename completes. Serialise
+        // INSTALL across the process once, then LOAD per-connection.
+        ensure_duckpgq_installed(&conn)?;
         conn.execute_batch("LOAD duckpgq;")
             .map_err(|e| anyhow!("LOAD duckpgq failed: {e}"))?;
         Ok(())
@@ -368,6 +363,26 @@ fn format_sql_literal(v: &Value) -> String {
         // directly rather than --param.
         other => format!("'{:?}'", other).replace('\'', "''"),
     }
+}
+
+/// Run `INSTALL duckpgq FROM community` at most once per process,
+/// serialised across threads. The shared `~/.duckdb/extensions/`
+/// cache isn't safe for concurrent writes from a single process —
+/// CI surfaced this as a flaky "Extension not found" from LOAD when
+/// cargo runs lib tests in parallel and several DbStore opens race
+/// the install at the same time.
+fn ensure_duckpgq_installed(conn: &Connection) -> Result<()> {
+    use std::sync::Mutex;
+    static INSTALLED: Mutex<bool> = Mutex::new(false);
+    let mut done = INSTALLED.lock().unwrap();
+    if *done {
+        return Ok(());
+    }
+    let _ = conn.execute_batch("SET allow_community_extensions = true;");
+    conn.execute_batch("INSTALL duckpgq FROM community;")
+        .map_err(|e| anyhow!("INSTALL duckpgq FROM community failed: {e}"))?;
+    *done = true;
+    Ok(())
 }
 
 /// Cache file path for a workspace identified by `id`. Returns
