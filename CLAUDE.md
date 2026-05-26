@@ -28,10 +28,10 @@ cargo run -- serve --s3 s3://bucket/prefix [--host 127.0.0.1] [--port 0] [--lang
 ## Module Layout
 
 - `src/cozo/` — fact store wrapper
-  - `schema.rs` — `:create` statements for the cross-function graph + `file_classification` + `nolint`
+  - `schema.rs` — `:create` statements for the cross-function graph + `file_classification` + `nolint` + `call_edge` (schema v9, resolved at build time)
   - `store.rs` — `CozoStore` thin wrapper over `cozo::DbInstance` (SQLite-backed via `cache_dir_for`)
   - `writer.rs` — `CozoWriter` batched row accumulator (~10k rows per transaction); streamed during `GraphBuilder::build`
-  - `from_code_graph.rs` — tail of the build pipeline; emits `comment` rows and the type/inheritance/throws/field_type rows that still need cross-file symbol-id resolution
+  - `from_code_graph.rs` — tail of the build pipeline; emits `comment` rows and the type/inheritance/throws/field_type rows that still need cross-file symbol-id resolution; runs `resolve_and_emit_call_edges` (rayon-parallel) to populate `*call_edge`
 - `src/queries/` — user-facing query surface
   - `runner.rs` — `run(QueryRequest)`: loads/dispatches, detects audit-shape output
   - `templates.rs` — embeds `builtin/*.cozoql` via `include_dir`
@@ -92,7 +92,7 @@ Critical gotchas and design decisions that are not obvious from reading the code
 - `decorated_definition` nodes: unwrap to inner function/class; skip the bare `function_definition`/`class_definition` if its parent is a `decorated_definition`. This deduplication prevents double-reporting decorated symbols.
 
 **Call graph**
-Name-based resolution scoped to the caller's imports (`file_symbols_by_name` for same-file matches; `file_exports_by_name` filtered by `file_imports` for cross-file). Heuristic only, no type info. Resolved during the post-absorb `DeferredCall` loop in `builder.rs`; emits `*calls` rows directly to Cozo.
+Name-based resolution scoped to the caller's imports (`file_symbols_by_name` for same-file matches; `file_exports_by_name` filtered by `file_imports` for cross-file). Heuristic only, no type info. Resolved during the post-absorb `DeferredCall` loop in `builder.rs`; emits `*calls` rows directly to Cozo. As of schema v9 the resolved edges are persisted into `*call_edge` so queries can join it directly instead of recomputing the two-rule join — see `from_code_graph::resolve_and_emit_call_edges`.
 
 **Streaming graph builder**
 `GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). During absorption each file's `*file` / `*symbol` / `*span` / per-language `*_attrs` / `*scope` / `*binding` / `*occurrence` / `*raw_import` rows stream straight into a `CozoWriter` that flushes every `STREAM_FLUSH_EVERY_N_FILES` files. Cross-file refs (`Imports`, `Calls`) are queued as `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains; those resolve to `*imports`/`*calls` rows on the same writer. The graph keeps no per-node Vec — `CodeGraph` is just an interner, a `(file, name) -> [symbol_id]` lookup, and the per-file `comment`/`type`/`inheritance`/`throws`/`field_type` buckets that the populate tail still needs.
@@ -106,7 +106,7 @@ Name-based resolution scoped to the caller's imports (`file_symbols_by_name` for
 - Server mode (`serve`) is S3-only — no `--path` flag. Used by Virgil Live (cloud service).
 
 **Cozo store lifecycle**
-The query pipeline opens (or creates) the SQLite-backed `CozoStore`, runs `GraphBuilder::build(&store)` which streams `*file`/`*symbol`/`*span`/`*calls`/`*imports`/`*scope`/`*binding`/`*occurrence`/`*raw_import`/`*_attrs` rows during absorb, then calls `cozo::populate(&store, &graph, Some(&workspace))` to emit the tail-phase rows that need cross-file symbol-id resolution (`comment`, `type`, `parameter`, `returns_type`, `extends`/`implements`, `throws`, `field_type`, `file_classification`, `nolint`, `build_meta_files`). Symbol IDs are ADR-0002 stringly ids — `path|start_line|start_col|name|kind` — computed by `from_code_graph::symbol_id`.
+The query pipeline opens (or creates) the SQLite-backed `CozoStore`, runs `GraphBuilder::build(&store)` which streams `*file`/`*symbol`/`*span`/`*calls`/`*imports`/`*scope`/`*binding`/`*occurrence`/`*raw_import`/`*_attrs` rows during absorb, then calls `cozo::populate(&store, &graph, Some(&workspace))` to emit the tail-phase rows that need cross-file symbol-id resolution (`comment`, `type`, `parameter`, `returns_type`, `extends`/`implements`, `throws`, `field_type`, `file_classification`, `nolint`, `build_meta_files`). Symbol IDs are ADR-0002 stringly ids — `path|start_line|start_col|name|kind` — computed by `from_code_graph::symbol_id`. Then `resolve_and_emit_call_edges` reads the just-flushed `*call_site`/`*symbol`/`*imports` into Rust hash maps and emits `*call_edge` rows resolved in parallel via rayon.
 
 **Rust-side template, not pure Cozoscript**
 `complexity_hotspots` lives in `src/queries/rust_templates.rs`. It escapes Cozoscript because metrics aren't materialised as facts — the handler queries `*symbol` + `*span` + `*file_classification` from Cozo, then calls `graph::metrics::compute_*` on demand for each function. All other built-in templates are pure Cozoscript.
@@ -118,13 +118,29 @@ Java extracts the declared `throws` clause on method/constructor declarations. C
 `class C: x: int = 5` (and untyped `x = 5`) produce a `kind=field` `Symbol` row in addition to whatever the type extractor emits. This is what makes `*symbol{kind: "field"} JOIN *field_type` non-empty.
 
 **Persistence + warm-start**
-`CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.sqlite`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold-build benchmarks across reference workloads: ripgrep 100 rs / 1 s / 260 MB; tokio 778 rs / 3 s / 307 MB; django 2.9k py / 11 s / 451 MB; openclaw/extensions 5.5k ts / 27 s / 580 MB. Warm reopen ~17 ms.
+`CozoStore::open_persistent(path)` opens a SQLite-backed Cozo store at `~/.cache/virgil/<hash>.sqlite`. `cache_dir_for(id)` derives the hash via FNV-1a from the project name (or S3 URI). On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. `cozo::workspace_diff(&store, &workspace)` returns the `(added, modified, removed)` diff against `build_meta_files`; `cozo::incremental_refresh` re-parses only touched files and re-resolves cross-file edges from facts. Cold-build benchmarks across reference workloads: ripgrep 100 rs / 1 s / 260 MB; tokio 778 rs / 3 s / 307 MB; django 2.9k py / 11 s / 451 MB; openclaw/extensions 5.5k ts / ~39 s / ~1.2 GB (v9; +~16% wall and +145 MB RSS over v8 to materialise *call_edge). Warm reopen ~17 ms.
 
 **Schema-version bumps**
-`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically. Currently at `6` (removed the eager `references` relation and its resolver).
+`SCHEMA_VERSION` in `src/cozo/mod.rs` lives next to the `:create` statements. Bump it whenever the shape of `schema::create_statements()` or `index_statements()` changes — the open path will detect mismatch and wipe stale stores automatically. Currently at `9` (added persistent `*call_edge` + `symbol:by_name_kind` index).
 
 **No eager reference resolution**
 The build path emits the raw facts only — `occurrence`, `scope`, `binding`, `imports`, `symbol`, and so on. There is no `*references` relation and no built-in resolver. The earlier staged Cozoscript resolver materialised that relation eagerly at build end; on big repos its `rsv_ancestor` transitive-closure stage dominated build memory + time (django: 4.6 GB / 5.8 min vs 465 MB / 12 s without it; 5.5k-file repos went from OOM to ~600 MB / 27 s). Removing it shifted the cost: callers that want resolved references write their own Cozoscript over the raw facts at query time, scoped to whatever demand set they actually need. See `docs/resolution.md` for the staged-resolver algorithm if you want to port it back into a per-query template.
+
+**Persistent `*call_edge` (the inverse of the above)**
+The build path DOES materialise `*call_edge` eagerly — opposite of the
+`references` decision. Different tradeoff: call resolution is cheap (one
+hash-map lookup per call site, no transitive closure) while reference
+resolution required `rsv_ancestor`-style transitive joins. The
+parallel Rust resolver in `from_code_graph::resolve_and_emit_call_edges`
+streams `*call_site` rows across rayon workers; each worker reads
+read-only `(file,name,kind) → symbol_id` and `(file,name) → exported
+symbol_id` hash maps to resolve, pushes into a thread-local Vec, then a
+single-threaded loop writes the merged result through `CozoWriter`. On
+openclaw extensions: build wall +5 s, RSS +145 MB, warm query that joins
+`*call_edge` ~520× faster. The original Cozoscript-based resolver was
+single-threaded inside Cozo and dominated parse time (~280 s on the
+same input); the Rust + rayon implementation brings parse back within
+~16 % of pre-v9 cost.
 
 **Cozoscript rule-head gotcha**
 Cozo does not accept literals in rule-head positions. `caller[c, 1] := ...` fails to parse; bind the constant in the body instead: `caller[c, d] := d = 1, ...`. All recursive built-in templates use this pattern.

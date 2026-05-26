@@ -8,6 +8,14 @@
 # templates use the pattern below; copy it as a prelude into your own
 # --file or --cozoscript queries.
 #
+# As of schema v9 `*call_edge` is persisted at build time, so the
+# recommended pattern for most queries is
+# `*call_edge{caller_id, callee_id, file_path}` directly. See
+# `examples/cozoscript/calls_via_call_edge.cozoql` for the simpler
+# shape. Keep this file as a reference for the at-query-time pattern
+# (still useful when you need additional `*call_site` byte-level detail
+# not stored in `*call_edge`).
+#
 # Params (optional):
 #   $name — caller short name; constrains output to calls *out of*
 #           any symbol with that name. Drop the filter to materialise
