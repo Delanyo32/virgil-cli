@@ -26,12 +26,18 @@ jobs:
           # binaries built on ubuntu-latest's glibc won't run on
           # significantly older distros (RHEL/CentOS pre-2024) or on
           # Alpine.
+          # Pinned to Ubuntu 22.04 (glibc 2.35) instead of
+          # ubuntu-latest (24.04, glibc 2.39) so the resulting binary
+          # runs against the broader base of distros — notably
+          # cloudflare/sandbox and similar 22.04-derived images.
+          # GH-hosted 22.04 support runs through April 2027; bump
+          # the runner label when it nears EOL.
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             archive: tar.gz
             build: cargo
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
             archive: tar.gz
             build: cargo
           - target: x86_64-apple-darwin
