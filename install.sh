@@ -34,7 +34,7 @@ done
 # Detect OS
 OS="$(uname -s)"
 case "$OS" in
-    Linux)  OS_TARGET="unknown-linux-musl" ;;
+    Linux)  OS_TARGET="unknown-linux-gnu" ;;
     Darwin) OS_TARGET="apple-darwin" ;;
     *)      echo "Error: unsupported OS: $OS"; exit 1 ;;
 esac
