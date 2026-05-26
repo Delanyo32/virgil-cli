@@ -16,14 +16,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
+          # Linux targets use glibc (gnu, not musl) and plain cargo,
+          # not zigbuild. Reason: virgil-cli loads the duckpgq
+          # community extension at runtime via DuckDB's LOAD, which
+          # dlopens a .duckdb_extension shared library. A fully
+          # statically linked musl binary has no dynamic linker and
+          # the LOAD fails with "Extension not found". Glibc dynamic
+          # linking restores the runtime dlopen path. Trade-off:
+          # binaries built on ubuntu-latest's glibc won't run on
+          # significantly older distros (RHEL/CentOS pre-2024) or on
+          # Alpine.
+          - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
-            build: zigbuild
-          - target: aarch64-unknown-linux-musl
+            build: cargo
+          - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             archive: tar.gz
-            build: zigbuild
+            build: cargo
           - target: x86_64-apple-darwin
             runner: macos-14
             archive: tar.gz
@@ -47,23 +57,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Install zig + cargo-zigbuild
-        if: matrix.build == 'zigbuild'
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - name: Install cargo-zigbuild
-        if: matrix.build == 'zigbuild'
-        run: cargo install --locked cargo-zigbuild
-
       - name: Build (cargo)
-        if: matrix.build == 'cargo'
         run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build (zigbuild)
-        if: matrix.build == 'zigbuild'
-        run: cargo zigbuild --release --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
