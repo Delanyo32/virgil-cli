@@ -1,6 +1,0 @@
-# PHP locals snapshot — counts of parameter + variable symbols.
-# `variable` count reflects first-assignment dedupe per (function, name);
-# `$` prefix is stripped from names.
-# See locals.cozoql for the conceptual query shape.
-parameter_count=222
-local_count=227

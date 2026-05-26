@@ -1,4 +1,0 @@
-# TypeScript locals snapshot — counts of parameter + variable symbols.
-# See locals.cozoql for the conceptual query shape.
-parameter_count=336
-local_count=277

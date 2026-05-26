@@ -1,5 +1,0 @@
-# Issue #15 fan-out baseline against benchmarks/typescript/nextjs-dashboard.
-ts_attrs_total = 1084
-ts_attrs_readonly = 0
-ts_attrs_optional = 74
-ts_attrs_with_type_params = 16

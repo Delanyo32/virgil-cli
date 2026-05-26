@@ -1,5 +1,0 @@
-# Issue #15 fan-out baseline against benchmarks/csharp/dotnet-api.
-cs_attrs_total = 1666
-cs_attrs_sealed = 0
-cs_attrs_partial = 2
-cs_attrs_with_attributes = 97

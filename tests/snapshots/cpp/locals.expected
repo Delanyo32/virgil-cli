@@ -1,6 +1,0 @@
-# C++ locals snapshot — counts of parameter + variable symbols.
-# parameter_count covers regular/pointer/reference/optional/lambda params.
-# local_count covers declarations, range-for vars, structured bindings.
-# See locals.cozoql for the conceptual query shape.
-parameter_count=366
-local_count=221

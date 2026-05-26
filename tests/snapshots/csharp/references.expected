@@ -1,8 +1,0 @@
-# benchmarks/csharp/dotnet-api — C# full extractor (#18.3)
-occurrence_total = 4526
-scope_total = 1102
-binding_total = 1938
-references_total = 3854
-references_resolved = 369
-references_unresolved = 3485
-field_type_joinable_with_symbol = 352

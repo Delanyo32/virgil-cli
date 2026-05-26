@@ -1,5 +1,0 @@
-# Go locals snapshot — counts of parameter + variable symbols.
-# Blank identifier `_` is skipped in extraction.
-# See locals.cozoql for the conceptual query shape.
-parameter_count=462
-local_count=338

@@ -1,5 +1,0 @@
-# Issue #15 fan-out baseline against benchmarks/c/embedded-sensors.
-c_attrs_total = 1426
-c_attrs_static = 62
-c_attrs_extern = 0
-c_attrs_inline = 0
