@@ -1,6 +1,6 @@
 [package]
 name = "virgil-cli"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2024"
 
 [dependencies]
@@ -55,7 +55,6 @@ codegen-units = 1
 pkg-url = "{ repo }/releases/download/release/v{ version }/{ name }-{ target }.tar.gz"
 bin-dir = "{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
-
-[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-pkg-url = "{ repo }/releases/download/release/v{ version }/{ name }-{ target }.zip"
-pkg-fmt = "zip"
+# Windows target intentionally not provided — libduckdb-sys's bundled
+# DuckDB build hits MSVC stdext::checked_array_iterator removal in
+# VS 2026; the regression is upstream and unowned by this repo.

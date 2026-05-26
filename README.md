@@ -10,11 +10,10 @@ A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/P
 curl -fsSL https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.sh | sh
 ```
 
-### Windows
-
-```powershell
-irm https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.ps1 | iex
-```
+> Note: Windows is not currently supported. The bundled `libduckdb-sys` C++ build
+> hits an MSVC removal of `stdext::checked_array_iterator` in VS 2026; the
+> regression is upstream and will be revisited when libduckdb-sys ships a
+> compatible DuckDB. Use WSL in the meantime.
 
 ### From source (requires Rust)
 

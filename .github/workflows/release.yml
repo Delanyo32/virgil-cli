@@ -32,10 +32,9 @@ jobs:
             runner: macos-latest
             archive: tar.gz
             build: cargo
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-            archive: zip
-            build: cargo
+          # Windows dropped — see Cargo.toml note on the binstall
+          # section. Re-add when the upstream libduckdb-sys/fmt issue
+          # is resolved.
 
     steps:
       - uses: actions/checkout@v4
@@ -60,14 +59,6 @@ jobs:
 
       - name: Build (cargo)
         if: matrix.build == 'cargo'
-        env:
-          # libduckdb-sys's bundled DuckDB C++ source needs MSVC
-          # exception unwinding. cc-rs respects the per-target form
-          # (`CXXFLAGS_<triple-with-underscores>`); a plain CXXFLAGS
-          # was set on v0.7.2 and did not propagate into the cl.exe
-          # command line.
-          CXXFLAGS_x86_64_pc_windows_msvc: /EHsc
-          CFLAGS_x86_64_pc_windows_msvc: /EHsc
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build (zigbuild)
@@ -80,12 +71,6 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar czf ../../../virgil-cli-${{ matrix.target }}.tar.gz virgil-cli
           cd ../../..
-
-      - name: Package (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/virgil-cli.exe" -DestinationPath "virgil-cli-${{ matrix.target }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
