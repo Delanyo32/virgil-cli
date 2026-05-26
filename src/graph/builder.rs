@@ -464,32 +464,37 @@ fn parse_one_file(
 
     let call_node_types = call_expression_types(lang);
     let mut call_sites = Vec::new();
-    for sym in &symbols {
-        // Only function-like symbols can be call-site owners. Parameters
-        // and locals never enclose calls (or shouldn't, semantically) —
-        // attributing calls to them creates phantom caller_ids that
-        // explode the calls relation.
-        if !matches!(
-            sym.kind,
-            SymbolKind::Function
-                | SymbolKind::Method
-                | SymbolKind::ArrowFunction
-                | SymbolKind::Macro
-        ) {
-            continue;
-        }
-        collect_calls_in_range(
-            tree.root_node(),
-            source.as_bytes(),
-            sym.start_line,
-            sym.end_line,
-            &call_node_types,
-            lang,
-            rel_path,
-            sym.start_line,
-            &mut call_sites,
-        );
-    }
+    // Function-like symbols only — parameters and locals can't enclose
+    // calls. Pre-collect their line ranges so a single tree walk can
+    // attribute each call to its innermost enclosing function.
+    //
+    // Prior shape was a loop over every function symbol that re-walked
+    // the whole tree scoped to the symbol's range; nested functions
+    // therefore emitted the same call_site twice (once per enclosing
+    // symbol), producing duplicate ids that Cozo silently upserted
+    // and DuckDB's strict Appender rejects with a PK violation.
+    let caller_ranges: Vec<(u32, u32, u32)> = symbols
+        .iter()
+        .filter(|s| {
+            matches!(
+                s.kind,
+                SymbolKind::Function
+                    | SymbolKind::Method
+                    | SymbolKind::ArrowFunction
+                    | SymbolKind::Macro
+            )
+        })
+        .map(|s| (s.start_line, s.end_line, s.start_line))
+        .collect();
+    collect_calls(
+        tree.root_node(),
+        source.as_bytes(),
+        &call_node_types,
+        lang,
+        rel_path,
+        &caller_ranges,
+        &mut call_sites,
+    );
 
     // Issue #13 + #14: per-language type / inheritance / field-type
     // extraction. Languages without typed fields leave field_types
@@ -979,28 +984,35 @@ fn call_expression_types(language: Language) -> Vec<&'static str> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn collect_calls_in_range(
+/// Single-pass tree walk. For each call expression, picks the
+/// innermost enclosing function-like symbol (smallest line range
+/// containing the call) as the caller. `caller_ranges` is a
+/// `(start_line, end_line, caller_symbol_line)` triple per
+/// function-like symbol; `caller_symbol_line` is the value the
+/// downstream resolver looks up in `local_id_by_line`. Top-level
+/// calls (not inside any function-like symbol) get
+/// `caller_symbol_line = 0`, which downstream maps to `caller_id =
+/// NULL`.
+fn collect_calls(
     node: tree_sitter::Node,
     source: &[u8],
-    start_line: u32,
-    end_line: u32,
     call_types: &[&str],
     language: Language,
     file_path: &str,
-    caller_symbol_line: u32,
+    caller_ranges: &[(u32, u32, u32)],
     out: &mut Vec<CallSiteData>,
 ) {
-    let node_start = node.start_position().row as u32 + 1;
-    let node_end = node.end_position().row as u32 + 1;
-
-    if node_end < start_line || node_start > end_line {
-        return;
-    }
-
     if call_types.contains(&node.kind())
         && let Some(name) = extract_callee_name(node, source, language)
     {
+        let node_line = node.start_position().row as u32 + 1;
+        // Innermost = smallest end_line - start_line span that contains node_line.
+        let caller_symbol_line = caller_ranges
+            .iter()
+            .filter(|(s, e, _)| *s <= node_line && *e >= node_line)
+            .min_by_key(|(s, e, _)| e.saturating_sub(*s))
+            .map(|(_, _, l)| *l)
+            .unwrap_or(0);
         out.push(CallSiteData {
             callee_name: name,
             caller_file: file_path.to_string(),
@@ -1012,15 +1024,13 @@ fn collect_calls_in_range(
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_calls_in_range(
+        collect_calls(
             child,
             source,
-            start_line,
-            end_line,
             call_types,
             language,
             file_path,
-            caller_symbol_line,
+            caller_ranges,
             out,
         );
     }
