@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "virgil-cli",
-    about = "Parse and query codebases on-demand",
+    about = "Parse and query codebases on-demand (DuckDB backend — experimental)",
     version
 )]
 pub struct Cli {
@@ -37,33 +37,8 @@ pub enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
-
-    /// Start a persistent HTTP server for queries and audits
-    Serve {
-        /// S3 URI — load codebase from S3 at startup
-        #[arg(long, required_unless_present = "dir", conflicts_with = "dir")]
-        s3: Option<String>,
-
-        /// Local directory — load codebase from disk at startup (alternative to --s3)
-        #[arg(long, required_unless_present = "s3", conflicts_with = "s3")]
-        dir: Option<PathBuf>,
-
-        /// Host to bind (use 0.0.0.0 for all interfaces)
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-
-        /// Port to bind (use 0 for OS-assigned)
-        #[arg(long, default_value = "0")]
-        port: u16,
-
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        lang: Option<String>,
-
-        /// Glob patterns to exclude (repeatable)
-        #[arg(short, long)]
-        exclude: Vec<String>,
-    },
+    // `Serve` subcommand and `--s3` flag are dropped on this branch —
+    // see docs/experiments/duckdb-swap.md (Q9 decision: local CLI only).
 }
 
 #[derive(Subcommand, Debug)]
@@ -95,15 +70,16 @@ pub enum ProjectCommand {
         name: String,
     },
 
-    /// Query a project using Cozoscript
+    /// Query a project using SQL (with PGQ extensions for graph templates)
     ///
     /// Pass the query via exactly one of:
-    ///   --cozoscript '<inline>'   inline Cozoscript
-    ///   --file <path>             load Cozoscript from a file
-    ///   --template <name>         a built-in template (see src/queries/builtin/)
+    ///   --sql '<inline>'       inline SQL
+    ///   --file <path>          load SQL from a file
+    ///   --template <name>      a built-in template (see src/queries/builtin/)
     ///
     /// Bind parameters with --param key=value (repeatable). Integers and
     /// booleans are auto-coerced; everything else binds as a string.
+    /// Templates reference parameters as $name.
     ///
     /// Queries that return columns (file, line, severity, pattern, message)
     /// are auto-formatted as audit findings; any other shape prints as rows.
@@ -112,51 +88,38 @@ pub enum ProjectCommand {
     ///   # Built-in template with a parameter
     ///   virgil-cli projects query myapp --template find_function_by_name --param name=login
     ///
-    ///   # Inline Cozoscript
-    ///   virgil-cli projects query myapp --cozoscript '?[name] := *symbol{name}'
-    ///
-    ///   # Cozoscript from a file, with --pretty JSON output
-    ///   virgil-cli projects query myapp --file query.cozoql --pretty
-    ///
-    ///   # Query an S3 codebase directly (no registration)
-    ///   virgil-cli projects query --s3 s3://bucket/prefix --template find_cycles --lang rs
+    ///   # Inline SQL
+    ///   virgil-cli projects query myapp --sql 'SELECT name FROM symbol LIMIT 10'
     #[command(verbatim_doc_comment)]
     Query {
-        /// Project name (not needed with --s3)
-        #[arg(conflicts_with = "s3")]
-        name: Option<String>,
+        /// Project name
+        name: String,
 
-        /// S3 URI — reads codebase directly from S3, bypasses project registry
-        #[arg(long)]
-        s3: Option<String>,
-
-        /// Comma-separated language filter (used with --s3)
+        /// Comma-separated language filter
         #[arg(short, long)]
         lang: Option<String>,
 
-        /// Glob patterns to exclude (used with --s3, repeatable)
+        /// Glob patterns to exclude (repeatable)
         #[arg(short, long)]
         exclude: Vec<String>,
 
-        /// Inline Cozoscript query
+        /// Inline SQL query
         #[arg(long, conflicts_with = "template")]
-        cozoscript: Option<String>,
+        sql: Option<String>,
 
-        /// Path to a Cozoscript file (.cozoql or any text file)
-        #[arg(short, long, conflicts_with_all = ["template", "cozoscript"])]
+        /// Path to a SQL file (.sql or any text file)
+        #[arg(short, long, conflicts_with_all = ["template", "sql"])]
         file: Option<PathBuf>,
 
         /// Built-in template name (see `src/queries/builtin/`)
-        #[arg(long, conflicts_with_all = ["cozoscript", "file"])]
+        #[arg(long, conflicts_with_all = ["sql", "file"])]
         template: Option<String>,
 
-        /// Parameter binding for Cozoscript / template (repeatable). Format: key=value
+        /// Parameter binding for SQL / template (repeatable). Format: key=value
         #[arg(long = "param", value_parser = parse_key_value)]
         params: Vec<(String, String)>,
 
-        /// Force a fresh rebuild of the cached fact store, even if the
-        /// workspace appears unchanged. Useful when the schema-version
-        /// check misses a semantic change.
+        /// Force a fresh rebuild of the cached fact store.
         #[arg(long)]
         rebuild: bool,
 

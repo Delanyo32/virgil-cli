@@ -1,44 +1,34 @@
 //! Rust-side `--template` handlers.
 //!
-//! These templates can't be expressed in pure Cozoscript because their
-//! inputs require source-of-truth access beyond what's materialised in
-//! the fact store. Each handler returns a [`QueryOutput::Findings`]
-//! using the audit-shape columns so the CLI formatter treats it
-//! uniformly with pure-Cozoscript templates.
+//! These templates can't be expressed in pure SQL because their inputs
+//! require source-of-truth access beyond what's materialised in the
+//! fact store. Each handler returns a [`QueryOutput::Findings`] using
+//! the audit-shape columns so the CLI formatter treats it uniformly
+//! with pure-SQL templates.
 //!
 //! Currently registered:
 //!
 //! - **complexity_hotspots** — cyclomatic complexity + function length,
-//!   computed on-demand from each function's tree-sitter subtree (issue
-//!   #17). The old `start_line`/`end_line` columns on `symbol` are gone
-//!   (Datalog migration); spans come from the `span` relation.
-//!
-//! Old `taint_paths` / `unreleased_resources` handlers are not yet
-//! re-implemented — their underlying CFG/taint infra was deleted in the
-//! petgraph drop (commit bbf822d). They will land alongside whatever
-//! replacement analysis we build atop the new fact store.
+//!   computed on-demand from each function's tree-sitter subtree.
 
 use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
-use cozo::DataValue;
+use duckdb::types::Value;
 
-use crate::cozo::CozoStore;
+use crate::db::DbStore;
 use crate::storage::workspace::Workspace;
 
-use super::runner::{AuditFinding, QueryOutput};
+use super::runner::{AuditFinding, QueryOutput, value_to_i64, value_to_string};
 
 pub struct Context<'a> {
-    pub store: &'a CozoStore,
+    pub store: &'a DbStore,
     pub workspace: &'a Workspace,
     pub params: &'a BTreeMap<String, String>,
 }
 
 pub type Handler = fn(&Context<'_>) -> Result<QueryOutput>;
 
-/// Returns a handler for the given template name, or `None` if no
-/// Rust-side handler exists (in which case `runner` falls through to the
-/// Cozoscript path).
 pub fn lookup(name: &str) -> Option<Handler> {
     match name {
         "complexity_hotspots" => Some(complexity_hotspots),
@@ -59,48 +49,39 @@ fn parse_int(params: &BTreeMap<String, String>, key: &str, default: i64) -> i64 
 
 /// complexity_hotspots — flag functions whose cyclomatic complexity OR
 /// length exceeds a threshold. Excludes test files via
-/// `*file_classification{is_test: true}`.
-///
-/// Params:
-///   $cc_threshold   — default 10
-///   $length_threshold — default 50
+/// `file_classification.is_test = true`.
 fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
     let cc_threshold = parse_int(ctx.params, "cc_threshold", 10);
     let length_threshold = parse_int(ctx.params, "length_threshold", 50);
 
-    // Pull function/method symbols + their spans, excluding test files.
-    // The new schema keeps positional metadata in `span`, not on
-    // `symbol`, so we join through it.
     let rows = ctx
         .store
         .run_query(
-            "?[name, kind, file, start_line, end_line] := \
-             *symbol{id, name, kind, file_path: file}, \
-             kind in ['function', 'method', 'arrow_function'], \
-             *file_classification{path: file, is_test: false}, \
-             *span{entity_id: id, file_path: file, start_line, end_line}",
+            "SELECT s.name, s.kind, s.file_path, sp.start_line, sp.end_line \
+             FROM symbol s \
+             JOIN file_classification fc ON fc.path = s.file_path AND fc.is_test = false \
+             JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path \
+             WHERE s.kind IN ('function', 'method', 'arrow_function')",
             BTreeMap::new(),
         )
         .map_err(|e| anyhow!("failed to query symbols: {e}"))?;
 
     let mut findings = Vec::new();
     for row in rows.rows {
-        let name = match &row[0] {
-            DataValue::Str(s) => s.to_string(),
-            _ => continue,
+        let Some(name) = value_to_string(&row[0]) else {
+            continue;
         };
-        let file = match &row[2] {
-            DataValue::Str(s) => s.to_string(),
-            _ => continue,
+        let Some(file) = value_to_string(&row[2]) else {
+            continue;
         };
-        let start_line = match &row[3] {
-            DataValue::Num(cozo::Num::Int(i)) => *i as u32,
-            _ => continue,
+        let Some(start_line) = value_to_i64(&row[3]) else {
+            continue;
         };
-        let end_line = match &row[4] {
-            DataValue::Num(cozo::Num::Int(i)) => *i as u32,
-            _ => continue,
+        let Some(end_line) = value_to_i64(&row[4]) else {
+            continue;
         };
+        let start_line = start_line as u32;
+        let end_line = end_line as u32;
 
         let Some(lang) = ctx.workspace.file_language(&file) else {
             continue;
@@ -152,6 +133,8 @@ fn complexity_hotspots(ctx: &Context<'_>) -> Result<QueryOutput> {
             ],
         });
     }
+    // Suppress unused-import warning when Value isn't used directly.
+    let _: Option<Value> = None;
     findings.sort_by(|a, b| b.line.cmp(&a.line).then(a.file.cmp(&b.file)));
     Ok(QueryOutput::Findings(findings))
 }
