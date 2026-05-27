@@ -1,17 +1,18 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::mpsc;
-use std::thread;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::{debug, info, info_span};
+use tracing::{info, info_span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
 use crate::classify::{is_barrel_file, is_test_file};
-use crate::db::from_code_graph::{extract_nolints, is_generated_marker, symbol_id};
+use crate::db::from_code_graph::{
+    detect_todo_kind, extract_nolints, is_doc_comment, is_generated_marker, symbol_id, type_id,
+};
+use crate::models::InheritanceKind;
 use crate::db::{DbStore, DbWriter};
 use crate::language::Language;
 use crate::languages;
@@ -22,7 +23,7 @@ use crate::models::{
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
-use super::{CodeGraph, Spur};
+use super::{CodeGraph, Spur, Symbols};
 
 /// Flush the streaming writer every this many files. Caps peak writer
 /// memory to roughly N files' worth of in-flight rows. Picked to
@@ -126,6 +127,24 @@ struct DeferredCall {
     site_end_byte: u32,
 }
 
+/// Shared scratch state for the parallel parse+absorb pass. All rayon
+/// workers contend on one `Mutex<SharedAbsorb>` while absorbing — the
+/// critical section is short (Vec appends + HashMap inserts) compared
+/// to per-file parsing, so contention isn't the bottleneck. Replaces
+/// the prior per-worker `WorkerLocal` design, which held ~850 MiB of
+/// scratch state at peak on a 5k-file TS corpus.
+struct SharedAbsorb {
+    writer: DbWriter,
+    deferred_imports: Vec<DeferredImport>,
+    deferred_calls: Vec<DeferredCall>,
+    file_symbols_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
+    file_exports_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
+    file_known_spurs: HashSet<Spur>,
+    /// Files absorbed since the last flush. Triggers a `writer.flush`
+    /// every `STREAM_FLUSH_EVERY_N_FILES` to cap peak memory.
+    files_since_flush: u32,
+}
+
 pub struct GraphBuilder<'a> {
     workspace: &'a Workspace,
     languages: &'a [Language],
@@ -197,38 +216,24 @@ impl<'a> GraphBuilder<'a> {
             })
             .collect();
 
-        // Step 4 + 5: Parallel parse, single-threaded streaming absorption.
+        // Step 4 + 5: Parallel parse, shared-writer absorption.
         //
-        // Parse workers send each `FileGraphData` to the drainer over a
-        // bounded channel — backpressure caps peak memory at roughly
-        // `2 * num_cpus` in-flight `FileGraphData` values, instead of letting
-        // a slow drainer accumulate the whole workspace in the queue.
-        //
-        // Cross-file references (imports, Calls edges) need every symbol to
-        // be registered first, so they are buffered as small `Deferred*`
-        // tuples and resolved after the channel drains.
+        // Rayon workers each parse a file (CPU-heavy, no shared state),
+        // then briefly lock a shared `SharedAbsorb` to push the
+        // extracted rows into a single `DbWriter` + the cross-file
+        // deferred Vecs + the interner. This was previously done via
+        // a per-worker `WorkerLocal` reduced at the end, which held
+        // ~850 MiB of scratch state at peak (measured 2026-05-27).
+        // Sharing the writer keeps memory near baseline; the absorb
+        // critical section is short (just appends to Vecs) so the
+        // mutex doesn't dominate wall time.
         let pool = rayon::ThreadPoolBuilder::new()
             .stack_size(4 * 1024 * 1024)
             .build()
             .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
-        let mut graph = CodeGraph::new();
-        let mut deferred_imports: Vec<DeferredImport> = Vec::new();
-        let mut deferred_calls: Vec<DeferredCall> = Vec::new();
-        // Per-file name lookups built during absorption. Used by the
-        // import-scoped Calls resolver below. Holds slim
-        // `AbsorbedSymbol`s in place of the old `NodeIndex`.
-        let mut file_symbols_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>> = HashMap::new();
-        let mut file_exports_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>> = HashMap::new();
-        // Set of file-path spurs that have been absorbed. Replaces the
-        // old `graph.file_nodes` map (we don't need the file's id, just
-        // existence, since cross-file `Imports` rows key on path).
-        let mut file_known_spurs: HashSet<Spur> = HashSet::new();
-        // Streaming writer for all node + edge Cozo rows. Drained
-        // periodically during absorb and once after cross-file
-        // resolution so peak memory stays bounded.
-        let mut stream_writer = DbWriter::new();
-        let mut files_since_flush: u32 = 0;
+        // Shared interner. Cloning is cheap (just bumps an Arc).
+        let shared_symbols = Symbols::new();
         // repo_id derives from the workspace root's basename. S3
         // workspaces have synthetic `s3://bucket/prefix` roots — the
         // last path segment is acceptable here. Mirrors what
@@ -251,7 +256,8 @@ impl<'a> GraphBuilder<'a> {
         let absorbed_files = AtomicU64::new(0);
         let target_files = grouped_files_ref.len() as u64;
 
-        {
+        let (mut stream_writer, deferred_imports, deferred_calls,
+             file_symbols_by_name, file_exports_by_name, file_known_spurs) = {
             let span = info_span!("graph.parse_absorb", files = target_files);
             span.pb_set_length(target_files);
             span.pb_set_style(
@@ -262,63 +268,73 @@ impl<'a> GraphBuilder<'a> {
                 .progress_chars("=> "),
             );
             let _enter = span.enter();
-            thread::scope(|s| -> Result<()> {
-                let parallelism = thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(4);
-                let channel_bound = (parallelism * 2).max(4);
-                let (tx, rx) = mpsc::sync_channel::<FileGraphData>(channel_bound);
 
-                let parsed_ref = &parsed;
-                s.spawn(move || {
-                    pool.install(|| {
-                        grouped_files_ref
-                            .par_iter()
-                            .for_each_with(tx, |tx, &(lang, rel_path)| {
-                                if let Some(data) = parse_one_file(
-                                    lang, rel_path, workspace, &sym_q, &imp_q, &com_q,
-                                ) {
-                                    let n = parsed_ref.fetch_add(1, Ordering::Relaxed) + 1;
-                                    if n.is_multiple_of(500) {
-                                        debug!(parsed = n, of = target_files, "parsing progress");
-                                    }
-                                    let _ = tx.send(data);
-                                }
-                            });
-                    });
-                });
+            let parsed_ref = &parsed;
+            let absorbed_ref = &absorbed_files;
+            let repo_id_ref = repo_id.as_str();
+            let interner = &shared_symbols;
 
-                while let Ok(data) = rx.recv() {
-                    let path = data.path.clone();
-                    absorb_file_data(
-                        &mut graph,
-                        data,
-                        workspace,
-                        &repo_id,
-                        &mut deferred_imports,
-                        &mut deferred_calls,
-                        &mut file_symbols_by_name,
-                        &mut file_exports_by_name,
-                        &mut file_known_spurs,
-                        &mut stream_writer,
-                    );
-                    files_since_flush += 1;
-                    if files_since_flush >= STREAM_FLUSH_EVERY_N_FILES {
-                        stream_writer.flush(store)?;
-                        files_since_flush = 0;
-                    }
-                    tracing::Span::current().pb_inc(1);
-                    let n = absorbed_files.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n.is_multiple_of(500) {
-                        debug!(absorbed = n, of = target_files, last = %path, "absorption progress");
-                    }
-                }
+            // One shared writer + cross-file scratch, behind a mutex.
+            // The lock is held only across `absorb_file_data` (Vec
+            // appends + a few HashMap inserts) plus the periodic
+            // flush. Parsing happens lock-free.
+            let shared = Mutex::new(SharedAbsorb {
+                writer: DbWriter::new(),
+                deferred_imports: Vec::new(),
+                deferred_calls: Vec::new(),
+                file_symbols_by_name: HashMap::new(),
+                file_exports_by_name: HashMap::new(),
+                file_known_spurs: HashSet::new(),
+                files_since_flush: 0,
+            });
 
-                Ok(())
+            pool.install(|| -> Result<()> {
+                grouped_files_ref
+                    .par_iter()
+                    .try_for_each(|&(lang, rel_path)| -> Result<()> {
+                        let Some(data) = parse_one_file(
+                            lang, rel_path, workspace, &sym_q, &imp_q, &com_q,
+                        ) else {
+                            return Ok(());
+                        };
+                        parsed_ref.fetch_add(1, Ordering::Relaxed);
+                        let mut state = shared.lock().expect("shared absorb mutex poisoned");
+                        let state = &mut *state;
+                        absorb_file_data(
+                            interner,
+                            data,
+                            workspace,
+                            repo_id_ref,
+                            &mut state.deferred_imports,
+                            &mut state.deferred_calls,
+                            &mut state.file_symbols_by_name,
+                            &mut state.file_exports_by_name,
+                            &mut state.file_known_spurs,
+                            &mut state.writer,
+                        );
+                        absorbed_ref.fetch_add(1, Ordering::Relaxed);
+                        tracing::Span::current().pb_inc(1);
+                        state.files_since_flush += 1;
+                        if state.files_since_flush >= STREAM_FLUSH_EVERY_N_FILES {
+                            state.writer.flush(store)?;
+                            state.files_since_flush = 0;
+                        }
+                        Ok(())
+                    })
             })?;
-            // Flush the streaming writer's tail rows before cross-file
-            // resolution runs — keeps populate's later phases from
-            // racing with leftover per-file rows.
+
+            let SharedAbsorb {
+                writer: mut stream_writer,
+                deferred_imports,
+                deferred_calls,
+                file_symbols_by_name,
+                file_exports_by_name,
+                file_known_spurs,
+                ..
+            } = shared.into_inner().expect("shared absorb mutex poisoned");
+            // Flush the writer's tail rows before cross-file resolution
+            // runs — keeps populate's later phases from racing with
+            // leftover per-file rows.
             stream_writer.flush(store)?;
             info!(
                 parsed = parsed.load(Ordering::Relaxed),
@@ -327,7 +343,19 @@ impl<'a> GraphBuilder<'a> {
                 deferred_calls = deferred_calls.len(),
                 "parse + absorb done"
             );
-        }
+            (
+                stream_writer,
+                deferred_imports,
+                deferred_calls,
+                file_symbols_by_name,
+                file_exports_by_name,
+                file_known_spurs,
+            )
+        };
+        // CodeGraph is a vestigial wrapper around the shared interner
+        // after the SQL-staging refactor; still returned to keep the
+        // public API stable for callers that take a `&CodeGraph`.
+        let graph = CodeGraph::with_symbols(shared_symbols);
 
         let _resolve_span = info_span!("graph.resolve_refs").entered();
 
@@ -532,7 +560,7 @@ fn parse_one_file(
 
 #[allow(clippy::too_many_arguments)]
 fn absorb_file_data(
-    graph: &mut CodeGraph,
+    interner: &Symbols,
     data: FileGraphData,
     workspace: &Workspace,
     repo_id: &str,
@@ -560,7 +588,7 @@ fn absorb_file_data(
         references,
     } = data;
 
-    let path_spur = graph.symbols.intern(&path);
+    let path_spur = interner.intern(&path);
     file_known_spurs.insert(path_spur);
     let language_str = language.as_str();
 
@@ -598,8 +626,8 @@ fn absorb_file_data(
             &sym.name,
             sym.kind,
         );
-        let sym_file_spur = graph.symbols.intern(&sym.file_path);
-        let sym_name_spur = graph.symbols.intern(&sym.name);
+        let sym_file_spur = interner.intern(&sym.file_path);
+        let sym_name_spur = interner.intern(&sym.name);
         // file_symbols_by_name / file_exports_by_name only feed the
         // eager calls resolver. When that's disabled, skip them — they
         // were the dominant RAM term on large C++ repos.
@@ -621,13 +649,18 @@ fn absorb_file_data(
         } else {
             let _ = (sym_file_spur, sym_name_spur);
         }
-        graph
-            .symbol_ids_by_name
-            .entry((sym.file_path.clone(), sym.name.clone()))
-            .or_default()
-            .push(id.clone());
         local_id_by_line.insert(sym.start_line, id.clone());
         symbol_ids.push(id);
+    }
+
+    // File-local symbol lookup. Built up front so the populate-tail
+    // emitters below can resolve `(file, name)` -> symbol_id without
+    // round-tripping to DuckDB or stashing on a global CodeGraph map.
+    // Same-file collisions: keep the first (mirrors the prior
+    // `pick_symbol_id` behaviour of `v.first()`).
+    let mut name_to_id: HashMap<&str, &str> = HashMap::with_capacity(symbols.len());
+    for (i, sym) in symbols.iter().enumerate() {
+        name_to_id.entry(sym.name.as_str()).or_insert(&symbol_ids[i]);
     }
 
     // Pass 2: derive parent-symbol containment via byte ranges and
@@ -706,16 +739,29 @@ fn absorb_file_data(
         );
     }
 
-    // Stash comments per file so the populate phase can emit `comment`
-    // rows. (Comments still need cross-file symbol-id lookup via
-    // `graph.symbol_ids_by_name`, so eviction is deferred — Slice A
-    // proved it's not the dominant memory term.)
-    if !comments.is_empty() {
-        graph
-            .comments
-            .entry(path.clone())
-            .or_default()
-            .extend(comments);
+    // Emit comment rows file-locally. `documents_id` is resolved
+    // against the same file's name_to_id map. Pre-refactor this lived
+    // on `graph.comments` and was emitted by `emit_comments` in the
+    // populate phase against `graph.symbol_ids_by_name`.
+    for (i, c) in comments.iter().enumerate() {
+        let id = format!("{}|{}|{}|comment", path, c.start_byte, i);
+        let documents_id = c
+            .associated_symbol
+            .as_ref()
+            .and_then(|name| name_to_id.get(name.as_str()).copied());
+        let is_doc = is_doc_comment(&c.kind, &c.text);
+        let todo_kind = detect_todo_kind(&c.text);
+        stream_writer.push_comment(
+            &id,
+            documents_id,
+            &path,
+            &c.kind,
+            is_doc,
+            &c.text,
+            todo_kind,
+            c.start_byte as i64,
+            c.end_byte as i64,
+        );
     }
 
     // Queue imports for cross-file resolution AND stream the raw_import
@@ -745,42 +791,144 @@ fn absorb_file_data(
         let _ = imports;
     }
 
-    // Issue #13: stash per-file type / signature / inheritance rows so
-    // `from_code_graph` can emit them. Empty vectors carry no cost; we
-    // only insert when something is actually there.
-    if !types.is_empty() {
-        graph.types.entry(path.clone()).or_default().extend(types);
+    // Emit per-file type / signature / field / throws rows directly.
+    // The populate-phase Rust resolver these used to feed has been
+    // deleted — name resolution that used to look up
+    // `graph.symbol_ids_by_name` is now either purely file-local
+    // (uses `name_to_id` above) or staged for SQL (inheritance).
+    let mut type_id_by_display: HashMap<&str, String> =
+        HashMap::with_capacity(types.len());
+    for row in &types {
+        let id = type_id(language_str, &path, &row.display_name);
+        type_id_by_display
+            .entry(row.display_name.as_str())
+            .or_insert_with(|| id.clone());
+        stream_writer.push_type(
+            &id,
+            &row.kind,
+            language_str,
+            &row.display_name,
+            row.canonical_name.as_deref(),
+        );
     }
-    if !param_types.is_empty() {
-        graph
-            .param_types
-            .entry(path.clone())
-            .or_default()
-            .extend(param_types);
+    for row in &param_types {
+        let function_id = symbol_id(
+            &path,
+            row.function_start_line,
+            row.function_start_col,
+            &row.function_name,
+            row.function_kind,
+        );
+        let param_id = symbol_id(
+            &path,
+            row.parameter_start_line,
+            row.parameter_start_col,
+            &row.parameter_name,
+            SymbolKind::Parameter,
+        );
+        let type_id_str = row.type_display_name.as_ref().map(|d| {
+            type_id_by_display
+                .get(d.as_str())
+                .cloned()
+                .unwrap_or_else(|| type_id(language_str, &path, d))
+        });
+        stream_writer.push_parameter(
+            &param_id,
+            &row.parameter_name,
+            &function_id,
+            row.position,
+            type_id_str.as_deref(),
+            row.is_optional,
+            row.has_default,
+            false,
+        );
     }
-    if !returns_types.is_empty() {
-        graph
-            .returns_types
-            .entry(path.clone())
-            .or_default()
-            .extend(returns_types);
+    for row in &returns_types {
+        let function_id = symbol_id(
+            &path,
+            row.function_start_line,
+            row.function_start_col,
+            &row.function_name,
+            row.function_kind,
+        );
+        let tid = type_id_by_display
+            .get(row.type_display_name.as_str())
+            .cloned()
+            .unwrap_or_else(|| type_id(language_str, &path, &row.type_display_name));
+        stream_writer.push_returns_type(&function_id, &tid);
     }
-    if !inheritance.is_empty() {
-        graph
-            .inheritance
-            .entry(path.clone())
-            .or_default()
-            .extend(inheritance);
+    for row in &throws {
+        let function_id = symbol_id(
+            &path,
+            row.function_start_line,
+            row.function_start_col,
+            &row.function_name,
+            row.function_kind,
+        );
+        // Throws can reference exception names that the type extractor
+        // never emitted — synthesise a `named` type row to keep the
+        // 3-way JOIN through `type` non-empty (matches the prior
+        // `emit_types_and_hierarchy` behaviour).
+        let tid =
+            if let Some(existing) = type_id_by_display.get(row.exception_display_name.as_str()) {
+                existing.clone()
+            } else {
+                let id = type_id(language_str, &path, &row.exception_display_name);
+                type_id_by_display.insert(row.exception_display_name.as_str(), id.clone());
+                stream_writer.push_type(
+                    &id,
+                    "named",
+                    language_str,
+                    &row.exception_display_name,
+                    None,
+                );
+                id
+            };
+        stream_writer.push_throws(&function_id, &tid);
     }
-    if !field_types.is_empty() {
-        graph
-            .field_types
-            .entry(path.clone())
-            .or_default()
-            .extend(field_types);
+    for row in &field_types {
+        let field_symbol_id = symbol_id(
+            &path,
+            row.field_start_line,
+            row.field_start_col,
+            &row.field_name,
+            row.field_kind,
+        );
+        let tid = type_id_by_display
+            .get(row.type_display_name.as_str())
+            .cloned()
+            .unwrap_or_else(|| type_id(language_str, &path, &row.type_display_name));
+        stream_writer.push_field_type(&field_symbol_id, &tid);
     }
-    if !throws.is_empty() {
-        graph.throws.entry(path.clone()).or_default().extend(throws);
+    // Inheritance is the only extractor output that needs cross-file
+    // symbol-id resolution (parent class may live in another file).
+    // Stage as a raw row in DuckDB; a SQL resolver in
+    // `db::from_code_graph::resolve_inheritance` runs after parse.
+    for row in &inheritance {
+        let parent_leaf = row
+            .parent_display_name
+            .rsplit("::")
+            .next()
+            .unwrap_or(&row.parent_display_name)
+            .trim_end_matches('>')
+            .split('<')
+            .next()
+            .unwrap_or("")
+            .trim();
+        let kind_str = match row.kind {
+            InheritanceKind::Extends => "extends",
+            InheritanceKind::Implements => "implements",
+        };
+        stream_writer.push_raw_inheritance(
+            &path,
+            &row.child_name,
+            row.child_kind.to_string().as_str(),
+            row.child_start_line as i64,
+            row.child_start_col as i64,
+            parent_leaf,
+            row.parent_canonical_name.as_deref(),
+            kind_str,
+        );
     }
     // Issue #15: stream per-language attrs directly to Cozo. Each row
     // carries its own symbol_id, so no cross-file resolution is needed.
@@ -910,7 +1058,7 @@ fn absorb_file_data(
             let Some(caller_id) = caller_id_opt else {
                 continue;
             };
-            let callee_spur = graph.symbols.intern(&cs.callee_name);
+            let callee_spur = interner.intern(&cs.callee_name);
             deferred_calls.push(DeferredCall {
                 caller_id,
                 caller_file_spur: path_spur,

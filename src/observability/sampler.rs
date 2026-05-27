@@ -102,3 +102,17 @@ impl Drop for ResourceSampler {
 fn kb_to_mb(kb: u64) -> f64 {
     (kb as f64) / 1024.0
 }
+
+/// Synchronous one-shot RSS reading for the current process, in MiB.
+/// Used for ad-hoc checkpoints — the background sampler is the usual
+/// way to track usage over time, but checkpoints during the build let
+/// us pinpoint which phase the peak lives in.
+pub fn current_rss_mb() -> f64 {
+    let pid = Pid::from_u32(std::process::id());
+    let mut sys = System::new();
+    let refresh = ProcessRefreshKind::new().with_memory();
+    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, refresh);
+    sys.process(pid)
+        .map(|p| (p.memory() as f64) / 1024.0 / 1024.0)
+        .unwrap_or(0.0)
+}

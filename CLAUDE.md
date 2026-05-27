@@ -24,18 +24,18 @@ Local CLI only. `--s3` and `serve` were dropped during the DuckDB swap (see `doc
 ## Module Layout
 
 - `src/db/` — fact store wrapper
-  - `schema.rs` — `CREATE TABLE` / `CREATE INDEX` / `CREATE PROPERTY GRAPH codegraph` DDL for the cross-function graph + `file_classification` + `nolint` + `call_edge` (schema v1)
+  - `schema.rs` — `CREATE TABLE` / `CREATE INDEX` / `CREATE PROPERTY GRAPH codegraph` DDL. Includes the `raw_inheritance` staging table that absorb writes into and `resolve_inheritance` reads from (schema v1)
   - `store.rs` — `DbStore` thin wrapper over `duckdb::Connection`. Loads the duckpgq extension at open. Cache file at `~/.cache/virgil/<hash>.duckdb` via `cache_dir_for_db`
   - `writer.rs` — `DbWriter` batched row accumulator; on flush, opens a DuckDB `Appender` per non-empty table. The 9 `*_attrs` tables (VARCHAR[] columns) go through a batched literal `INSERT VALUES` path because duckdb 1.2's appender doesn't bind `Value::List`
-  - `from_code_graph.rs` — tail of the build pipeline; emits `comment` rows and the type/inheritance/throws/field_type rows that still need cross-file symbol-id resolution; runs `resolve_and_emit_call_edges` (rayon-parallel) to populate `*call_edge`
+  - `from_code_graph.rs` — post-parse populate phase. After the SQL-staging refactor it only runs the SQL `resolve_inheritance` (joins `raw_inheritance` ⨝ `symbol` ⨝ `imports` to emit `extends`/`implements`), `record_build_meta_files`, and `resolve_and_emit_call_edges` (rayon-parallel reads from `call_site` + `symbol` + `imports`). `comment` / `type` / `parameter` / `returns_type` / `field_type` / `throws` rows are emitted file-locally during absorb — this module no longer holds them
 - `src/queries/` — user-facing query surface
   - `runner.rs` — `run(QueryRequest)`: loads/dispatches, detects audit-shape output
   - `templates.rs` — embeds `builtin/*.sql` via `include_dir`
   - `rust_templates.rs` — handlers that need source access (currently only `complexity_hotspots`)
   - `builtin/*.sql` — 7 templates (find_callers/callees/cycles/function_by_name/implementations_of/export_surface/import_depth). `find_cycles` and `import_depth` use recursive CTEs; the others are flat SQL joins
 - `src/graph/` — build-time scratch state
-  - `mod.rs` — `CodeGraph` — a slim build-time scratch struct (interner + `symbol_ids_by_name` lookup + per-file type/comment/inheritance buckets). No node Vec, no adjacency lists — `file`/`symbol`/`span`/`calls`/`imports` rows stream straight to DuckDB during absorb
-  - `builder.rs` — `GraphBuilder` (parses workspace into the slim graph + streams rows); `find_node_at_line` used by `complexity_hotspots`
+  - `mod.rs` — `CodeGraph` — after the SQL-staging refactor this is just a thin wrapper around the shared `Symbols` interner. The per-file type/comment/inheritance HashMaps that used to live here are gone — workers now emit those rows directly to DuckDB (file-local resolution) or to the `raw_inheritance` staging table (cross-file resolution)
+  - `builder.rs` — `GraphBuilder` (parses workspace + streams rows to DuckDB through a shared `Mutex<SharedAbsorb>`); `find_node_at_line` used by `complexity_hotspots`
   - `metrics.rs` — metric computation (cyclomatic complexity, function length, etc.) — called on-demand from `rust_templates::complexity_hotspots`
 - `src/classify.rs` — `is_test_file`, `is_barrel_file` — used at build time to populate `file_classification` facts
 - `src/languages/` — one deep module per language, plus shared facade
@@ -89,23 +89,30 @@ Name-based resolution scoped to the caller's imports (`file_symbols_by_name` for
 **Pre-existing extractor bug (filed against master)**
 `call_site.caller_id` resolves to the nearest parameter symbol instead of the enclosing function when the function takes parameters. Surfaces in `find_callers` / `find_callees` output as a wrong "caller" name. Independent of the DuckDB swap — the extractor lives in `graph/builder.rs` and was unchanged. Filed for follow-up.
 
-**Streaming graph builder**
-`GraphBuilder::build` parses files on rayon workers and sends each `FileGraphData` over a bounded `mpsc::sync_channel(2 * num_cpus)` to a single-threaded drainer (`absorb_file_data` in `builder.rs`). During absorption each file's `file` / `symbol` / `span` / per-language `*_attrs` / `scope` / `binding` / `occurrence` / `raw_import` rows stream straight into a `DbWriter` that flushes every `STREAM_FLUSH_EVERY_N_FILES` files. Cross-file refs (`Imports`, `Calls`) are queued as `DeferredImport`/`DeferredCall` tuples and resolved after the channel drains; those resolve to `imports`/`calls` rows on the same writer. The graph keeps no per-node Vec — `CodeGraph` is just an interner, a `(file, name) -> [symbol_id]` lookup, and the per-file `comment`/`type`/`inheritance`/`throws`/`field_type` buckets that the populate tail still needs.
+**Shared-writer parallel graph builder**
+`GraphBuilder::build` runs rayon `par_iter().try_for_each(...)` over the file list. Each worker parses a file lock-free (tree-sitter + extractors), then briefly takes a `Mutex<SharedAbsorb>` to push rows into a single shared `DbWriter` + the cross-file deferred Vecs + the interner. Periodic flush (`STREAM_FLUSH_EVERY_N_FILES`) caps writer memory. The critical section is short — Vec appends + a few HashMap inserts — so mutex contention doesn't dominate wall time.
+
+Per-file resolution happens during absorb (file-local lookups via a local `name_to_id` map + per-file `type_id_by_display` map). Cross-file refs (`Imports`, inheritance, `Calls`) are either queued for a post-absorb Rust loop (`DeferredImport`/`DeferredCall`) or written to a DuckDB staging table (`raw_inheritance`) for SQL resolution. `CodeGraph` itself is now just a shared interner — the per-file HashMap buckets the old populate phase consumed have been deleted.
+
+Earlier designs explored on this branch: (1) `mpsc::sync_channel` + single drainer thread (master) — wall 25.7s, RSS 860 MiB; (2) per-worker `WorkerLocal` with rayon `fold/reduce` — wall 16.5s but RSS 1.8 GiB; (3) shared-writer (current) — wall 28.8s, RSS 760 MiB. See `docs/experiments/duckdb-swap-findings.md` for the full matrix. We picked design 3 because the memory regression in 2 was structural to fold/reduce.
 
 **Local workspace is disk-backed**
 `Workspace::load` no longer reads file contents up front. It records sizes + language extensions only; `DiskFileSource` (`src/storage/file_source.rs`) reads on demand and caches in a small LRU (`lru` crate, cap 256).
 
 **DbStore lifecycle**
-The query pipeline opens (or creates) the file-backed `DbStore`, runs `GraphBuilder::build(&store)` which streams `file`/`symbol`/`span`/`calls`/`imports`/`scope`/`binding`/`occurrence`/`raw_import`/`*_attrs` rows during absorb, then calls `db::populate(&store, &graph, Some(&workspace))` to emit the tail-phase rows that need cross-file symbol-id resolution (`comment`, `type`, `parameter`, `returns_type`, `extends`/`implements`, `throws`, `field_type`, `file_classification`, `nolint`, `build_meta_files`). Symbol IDs are ADR-0002 stringly ids — `path|start_line|start_col|name|kind` — computed by `from_code_graph::symbol_id`. Then `resolve_and_emit_call_edges` reads the just-flushed `call_site`/`symbol`/`imports` into Rust hash maps and emits `call_edge` rows resolved in parallel via rayon.
+The query pipeline opens (or creates) the file-backed `DbStore`, runs `GraphBuilder::build(&store)` which streams the full per-file fact set into DuckDB during absorb (`file`/`symbol`/`span`/`call_site`/`raw_import`/`*_attrs`/`scope`/`binding`/`occurrence` plus the file-locally-resolved `comment`/`type`/`parameter`/`returns_type`/`field_type`/`throws` rows, plus the unresolved `raw_inheritance` staging rows), then `db::populate(&store, &graph, Some(&workspace))` runs the post-parse phase: `resolve_inheritance` (SQL JOIN of `raw_inheritance` ⨝ `symbol` ⨝ `imports` with `ROW_NUMBER` priority to pick one parent per child), `record_build_meta_files`, and `resolve_and_emit_call_edges` (rayon-parallel — reads `call_site`/`symbol`/`imports` into Rust hash maps, emits `call_edge` rows). Symbol IDs are ADR-0002 stringly ids — `path|start_line|start_col|name|kind` — computed by `from_code_graph::symbol_id`.
 
 **Rust-side template, not pure SQL**
 `complexity_hotspots` lives in `src/queries/rust_templates.rs`. It escapes SQL because metrics aren't materialised as facts — the handler queries `symbol` + `span` + `file_classification` from DuckDB, then calls `graph::metrics::compute_*` on demand for each function. All other built-in templates are pure SQL.
 
 **`throws` extraction is not uniform across languages**
-Java extracts the declared `throws` clause on method/constructor declarations. C# and PHP have no declared throws keyword — `extract_throws` walks `throw_statement` / `throw_expression` nodes and pulls the exception type out of `throw new X(...)` forms only. Re-throws and variable re-raise (`throw e;`) have no static type and emit no row. Other 6 languages return an empty `Vec<ThrowsRow>`. `from_code_graph::emit_types_and_hierarchy` synthesises a `type{kind: "named"}` row when an exception type wasn't already seen by `extract_types`, so the 3-way JOIN through `type` succeeds.
+Java extracts the declared `throws` clause on method/constructor declarations. C# and PHP have no declared throws keyword — `extract_throws` walks `throw_statement` / `throw_expression` nodes and pulls the exception type out of `throw new X(...)` forms only. Re-throws and variable re-raise (`throw e;`) have no static type and emit no row. Other 6 languages return an empty `Vec<ThrowsRow>`. `absorb_file_data` synthesises a `type{kind: "named"}` row inline when an exception type wasn't already seen by `extract_types` in the same file, so the 3-way JOIN through `type` succeeds.
 
 **Python class-body assignments emit `Field` symbols**
 `class C: x: int = 5` (and untyped `x = 5`) produce a `kind=field` `Symbol` row in addition to whatever the type extractor emits. This is what makes `symbol{kind: "field"} JOIN field_type` non-empty.
+
+**`extends` / `implements` only reference resolved symbols**
+The SQL `resolve_inheritance` resolver in `db/from_code_graph.rs` does an INNER JOIN to `symbol` for both endpoints — if a parent class lives outside the workspace (e.g. `class Foo extends Error` where `Error` is a TS built-in), the edge is dropped. The prior Rust resolver had a `parent_canonical_name` fallback that put a synthetic string like `typescript::global::Error` into `extends.parent_id`, breaking referential integrity with `symbol.id` (no row in `symbol` had that id). On the openclaw `extensions` corpus this drops 62 of 112 orphan rows from `extends`. The behaviour change is intentional: every `extends`/`implements` row now joins cleanly to `symbol`.
 
 **Persistence + warm-start**
 `DbStore::open_persistent(path)` opens a file-backed DuckDB store at `~/.cache/virgil/<hash>.duckdb`. `cache_dir_for_db(id)` derives the hash via FNV-1a from the project name. On open: if the file exists and `build_meta.schema_version` matches the compiled-in `SCHEMA_VERSION`, the store reopens warm; otherwise the file is removed and a fresh schema applied. Bench numbers from the swap (openclaw subset, see `docs/experiments/duckdb-swap-findings.md`):

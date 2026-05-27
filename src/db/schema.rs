@@ -236,6 +236,21 @@ pub fn create_statements() -> &'static [&'static str] {
             is_synchronized BOOLEAN NOT NULL, \
             throws_clause VARCHAR[] NOT NULL\
          )",
+        // ─── staging tables (parse-time, dropped after resolve) ───────────
+        // Inheritance is the one extractor output that needs cross-file
+        // symbol-id resolution. Workers write rows here during absorb;
+        // a SQL `INSERT...SELECT` joins against `symbol` + `imports`
+        // afterwards to populate `extends` / `implements`.
+        "CREATE TABLE raw_inheritance (\
+            file_path VARCHAR NOT NULL, \
+            child_name VARCHAR NOT NULL, \
+            child_kind VARCHAR NOT NULL, \
+            child_start_line BIGINT NOT NULL, \
+            child_start_col BIGINT NOT NULL, \
+            parent_leaf VARCHAR NOT NULL, \
+            parent_canonical VARCHAR, \
+            kind VARCHAR NOT NULL\
+         )",
         // ─── derived facts ─────────────────────────────────────────────────
         "CREATE TABLE file_classification (\
             path VARCHAR PRIMARY KEY, \

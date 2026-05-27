@@ -35,6 +35,7 @@ pub struct DbWriter {
     call_edge: Vec<Row>,
     extends: Vec<Row>,
     implements: Vec<Row>,
+    raw_inheritance: Vec<Row>,
     imports: Vec<Row>,
     raw_import: Vec<Row>,
     parameter: Vec<Row>,
@@ -76,6 +77,7 @@ impl DbWriter {
         self.call_edge.append(&mut other.call_edge);
         self.extends.append(&mut other.extends);
         self.implements.append(&mut other.implements);
+        self.raw_inheritance.append(&mut other.raw_inheritance);
         self.imports.append(&mut other.imports);
         self.raw_import.append(&mut other.raw_import);
         self.parameter.append(&mut other.parameter);
@@ -216,6 +218,33 @@ impl DbWriter {
     pub fn push_implements(&mut self, impl_id: &str, interface_id: &str) {
         self.implements
             .push(vec![text(impl_id), text(interface_id)]);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_raw_inheritance(
+        &mut self,
+        file_path: &str,
+        child_name: &str,
+        child_kind: &str,
+        child_start_line: i64,
+        child_start_col: i64,
+        parent_leaf: &str,
+        parent_canonical: Option<&str>,
+        kind: &str,
+    ) {
+        self.raw_inheritance.push(vec![
+            text(file_path),
+            text(child_name),
+            text(child_kind),
+            big(child_start_line),
+            big(child_start_col),
+            text(parent_leaf),
+            match parent_canonical {
+                Some(s) => text(s),
+                None => Value::Null,
+            },
+            text(kind),
+        ]);
     }
 
     pub fn push_imports(&mut self, importer_file_id: &str, imported_id: &str) {
@@ -586,6 +615,7 @@ impl DbWriter {
             flush_table(conn, "call_edge", 2, &mut self.call_edge)?;
             flush_table(conn, "extends", 2, &mut self.extends)?;
             flush_table(conn, "implements", 2, &mut self.implements)?;
+            flush_table(conn, "raw_inheritance", 0, &mut self.raw_inheritance)?;
             flush_table(conn, "imports", 2, &mut self.imports)?;
             flush_table(conn, "raw_import", 2, &mut self.raw_import)?;
             flush_table(conn, "parameter", 1, &mut self.parameter)?;
