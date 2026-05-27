@@ -2,6 +2,29 @@
 
 Rust CLI tool that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases and exposes them as DuckDB tables queryable via SQL (with SQL/PGQ graph extensions via the `duckpgq` community extension). Projects are registered by name; first query parses the workspace and persists a file-backed DuckDB fact store at `~/.cache/virgil/<hash>.duckdb`. Subsequent queries warm-start in tens of milliseconds.
 
+## Working notes for Claude
+
+Lessons from prior sessions on this codebase. Read this before doing real work.
+
+**Measure before theorizing.** "Where is the memory going?" — don't guess. Add a checkpoint print and run. One memory-checkpoint pass beat hours of speculation about buffer pools, reduce intermediates, etc. Same rule for "is X slow?" / "does the channel block?" — measure, don't reason from first principles.
+
+**Verify before claiming.** Bench-printing a matching scalar count is a sniff test, not verification. Before saying "this works" / "tests pass" / "matches baseline":
+- Run `cargo test --release` and read the output. Don't skip it because the change "feels small."
+- For data-shape claims, diff every relevant table count between branches. Don't extrapolate from one `COUNT(*)`.
+
+**Don't pattern-match from training data on infrastructure facts.** "DuckDB needs single-threaded writes" (wrong — MVCC), "the interner is single-threaded" (wrong — `ThreadedRodeo`), "periodic flush will halve RSS" (wrong — saved 10%). Fetch the docs or read the source. Past-sessions said these confidently and was wrong every time.
+
+**Short answers for short questions.** "Why do we need X?" — two sentences. Not a table, not a "what this buys you" section. When the user types "simply put" or "caveman" or anything that signals brevity, that's a correction — match it on the next answer and stop reverting.
+
+**Don't expand scope from a yes/no question.** "Can we do X?" → answer the question first, propose scope second, act after confirmation. "Let's bench this" is not authorisation for a multi-hour refactor.
+
+**Surface regressions before merging.** A "fix" that makes the bench slower is a regression. Say so loudly, then let the user decide. Don't bury it under a tradeoff table.
+
+**This codebase has specific known wrong claims to avoid repeating:**
+- DuckDB supports concurrent writers via MVCC; `duckdb::Connection` is `Send` (not `Sync`) — use a pool, not "one connection per process."
+- `lasso::ThreadedRodeo` (in `graph::intern::Symbols`) is thread-safe and `Arc`-shared; no need to design around it being single-threaded.
+- The dominant memory term during parse+absorb is **per-worker scratch state in rayon's fold/reduce**, not `DbWriter` buffers, not DuckDB's buffer pool, not the `CodeGraph` HashMaps (those existed pre-refactor and have since been removed). The current shared-`Mutex<DbWriter>` design avoids it.
+
 ## Build & Run
 
 ```bash
