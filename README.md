@@ -445,6 +445,15 @@ From `docs/experiments/duckdb-swap-findings.md` (DuckDB branch vs Cozo on the sa
 
 Flat queries (`find_function_by_name`, `find_callers`, `find_callees`, etc.) tie within process-startup noise (~0.26-0.28s) because both engines are dominated by binary launch + extension load, not real query work.
 
+**Parallel parse + SQL staging (2026-05-27)** — openclaw `/extensions` (5,510 TS files):
+
+| Architecture | Wall (cold full build) | Peak RSS |
+|---|---:|---:|
+| `mpsc` channel + single drainer (prior) | 25.7 s | 860 MiB |
+| Shared `DbWriter` + rayon parallel parse (current) | 28.8 s | 760 MiB |
+
+The current design trades ~3s of wall time for lower peak memory and a simpler control flow (no per-worker accumulator state, no fold/reduce). See `docs/experiments/duckdb-swap-findings.md` for the full alternatives matrix that was explored.
+
 ## Examples
 
 ```bash
@@ -498,7 +507,7 @@ virgil-cli projects query myapp --template find_cycles --rebuild
 - **SQL query language** — standard SQL with `WITH RECURSIVE` for graph closures; SQL/PGQ via duckpgq for declarative `MATCH` patterns
 - **Persistent fact store** — single-file DuckDB store cached at `~/.cache/virgil/<hash>.duckdb`
 - **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely
-- **Scales to multi-thousand-file codebases** — streamed DuckDB writes during absorb (Arrow-backed `Appender` for scalar tables, batched `INSERT` for array columns)
+- **Scales to multi-thousand-file codebases** — rayon-parallel parse with a shared `DbWriter` (Arrow-backed `Appender` for scalar tables, batched `INSERT` for array columns). Inheritance edges are resolved via a single SQL `INSERT...SELECT` against a `raw_inheritance` staging table after parse
 - **Audit-shape output convention** — `(file, line, severity, pattern, message)` columns auto-format as findings
 - **Parameter binding** — `--param key=value` substitutes into `$name` placeholders
 - **Materialised call graph** — `call_edge` built at parse time so warm queries hit a join instead of a recursive resolver

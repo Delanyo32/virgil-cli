@@ -19,37 +19,29 @@ use rayon::prelude::*;
 use tracing::{info, info_span};
 
 use crate::graph::CodeGraph;
-use crate::models::{InheritanceKind, SymbolKind};
+use crate::models::SymbolKind;
 use crate::storage::workspace::Workspace;
 
 use super::{DbStore, DbWriter};
 
-/// See `cozo::from_code_graph::populate` for the design contract.
-pub fn populate(store: &DbStore, graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
+/// SQL-staging populate. Comments / types / parameters / returns_types
+/// / throws / field_types are now emitted file-locally during absorb,
+/// so this phase only:
+///   - resolves staged `raw_inheritance` rows into `extends` / `implements`
+///   - records workspace file metadata
+///   - resolves call sites into `call_edge`
+pub fn populate(store: &DbStore, _graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
     info!(
-        symbols = graph
-            .symbol_ids_by_name
-            .values()
-            .map(|v| v.len())
-            .sum::<usize>(),
         files = workspace.map(|w| w.file_count()).unwrap_or(0),
         "db populate starting"
     );
-    let mut writer = DbWriter::new();
-
-    let _step3 = info_span!("db.populate.tail").entered();
-    emit_comments(graph, &mut writer);
-    writer.flush(store)?;
-    emit_types_and_hierarchy(graph, workspace, &mut writer);
-    writer.flush(store)?;
-
-    if let Some(ws) = workspace {
-        record_build_meta_files(ws, &mut writer);
-    }
-
-    drop(_step3);
     {
-        let _fs = info_span!("db.populate.flush").entered();
+        let _r = info_span!("db.populate.inheritance").entered();
+        resolve_inheritance(store)?;
+    }
+    if let Some(ws) = workspace {
+        let mut writer = DbWriter::new();
+        record_build_meta_files(ws, &mut writer);
         writer.flush(store)?;
     }
     {
@@ -60,6 +52,85 @@ pub fn populate(store: &DbStore, graph: &CodeGraph, workspace: Option<&Workspace
     }
     info!("db populate complete");
     Ok(())
+}
+
+/// Resolve every row in `raw_inheritance` to an `extends` / `implements`
+/// edge using a SQL JOIN against `symbol` + `imports`. Replaces the
+/// per-file Rust loop in the old `emit_types_and_hierarchy` plus the
+/// `symbol_ids_by_name` / `symbol_ids_by_global_name` HashMaps held on
+/// `CodeGraph`.
+///
+/// Resolution priority is encoded in the `priority` column inside the
+/// CTE — same-file beats imported beats global. `ROW_NUMBER` picks one
+/// parent per (child, parent_leaf) so output cardinality matches the
+/// prior Rust resolver (one `extends` row per `InheritanceRow`).
+fn resolve_inheritance(store: &DbStore) -> Result<()> {
+    store.with_conn(|conn| -> Result<()> {
+        let sql = "\
+            WITH resolved AS ( \
+                SELECT \
+                    ri.kind AS rel_kind, \
+                    child.id AS child_id, \
+                    parent.id AS parent_id, \
+                    ri.child_start_line, ri.child_start_col, ri.parent_leaf, \
+                    CASE \
+                        WHEN parent.file_path = ri.file_path THEN 1 \
+                        WHEN i.imported_id IS NOT NULL THEN 2 \
+                        ELSE 3 \
+                    END AS priority \
+                FROM raw_inheritance ri \
+                JOIN symbol child \
+                  ON child.file_path = ri.file_path \
+                 AND child.name = ri.child_name \
+                 AND child.kind = ri.child_kind \
+                JOIN symbol parent \
+                  ON parent.name = ri.parent_leaf \
+                LEFT JOIN imports i \
+                  ON i.importer_file_id = ri.file_path \
+                 AND i.imported_id = parent.id \
+                WHERE child.id <> parent.id \
+            ), \
+            ranked AS ( \
+                SELECT *, ROW_NUMBER() OVER ( \
+                    PARTITION BY child_id, child_start_line, child_start_col, parent_leaf, rel_kind \
+                    ORDER BY priority, parent_id \
+                ) AS rn \
+                FROM resolved \
+            ) \
+            SELECT rel_kind, child_id, parent_id FROM ranked WHERE rn = 1";
+
+        let mut extends_rows: Vec<(String, String)> = Vec::new();
+        let mut implements_rows: Vec<(String, String)> = Vec::new();
+        {
+            let mut stmt = conn.prepare(sql)?;
+            let mut rows = stmt.query([])?;
+            while let Some(r) = rows.next()? {
+                let rel: String = r.get(0)?;
+                let child_id: String = r.get(1)?;
+                let parent_id: String = r.get(2)?;
+                match rel.as_str() {
+                    "extends" => extends_rows.push((child_id, parent_id)),
+                    "implements" => implements_rows.push((child_id, parent_id)),
+                    _ => {}
+                }
+            }
+        }
+        if !extends_rows.is_empty() {
+            let mut app = conn.appender("extends")?;
+            for (c, p) in extends_rows {
+                app.append_row(duckdb::params![c, p])?;
+            }
+        }
+        if !implements_rows.is_empty() {
+            let mut app = conn.appender("implements")?;
+            for (c, p) in implements_rows {
+                app.append_row(duckdb::params![c, p])?;
+            }
+        }
+        // Staging table is no longer needed; drop it to free pages.
+        conn.execute("DELETE FROM raw_inheritance", [])?;
+        Ok(())
+    })
 }
 
 fn text_of(v: &Value) -> Option<String> {
@@ -193,245 +264,8 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
     Ok(())
 }
 
-fn emit_types_and_hierarchy(
-    graph: &CodeGraph,
-    workspace: Option<&Workspace>,
-    writer: &mut DbWriter,
-) {
-    if graph.types.is_empty()
-        && graph.param_types.is_empty()
-        && graph.returns_types.is_empty()
-        && graph.inheritance.is_empty()
-        && graph.field_types.is_empty()
-        && graph.throws.is_empty()
-    {
-        return;
-    }
 
-    let mut type_id_by_display: HashMap<(String, String), String> = HashMap::new();
-
-    for (file_path, rows) in &graph.types {
-        let language = workspace
-            .and_then(|ws| ws.file_language(file_path))
-            .map(|l| l.as_str())
-            .unwrap_or("");
-        for row in rows {
-            let id = type_id(language, file_path, &row.display_name);
-            type_id_by_display
-                .entry((file_path.clone(), row.display_name.clone()))
-                .or_insert_with(|| id.clone());
-            writer.push_type(
-                &id,
-                &row.kind,
-                language,
-                &row.display_name,
-                row.canonical_name.as_deref(),
-            );
-        }
-    }
-
-    let symbol_ids_by_name = &graph.symbol_ids_by_name;
-
-    let mut symbol_ids_by_global_name: HashMap<String, Vec<String>> = HashMap::new();
-    for ((_, name), ids) in symbol_ids_by_name {
-        symbol_ids_by_global_name
-            .entry(name.clone())
-            .or_default()
-            .extend(ids.iter().cloned());
-    }
-
-    for (file_path, rows) in &graph.param_types {
-        for row in rows {
-            let function_id = symbol_id(
-                file_path,
-                row.function_start_line,
-                row.function_start_col,
-                &row.function_name,
-                row.function_kind,
-            );
-            let param_id = symbol_id(
-                file_path,
-                row.parameter_start_line,
-                row.parameter_start_col,
-                &row.parameter_name,
-                SymbolKind::Parameter,
-            );
-            let language = workspace
-                .and_then(|ws| ws.file_language(file_path))
-                .map(|l| l.as_str())
-                .unwrap_or("");
-            let type_id_str = row.type_display_name.as_ref().map(|d| {
-                type_id_by_display
-                    .get(&(file_path.clone(), d.clone()))
-                    .cloned()
-                    .unwrap_or_else(|| type_id(language, file_path, d))
-            });
-            writer.push_parameter(
-                &param_id,
-                &row.parameter_name,
-                &function_id,
-                row.position,
-                type_id_str.as_deref(),
-                row.is_optional,
-                row.has_default,
-                false,
-            );
-        }
-    }
-
-    for (file_path, rows) in &graph.returns_types {
-        for row in rows {
-            let function_id = symbol_id(
-                file_path,
-                row.function_start_line,
-                row.function_start_col,
-                &row.function_name,
-                row.function_kind,
-            );
-            let language = workspace
-                .and_then(|ws| ws.file_language(file_path))
-                .map(|l| l.as_str())
-                .unwrap_or("");
-            let tid = type_id_by_display
-                .get(&(file_path.clone(), row.type_display_name.clone()))
-                .cloned()
-                .unwrap_or_else(|| type_id(language, file_path, &row.type_display_name));
-            writer.push_returns_type(&function_id, &tid);
-        }
-    }
-
-    for (file_path, rows) in &graph.inheritance {
-        for row in rows {
-            let Some(child_id) = pick_symbol_id(
-                symbol_ids_by_name,
-                file_path,
-                &row.child_name,
-                Some((row.child_start_line, row.child_start_col)),
-            ) else {
-                continue;
-            };
-            let parent_leaf = row
-                .parent_display_name
-                .rsplit("::")
-                .next()
-                .unwrap_or(&row.parent_display_name)
-                .trim_end_matches('>')
-                .split('<')
-                .next()
-                .unwrap_or("")
-                .trim();
-            let parent_id = pick_symbol_id(symbol_ids_by_name, file_path, parent_leaf, None)
-                .or_else(|| {
-                    symbol_ids_by_global_name
-                        .get(parent_leaf)
-                        .and_then(|v| v.first().cloned())
-                })
-                .or_else(|| row.parent_canonical_name.clone());
-            let Some(parent_id) = parent_id else {
-                continue;
-            };
-            match row.kind {
-                InheritanceKind::Extends => writer.push_extends(&child_id, &parent_id),
-                InheritanceKind::Implements => writer.push_implements(&child_id, &parent_id),
-            }
-        }
-    }
-
-    for (file_path, rows) in &graph.throws {
-        let language = workspace
-            .and_then(|ws| ws.file_language(file_path))
-            .map(|l| l.as_str())
-            .unwrap_or("");
-        for row in rows {
-            let function_id = symbol_id(
-                file_path,
-                row.function_start_line,
-                row.function_start_col,
-                &row.function_name,
-                row.function_kind,
-            );
-            let tid = if let Some(existing) =
-                type_id_by_display.get(&(file_path.clone(), row.exception_display_name.clone()))
-            {
-                existing.clone()
-            } else {
-                let id = type_id(language, file_path, &row.exception_display_name);
-                type_id_by_display.insert(
-                    (file_path.clone(), row.exception_display_name.clone()),
-                    id.clone(),
-                );
-                writer.push_type(&id, "named", language, &row.exception_display_name, None);
-                id
-            };
-            writer.push_throws(&function_id, &tid);
-        }
-    }
-
-    for (file_path, rows) in &graph.field_types {
-        let language = workspace
-            .and_then(|ws| ws.file_language(file_path))
-            .map(|l| l.as_str())
-            .unwrap_or("");
-        for row in rows {
-            let field_symbol_id = symbol_id(
-                file_path,
-                row.field_start_line,
-                row.field_start_col,
-                &row.field_name,
-                row.field_kind,
-            );
-            let tid = type_id_by_display
-                .get(&(file_path.clone(), row.type_display_name.clone()))
-                .cloned()
-                .unwrap_or_else(|| type_id(language, file_path, &row.type_display_name));
-            writer.push_field_type(&field_symbol_id, &tid);
-        }
-    }
-}
-
-fn pick_symbol_id(
-    by_name: &HashMap<(String, String), Vec<String>>,
-    file_path: &str,
-    name: &str,
-    _hint: Option<(u32, u32)>,
-) -> Option<String> {
-    by_name
-        .get(&(file_path.to_string(), name.to_string()))
-        .and_then(|v| v.first().cloned())
-}
-
-fn emit_comments(graph: &CodeGraph, writer: &mut DbWriter) {
-    if graph.comments.is_empty() {
-        return;
-    }
-    let by_name = &graph.symbol_ids_by_name;
-    for (file_path, comments) in &graph.comments {
-        for (i, c) in comments.iter().enumerate() {
-            let id = format!("{}|{}|{}|comment", file_path, c.start_byte, i);
-            let documents_id = c.associated_symbol.as_ref().and_then(|name| {
-                by_name
-                    .get(&(file_path.clone(), name.clone()))
-                    .and_then(|v| v.first())
-                    .map(|s| s.as_str())
-            });
-            let is_doc = is_doc_comment(&c.kind, &c.text);
-            let todo_kind = detect_todo_kind(&c.text);
-            writer.push_comment(
-                &id,
-                documents_id,
-                file_path,
-                &c.kind,
-                is_doc,
-                &c.text,
-                todo_kind,
-                c.start_byte as i64,
-                c.end_byte as i64,
-            );
-        }
-    }
-}
-
-fn is_doc_comment(kind: &str, text: &str) -> bool {
+pub fn is_doc_comment(kind: &str, text: &str) -> bool {
     if kind == "doc" || kind == "docstring" {
         return true;
     }
@@ -442,7 +276,7 @@ fn is_doc_comment(kind: &str, text: &str) -> bool {
         || trimmed.starts_with("/*!")
 }
 
-fn detect_todo_kind(text: &str) -> Option<&'static str> {
+pub fn detect_todo_kind(text: &str) -> Option<&'static str> {
     for kind in ["TODO", "FIXME", "XXX", "HACK"] {
         if text.contains(kind) {
             return Some(match kind {
