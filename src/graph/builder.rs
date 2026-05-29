@@ -656,7 +656,21 @@ fn absorb_file_data(
         } else {
             let _ = (sym_file_spur, sym_name_spur);
         }
-        local_id_by_line.insert(sym.start_line, id.clone());
+        // Only function-like symbols can enclose a call, and call-site
+        // attribution (`collect_calls`) keys the caller on a function-like
+        // symbol's start_line. Parameters/locals/fields share that line
+        // (`function foo(a, b)` — `a`,`b` start on the signature line) and
+        // would clobber the slot, mis-attributing the caller to a parameter.
+        // Mirror the `caller_ranges` filter so the lookup is consistent.
+        if matches!(
+            sym.kind,
+            SymbolKind::Function
+                | SymbolKind::Method
+                | SymbolKind::ArrowFunction
+                | SymbolKind::Macro
+        ) {
+            local_id_by_line.insert(sym.start_line, id.clone());
+        }
         symbol_ids.push(id);
     }
 

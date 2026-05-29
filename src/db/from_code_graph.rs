@@ -146,14 +146,22 @@ fn bool_of(v: &Value) -> bool {
 
 /// See `cozo::from_code_graph::resolve_and_emit_call_edges` for the
 /// algorithm — this is the same code path against DuckDB tables.
+/// Self-reference receiver tokens across the supported languages
+/// (`this`: JS/TS/Java/C#/C++, `self`: Python/Rust, `$this`: PHP). Go's
+/// receiver is a named variable, not a keyword, so it isn't covered here.
+fn is_self_receiver(receiver: Option<&str>) -> bool {
+    matches!(receiver, Some("this" | "self" | "$this" | "me"))
+}
+
 fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result<()> {
     let _s = info_span!("db.populate.call_edge").entered();
 
     let cs_rows = store.run_query(
-        "SELECT id, caller_id, callee_name, file_path FROM call_site",
+        "SELECT id, caller_id, callee_name, file_path, receiver FROM call_site",
         std::collections::BTreeMap::new(),
     )?;
-    let mut call_sites: Vec<(String, String, String)> = Vec::with_capacity(cs_rows.rows.len());
+    let mut call_sites: Vec<(String, String, String, Option<String>)> =
+        Vec::with_capacity(cs_rows.rows.len());
     for row in &cs_rows.rows {
         let Some(caller_id) = text_of(&row[1]) else {
             continue;
@@ -164,17 +172,22 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
         let Some(file_path) = text_of(&row[3]) else {
             continue;
         };
-        call_sites.push((caller_id, callee_name, file_path));
+        let receiver = text_of(&row[4]);
+        call_sites.push((caller_id, callee_name, file_path, receiver));
     }
 
     let sym_rows = store.run_query(
-        "SELECT id, name, file_path, kind, exported FROM symbol \
+        "SELECT id, name, file_path, kind, exported, parent_id FROM symbol \
          WHERE kind IN ('function', 'method', 'arrow_function', 'macro')",
         std::collections::BTreeMap::new(),
     )?;
     let mut intra: HashMap<(String, String), Vec<(String, String)>> =
         HashMap::with_capacity(sym_rows.rows.len());
     let mut exports: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
+    // Step 1 (self-receiver resolution) lookups: caller -> enclosing class,
+    // and (class, method-name) -> the method(s) defined directly on it.
+    let mut parent_of: HashMap<String, String> = HashMap::new();
+    let mut methods_in_class: HashMap<(String, String), Vec<String>> = HashMap::new();
     for row in &sym_rows.rows {
         let Some(symbol_id) = text_of(&row[0]) else {
             continue;
@@ -189,6 +202,13 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
             continue;
         };
         let exported = bool_of(&row[4]);
+        if let Some(parent_id) = text_of(&row[5]) {
+            parent_of.insert(symbol_id.clone(), parent_id.clone());
+            methods_in_class
+                .entry((parent_id, name.clone()))
+                .or_default()
+                .push(symbol_id.clone());
+        }
         intra
             .entry((file_path.clone(), name.clone()))
             .or_default()
@@ -225,7 +245,27 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
         .par_chunks(CHUNK_SIZE)
         .flat_map(|chunk| {
             let mut local: Vec<(String, String, String)> = Vec::new();
-            for (caller_id, callee_name, file) in chunk {
+            for (caller_id, callee_name, file, receiver) in chunk {
+                // Step 1: a self-receiver call (`this`/`self`/`$this`->m())
+                // dispatches on the caller's own class. Resolve `callee_name`
+                // against methods declared on the caller's enclosing class
+                // only — this removes the name-collision over-linking plain
+                // name matching causes (`$this->store()` otherwise matches
+                // every class's `store`). Fall through to name-based
+                // resolution when the class has no such method (inherited /
+                // magic method / unresolved class), preserving recall.
+                if is_self_receiver(receiver.as_deref())
+                    && let Some(class_id) = parent_of.get(caller_id)
+                    && let Some(methods) =
+                        methods_in_class.get(&(class_id.clone(), callee_name.clone()))
+                {
+                    for callee_id in methods {
+                        if caller_id != callee_id {
+                            local.push((caller_id.clone(), callee_id.clone(), file.clone()));
+                        }
+                    }
+                    continue;
+                }
                 if let Some(candidates) = intra.get(&(file.clone(), callee_name.clone())) {
                     for (_kind, callee_id) in candidates {
                         if caller_id != callee_id {
