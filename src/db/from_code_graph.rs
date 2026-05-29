@@ -304,7 +304,6 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
     Ok(())
 }
 
-
 pub fn is_doc_comment(kind: &str, text: &str) -> bool {
     if kind == "doc" || kind == "docstring" {
         return true;
