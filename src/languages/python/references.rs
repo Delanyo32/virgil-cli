@@ -339,6 +339,11 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         | "set_comprehension"
         | "dictionary_comprehension"
         | "generator_expression" => Some("function"),
+        // Python has no braces; each suite is a `block` node. Scope it by
+        // its owning construct (for_statement, while_statement,
+        // if_statement, …) so control flow — loops especially — becomes
+        // queryable. Function/class body blocks report their definition.
+        "block" => node.parent().map(|p| p.kind()),
         _ => None,
     }
 }

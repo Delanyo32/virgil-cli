@@ -313,7 +313,9 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         | "method_declaration"
         | "anonymous_function_creation_expression"
         | "arrow_function" => Some("function"),
-        "compound_statement" => Some("block"),
+        // Owning construct verbatim (for_statement, foreach_statement, …)
+        // instead of generic "block"; bare blocks report their parent.
+        "compound_statement" => node.parent().map(|p| p.kind()),
         _ => None,
     }
 }

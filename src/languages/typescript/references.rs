@@ -158,7 +158,7 @@ impl<'a> Ctx<'a> {
         // statement_block that is the immediate body of a function-like
         // is NOT its own scope — the function scope already covers it.
         let active_scope = if let Some(kind) = new_scope_kind {
-            if kind == "block" && is_function_body_block(node) {
+            if is_function_body_block(node) {
                 scope_id.to_string()
             } else {
                 self.push_scope(node, kind, Some(scope_id))
@@ -516,8 +516,20 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         | "method_definition"
         | "generator_function"
         | "generator_function_declaration" => Some("function"),
-        "statement_block" | "for_statement" | "for_in_statement" | "for_of_statement"
-        | "catch_clause" | "switch_body" => Some("block"),
+        // Loop constructs keep their own scope (they hold the loop
+        // variable); label them with the construct kind.
+        "for_statement" | "for_in_statement" | "for_of_statement" => Some(node.kind()),
+        "catch_clause" => Some("catch_clause"),
+        "switch_body" => Some("switch_body"),
+        // Body block reports the construct that owns it — EXCEPT when
+        // that construct already opened its own scope above (for*/catch),
+        // where it stays neutral "block" so loop nesting isn't counted
+        // twice. while/do/if/else/try bodies carry the kind here.
+        "statement_block" => match node.parent().map(|p| p.kind()) {
+            Some("for_statement") | Some("for_in_statement")
+            | Some("for_of_statement") | Some("catch_clause") => Some("block"),
+            other => other,
+        },
         _ => None,
     }
 }

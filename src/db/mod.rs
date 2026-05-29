@@ -22,4 +22,6 @@ pub use writer::DbWriter;
 /// - 1: initial DuckDB schema (Cozo schema v9 ported 1:1 to DuckDB tables
 ///   + a `CREATE PROPERTY GRAPH codegraph` for duckpgq).
 /// - 2: add `call_site.receiver` (immediate object/namespace of a call).
-pub const SCHEMA_VERSION: u32 = 2;
+/// - 3: `scope.kind` for body blocks now holds the owning tree-sitter
+///   construct (for_statement, if_statement, …) instead of generic "block".
+pub const SCHEMA_VERSION: u32 = 3;

@@ -136,7 +136,9 @@ impl<'a> Ctx<'a> {
             "closure_expression" => Some("function"),
             "impl_item" | "trait_item" => Some("class"),
             "mod_item" => Some("module"),
-            "block" => Some("block"),
+            // Owning construct verbatim (for_expression, while_expression,
+            // loop_expression, …) instead of generic "block".
+            "block" => node.parent().map(|p| p.kind()),
             _ => None,
         };
 

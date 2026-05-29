@@ -387,7 +387,9 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         | "enum_declaration"
         | "record_declaration"
         | "annotation_type_declaration" => Some("class"),
-        "block" => Some("block"),
+        // Owning construct verbatim (for_statement, enhanced_for_statement, …)
+        // instead of generic "block"; bare blocks report their parent.
+        "block" => node.parent().map(|p| p.kind()),
         _ => None,
     }
 }

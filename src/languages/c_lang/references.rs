@@ -317,7 +317,10 @@ impl<'a> Ctx<'a> {
 fn scope_kind_for(node: Node) -> Option<&'static str> {
     match node.kind() {
         "function_definition" => Some("function"),
-        "compound_statement" => Some("block"),
+        // Emit the owning construct (for_statement, if_statement, …)
+        // verbatim instead of a generic "block", so queries can tell
+        // loops from branches. Bare blocks report their parent kind.
+        "compound_statement" => node.parent().map(|p| p.kind()),
         _ => None,
     }
 }
@@ -525,7 +528,7 @@ mod tests {
         let b = run("void f(void) { { int x = 1; } }", "main.c");
         // At least two block scopes: the function body and the nested
         // `{ ... }` block.
-        let blocks = b.scopes.iter().filter(|s| s.kind == "block").count();
+        let blocks = b.scopes.iter().filter(|s| !matches!(s.kind.as_str(), "file" | "function" | "class" | "namespace" | "module")).count();
         assert!(
             blocks >= 2,
             "expected >=2 block scopes, got: {:?}",
@@ -605,7 +608,7 @@ mod tests {
         let block_scope_ids: std::collections::HashSet<&str> = b
             .scopes
             .iter()
-            .filter(|s| s.kind == "block")
+            .filter(|s| !matches!(s.kind.as_str(), "file" | "function" | "class" | "namespace" | "module"))
             .map(|s| s.id.as_str())
             .collect();
         assert!(

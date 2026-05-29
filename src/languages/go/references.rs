@@ -386,7 +386,9 @@ impl<'a> Ctx<'a> {
 fn scope_kind_for(node: Node) -> Option<&'static str> {
     match node.kind() {
         "function_declaration" | "method_declaration" | "func_literal" => Some("function"),
-        "block" => Some("block"),
+        // Owning construct verbatim (for_statement, if_statement, …)
+        // instead of generic "block"; bare blocks report their parent.
+        "block" => node.parent().map(|p| p.kind()),
         _ => None,
     }
 }
