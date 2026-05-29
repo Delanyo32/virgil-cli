@@ -12,10 +12,10 @@ use crate::classify::{is_barrel_file, is_test_file};
 use crate::db::from_code_graph::{
     detect_todo_kind, extract_nolints, is_doc_comment, is_generated_marker, symbol_id, type_id,
 };
-use crate::models::InheritanceKind;
 use crate::db::{DbStore, DbWriter};
 use crate::language::Language;
 use crate::languages;
+use crate::models::InheritanceKind;
 use crate::models::{
     AttrsBucket, CommentInfo, FieldTypeRow, ImportInfo, InheritanceRow, ParameterTypeRow,
     ReferencesBucket, ReturnsTypeRow, SymbolInfo, SymbolKind, ThrowsRow, TypeRow,
@@ -99,6 +99,7 @@ struct FileGraphData {
 /// nothing else is read off this record, so it stays minimal.
 struct CallSiteData {
     callee_name: String,
+    receiver: Option<String>,
     caller_file: String,
     caller_symbol_line: u32,
     start_byte: u32,
@@ -256,8 +257,14 @@ impl<'a> GraphBuilder<'a> {
         let absorbed_files = AtomicU64::new(0);
         let target_files = grouped_files_ref.len() as u64;
 
-        let (mut stream_writer, deferred_imports, deferred_calls,
-             file_symbols_by_name, file_exports_by_name, file_known_spurs) = {
+        let (
+            mut stream_writer,
+            deferred_imports,
+            deferred_calls,
+            file_symbols_by_name,
+            file_exports_by_name,
+            file_known_spurs,
+        ) = {
             let span = info_span!("graph.parse_absorb", files = target_files);
             span.pb_set_length(target_files);
             span.pb_set_style(
@@ -292,9 +299,9 @@ impl<'a> GraphBuilder<'a> {
                 grouped_files_ref
                     .par_iter()
                     .try_for_each(|&(lang, rel_path)| -> Result<()> {
-                        let Some(data) = parse_one_file(
-                            lang, rel_path, workspace, &sym_q, &imp_q, &com_q,
-                        ) else {
+                        let Some(data) =
+                            parse_one_file(lang, rel_path, workspace, &sym_q, &imp_q, &com_q)
+                        else {
                             return Ok(());
                         };
                         parsed_ref.fetch_add(1, Ordering::Relaxed);
@@ -660,7 +667,9 @@ fn absorb_file_data(
     // `pick_symbol_id` behaviour of `v.first()`).
     let mut name_to_id: HashMap<&str, &str> = HashMap::with_capacity(symbols.len());
     for (i, sym) in symbols.iter().enumerate() {
-        name_to_id.entry(sym.name.as_str()).or_insert(&symbol_ids[i]);
+        name_to_id
+            .entry(sym.name.as_str())
+            .or_insert(&symbol_ids[i]);
     }
 
     // Pass 2: derive parent-symbol containment via byte ranges and
@@ -796,8 +805,7 @@ fn absorb_file_data(
     // deleted — name resolution that used to look up
     // `graph.symbol_ids_by_name` is now either purely file-local
     // (uses `name_to_id` above) or staged for SQL (inheritance).
-    let mut type_id_by_display: HashMap<&str, String> =
-        HashMap::with_capacity(types.len());
+    let mut type_id_by_display: HashMap<&str, String> = HashMap::with_capacity(types.len());
     for row in &types {
         let id = type_id(language_str, &path, &row.display_name);
         type_id_by_display
@@ -1049,6 +1057,7 @@ fn absorb_file_data(
             &site_id,
             caller_id_opt.as_deref(),
             &cs.callee_name,
+            cs.receiver.as_deref(),
             &cs.caller_file,
             cs.start_byte as i64,
             cs.end_byte as i64,
@@ -1151,7 +1160,7 @@ fn collect_calls(
     out: &mut Vec<CallSiteData>,
 ) {
     if call_types.contains(&node.kind())
-        && let Some(name) = extract_callee_name(node, source, language)
+        && let Some((name, receiver)) = extract_callee_name(node, source, language)
     {
         let node_line = node.start_position().row as u32 + 1;
         // Innermost = smallest end_line - start_line span that contains node_line.
@@ -1163,6 +1172,7 @@ fn collect_calls(
             .unwrap_or(0);
         out.push(CallSiteData {
             callee_name: name,
+            receiver,
             caller_file: file_path.to_string(),
             caller_symbol_line,
             start_byte: node.start_byte() as u32,
@@ -1184,11 +1194,16 @@ fn collect_calls(
     }
 }
 
+/// Returns `(callee_name, receiver)`. The receiver is the object/namespace
+/// the call is made on, split at the *last* `.` / `::` (the immediate
+/// receiver — `req.body` for `req.body.save()`). `None` for bare calls
+/// like `foo()`. The receiver text was previously discarded; it's now
+/// kept so callers can attribute member/namespaced calls to their object.
 fn extract_callee_name(
     node: tree_sitter::Node,
     source: &[u8],
     _language: Language,
-) -> Option<String> {
+) -> Option<(String, Option<String>)> {
     let func_node = node
         .child_by_field_name("function")
         .or_else(|| node.child_by_field_name("name"))
@@ -1196,20 +1211,21 @@ fn extract_callee_name(
 
     let text = func_node.utf8_text(source).ok()?;
 
-    let name = if let Some(pos) = text.rfind('.') {
-        &text[pos + 1..]
+    let (receiver, name) = if let Some(pos) = text.rfind('.') {
+        (Some(text[..pos].trim()), &text[pos + 1..])
     } else if let Some(pos) = text.rfind("::") {
-        &text[pos + 2..]
+        (Some(text[..pos].trim()), &text[pos + 2..])
     } else {
-        text
+        (None, text)
     };
 
     let name = name.trim_end_matches('(').trim();
+    let receiver = receiver.filter(|r| !r.is_empty()).map(str::to_string);
 
     if name.is_empty() {
         None
     } else {
-        Some(name.to_string())
+        Some((name.to_string(), receiver))
     }
 }
 

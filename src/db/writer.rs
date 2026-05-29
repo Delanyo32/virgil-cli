@@ -187,11 +187,13 @@ impl DbWriter {
         ]);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_call_site(
         &mut self,
         id: &str,
         caller_id: Option<&str>,
         callee_name: &str,
+        receiver: Option<&str>,
         file_path: &str,
         start_byte: i64,
         end_byte: i64,
@@ -200,6 +202,7 @@ impl DbWriter {
             text(id),
             opt_text(caller_id),
             text(callee_name),
+            opt_text(receiver),
             text(file_path),
             big(start_byte),
             big(end_byte),

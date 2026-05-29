@@ -64,6 +64,7 @@ pub fn create_statements() -> &'static [&'static str] {
             id VARCHAR PRIMARY KEY, \
             caller_id VARCHAR, \
             callee_name VARCHAR NOT NULL, \
+            receiver VARCHAR, \
             file_path VARCHAR NOT NULL, \
             start_byte BIGINT NOT NULL, \
             end_byte BIGINT NOT NULL\

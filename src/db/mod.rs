@@ -19,6 +19,7 @@ pub use writer::DbWriter;
 /// requires a fresh build. Persisted into `build_meta(schema_version)`
 /// and checked on open; mismatch wipes the file.
 ///
-/// 1: initial DuckDB schema (Cozo schema v9 ported 1:1 to DuckDB tables
-/// + a `CREATE PROPERTY GRAPH codegraph` for duckpgq).
-pub const SCHEMA_VERSION: u32 = 1;
+/// - 1: initial DuckDB schema (Cozo schema v9 ported 1:1 to DuckDB tables
+///   + a `CREATE PROPERTY GRAPH codegraph` for duckpgq).
+/// - 2: add `call_site.receiver` (immediate object/namespace of a call).
+pub const SCHEMA_VERSION: u32 = 2;
