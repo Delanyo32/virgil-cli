@@ -623,7 +623,16 @@ mod tests {
     #[test]
     fn block_scope_emitted() {
         let b = run("class Foo { void Bar() { { int x = 1; } } }", "Foo.cs");
-        let blocks = b.scopes.iter().filter(|s| !matches!(s.kind.as_str(), "file" | "function" | "class" | "namespace" | "module")).count();
+        let blocks = b
+            .scopes
+            .iter()
+            .filter(|s| {
+                !matches!(
+                    s.kind.as_str(),
+                    "file" | "function" | "class" | "namespace" | "module"
+                )
+            })
+            .count();
         assert!(
             blocks >= 2,
             "expected >=2 block scopes, got: {:?}",
@@ -660,7 +669,12 @@ mod tests {
         let block_scope_ids: std::collections::HashSet<&str> = b
             .scopes
             .iter()
-            .filter(|s| !matches!(s.kind.as_str(), "file" | "function" | "class" | "namespace" | "module"))
+            .filter(|s| {
+                !matches!(
+                    s.kind.as_str(),
+                    "file" | "function" | "class" | "namespace" | "module"
+                )
+            })
             .map(|s| s.id.as_str())
             .collect();
         assert!(

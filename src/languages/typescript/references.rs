@@ -526,8 +526,10 @@ fn scope_kind_for(node: Node) -> Option<&'static str> {
         // where it stays neutral "block" so loop nesting isn't counted
         // twice. while/do/if/else/try bodies carry the kind here.
         "statement_block" => match node.parent().map(|p| p.kind()) {
-            Some("for_statement") | Some("for_in_statement")
-            | Some("for_of_statement") | Some("catch_clause") => Some("block"),
+            Some("for_statement")
+            | Some("for_in_statement")
+            | Some("for_of_statement")
+            | Some("catch_clause") => Some("block"),
             other => other,
         },
         _ => None,
