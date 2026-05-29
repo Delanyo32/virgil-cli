@@ -1137,7 +1137,17 @@ fn call_expression_types(language: Language) -> Vec<&'static str> {
         Language::Java => vec!["method_invocation", "object_creation_expression"],
         Language::C | Language::Cpp => vec!["call_expression"],
         Language::CSharp => vec!["invocation_expression", "object_creation_expression"],
-        Language::Php => vec!["function_call_expression", "method_call_expression"],
+        // tree-sitter-php names member calls `member_call_expression`
+        // (`$o->m()`) / `scoped_call_expression` (`C::m()`) /
+        // `nullsafe_member_call_expression` (`$o?->m()`) — there is no
+        // `method_call_expression` node, so those calls were previously
+        // never collected.
+        Language::Php => vec![
+            "function_call_expression",
+            "member_call_expression",
+            "scoped_call_expression",
+            "nullsafe_member_call_expression",
+        ],
     }
 }
 
@@ -1194,11 +1204,17 @@ fn collect_calls(
     }
 }
 
-/// Returns `(callee_name, receiver)`. The receiver is the object/namespace
-/// the call is made on, split at the *last* `.` / `::` (the immediate
-/// receiver — `req.body` for `req.body.save()`). `None` for bare calls
-/// like `foo()`. The receiver text was previously discarded; it's now
-/// kept so callers can attribute member/namespaced calls to their object.
+/// Returns `(callee_name, receiver)` for a call node.
+///
+/// `callee_name` is the bare method/function name (text-split on the
+/// trailing `.` / `::`), kept identical across the swap so call
+/// resolution is unaffected.
+///
+/// `receiver` is the object/namespace the call is made on, read directly
+/// from the grammar's named fields rather than by splitting text — this
+/// is accurate across every language's call syntax (`.`, `->`, `::`,
+/// chains, computed access). `None` for bare calls like `foo()`. See
+/// [`call_receiver`] for the per-grammar field map.
 fn extract_callee_name(
     node: tree_sitter::Node,
     source: &[u8],
@@ -1211,22 +1227,55 @@ fn extract_callee_name(
 
     let text = func_node.utf8_text(source).ok()?;
 
-    let (receiver, name) = if let Some(pos) = text.rfind('.') {
-        (Some(text[..pos].trim()), &text[pos + 1..])
+    let name = if let Some(pos) = text.rfind('.') {
+        &text[pos + 1..]
     } else if let Some(pos) = text.rfind("::") {
-        (Some(text[..pos].trim()), &text[pos + 2..])
+        &text[pos + 2..]
     } else {
-        (None, text)
+        text
     };
-
     let name = name.trim_end_matches('(').trim();
-    let receiver = receiver.filter(|r| !r.is_empty()).map(str::to_string);
 
     if name.is_empty() {
-        None
-    } else {
-        Some((name.to_string(), receiver))
+        return None;
     }
+
+    let receiver = call_receiver(node, func_node)
+        .and_then(|r| r.utf8_text(source).ok())
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(str::to_string);
+
+    Some((name.to_string(), receiver))
+}
+
+/// Locate the receiver node of a call by its grammar field, covering all
+/// supported languages. Two shapes:
+///
+/// - **call-node fields** — the call node itself carries the receiver
+///   (Java `method_invocation`, PHP `member_call_expression` →
+///   `object`; PHP `scoped_call_expression` → `scope`).
+/// - **callee-node fields** — the callee is a member-access node whose
+///   receiver is a field on it: JS/TS `member_expression` & Python
+///   `attribute` → `object`; Go `selector_expression` → `operand`;
+///   C# `member_access_expression` → `expression`; Rust `field_expression`
+///   → `value` / `scoped_identifier` → `path`; C/C++ `field_expression`
+///   → `argument`.
+///
+/// Field names verified against the bundled tree-sitter grammars. A bare
+/// call (`foo()`) matches none of these and yields `None`.
+fn call_receiver<'t>(
+    call: tree_sitter::Node<'t>,
+    callee: tree_sitter::Node<'t>,
+) -> Option<tree_sitter::Node<'t>> {
+    call.child_by_field_name("object")
+        .or_else(|| call.child_by_field_name("scope"))
+        .or_else(|| callee.child_by_field_name("object"))
+        .or_else(|| callee.child_by_field_name("operand"))
+        .or_else(|| callee.child_by_field_name("expression"))
+        .or_else(|| callee.child_by_field_name("value"))
+        .or_else(|| callee.child_by_field_name("path"))
+        .or_else(|| callee.child_by_field_name("argument"))
 }
 
 #[cfg(test)]
