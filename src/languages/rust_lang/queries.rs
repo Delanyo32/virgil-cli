@@ -590,7 +590,9 @@ pub fn resolve_import(
         v.extend(remaining.split("::"));
         v
     } else {
-        return None; // Not an internal import
+        // Bare (`cli::output::X`) or crate-name-qualified (`fmtool::cli::args`)
+        // path. `is_internal` can't see these — match against the workspace.
+        return resolve_bare_use(specifier, known_files);
     };
 
     let path = segments.join("/");
@@ -609,12 +611,101 @@ pub fn resolve_import(
     None
 }
 
+/// Resolve a bare or crate-name-qualified `use` path (no `crate::`/`self::`/
+/// `super::` prefix) by matching candidate module paths against the workspace.
+/// Tries the last segment both as a module and as an imported item, and also
+/// tries dropping a leading crate-name segment. Requires ≥2 path segments so a
+/// single common name (`std::time`) can't false-match a local module.
+fn resolve_bare_use(specifier: &str, known_files: &HashSet<String>) -> Option<String> {
+    let segs: Vec<&str> = specifier.split("::").collect();
+    if segs.len() < 2 {
+        return None;
+    }
+
+    let mut candidates: Vec<Vec<&str>> = Vec::new();
+    for skip in [0usize, 1] {
+        if skip >= segs.len() {
+            continue;
+        }
+        let base = &segs[skip..];
+        // last segment as a module, then as an item (dropped) — most specific first
+        candidates.push(base.to_vec());
+        if base.len() >= 2 {
+            candidates.push(base[..base.len() - 1].to_vec());
+        }
+    }
+
+    for cand in candidates {
+        if cand.len() < 2 {
+            continue;
+        }
+        let rel = cand.join("/");
+        for file in [format!("{rel}.rs"), format!("{rel}/mod.rs")] {
+            let suffix = format!("/{file}");
+            if let Some(hit) = known_files
+                .iter()
+                .find(|f| **f == file || f.ends_with(&suffix))
+            {
+                return Some(hit.clone());
+            }
+        }
+    }
+
+    None
+}
+
 // ── Tests ──
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parser::create_parser;
+
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_crate_qualified_path() {
+        let files = HashSet::from(["src/core/cache.rs".to_string()]);
+        assert_eq!(
+            resolve_import("src/main.rs", "crate::core::cache::Cache", &files),
+            Some("src/core/cache.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_bare_module_path() {
+        let files = HashSet::from(["src/core/cache.rs".to_string()]);
+        assert_eq!(
+            resolve_import("src/main.rs", "core::cache::Cache", &files),
+            Some("src/core/cache.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_crate_name_qualified_path() {
+        let files = HashSet::from(["src/cli/args.rs".to_string()]);
+        assert_eq!(
+            resolve_import("src/main.rs", "fmtool::cli::args", &files),
+            Some("src/cli/args.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn stdlib_paths_unresolved_despite_name_collision() {
+        // `std::time` must not false-match a local `time.rs` (≥2-segment guard).
+        let files = HashSet::from([
+            "src/core/cache.rs".to_string(),
+            "src/utils/time.rs".to_string(),
+        ]);
+        assert_eq!(
+            resolve_import("src/main.rs", "std::time::SystemTime", &files),
+            None
+        );
+        assert_eq!(
+            resolve_import("src/main.rs", "std::collections::HashMap", &files),
+            None
+        );
+    }
 
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::Rust).expect("create parser");

@@ -721,17 +721,19 @@ pub fn resolve_import(
             None
         }
         "use" => {
-            // PSR-4: namespace separator \ -> /
-            let path = format!("{}.php", specifier.replace('\\', "/"));
-            if known_files.contains(&path) {
-                return Some(path);
-            }
-            // Try lowercase
-            let lower = format!("{}.php", specifier.replace('\\', "/").to_lowercase());
-            if known_files.contains(&lower) {
-                return Some(lower);
-            }
-            None
+            // PSR-4: namespace separator \ -> /. The autoload root is often
+            // case-folded (`App\` -> `app/`) while the rest keeps case, and a
+            // source root may prefix the path — so match case-insensitively by
+            // exact-or-suffix and return the real workspace path.
+            let rel = format!("{}.php", specifier.replace('\\', "/")).to_lowercase();
+            let suffix = format!("/{rel}");
+            known_files
+                .iter()
+                .find(|f| {
+                    let lf = f.to_lowercase();
+                    lf == rel || lf.ends_with(&suffix)
+                })
+                .cloned()
         }
         _ => None,
     }
@@ -762,6 +764,31 @@ fn normalize_relative_path(base_dir: &str, specifier: &str) -> String {
 mod tests {
     use super::*;
     use crate::parser::create_parser;
+
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_use_with_case_folded_psr4_root() {
+        let files = HashSet::from(["app/Models/Product.php".to_string()]);
+        assert_eq!(
+            resolve_import("app/Http/Controllers/X.php", "App\\Models\\Product", "use", &files),
+            Some("app/Models/Product.php".to_string())
+        );
+    }
+
+    #[test]
+    fn vendor_use_unresolved() {
+        let files = HashSet::from(["app/Models/Product.php".to_string()]);
+        assert_eq!(
+            resolve_import(
+                "app/Http/Controllers/X.php",
+                "Illuminate\\Http\\Request",
+                "use",
+                &files
+            ),
+            None
+        );
+    }
 
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::Php).expect("create parser");

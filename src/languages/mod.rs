@@ -273,7 +273,20 @@ pub fn resolve_import(
     language: Language,
     known_files: &HashSet<String>,
 ) -> Option<GraphNode> {
-    if import.is_external {
+    // These languages can't classify internal-vs-external syntactically — it
+    // depends on the workspace file set (e.g. Rust's bare/crate-name-qualified
+    // `use` paths). Skip the `is_external` short-circuit and let the
+    // per-language resolver decide by matching files.
+    if import.is_external
+        && !matches!(
+            language,
+            Language::Go
+                | Language::Java
+                | Language::Python
+                | Language::Php
+                | Language::Rust
+        )
+    {
         return None;
     }
     match language {
@@ -292,9 +305,7 @@ pub fn resolve_import(
         Language::Go => {
             go::resolve_import(&import.module_specifier, known_files).map(GraphNode::Package)
         }
-        Language::Java => {
-            java::resolve_import(&import.module_specifier, known_files).map(GraphNode::File)
-        }
+        Language::Java => java::resolve_import(&import.module_specifier, known_files),
         Language::Php => php::resolve_import(
             source_file,
             &import.module_specifier,

@@ -536,7 +536,15 @@ pub fn resolve_import(
         return Some(specifier.to_string());
     }
 
-    None
+    // Suffix match: tolerate an include-root prefix (e.g. `include/`) and
+    // unnormalized `../`/`./` components by matching the include tail against
+    // any workspace header path.
+    let tail = specifier.trim_start_matches("./").trim_start_matches("../");
+    let suffix = format!("/{tail}");
+    known_files
+        .iter()
+        .find(|f| *f == tail || f.ends_with(&suffix))
+        .cloned()
 }
 
 // ── Tests ──
@@ -545,6 +553,39 @@ pub fn resolve_import(
 mod tests {
     use super::*;
     use crate::parser::create_parser;
+
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_quoted_include_under_include_root() {
+        let files = HashSet::from([
+            "include/config.h".to_string(),
+            "include/drivers/i2c.h".to_string(),
+        ]);
+        assert_eq!(
+            resolve_import("src/main.c", "config.h", &files),
+            Some("include/config.h".to_string())
+        );
+        assert_eq!(
+            resolve_import("src/main.c", "drivers/i2c.h", &files),
+            Some("include/drivers/i2c.h".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_parent_relative_include() {
+        let files = HashSet::from(["include/types.h".to_string()]);
+        assert_eq!(
+            resolve_import("include/drivers/uart.c", "../types.h", &files),
+            Some("include/types.h".to_string())
+        );
+    }
+
+    #[test]
+    fn unknown_header_unresolved() {
+        let files = HashSet::from(["include/config.h".to_string()]);
+        assert_eq!(resolve_import("src/main.c", "stdio.h", &files), None);
+    }
 
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::C).expect("create parser");

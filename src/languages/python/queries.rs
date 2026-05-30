@@ -766,7 +766,23 @@ pub fn resolve_import(
     // Count leading dots
     let dots = specifier.chars().take_while(|c| *c == '.').count();
     if dots == 0 {
-        return None; // Absolute import, treated as external
+        // Absolute import (e.g. `app.config`): internal only if it maps to a
+        // workspace module/package. Returns None for stdlib/third-party.
+        let path = specifier.replace('.', "/");
+        for cand in [
+            format!("{path}.py"),
+            format!("{path}/__init__.py"),
+            format!("{path}.pyi"),
+        ] {
+            let suffix = format!("/{cand}");
+            if let Some(hit) = known_files
+                .iter()
+                .find(|f| *f == &cand || f.ends_with(&suffix))
+            {
+                return Some(hit.clone());
+            }
+        }
+        return None;
     }
 
     let remaining = &specifier[dots..];
@@ -818,6 +834,33 @@ pub fn resolve_import(
 mod tests {
     use super::*;
     use crate::parser::create_parser;
+
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_absolute_module_import() {
+        let files = HashSet::from(["app/config.py".to_string()]);
+        assert_eq!(
+            resolve_import("app/api.py", "app.config", &files),
+            Some("app/config.py".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_absolute_package_init() {
+        let files = HashSet::from(["app/models/__init__.py".to_string()]);
+        assert_eq!(
+            resolve_import("app/api.py", "app.models", &files),
+            Some("app/models/__init__.py".to_string())
+        );
+    }
+
+    #[test]
+    fn stdlib_absolute_imports_unresolved() {
+        let files = HashSet::from(["app/config.py".to_string()]);
+        assert_eq!(resolve_import("app/api.py", "os", &files), None);
+        assert_eq!(resolve_import("app/api.py", "json", &files), None);
+    }
 
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::Python).expect("create parser");

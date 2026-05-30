@@ -9,6 +9,7 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
 use crate::classify::{is_barrel_file, is_test_file};
+use crate::graph::GraphNode;
 use crate::db::from_code_graph::{
     detect_todo_kind, extract_nolints, is_doc_comment, is_generated_marker, symbol_id, type_id,
 };
@@ -370,6 +371,14 @@ impl<'a> GraphBuilder<'a> {
         // absorbed. Emit `*imports` Cozo rows directly; the in-memory
         // `file_imports` map only exists long enough for the call
         // resolver to scope its lookups (when eager calls are enabled).
+        // C# `using X` imports a namespace, not a file path. Build a
+        // namespace -> declaring-files index from the absorbed `symbol` rows
+        // so those imports resolve to every file that declares the namespace.
+        let namespace_files = if self.languages.contains(&Language::CSharp) {
+            build_namespace_index(store)?
+        } else {
+            HashMap::new()
+        };
         let mut file_imports: HashMap<Spur, Vec<Spur>> = HashMap::new();
         let mut imports_emitted: usize = 0;
         for di in deferred_imports {
@@ -379,15 +388,42 @@ impl<'a> GraphBuilder<'a> {
             if !file_known_spurs.contains(&from_spur) {
                 continue;
             }
-            if let Some(resolved) =
-                resolve_import_to_file(&di.from_file_path, &di.import, di.language, &known_files)
-                && let Some(to_spur) = graph.symbols.get(&resolved)
-                && file_known_spurs.contains(&to_spur)
-                && from_spur != to_spur
-            {
-                stream_writer.push_imports(&di.from_file_path, &resolved);
-                file_imports.entry(from_spur).or_default().push(to_spur);
-                imports_emitted += 1;
+            // A `File` resolves to one workspace file; a `Package` (Go) resolves
+            // to a directory — every file under it is a dependency, so fan out.
+            // C# resolves a `using` namespace to every file declaring it.
+            let targets: Vec<String> = if di.language == Language::CSharp {
+                namespace_files
+                    .get(&di.import.module_specifier)
+                    .cloned()
+                    .unwrap_or_default()
+            } else {
+                match resolve_import_to_node(
+                    &di.from_file_path,
+                    &di.import,
+                    di.language,
+                    &known_files,
+                ) {
+                    Some(GraphNode::File(p)) => vec![p],
+                    Some(GraphNode::Package(dir)) => {
+                        let prefix = format!("{dir}/");
+                        known_files
+                            .iter()
+                            .filter(|f| f.starts_with(&prefix))
+                            .cloned()
+                            .collect()
+                    }
+                    None => continue,
+                }
+            };
+            for resolved in targets {
+                if let Some(to_spur) = graph.symbols.get(&resolved)
+                    && file_known_spurs.contains(&to_spur)
+                    && from_spur != to_spur
+                {
+                    stream_writer.push_imports(&di.from_file_path, &resolved);
+                    file_imports.entry(from_spur).or_default().push(to_spur);
+                    imports_emitted += 1;
+                }
             }
         }
 
@@ -1097,18 +1133,32 @@ fn absorb_file_data(
     }
 }
 
-/// Resolve an import to a file path string (unwrapping GraphNode).
-fn resolve_import_to_file(
+/// Resolve an import to its graph node (`File` for path-granular languages,
+/// `Package` for Go's directory-granular imports).
+fn resolve_import_to_node(
     source_file: &str,
     import: &ImportInfo,
     language: Language,
     known_files: &HashSet<String>,
-) -> Option<String> {
-    use crate::graph::GraphNode;
-    let node = languages::resolve_import(source_file, import, language, known_files)?;
-    Some(match node {
-        GraphNode::File(p) => p,
-        GraphNode::Package(p) => p,
+) -> Option<GraphNode> {
+    languages::resolve_import(source_file, import, language, known_files)
+}
+
+/// Build a `namespace name -> declaring files` index from the absorbed
+/// `symbol` rows. Used to resolve C# `using` imports, which reference a
+/// namespace rather than a file path; a namespace may be declared across
+/// several files. Must run after the writer is flushed.
+fn build_namespace_index(store: &DbStore) -> Result<HashMap<String, Vec<String>>> {
+    store.with_conn(|conn| {
+        let mut index: HashMap<String, Vec<String>> = HashMap::new();
+        let mut stmt = conn.prepare("SELECT name, file_path FROM symbol WHERE kind = 'namespace'")?;
+        let mut rows = stmt.query([])?;
+        while let Some(r) = rows.next()? {
+            let name: String = r.get(0)?;
+            let file_path: String = r.get(1)?;
+            index.entry(name).or_default().push(file_path);
+        }
+        Ok(index)
     })
 }
 
@@ -1351,6 +1401,19 @@ mod tests {
         }
     }
 
+    /// Resolved import targets (`imported_id`) for a given importer file.
+    fn imports_targets(store: &DbStore, importer: &str) -> Vec<String> {
+        let sql = format!(
+            "SELECT imported_id FROM imports WHERE importer_file_id = '{}' ORDER BY imported_id",
+            importer.replace('\'', "''")
+        );
+        let rows = store.run_query(&sql, BTreeMap::new()).unwrap();
+        rows.rows
+            .into_iter()
+            .filter_map(|r| to_str(r.first()?))
+            .collect()
+    }
+
     #[test]
     fn test_call_resolution_scoped_to_imports_same_name_different_files() {
         // Two files each define `init`; a third file calls `init` and
@@ -1426,6 +1489,51 @@ mod tests {
         assert!(
             count_calls_total(&store) >= 1,
             "expected at least 1 same-file Calls row"
+        );
+    }
+
+    #[test]
+    fn csharp_using_resolves_to_namespace_declaring_file() {
+        // `using App.Models` resolves to the file declaring that namespace;
+        // `using System` (no workspace declarer) must not resolve.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Models.cs"),
+            "namespace App.Models { public class User {} }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("Services.cs"),
+            "using System;\nusing App.Models;\nnamespace App.Services { public class UserService {} }\n",
+        )
+        .unwrap();
+        let store = build_into_store(dir.path(), &[Language::CSharp]);
+        assert_eq!(
+            imports_targets(&store, "Services.cs"),
+            vec!["Models.cs".to_string()]
+        );
+    }
+
+    #[test]
+    fn go_package_import_fans_out_to_package_files() {
+        // A Go package import resolves to a directory; every file in that
+        // package becomes an imports edge (exercises the gate bypass + fan-out).
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("internal/util")).unwrap();
+        std::fs::write(
+            dir.path().join("internal/util/helper.go"),
+            "package util\nfunc Help() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("main.go"),
+            "package main\nimport \"example.com/app/internal/util\"\nfunc main() {}\n",
+        )
+        .unwrap();
+        let store = build_into_store(dir.path(), &[Language::Go]);
+        assert_eq!(
+            imports_targets(&store, "main.go"),
+            vec!["internal/util/helper.go".to_string()]
         );
     }
 }

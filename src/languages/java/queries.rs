@@ -493,28 +493,42 @@ fn extract_field_name(node: tree_sitter::Node, source: &[u8]) -> Option<String> 
 
 /// Resolve a Java import to a file path.
 /// com.foo.bar.Baz -> com/foo/bar/Baz.java
-pub fn resolve_import(specifier: &str, known_files: &HashSet<String>) -> Option<String> {
+pub fn resolve_import(
+    specifier: &str,
+    known_files: &HashSet<String>,
+) -> Option<crate::graph::GraphNode> {
+    use crate::graph::GraphNode;
     // Strip trailing wildcard and semicolons
     let clean = specifier.trim().trim_end_matches(';').trim();
 
     if clean.ends_with(".*") {
-        // Wildcard import: com.foo.bar.* -> look for any file under com/foo/bar/
-        let pkg_path = clean.trim_end_matches(".*").replace('.', "/");
+        // Wildcard import: com.foo.bar.* -> the package directory. Match by
+        // suffix so a source root like `src/main/java/` is tolerated.
+        let pkg_rel = clean.trim_end_matches(".*").replace('.', "/");
+        let root_prefix = format!("{pkg_rel}/");
+        let needle = format!("/{pkg_rel}/");
         for file in known_files {
-            if file.starts_with(&pkg_path)
-                && file[pkg_path.len()..].starts_with('/')
-                && file.ends_with(".java")
-            {
-                return Some(pkg_path);
+            if !file.ends_with(".java") {
+                continue;
+            }
+            if file.starts_with(&root_prefix) {
+                return Some(GraphNode::Package(pkg_rel));
+            }
+            if let Some(pos) = file.find(&needle) {
+                return Some(GraphNode::Package(file[..pos + needle.len() - 1].to_string()));
             }
         }
         return None;
     }
 
-    // Regular import: com.foo.bar.Baz -> com/foo/bar/Baz.java
-    let file_path = format!("{}.java", clean.replace('.', "/"));
-    if known_files.contains(&file_path) {
-        return Some(file_path);
+    // Regular import: com.foo.bar.Baz -> com/foo/bar/Baz.java, matched by
+    // suffix to tolerate the source root prefix.
+    let rel = format!("{}.java", clean.replace('.', "/"));
+    let suffix = format!("/{rel}");
+    for file in known_files {
+        if file == &rel || file.ends_with(&suffix) {
+            return Some(GraphNode::File(file.clone()));
+        }
     }
 
     None
@@ -526,6 +540,46 @@ pub fn resolve_import(specifier: &str, known_files: &HashSet<String>) -> Option<
 mod tests {
     use super::*;
     use crate::parser::create_parser;
+
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_class_with_source_root_prefix() {
+        let files = HashSet::from([
+            "src/main/java/com/example/inventory/model/Product.java".to_string(),
+        ]);
+        assert_eq!(
+            resolve_import("com.example.inventory.model.Product", &files),
+            Some(crate::graph::GraphNode::File(
+                "src/main/java/com/example/inventory/model/Product.java".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn resolves_wildcard_to_package_dir() {
+        let files = HashSet::from([
+            "src/main/java/com/example/inventory/model/Product.java".to_string(),
+        ]);
+        assert_eq!(
+            resolve_import("com.example.inventory.model.*", &files),
+            Some(crate::graph::GraphNode::Package(
+                "src/main/java/com/example/inventory/model".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn external_imports_unresolved() {
+        let files = HashSet::from([
+            "src/main/java/com/example/inventory/model/Product.java".to_string(),
+        ]);
+        assert_eq!(resolve_import("java.util.List", &files), None);
+        assert_eq!(
+            resolve_import("org.springframework.stereotype.Service", &files),
+            None
+        );
+    }
 
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::Java).expect("create parser");

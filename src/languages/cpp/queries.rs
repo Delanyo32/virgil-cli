@@ -697,7 +697,15 @@ pub fn resolve_import(
         return Some(specifier.to_string());
     }
 
-    None
+    // Suffix match: tolerate an include-root prefix (e.g. `include/`) and
+    // unnormalized `../`/`./` components by matching the include tail against
+    // any workspace header path.
+    let tail = specifier.trim_start_matches("./").trim_start_matches("../");
+    let suffix = format!("/{tail}");
+    known_files
+        .iter()
+        .find(|f| *f == tail || f.ends_with(&suffix))
+        .cloned()
 }
 
 // ── Tests ──
@@ -706,6 +714,26 @@ pub fn resolve_import(
 mod tests {
     use super::*;
     use crate::parser::create_parser;
+
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_project_header_under_include_root() {
+        let files = HashSet::from(["include/dataforge/model/record.hpp".to_string()]);
+        assert_eq!(
+            resolve_import("src/core/registry.cpp", "dataforge/model/record.hpp", &files),
+            Some("include/dataforge/model/record.hpp".to_string())
+        );
+    }
+
+    #[test]
+    fn stdlib_header_unresolved() {
+        let files = HashSet::from(["include/dataforge/model/record.hpp".to_string()]);
+        assert_eq!(
+            resolve_import("src/core/registry.cpp", "vector", &files),
+            None
+        );
+    }
 
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::Cpp).expect("create parser");

@@ -451,6 +451,28 @@ mod tests {
     use super::*;
     use crate::parser::create_parser;
 
+    // ── resolve_import regression tests ──
+
+    #[test]
+    fn resolves_internal_module_to_package_dir() {
+        let files = HashSet::from([
+            "internal/model/order.go".to_string(),
+            "internal/repository/order_repo.go".to_string(),
+        ]);
+        assert_eq!(
+            resolve_import("github.com/example/ordersvc/internal/model", &files),
+            Some("internal/model".to_string())
+        );
+    }
+
+    #[test]
+    fn external_and_stdlib_imports_unresolved() {
+        let files = HashSet::from(["internal/model/order.go".to_string()]);
+        assert_eq!(resolve_import("github.com/lib/pq", &files), None);
+        assert_eq!(resolve_import("net/http", &files), None);
+        assert_eq!(resolve_import("fmt", &files), None);
+    }
+
     fn parse_and_extract(source: &str) -> Vec<SymbolInfo> {
         let mut parser = create_parser(Language::Go).expect("create parser");
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
