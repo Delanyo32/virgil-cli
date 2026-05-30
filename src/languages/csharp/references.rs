@@ -29,7 +29,7 @@
 use tree_sitter::{Node, Tree};
 
 use crate::models::{
-    BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
+    BindingRow, LocalTypeRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo, SymbolKind,
 };
 
 pub fn extract_references(
@@ -325,6 +325,12 @@ impl<'a> Ctx<'a> {
             if child.kind() != "variable_declaration" {
                 continue;
             }
+            // Declared type of this `variable_declaration` (shared by all its
+            // declarators). `var` is implicit — fall back to the initializer.
+            let decl_type_text = child
+                .child_by_field_name("type")
+                .and_then(|t| t.utf8_text(self.source).ok())
+                .map(|s| s.to_string());
             let mut cc = child.walk();
             for decl in child.named_children(&mut cc) {
                 if decl.kind() != "variable_declarator" {
@@ -344,6 +350,19 @@ impl<'a> Ctx<'a> {
                         symbol_id: None,
                         binding_kind: "definition".to_string(),
                     });
+                    // Cheap local type: explicit type, or `new Foo()` for `var`.
+                    let type_name = match decl_type_text.as_deref() {
+                        Some("var") | None => object_creation_type(decl, self.source),
+                        Some(t) => bare_type_name(t),
+                    };
+                    if let Some(type_name) = type_name {
+                        self.bucket.local_types.push(LocalTypeRow {
+                            file_path: self.file_path.to_string(),
+                            name: text.to_string(),
+                            type_name,
+                            start_byte: name_node.start_byte() as u32,
+                        });
+                    }
                 }
             }
         }
@@ -448,6 +467,42 @@ fn find_first_identifier(node: Node) -> Option<Node> {
         }
     }
     None
+}
+
+/// Bare class name from a type expression: drop namespace qualifier and
+/// generic args (`A.B.Foo<T>` -> `Foo`). Returns None for predefined/builtin
+/// types and anything that isn't a plain identifier.
+fn bare_type_name(t: &str) -> Option<String> {
+    let base = t.split('<').next().unwrap_or(t).trim().trim_end_matches(['?', '[', ']']);
+    let leaf = base.rsplit('.').next().unwrap_or(base).trim();
+    if leaf.is_empty()
+        || !leaf.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+        || !leaf.chars().all(|c| c.is_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    Some(leaf.to_string())
+}
+
+/// For `var x = new Foo(...)`, find the `object_creation_expression` in the
+/// declarator and return its bare type name.
+fn object_creation_type(declarator: Node, source: &[u8]) -> Option<String> {
+    fn walk(node: Node, source: &[u8]) -> Option<String> {
+        if node.kind() == "object_creation_expression"
+            && let Some(ty) = node.child_by_field_name("type")
+            && let Ok(text) = ty.utf8_text(source)
+        {
+            return bare_type_name(text);
+        }
+        let mut c = node.walk();
+        for child in node.named_children(&mut c) {
+            if let Some(found) = walk(child, source) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(declarator, source)
 }
 
 /// True if `node` sits inside a `using_directive`'s name path.

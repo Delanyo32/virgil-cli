@@ -311,12 +311,24 @@ pub struct BindingRow {
     pub binding_kind: String,
 }
 
+/// A local variable's declared/inferred type name (cheap-declaration cases).
+/// File-scoped; `type_name` is the bare class/struct name for direct join
+/// to `symbol.name` in the call resolver.
+#[derive(Debug, Clone)]
+pub struct LocalTypeRow {
+    pub file_path: String,
+    pub name: String,
+    pub type_name: String,
+    pub start_byte: u32,
+}
+
 /// Per-file output of the references fact emitter (issue #16).
 #[derive(Debug, Clone, Default)]
 pub struct ReferencesBucket {
     pub occurrences: Vec<OccurrenceRow>,
     pub scopes: Vec<ScopeRow>,
     pub bindings: Vec<BindingRow>,
+    pub local_types: Vec<LocalTypeRow>,
 }
 
 /// Issue #15 attribute rows. One per applicable symbol per the

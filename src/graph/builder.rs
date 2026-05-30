@@ -1074,6 +1074,9 @@ fn absorb_file_data(
             &r.binding_kind,
         );
     }
+    for r in &references.local_types {
+        stream_writer.push_local_type(&r.file_path, &r.name, &r.type_name, r.start_byte as i64);
+    }
     for r in &references.occurrences {
         stream_writer.push_occurrence(
             &r.id,

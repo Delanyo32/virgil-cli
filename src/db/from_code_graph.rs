@@ -240,6 +240,33 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
             .push(imported);
     }
 
+    // local variable -> declared/inferred type name (file-scoped), and a
+    // class-like-name -> symbol id index, for type-aware receiver resolution.
+    let lt_rows = store.run_query(
+        "SELECT file_path, name, type_name FROM local_type",
+        std::collections::BTreeMap::new(),
+    )?;
+    let mut local_type_by_var: HashMap<(String, String), Vec<String>> = HashMap::new();
+    for row in &lt_rows.rows {
+        let (Some(f), Some(n), Some(t)) = (text_of(&row[0]), text_of(&row[1]), text_of(&row[2]))
+        else {
+            continue;
+        };
+        local_type_by_var.entry((f, n)).or_default().push(t);
+    }
+    let cls_rows = store.run_query(
+        "SELECT id, name FROM symbol \
+         WHERE kind IN ('class', 'struct', 'interface', 'enum', 'record')",
+        std::collections::BTreeMap::new(),
+    )?;
+    let mut class_by_name: HashMap<String, Vec<String>> = HashMap::new();
+    for row in &cls_rows.rows {
+        let (Some(id), Some(name)) = (text_of(&row[0]), text_of(&row[1])) else {
+            continue;
+        };
+        class_by_name.entry(name).or_default().push(id);
+    }
+
     const CHUNK_SIZE: usize = 1024;
     let resolved: Vec<(String, String, String)> = call_sites
         .par_chunks(CHUNK_SIZE)
@@ -265,6 +292,36 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
                         }
                     }
                     continue;
+                }
+                // Step 1b (schema v4): a named-receiver call (`x.m()`) whose
+                // receiver `x` is a local variable of known type. Resolve `m`
+                // against methods declared on that type's class. Additive —
+                // the name-based steps below still run, so recall is never
+                // reduced; `call_edge`'s (caller, callee) PK collapses dupes.
+                if !is_self_receiver(receiver.as_deref())
+                    && let Some(recv) = receiver.as_deref()
+                    && let Some(types) = local_type_by_var.get(&(file.clone(), recv.to_string()))
+                {
+                    for ty in types {
+                        let Some(class_ids) = class_by_name.get(ty) else {
+                            continue;
+                        };
+                        for class_id in class_ids {
+                            if let Some(methods) =
+                                methods_in_class.get(&(class_id.clone(), callee_name.clone()))
+                            {
+                                for callee_id in methods {
+                                    if caller_id != callee_id {
+                                        local.push((
+                                            caller_id.clone(),
+                                            callee_id.clone(),
+                                            file.clone(),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 if let Some(candidates) = intra.get(&(file.clone(), callee_name.clone())) {
                     for (_kind, callee_id) in candidates {

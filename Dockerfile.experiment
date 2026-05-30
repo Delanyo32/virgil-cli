@@ -1,0 +1,63 @@
+# EXPERIMENT image for measuring virgil-cli peak RSS on openclaw under a
+# 4 GiB container cap (mirroring the handoff repro shape).
+#
+# Builds the current source tree (whatever branch is checked out) into an
+# amd64 release binary and packages it with git + bash + procps for the
+# in-container memory probe. Image is amd64 — when run on arm64 hosts
+# (Apple Silicon) Docker uses Rosetta emulation, matching the handoff's
+# numbers exactly.
+
+# syntax=docker/dockerfile:1.6
+FROM --platform=linux/amd64 rust:1-bookworm AS builder
+
+# rocksdb needs clang + build-essential + cmake. Snappy/lz4/zstd are
+# bundled via crate features so no system libs required for them.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        clang \
+        cmake \
+        build-essential \
+        pkg-config \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Copy the full workspace. .dockerignore should keep target/ out.
+COPY . .
+
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN cargo build --release --bin virgil-cli
+
+# ---- runtime stage ----
+FROM --platform=linux/amd64 debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        bash \
+        procps \
+        ca-certificates \
+        libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /src/target/release/virgil-cli /usr/local/bin/virgil-cli
+
+# In-container probe: samples VmRSS every 2s for the named process,
+# appending to /tmp/probe.log. Usage: probe.sh <pid>
+COPY <<'EOF' /usr/local/bin/probe.sh
+#!/usr/bin/env bash
+set -u
+pid=$1
+echo "probe: tracking pid=$pid"
+while kill -0 "$pid" 2>/dev/null; do
+  rss=$(awk '/^VmRSS:/ {print $2}' /proc/"$pid"/status 2>/dev/null || true)
+  ts=$(date +%s)
+  if [ -n "$rss" ]; then
+    echo "ts=$ts rss_kb=$rss"
+  fi
+  sleep 2
+done
+EOF
+RUN chmod +x /usr/local/bin/probe.sh
+
+WORKDIR /work
+CMD ["/bin/bash"]
