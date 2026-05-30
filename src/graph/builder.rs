@@ -9,11 +9,11 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tree_sitter::Query;
 
 use crate::classify::{is_barrel_file, is_test_file};
-use crate::graph::GraphNode;
 use crate::db::from_code_graph::{
     detect_todo_kind, extract_nolints, is_doc_comment, is_generated_marker, symbol_id, type_id,
 };
 use crate::db::{DbStore, DbWriter};
+use crate::graph::GraphNode;
 use crate::language::Language;
 use crate::languages;
 use crate::models::InheritanceKind;
@@ -1151,7 +1151,8 @@ fn resolve_import_to_node(
 fn build_namespace_index(store: &DbStore) -> Result<HashMap<String, Vec<String>>> {
     store.with_conn(|conn| {
         let mut index: HashMap<String, Vec<String>> = HashMap::new();
-        let mut stmt = conn.prepare("SELECT name, file_path FROM symbol WHERE kind = 'namespace'")?;
+        let mut stmt =
+            conn.prepare("SELECT name, file_path FROM symbol WHERE kind = 'namespace'")?;
         let mut rows = stmt.query([])?;
         while let Some(r) = rows.next()? {
             let name: String = r.get(0)?;

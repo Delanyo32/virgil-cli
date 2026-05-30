@@ -771,7 +771,12 @@ mod tests {
     fn resolves_use_with_case_folded_psr4_root() {
         let files = HashSet::from(["app/Models/Product.php".to_string()]);
         assert_eq!(
-            resolve_import("app/Http/Controllers/X.php", "App\\Models\\Product", "use", &files),
+            resolve_import(
+                "app/Http/Controllers/X.php",
+                "App\\Models\\Product",
+                "use",
+                &files
+            ),
             Some("app/Models/Product.php".to_string())
         );
     }

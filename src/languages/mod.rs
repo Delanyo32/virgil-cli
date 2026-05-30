@@ -280,11 +280,7 @@ pub fn resolve_import(
     if import.is_external
         && !matches!(
             language,
-            Language::Go
-                | Language::Java
-                | Language::Python
-                | Language::Php
-                | Language::Rust
+            Language::Go | Language::Java | Language::Python | Language::Php | Language::Rust
         )
     {
         return None;

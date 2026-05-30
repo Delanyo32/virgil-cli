@@ -721,7 +721,11 @@ mod tests {
     fn resolves_project_header_under_include_root() {
         let files = HashSet::from(["include/dataforge/model/record.hpp".to_string()]);
         assert_eq!(
-            resolve_import("src/core/registry.cpp", "dataforge/model/record.hpp", &files),
+            resolve_import(
+                "src/core/registry.cpp",
+                "dataforge/model/record.hpp",
+                &files
+            ),
             Some("include/dataforge/model/record.hpp".to_string())
         );
     }

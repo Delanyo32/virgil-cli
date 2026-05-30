@@ -515,7 +515,9 @@ pub fn resolve_import(
                 return Some(GraphNode::Package(pkg_rel));
             }
             if let Some(pos) = file.find(&needle) {
-                return Some(GraphNode::Package(file[..pos + needle.len() - 1].to_string()));
+                return Some(GraphNode::Package(
+                    file[..pos + needle.len() - 1].to_string(),
+                ));
             }
         }
         return None;
@@ -545,9 +547,8 @@ mod tests {
 
     #[test]
     fn resolves_class_with_source_root_prefix() {
-        let files = HashSet::from([
-            "src/main/java/com/example/inventory/model/Product.java".to_string(),
-        ]);
+        let files =
+            HashSet::from(["src/main/java/com/example/inventory/model/Product.java".to_string()]);
         assert_eq!(
             resolve_import("com.example.inventory.model.Product", &files),
             Some(crate::graph::GraphNode::File(
@@ -558,9 +559,8 @@ mod tests {
 
     #[test]
     fn resolves_wildcard_to_package_dir() {
-        let files = HashSet::from([
-            "src/main/java/com/example/inventory/model/Product.java".to_string(),
-        ]);
+        let files =
+            HashSet::from(["src/main/java/com/example/inventory/model/Product.java".to_string()]);
         assert_eq!(
             resolve_import("com.example.inventory.model.*", &files),
             Some(crate::graph::GraphNode::Package(
@@ -571,9 +571,8 @@ mod tests {
 
     #[test]
     fn external_imports_unresolved() {
-        let files = HashSet::from([
-            "src/main/java/com/example/inventory/model/Product.java".to_string(),
-        ]);
+        let files =
+            HashSet::from(["src/main/java/com/example/inventory/model/Product.java".to_string()]);
         assert_eq!(resolve_import("java.util.List", &files), None);
         assert_eq!(
             resolve_import("org.springframework.stereotype.Service", &files),
