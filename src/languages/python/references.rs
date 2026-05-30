@@ -45,7 +45,9 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::models::{BindingRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo};
+use crate::models::{
+    BindingRow, LocalTypeRow, OccurrenceRow, ReferencesBucket, ScopeRow, SymbolInfo,
+};
 
 pub fn extract_references(
     tree: &Tree,
@@ -160,6 +162,9 @@ impl<'a> Ctx<'a> {
             "import_from_statement" => {
                 self.emit_import_from_statement(node, scope_id);
             }
+            "assignment" => {
+                self.emit_local_type(node);
+            }
             _ => {}
         }
 
@@ -171,6 +176,38 @@ impl<'a> Ctx<'a> {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             self.walk(child, &active_scope);
+        }
+    }
+
+    /// Cheap local type from `x: Foo = ...` (annotation) or `x = Foo(...)`
+    /// (constructor-call inference; classes are Uppercase by convention).
+    /// Only simple-identifier targets; tuple/attribute targets are skipped.
+    fn emit_local_type(&mut self, node: Node) {
+        let Some(left) = node.child_by_field_name("left") else {
+            return;
+        };
+        if left.kind() != "identifier" {
+            return;
+        }
+        let Ok(var) = left.utf8_text(self.source) else {
+            return;
+        };
+        if var.is_empty() {
+            return;
+        }
+        let type_name = if let Some(ty) = node.child_by_field_name("type") {
+            ty.utf8_text(self.source).ok().and_then(py_bare_type)
+        } else {
+            node.child_by_field_name("right")
+                .and_then(|r| py_call_class(r, self.source))
+        };
+        if let Some(type_name) = type_name {
+            self.bucket.local_types.push(LocalTypeRow {
+                file_path: self.file_path.to_string(),
+                name: var.to_string(),
+                type_name,
+                start_byte: left.start_byte() as u32,
+            });
         }
     }
 
@@ -636,6 +673,39 @@ fn is_in_type_position(node: Node) -> bool {
         }
     }
     false
+}
+
+/// Bare class name from a type annotation string: leaf of a dotted path,
+/// generics dropped (`a.b.Foo[T]` -> `Foo`). None unless Uppercase-initial.
+fn py_bare_type(t: &str) -> Option<String> {
+    let base = t.split('[').next().unwrap_or(t).trim();
+    let leaf = base.rsplit('.').next().unwrap_or(base).trim();
+    if leaf.is_empty()
+        || !leaf.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+        || !leaf.chars().all(|c| c.is_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    Some(leaf.to_string())
+}
+
+/// For `x = Foo(...)` / `x = mod.Foo(...)`, return `Foo` if the RHS is a call
+/// whose callee is an Uppercase-initial (class-convention) identifier.
+fn py_call_class(right: Node, source: &[u8]) -> Option<String> {
+    if right.kind() != "call" {
+        return None;
+    }
+    let func = right.child_by_field_name("function")?;
+    let text = match func.kind() {
+        "identifier" => func.utf8_text(source).ok()?.to_string(),
+        "attribute" => func
+            .child_by_field_name("attribute")?
+            .utf8_text(source)
+            .ok()?
+            .to_string(),
+        _ => return None,
+    };
+    py_bare_type(&text)
 }
 
 // ── Tests ──
