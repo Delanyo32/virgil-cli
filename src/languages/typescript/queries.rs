@@ -234,6 +234,21 @@ const JS_COMMONJS_EXPORT_QUERY: &str = r#"
   right: (_) @value) @assign
 "#;
 
+/// `module.exports = { foo, bar }` and `exports = { foo }` — object-literal
+/// re-exports. Each property key marks an already-defined symbol exported.
+/// (Branch text guards — `module`/`exports` — are checked in Rust.)
+const JS_COMMONJS_OBJECT_EXPORT_QUERY: &str = r#"
+(assignment_expression
+  left: (member_expression
+    object: (identifier) @mod
+    property: (property_identifier) @exp)
+  right: (object) @obj)
+
+(assignment_expression
+  left: (identifier) @exports_ident
+  right: (object) @obj)
+"#;
+
 // ── Import queries ──
 
 const TS_IMPORT_QUERY: &str = r#"
@@ -480,6 +495,54 @@ pub fn extract_symbols(
                         is_abstract: false,
                         is_mutable: false,
                     });
+                }
+            }
+        }
+
+        // Third pass: object-literal re-exports `module.exports = { foo, bar }`
+        // / `exports = { foo }`. Each property key flags an already-extracted
+        // symbol exported (the common Express controller/service/util shape).
+        if let Ok(obj_query) = tree_sitter::Query::new(&ts_lang, JS_COMMONJS_OBJECT_EXPORT_QUERY) {
+            let obj_idx = obj_query.capture_index_for_name("obj");
+            let mod_idx = obj_query.capture_index_for_name("mod");
+            let exp_idx = obj_query.capture_index_for_name("exp");
+            let ident_idx = obj_query.capture_index_for_name("exports_ident");
+            let cap_text = |m: &tree_sitter::QueryMatch, idx: Option<u32>| -> Option<String> {
+                idx.and_then(|i| m.captures.iter().find(|c| c.index == i))
+                    .and_then(|c| c.node.utf8_text(source).ok())
+                    .map(|s| s.to_string())
+            };
+
+            let mut obj_cursor = tree_sitter::QueryCursor::new();
+            let mut obj_matches = obj_cursor.matches(&obj_query, tree.root_node(), source);
+            while let Some(m) = obj_matches.next() {
+                // Guard the assignment target is really `module.exports` / `exports`.
+                let is_target = match cap_text(m, mod_idx) {
+                    Some(mo) => mo == "module" && cap_text(m, exp_idx).as_deref() == Some("exports"),
+                    None => cap_text(m, ident_idx).as_deref() == Some("exports"),
+                };
+                if !is_target {
+                    continue;
+                }
+                let Some(obj_cap) = obj_idx.and_then(|i| m.captures.iter().find(|c| c.index == i))
+                else {
+                    continue;
+                };
+                let obj_node = obj_cap.node;
+                let mut oc = obj_node.walk();
+                for member in obj_node.named_children(&mut oc) {
+                    let name = match member.kind() {
+                        "shorthand_property_identifier" => member.utf8_text(source).ok(),
+                        "pair" => member
+                            .child_by_field_name("key")
+                            .and_then(|k| k.utf8_text(source).ok()),
+                        _ => None,
+                    };
+                    if let Some(name) = name.filter(|n| !n.is_empty())
+                        && let Some(existing) = symbols.iter_mut().find(|s| s.name == name)
+                    {
+                        existing.is_exported = true;
+                    }
                 }
             }
         }
