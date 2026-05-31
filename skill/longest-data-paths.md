@@ -42,10 +42,10 @@ walk AS (
   WHERE NOT list_contains(w.path, e.callee_id)   -- cycle guard
     AND w.hops < 50                              -- runaway cap
 )
-SELECT src_s.name AS source, sink_s.name AS sink, w.hops, w.path
+SELECT w.hops,
+  list_reduce(list_transform(w.path, x -> split_part(x, '|', 4)),
+              (a, b) -> a || ' -> ' || b) AS chain
 FROM walk w
-JOIN symbol src_s  ON src_s.id  = w.src
-JOIN symbol sink_s ON sink_s.id = w.node
 WHERE NOT EXISTS (SELECT 1 FROM call_edge e WHERE e.caller_id = w.node)  -- node is a sink
 ORDER BY w.hops DESC
 LIMIT 15;
@@ -55,9 +55,18 @@ Run with `projects query <name> --file longest_data_paths.sql`. Reverse
 direction (output→input) is the same walk with `caller_id`/`callee_id`
 swapped.
 
-`path` is a list of stringly symbol ids (`path|line|col|name|kind`).
-Resolve to readable names by splitting on `|` and taking field 4, e.g.
-`Header → useAuth → isAuthenticated → getAccessToken`.
+`path` is a list of stringly symbol ids (`path|line|col|name|kind`). Render it
+to readable names **in SQL** — `split_part(x, '|', 4)` plucks the name field,
+`list_transform` maps it over the path, and `list_reduce` joins with `' -> '`:
+
+```sql
+list_reduce(list_transform(w.path, x -> split_part(x, '|', 4)),
+            (a, b) -> a || ' -> ' || b) AS chain
+```
+
+yields `Header -> useAuth -> isAuthenticated -> getAccessToken` directly. Keep
+`w.path` in the SELECT instead if you want the raw ids (to join back to
+`symbol`).
 
 ### 2. Two implementation choices that bite — keep them
 
@@ -89,9 +98,13 @@ longest data paths in this app all run through auth resolution.
 ## Limitations
 
 - **Chains are short because resolution is sparse.** Max depth was 3 on
-  the bench corpora (call graphs of 24–89 edges). Name-based call
-  resolution (no type info) misses dynamic dispatch, callbacks, and method
-  calls it can't bind — so the true longest data path is an *under*-estimate.
+  the bench corpora (call graphs of 24–89 edges). Call resolution misses
+  dynamic dispatch, callbacks, and method calls it can't bind — so the true
+  longest data path is an *under*-estimate. The schema-v4 type/parent funnel
+  (`local_type` + parameter/field types, **C#/Java/Python** only) trims
+  *wrong*-parent edges from typed-receiver calls, which can shorten or reroute
+  a chain that previously ran through a name collision — a more faithful path,
+  not a regression.
 
 - **"Source" ≠ guaranteed input, "sink" ≠ guaranteed output.** virgil has
   no taint facts (`parameter.is_taint_source` is always `false`). A leaf

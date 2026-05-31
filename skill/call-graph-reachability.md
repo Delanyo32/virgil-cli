@@ -64,6 +64,9 @@ Run: `projects query <name> --file dependents.sql --param name=getAccessToken`.
   `path|line|col|name|kind` and already contain `|`, so a pipe-delimited
   cycle guard gives false matches. `list_contains` / `list_append` carry
   the visited set cleanly. Same choice the longest-data-paths skill makes.
+  To *surface* a chain (swap `path` into the SELECT), render it in SQL the
+  same way: `list_reduce(list_transform(u.path, x -> split_part(x,'|',4)),
+  (a,b) -> a || ' -> ' || b)` → `getAccessToken -> isAuthenticated -> useAuth`.
 - **`nearest_depth`** is the shortest hop distance; a node reachable by
   several paths is reported once at its closest, collapsed by `GROUP BY`.
 
@@ -94,11 +97,16 @@ Reads bottom-up: pages reach `getAccessToken` at depth 3, through
     made >50% of edges originate at parameter nodes the walk can't traverse,
     silently fragmenting the graph. Re-run a cold build if results look
     empty on an old store.)
-  - **Self-receiver calls are precise; named receivers are not.**
-    `this`/`self`/`$this->m()` resolve to the caller's own class. But
-    `order.save()` still resolves by *name alone* — every same-named method
-    becomes an edge, so dependents/dependencies over-count through
-    named-receiver calls. No type info exists to disambiguate.
+  - **Self-receiver calls are precise; named receivers depend on type info.**
+    `this`/`self`/`$this->m()` resolve to the caller's own class. A named
+    receiver like `order.save()` resolves precisely *when the receiver's type
+    is known* — the schema-v4 type/parent funnel uses `local_type` (locals),
+    parameter types, and field types to keep only candidates whose parent
+    class is that type, so `category.getId()` no longer fans out to all 14
+    `getId` methods. That type resolution is populated for **C#/Java/Python**
+    only; for Go/Rust/JS/TS/PHP, or any receiver whose type can't be inferred,
+    it still falls back to name-alone matching and over-counts. No edges are
+    ever dropped below the name-based recall — the funnel only narrows.
 
 - **Name-based resolution under-links too.** Dynamic dispatch, callbacks,
   and unresolved cross-file imports produce no edge — so the closure is an

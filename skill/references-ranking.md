@@ -121,6 +121,13 @@ both to tell a config/type hub from a behaviour hub.
   `imports` (b1) are id/path-resolved and clean. Prefer the resolved ones
   for a ranking; use the name-based ones for raw usage volume.
 
+- **`call_edge` (a1/b2) is type-funneled, not purely name-based.** The
+  schema-v4 type/parent funnel uses `local_type` + parameter/field types to
+  attribute a typed-receiver call (`category.getId()`) to the one class it
+  belongs to instead of every same-named method — so (a1) counts are sharper
+  than (a2) for **C#/Java/Python**. For the other languages, or untyped
+  receivers, `call_edge` still resolves by name and the (a1)/(a2) gap shrinks.
+
 - **Rankings ride on call/import resolution quality.** Dense for JS/TS,
   sparse for Java/C# (overloads, generics, dynamic dispatch produce no
   edge) — under-counts there. Same caveat as every call-graph skill here.

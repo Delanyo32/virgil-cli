@@ -50,6 +50,28 @@ ORDER BY n DESC;
 Ranks every boundary object: DB models (`Post`, `User`), DB/IO layers
 (`db`, `fs`, `crypto`), HTTP wiring (`router`, `app`), response sinks (`res`).
 
+**Resolve the receiver's type (C#/Java/Python).** The schema-v4 `local_type`
+table maps a local variable to its declared/inferred bare type name
+(file-scoped). Join it to label each receiver with the concrete type behind it
+— turning `config.setMaxAge` into `CorsConfiguration.setMaxAge`, and letting
+you split *internal-typed* receivers (the type is a workspace symbol) from
+genuine external boundaries:
+
+```sql
+SELECT cs.receiver, lt.type_name, cs.callee_name, count(*) n
+FROM call_site cs
+LEFT JOIN local_type lt
+  ON lt.file_path = cs.file_path AND lt.name = cs.receiver
+WHERE cs.receiver IS NOT NULL
+GROUP BY cs.receiver, lt.type_name, cs.callee_name
+ORDER BY n DESC;
+```
+
+`local_type` is populated for **C#/Java/Python** only (Go/Rust/JS/TS/PHP emit
+no rows yet), and only for cheap-declaration locals — `lt.type_name` is NULL
+for params, fields, and untyped receivers. Use it to enrich the ranking, not
+as the boundary test itself.
+
 ### 3. Framework-tagged handlers — crisp where annotations exist
 
 For Java/C#, the framework declares entry points via annotations. This is
@@ -73,7 +95,10 @@ WHERE regexp_matches(a, 'Mapping|RestController|RequestBody|RequestParam|PathVar
 - **Recall depends on call resolution.** Query 1's precision rides on how
   well `call_edge` / `occurrence` capture calls. Dense for JS/TS, sparse
   for Java (overloads/generics) — so Java needs query 3 (annotations) to
-  be crisp.
+  be crisp. Query 1's `call_edge` check is also type-funneled now (schema-v4,
+  C#/Java/Python): a typed-receiver call resolves to one class instead of
+  every same-named method, so fewer real handlers are wrongly seen as
+  "called" — slightly *better* entry-point recall on those languages.
 
 - **`exported` over-selects.** It catches all real handlers (good recall)
   but also exception classes, components, helpers (poor precision).

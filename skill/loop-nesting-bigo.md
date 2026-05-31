@@ -48,14 +48,23 @@ WITH RECURSIVE walk AS (
 ),
 d AS (SELECT fn, file_path, MAX(depth) AS loop_nesting FROM walk GROUP BY fn, file_path),
 fs AS (SELECT id, file_path, start_byte, end_byte FROM scope WHERE kind='function')
-SELECT s.name, d.file_path, sp.start_line, d.loop_nesting
+SELECT s.name, d.file_path, sp.start_line, MAX(d.loop_nesting) AS loop_nesting
 FROM d JOIN fs ON fs.id = d.fn
 JOIN span sp ON sp.file_path = d.file_path
   AND fs.start_byte >= sp.start_byte AND fs.end_byte <= sp.end_byte
 JOIN symbol s ON s.id = sp.entity_id AND s.kind IN ('function','method')
 WHERE d.loop_nesting > 0
-ORDER BY d.loop_nesting DESC LIMIT 20;
+GROUP BY s.name, d.file_path, sp.start_line   -- collapse closures sharing a span (see Limitations)
+ORDER BY loop_nesting DESC LIMIT 20;
 ```
+
+The final `GROUP BY … MAX(loop_nesting)` is load-bearing: a function that
+returns a **nested closure** (Go middleware, a JS higher-order function) has
+*two* `kind='function'` scopes whose byte ranges both fall inside the one named
+symbol's span, so the span-containment join emits the function twice. Verified
+on `http-service`: `RateLimitMiddleware` came back as two identical depth-2 rows
+until the group-by collapsed them. The `MAX` keeps the deepest nest if the two
+scopes ever disagree.
 
 The `IN (...)` list is the loop vocabulary across all 10 grammars — the
 one piece of per-language knowledge, and it lives in the *query*, not the
@@ -94,6 +103,13 @@ loop the depth walk mis-attributed.
 - **Cross-function loops are split.** A loop calling a helper that itself
   loops (O(n²) spread across two functions) reads as depth 1 in each.
   Inlining via `call_edge` would be needed to see the composite.
+
+- **Closures double-count without the final `GROUP BY`.** A function returning
+  a nested closure has two `kind='function'` scopes inside one named span, so
+  the span-containment join emits it twice. The query's terminal
+  `GROUP BY s.name, d.file_path, sp.start_line` with `MAX(loop_nesting)`
+  collapses them — drop it and HOF-heavy corpora (Go middleware, JS) show
+  duplicate rows.
 
 - **Brace-less single-statement loops emit no scope.** `for (...) g();`
   with no `{}` produces no body block in C/C++/TS, so it's invisible to
