@@ -518,7 +518,9 @@ pub fn extract_symbols(
             while let Some(m) = obj_matches.next() {
                 // Guard the assignment target is really `module.exports` / `exports`.
                 let is_target = match cap_text(m, mod_idx) {
-                    Some(mo) => mo == "module" && cap_text(m, exp_idx).as_deref() == Some("exports"),
+                    Some(mo) => {
+                        mo == "module" && cap_text(m, exp_idx).as_deref() == Some("exports")
+                    }
                     None => cap_text(m, ident_idx).as_deref() == Some("exports"),
                 };
                 if !is_target {

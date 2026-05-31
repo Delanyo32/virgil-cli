@@ -348,8 +348,7 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
                 }
                 if let Some(imported_files) = imports_by_importer.get(file) {
                     for imported_file in imported_files {
-                        if let Some(c) =
-                            exports.get(&(imported_file.clone(), callee_name.clone()))
+                        if let Some(c) = exports.get(&(imported_file.clone(), callee_name.clone()))
                         {
                             for (_kind, id) in c {
                                 candidates.push(id);
@@ -386,7 +385,9 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
                             .iter()
                             .copied()
                             .filter(|id| {
-                                parent_of.get(*id).is_some_and(|p| valid.contains(p.as_str()))
+                                parent_of
+                                    .get(*id)
+                                    .is_some_and(|p| valid.contains(p.as_str()))
                             })
                             .collect();
                         if !filtered.is_empty() {

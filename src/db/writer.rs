@@ -444,7 +444,13 @@ impl DbWriter {
         ]);
     }
 
-    pub fn push_local_type(&mut self, file_path: &str, name: &str, type_name: &str, start_byte: i64) {
+    pub fn push_local_type(
+        &mut self,
+        file_path: &str,
+        name: &str,
+        type_name: &str,
+        start_byte: i64,
+    ) {
         self.local_type.push(vec![
             text(file_path),
             text(name),

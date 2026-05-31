@@ -473,7 +473,12 @@ fn find_first_identifier(node: Node) -> Option<Node> {
 /// generic args (`A.B.Foo<T>` -> `Foo`). Returns None for predefined/builtin
 /// types and anything that isn't a plain identifier.
 fn bare_type_name(t: &str) -> Option<String> {
-    let base = t.split('<').next().unwrap_or(t).trim().trim_end_matches(['?', '[', ']']);
+    let base = t
+        .split('<')
+        .next()
+        .unwrap_or(t)
+        .trim()
+        .trim_end_matches(['?', '[', ']']);
     let leaf = base.rsplit('.').next().unwrap_or(base).trim();
     if leaf.is_empty()
         || !leaf.chars().next().is_some_and(|c| c.is_ascii_uppercase())
