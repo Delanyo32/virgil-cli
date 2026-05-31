@@ -24,4 +24,6 @@ pub use writer::DbWriter;
 /// - 2: add `call_site.receiver` (immediate object/namespace of a call).
 /// - 3: `scope.kind` for body blocks now holds the owning tree-sitter
 ///   construct (for_statement, if_statement, …) instead of generic "block".
-pub const SCHEMA_VERSION: u32 = 3;
+/// - 4: add `local_type` (local variable -> declared/inferred type name)
+///   for type-aware call resolution.
+pub const SCHEMA_VERSION: u32 = 4;

@@ -153,6 +153,18 @@ pub fn create_statements() -> &'static [&'static str] {
             symbol_id VARCHAR PRIMARY KEY, \
             type_id VARCHAR NOT NULL\
          )",
+        // local variable -> declared/inferred type name (cheap-declaration
+        // cases only: `Foo x = ...`, `var x = new Foo()`, `x := NewFoo()`,
+        // `let x = Foo::new()`). File-scoped (start_byte disambiguates
+        // shadowing). type_name is the bare class/struct name so the call
+        // resolver can join it to symbol.name directly.
+        "CREATE TABLE local_type (\
+            file_path VARCHAR NOT NULL, \
+            name VARCHAR NOT NULL, \
+            type_name VARCHAR NOT NULL, \
+            start_byte BIGINT NOT NULL, \
+            PRIMARY KEY (file_path, name, start_byte)\
+         )",
         "CREATE TABLE type (\
             id VARCHAR PRIMARY KEY, \
             kind VARCHAR NOT NULL, \

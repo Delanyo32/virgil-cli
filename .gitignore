@@ -6,3 +6,5 @@ skills-lock.json
 .env
 .claude/skills/grill-me
 .worktrees/
+.claude/worktrees/
+.claude/scheduled_tasks.lock

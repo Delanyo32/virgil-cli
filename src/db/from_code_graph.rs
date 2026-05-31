@@ -144,6 +144,14 @@ fn bool_of(v: &Value) -> bool {
     matches!(v, Value::Boolean(true))
 }
 
+/// Bare class name from a `type.display_name`: leaf segment, generics and
+/// array suffixes dropped (`a.b.Foo<T>[]` -> `Foo`). Matches the bare
+/// `symbol.name` keys in `class_by_name`.
+fn bare_type_name(s: &str) -> &str {
+    let base = s.split(['<', '[']).next().unwrap_or(s).trim();
+    base.rsplit(['.', ':']).next().unwrap_or(base).trim()
+}
+
 /// See `cozo::from_code_graph::resolve_and_emit_call_edges` for the
 /// algorithm — this is the same code path against DuckDB tables.
 /// Self-reference receiver tokens across the supported languages
@@ -240,6 +248,70 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
             .push(imported);
     }
 
+    // local variable -> declared/inferred type name (file-scoped), and a
+    // class-like-name -> symbol id index, for type-aware receiver resolution.
+    let lt_rows = store.run_query(
+        "SELECT file_path, name, type_name FROM local_type",
+        std::collections::BTreeMap::new(),
+    )?;
+    let mut local_type_by_var: HashMap<(String, String), Vec<String>> = HashMap::new();
+    for row in &lt_rows.rows {
+        let (Some(f), Some(n), Some(t)) = (text_of(&row[0]), text_of(&row[1]), text_of(&row[2]))
+        else {
+            continue;
+        };
+        local_type_by_var.entry((f, n)).or_default().push(t);
+    }
+    let cls_rows = store.run_query(
+        "SELECT id, name FROM symbol \
+         WHERE kind IN ('class', 'struct', 'interface', 'enum', 'record')",
+        std::collections::BTreeMap::new(),
+    )?;
+    let mut class_by_name: HashMap<String, Vec<String>> = HashMap::new();
+    for row in &cls_rows.rows {
+        let (Some(id), Some(name)) = (text_of(&row[0]), text_of(&row[1])) else {
+            continue;
+        };
+        class_by_name.entry(name).or_default().push(id);
+    }
+
+    // Receiver-type sources for the type/parent filter (funnel steps 3-4):
+    // parameter types — (caller function id, param name) -> [bare type name].
+    let pt_rows = store.run_query(
+        "SELECT p.function_id, p.name, t.display_name FROM parameter p \
+         JOIN type t ON t.id = p.type_id WHERE p.type_id IS NOT NULL",
+        std::collections::BTreeMap::new(),
+    )?;
+    let mut param_type_by: HashMap<(String, String), Vec<String>> = HashMap::new();
+    for row in &pt_rows.rows {
+        let (Some(f), Some(n), Some(t)) = (text_of(&row[0]), text_of(&row[1]), text_of(&row[2]))
+        else {
+            continue;
+        };
+        param_type_by
+            .entry((f, n))
+            .or_default()
+            .push(bare_type_name(&t).to_string());
+    }
+    // field/property types — (class id, field name) -> [bare type name].
+    let ft_rows = store.run_query(
+        "SELECT s.parent_id, s.name, t.display_name FROM symbol s \
+         JOIN field_type ft ON ft.symbol_id = s.id \
+         JOIN type t ON t.id = ft.type_id WHERE s.parent_id IS NOT NULL",
+        std::collections::BTreeMap::new(),
+    )?;
+    let mut field_type_by: HashMap<(String, String), Vec<String>> = HashMap::new();
+    for row in &ft_rows.rows {
+        let (Some(c), Some(n), Some(t)) = (text_of(&row[0]), text_of(&row[1]), text_of(&row[2]))
+        else {
+            continue;
+        };
+        field_type_by
+            .entry((c, n))
+            .or_default()
+            .push(bare_type_name(&t).to_string());
+    }
+
     const CHUNK_SIZE: usize = 1024;
     let resolved: Vec<(String, String, String)> = call_sites
         .par_chunks(CHUNK_SIZE)
@@ -266,28 +338,70 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
                     }
                     continue;
                 }
-                if let Some(candidates) = intra.get(&(file.clone(), callee_name.clone())) {
-                    for (_kind, callee_id) in candidates {
-                        if caller_id != callee_id {
-                            local.push((caller_id.clone(), callee_id.clone(), file.clone()));
-                        }
+                // Steps 1-2: name search, scoped to same-file (`intra`) or
+                // imported-and-exported (`exports`). Gather candidate ids.
+                let mut candidates: Vec<&String> = Vec::new();
+                if let Some(c) = intra.get(&(file.clone(), callee_name.clone())) {
+                    for (_kind, id) in c {
+                        candidates.push(id);
                     }
                 }
                 if let Some(imported_files) = imports_by_importer.get(file) {
                     for imported_file in imported_files {
-                        if let Some(candidates) =
+                        if let Some(c) =
                             exports.get(&(imported_file.clone(), callee_name.clone()))
                         {
-                            for (_kind, callee_id) in candidates {
-                                if caller_id != callee_id {
-                                    local.push((
-                                        caller_id.clone(),
-                                        callee_id.clone(),
-                                        file.clone(),
-                                    ));
-                                }
+                            for (_kind, id) in c {
+                                candidates.push(id);
                             }
                         }
+                    }
+                }
+                // Steps 3-4: if the receiver's type is known (local var, param,
+                // or field), keep only candidates whose parent class IS that
+                // type — drop the wrong-parent name collisions. Type unknown,
+                // or no candidate matches the type (inherited/external method)
+                // → keep all candidates so recall is never reduced.
+                if let Some(recv) = receiver.as_deref().filter(|r| !is_self_receiver(Some(r))) {
+                    let mut recv_types: Vec<&String> = Vec::new();
+                    if let Some(ts) = local_type_by_var.get(&(file.clone(), recv.to_string())) {
+                        recv_types.extend(ts.iter());
+                    }
+                    if let Some(ts) = param_type_by.get(&(caller_id.clone(), recv.to_string())) {
+                        recv_types.extend(ts.iter());
+                    }
+                    if let Some(cls) = parent_of.get(caller_id)
+                        && let Some(ts) = field_type_by.get(&(cls.clone(), recv.to_string()))
+                    {
+                        recv_types.extend(ts.iter());
+                    }
+                    if !recv_types.is_empty() {
+                        let valid: std::collections::HashSet<&str> = recv_types
+                            .iter()
+                            .filter_map(|t| class_by_name.get(*t))
+                            .flatten()
+                            .map(|s| s.as_str())
+                            .collect();
+                        let filtered: Vec<&String> = candidates
+                            .iter()
+                            .copied()
+                            .filter(|id| {
+                                parent_of.get(*id).is_some_and(|p| valid.contains(p.as_str()))
+                            })
+                            .collect();
+                        if !filtered.is_empty() {
+                            for id in filtered {
+                                if caller_id != id {
+                                    local.push((caller_id.clone(), id.clone(), file.clone()));
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
+                for id in candidates {
+                    if caller_id != id {
+                        local.push((caller_id.clone(), id.clone(), file.clone()));
                     }
                 }
             }

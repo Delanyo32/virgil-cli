@@ -51,6 +51,7 @@ pub struct DbWriter {
     occurrence: Vec<Row>,
     scope: Vec<Row>,
     binding: Vec<Row>,
+    local_type: Vec<Row>,
     rust_attrs: Vec<Row>,
     python_attrs: Vec<Row>,
     typescript_attrs: Vec<Row>,
@@ -94,6 +95,7 @@ impl DbWriter {
         self.occurrence.append(&mut other.occurrence);
         self.scope.append(&mut other.scope);
         self.binding.append(&mut other.binding);
+        self.local_type.append(&mut other.local_type);
         self.rust_attrs.append(&mut other.rust_attrs);
         self.python_attrs.append(&mut other.python_attrs);
         self.typescript_attrs.append(&mut other.typescript_attrs);
@@ -442,6 +444,15 @@ impl DbWriter {
         ]);
     }
 
+    pub fn push_local_type(&mut self, file_path: &str, name: &str, type_name: &str, start_byte: i64) {
+        self.local_type.push(vec![
+            text(file_path),
+            text(name),
+            text(type_name),
+            big(start_byte),
+        ]);
+    }
+
     pub fn push_rust_attrs(
         &mut self,
         symbol_id: &str,
@@ -639,6 +650,7 @@ impl DbWriter {
             flush_table(conn, "occurrence", 1, &mut self.occurrence)?;
             flush_table(conn, "scope", 1, &mut self.scope)?;
             flush_table(conn, "binding", 3, &mut self.binding)?;
+            flush_table(conn, "local_type", 3, &mut self.local_type)?;
             // Attrs tables have VARCHAR[] columns. The duckdb crate's
             // Appender path goes through `ValueRef::from(Value)`, which
             // is `unimplemented!()` for `Value::List` in duckdb 1.2.
