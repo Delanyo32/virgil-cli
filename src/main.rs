@@ -112,6 +112,13 @@ fn dispatch(command: Command) -> Result<()> {
                 run_query(body, params, name, lang, rebuild, pretty)
             }
         },
+
+        Command::Serve {
+            name,
+            port,
+            max_concurrency,
+            result_ttl_secs,
+        } => virgil_cli::serve::run(name, port, max_concurrency, result_ttl_secs),
     }
 }
 

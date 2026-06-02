@@ -37,8 +37,34 @@ pub enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
-    // `Serve` subcommand and `--s3` flag dropped during the DuckDB
-    // swap — see docs/experiments/duckdb-swap.md (Q9: local CLI only).
+
+    /// Expose an already-parsed project over a local HTTP API.
+    ///
+    /// Serves read-only queries against the warm DuckDB store at
+    /// 127.0.0.1:<port>. The project must already be parsed — run a
+    /// query against it first (which cold-builds the store). Serve does
+    /// not build; it errors if the store is missing or stale.
+    ///
+    /// Queries run as async jobs: POST /query returns a job_id; stream
+    /// the result from GET /jobs/{id}/events (SSE) or snapshot it from
+    /// GET /jobs/{id}. Up to --max-concurrency queries run at once.
+    #[command(verbatim_doc_comment)]
+    Serve {
+        /// Project name (must already be parsed)
+        name: String,
+
+        /// TCP port to bind on 127.0.0.1
+        #[arg(short, long, default_value_t = 7777)]
+        port: u16,
+
+        /// Max queries running concurrently
+        #[arg(long, default_value_t = 4)]
+        max_concurrency: usize,
+
+        /// Seconds to retain a finished job's result before evicting it
+        #[arg(long, default_value_t = 600)]
+        result_ttl_secs: u64,
+    },
 }
 
 #[derive(Subcommand, Debug)]

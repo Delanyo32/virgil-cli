@@ -104,6 +104,28 @@ impl DbStore {
         self.fresh
     }
 
+    /// Open a new sibling connection to the already-opened database via
+    /// `Connection::try_clone`. Used by serve mode to build a pool of
+    /// read connections, one per concurrent query worker — DuckDB
+    /// supports concurrent reads across sibling connections (MVCC).
+    ///
+    /// duckpgq is loaded per-connection, so the clone re-`LOAD`s it. The
+    /// clone is never `fresh` (the schema already exists on the shared
+    /// database).
+    pub fn try_clone_store(&self) -> Result<Self> {
+        let conn = self.conn.lock().unwrap();
+        let cloned = conn
+            .try_clone()
+            .map_err(|e| anyhow!("failed to clone duckdb connection: {e}"))?;
+        drop(conn);
+        let store = Self {
+            conn: Mutex::new(cloned),
+            fresh: false,
+        };
+        store.load_duckpgq()?;
+        Ok(store)
+    }
+
     fn load_duckpgq(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         // INSTALL writes to the shared ~/.duckdb/extensions/ cache;
@@ -547,6 +569,44 @@ mod tests {
                 failures.join("\n")
             );
         }
+    }
+
+    #[test]
+    fn cloned_store_reads_shared_database() {
+        // try_clone_store yields an independent connection that sees the
+        // same data and can run a PGQ query (proves duckpgq loaded on the
+        // clone). Mirrors how serve mode hands one clone per worker.
+        let store = DbStore::open_in_memory().expect("open");
+        store
+            .run_script(
+                "INSERT INTO symbol VALUES \
+                   ('a', 'function', 'a', 'a', 'rust', 'public', 'lib.rs', NULL, \
+                    false, false, false, false, true), \
+                   ('b', 'function', 'b', 'b', 'rust', 'public', 'lib.rs', NULL, \
+                    false, false, false, false, true)",
+                BTreeMap::new(),
+            )
+            .expect("insert");
+        store
+            .run_script(
+                "INSERT INTO call_edge VALUES ('a','b','lib.rs')",
+                BTreeMap::new(),
+            )
+            .expect("edge");
+
+        let clone = store.try_clone_store().expect("clone");
+        assert!(!clone.fresh());
+        let rows = clone
+            .run_query(
+                "SELECT caller_name FROM GRAPH_TABLE (codegraph \
+                   MATCH ANY ACYCLIC (a:symbol)-[e:calls]->+(c:symbol) \
+                   WHERE c.id = 'b' \
+                   COLUMNS (a.name AS caller_name))",
+                BTreeMap::new(),
+            )
+            .expect("pgq on clone");
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][0], Value::Text("a".into()));
     }
 
     #[test]

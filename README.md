@@ -26,7 +26,8 @@ The DuckDB backend is bundled (no system DuckDB required). `duckpgq` is installe
 ## Usage
 
 ```bash
-virgil-cli projects <COMMAND>
+virgil-cli projects <COMMAND>   # create / list / delete / query
+virgil-cli serve <NAME>         # expose a parsed project over a local HTTP API
 ```
 
 ## Projects
@@ -89,6 +90,50 @@ virgil-cli projects query <NAME> --file <path.sql> [--param k=v ...] [OPTIONS]
 | `--pretty` | Pretty-print JSON output | false |
 
 Parameters substitute into `$name` placeholders in the SQL as quoted literals. Integers and `true`/`false` are auto-coerced; everything else binds as a string. (DuckDB's positional `?` binding isn't used because duckpgq's `GRAPH_TABLE(... WHERE ...)` doesn't consume placeholders — see [`docs/experiments/duckdb-swap.md`](docs/experiments/duckdb-swap.md) for the long story.)
+
+## `serve`
+
+Expose an **already-parsed** project over a local HTTP API so subsequent queries skip the per-invocation startup and warm-open cost, and run concurrently.
+
+```bash
+virgil-cli serve <NAME> [--port 7777] [--max-concurrency 4] [--result-ttl-secs 600]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<NAME>` | Project name (**must already be parsed**) | required |
+| `-p`, `--port` | TCP port to bind on `127.0.0.1` | `7777` |
+| `--max-concurrency` | Max queries running at once | `4` |
+| `--result-ttl-secs` | Seconds to retain a finished job's result before evicting it | `600` |
+
+Serve is **read-only** and never builds: if the project's fact store is missing or stale it exits with an error pointing you at `projects query … --rebuild`. Build the store first, then serve it.
+
+Queries run as **async jobs**. `POST /query` returns a `job_id` immediately; the result is delivered when the query finishes (queries can take minutes). Up to `--max-concurrency` queries run in parallel, each on its own DuckDB connection (`Connection::try_clone`, MVCC reads); further submissions queue.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /query` | Submit a query. Body: `{"sql": "...", "params": {...}}` **or** `{"template": "find_callers", "params": {...}}`, plus optional `"timeout_secs"`. Returns `{"job_id": "..."}`. |
+| `GET /jobs/{id}` | Snapshot: `{"status", "result"?, "error"?}`. |
+| `GET /jobs/{id}/events` | **SSE** stream — emits `status` then a terminal `completed`/`error`/`cancelled`/`timed_out` event carrying the result, then closes. |
+| `DELETE /jobs/{id}` | Cancel. A **queued** job is cancelled before it runs; a **running** query cannot be force-stopped (DuckDB exposes no interrupt) — it is marked abandoned and its result discarded when it eventually finishes. |
+| `GET /health` | `{"project", "ready", "schema_version"}`. |
+
+`status` ∈ `queued · running · done · error · cancelled · timed_out`. A `result` mirrors the `projects query` envelope (`project`, `query_ms`, `result`). `timeout_secs` is **advisory** — on expiry the job is marked `timed_out` but the query keeps running in the background until DuckDB returns.
+
+```bash
+# Start serving an already-parsed project
+virgil-cli serve myapp --port 7777 &
+
+# Submit a query, then stream its result
+curl -s localhost:7777/query -H 'content-type: application/json' \
+  -d '{"template":"find_callers","params":{"name":"login"}}'
+# → {"job_id":"job-1"}
+curl -sN localhost:7777/jobs/job-1/events
+# → event: completed
+#   data: {"status":"done","result":{...}}
+```
+
+> Caveats: results are held in memory until their TTL elapses (and cleared on restart); a running query can't be interrupted; and don't `projects query --rebuild` a project while it's being served — the rebuild wipes the on-disk store the server has open.
 
 ## Built-in Templates
 

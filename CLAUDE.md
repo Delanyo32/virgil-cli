@@ -40,9 +40,12 @@ cargo run -- projects query myapp --file query.sql --param target=x
 
 # Force a cold rebuild of the persisted fact store
 cargo run -- projects query myapp --template find_cycles --rebuild
+
+# Serve an already-parsed project over a local HTTP API (read-only)
+cargo run -- serve myapp [--port 7777] [--max-concurrency 4] [--result-ttl-secs 600]
 ```
 
-Local CLI only. `--s3` and `serve` were dropped during the DuckDB swap (see `docs/experiments/duckdb-swap.md`); S3 / cloud support is out of tree.
+Local CLI plus `serve` (local HTTP only, `127.0.0.1`). `--s3` was dropped during the DuckDB swap (see `docs/experiments/duckdb-swap.md`); S3 / cloud support is out of tree. `serve` was re-added fresh — see `src/serve/` and `docs/superpowers/plans/2026-06-02-serve-mode.md`.
 
 ## Module Layout
 
@@ -56,6 +59,11 @@ Local CLI only. `--s3` and `serve` were dropped during the DuckDB swap (see `doc
   - `templates.rs` — embeds `builtin/*.sql` via `include_dir`
   - `rust_templates.rs` — handlers that need source access (currently only `complexity_hotspots`)
   - `builtin/*.sql` — 7 templates (find_callers/callees/cycles/function_by_name/implementations_of/export_surface/import_depth). `find_cycles` and `import_depth` use recursive CTEs; the others are flat SQL joins
+- `src/serve/` — `serve` subcommand: local HTTP API exposing an already-parsed project (axum + tokio)
+  - `mod.rs` — `run(name, port, max_concurrency, result_ttl_secs)`: sync setup (load `Workspace`, open the warm `DbStore`, **bail if `store.fresh()`** — serve never builds), build the connection pool, then `block_on` the axum server. Spawns the TTL sweeper
+  - `pool.rs` — `ConnectionPool`: N `DbStore::try_clone_store()` siblings over the one warm file; one checked out per in-flight query (checkout always succeeds because the semaphore caps concurrency at the pool size)
+  - `jobs.rs` — `JobRegistry`: in-memory `job_id → JobHandle`, status published over a `watch` channel (SSE subscribers see transitions without busy-polling). Terminal jobs are stamped + evicted by `evict_expired(ttl)`
+  - `http.rs` — axum router + handlers (`POST /query`, `GET /jobs/{id}`, `GET /jobs/{id}/events` SSE, `DELETE /jobs/{id}`, `GET /health`). `run_job` gates on a `Semaphore`, runs the query via `spawn_blocking` (DuckDB is synchronous) reusing `queries::run` unchanged, publishes the outcome
 - `src/graph/` — build-time scratch state
   - `mod.rs` — `CodeGraph` — after the SQL-staging refactor this is just a thin wrapper around the shared `Symbols` interner. The per-file type/comment/inheritance HashMaps that used to live here are gone — workers now emit those rows directly to DuckDB (file-local resolution) or to the `raw_inheritance` staging table (cross-file resolution)
   - `builder.rs` — `GraphBuilder` (parses workspace + streams rows to DuckDB through a shared `Mutex<SharedAbsorb>`); `find_node_at_line` used by `complexity_hotspots`
@@ -90,6 +98,12 @@ Critical gotchas and design decisions that are not obvious from reading the code
 - `tree_sitter::Parser` is `!Send` — create a fresh instance per rayon task (never share or pool)
 - `tree_sitter::Query` objects are `Arc`-shareable — compile once per language, share across threads
 - `CodeGraph` lives only during a cold build; it's not shared with queries. Queries hit the `DbStore` directly.
+
+**Serve mode (`src/serve/`)**
+- **DuckDB queries are blocking, and uninterruptible.** duckdb-rs 1.2 exposes no `interrupt` / `pending` / async API — `stmt.query()` pins its OS thread until the query returns. Serve runs each query via `spawn_blocking` (never on an async task — that would starve the executor). Concurrency comes from N `try_clone`'d connections on N threads, capped by a `tokio::Semaphore`, NOT from async. A running query therefore **cannot be force-cancelled** — `DELETE /jobs/{id}` only true-cancels jobs still queued on the semaphore; running ones are marked abandoned and their result discarded on completion.
+- `JobRegistry` uses `watch::Sender::send_replace`, **not `send`** — the initial receiver is dropped at `create`, and `send` is a no-op (and errors) with no live receiver, so it would silently fail to update the retained snapshot. `send_replace` always updates + notifies.
+- `try_clone_store` must `LOAD duckpgq` on every clone (extension load is per-connection; `INSTALL` is already process-once-guarded).
+- **Don't `projects query … --rebuild` a project while it's being served.** DuckDB allows one read-write process handle per file; the rebuilding CLI process can't reopen the file the server holds, so `open_persistent` wipes + recreates it. The server keeps working off its open handle, but the on-disk store is reset. Serve is one-process, read-only by design.
 
 **File extension mapping**
 - `.h` files map to C (deliberate design choice). C++ headers must use `.hpp`/`.hxx`/`.hh`
