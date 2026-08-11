@@ -1,9 +1,9 @@
 //! Wrapper around a single DuckDB connection. Owns lifecycle, applies
 //! schema, loads duckpgq, version-checks on reopen.
 //!
-//! Mirrors `src/cozo/store.rs`. Mutability is unified — DuckDB doesn't
-//! distinguish at the connection level, but we keep `run_script` /
-//! `run_query` as parallel names to keep callsite porting mechanical.
+//! Mutability is unified — DuckDB doesn't distinguish at the connection
+//! level — but `run_script` / `run_query` stay as separate names to keep
+//! read and write callsites obvious.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -230,8 +230,8 @@ impl DbStore {
     }
 }
 
-/// Rows returned by [`DbStore::run_query`]. Shape mirrors
-/// `cozo::NamedRows` so the query runner can stay engine-agnostic.
+/// Rows returned by [`DbStore::run_query`]. Engine-agnostic shape so
+/// the query runner never touches duckdb types directly.
 #[derive(Debug)]
 pub struct QueryRows {
     pub headers: Vec<String>,
@@ -418,9 +418,7 @@ pub fn cache_dir_for_db(id: &str) -> Result<PathBuf> {
 }
 
 fn stable_hash(s: &str) -> u64 {
-    // FNV-1a 64. Same hash function as cozo::cache_dir_for so the
-    // cache_dir_for("foo") path differs from cache_dir_for_db("foo")
-    // only by file extension.
+    // FNV-1a 64.
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.as_bytes() {
         h ^= *b as u64;

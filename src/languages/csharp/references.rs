@@ -1,6 +1,6 @@
 //! Issue #16 C# `occurrence` / `scope` / `binding` fact emitter per
-//! ADR-0005 and `docs/references-csharp.md`. The Cozoscript resolver
-//! materialises `references` rows from these facts.
+//! ADR-0005 and `docs/references-csharp.md`. Queries join these
+//! facts to resolve references.
 //!
 //! Scope model:
 //! - File root → `file` scope (`parent_id = null`).

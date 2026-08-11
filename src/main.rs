@@ -92,7 +92,6 @@ fn dispatch(command: Command) -> Result<()> {
             ProjectCommand::Query {
                 name,
                 lang,
-                exclude: _,
                 sql,
                 file,
                 template,

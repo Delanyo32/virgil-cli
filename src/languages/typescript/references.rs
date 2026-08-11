@@ -1,6 +1,6 @@
 //! Issue #16 TypeScript/JavaScript `occurrence` / `scope` / `binding`
-//! fact emitter per ADR-0005. The Cozoscript resolver materialises
-//! `references` rows from these facts (see `docs/references-typescript.md`).
+//! fact emitter per ADR-0005. Queries join these facts to resolve
+//! references (see `docs/references-typescript.md`).
 //!
 //! Scope model:
 //! - `program` → `file` scope (always emitted).

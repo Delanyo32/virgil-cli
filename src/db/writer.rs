@@ -1,16 +1,14 @@
 //! Batched row writer fed by the graph absorber.
 //!
-//! 1:1 port of `src/cozo/writer.rs` — same `push_*` method shapes, same
-//! accumulate-then-flush model. Each table has its own `Vec<Vec<Value>>`
-//! buffer. `flush()` opens a DuckDB `Appender` per non-empty table and
-//! streams the rows in.
+//! Accumulate-then-flush: each table has its own `Vec<Vec<Value>>`
+//! buffer, and `flush()` opens a DuckDB `Appender` per non-empty table
+//! and streams the rows in.
 //!
-//! Appender vs hand-rolled Arrow batches: question 4's locked answer
-//! was Arrow, but during implementation Appender turned out to be the
-//! direct mechanical port (~5× less code, same internal columnar batch
-//! path inside duckdb). Documented in
+//! Appender rather than hand-rolled Arrow batches: ~5× less code for the
+//! same internal columnar batch path inside duckdb. See
 //! `docs/experiments/duckdb-swap.md` under "Deviations".
 
+#[cfg(test)]
 use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
@@ -19,7 +17,8 @@ use duckdb::types::Value;
 
 use super::store::DbStore;
 
-#[allow(dead_code)]
+/// Rows per `INSERT VALUES` batch on the literal-inline path used by the
+/// `*_attrs` tables (duckdb 1.2's appender can't bind `Value::List`).
 const FLUSH_BATCH: usize = 10_000;
 
 type Row = Vec<Value>;
@@ -30,7 +29,6 @@ pub struct DbWriter {
     file: Vec<Row>,
     symbol: Vec<Row>,
     span: Vec<Row>,
-    calls: Vec<Row>,
     call_site: Vec<Row>,
     call_edge: Vec<Row>,
     extends: Vec<Row>,
@@ -45,7 +43,6 @@ pub struct DbWriter {
     ty: Vec<Row>,
     comment: Vec<Row>,
     file_classification: Vec<Row>,
-    nolint: Vec<Row>,
     build_meta: Vec<Row>,
     build_meta_files: Vec<Row>,
     occurrence: Vec<Row>,
@@ -73,7 +70,6 @@ impl DbWriter {
         self.file.append(&mut other.file);
         self.symbol.append(&mut other.symbol);
         self.span.append(&mut other.span);
-        self.calls.append(&mut other.calls);
         self.call_site.append(&mut other.call_site);
         self.call_edge.append(&mut other.call_edge);
         self.extends.append(&mut other.extends);
@@ -89,7 +85,6 @@ impl DbWriter {
         self.comment.append(&mut other.comment);
         self.file_classification
             .append(&mut other.file_classification);
-        self.nolint.append(&mut other.nolint);
         self.build_meta.append(&mut other.build_meta);
         self.build_meta_files.append(&mut other.build_meta_files);
         self.occurrence.append(&mut other.occurrence);
@@ -167,25 +162,6 @@ impl DbWriter {
             big(end_line),
             big(start_col),
             big(end_col),
-        ]);
-    }
-
-    pub fn push_calls(
-        &mut self,
-        caller_id: &str,
-        callee_id: &str,
-        call_site_file: &str,
-        call_site_start_byte: i64,
-        call_site_end_byte: i64,
-        is_direct: bool,
-    ) {
-        self.calls.push(vec![
-            text(caller_id),
-            text(callee_id),
-            text(call_site_file),
-            big(call_site_start_byte),
-            big(call_site_end_byte),
-            Value::Boolean(is_direct),
         ]);
     }
 
@@ -368,11 +344,6 @@ impl DbWriter {
             Value::Boolean(is_barrel),
             Value::Boolean(is_generated),
         ]);
-    }
-
-    pub fn push_nolint(&mut self, file_path: &str, line: i64, suppressed_pattern: &str) {
-        self.nolint
-            .push(vec![text(file_path), big(line), text(suppressed_pattern)]);
     }
 
     pub fn push_build_meta(&mut self, key: &str, value: &str) {
@@ -622,15 +593,14 @@ impl DbWriter {
     /// Each call passes the PK column count (always the first N
     /// columns of the row, matching the schema declaration). The
     /// flush helpers dedupe rows by their PK keys, keeping the last
-    /// write — this matches Cozo's `:put` upsert semantics, which the
-    /// extractors relied on (sometimes inadvertently) and DuckDB's
-    /// strict Appender otherwise rejects with PK violations.
+    /// write — extractors emit overlapping rows (sometimes
+    /// inadvertently) and DuckDB's strict Appender would otherwise
+    /// reject them with PK violations.
     pub fn flush(&mut self, store: &DbStore) -> Result<()> {
         store.with_conn(|conn| -> Result<()> {
             flush_table(conn, "file", 1, &mut self.file)?;
             flush_table(conn, "symbol", 1, &mut self.symbol)?;
             flush_table(conn, "span", 2, &mut self.span)?;
-            flush_table(conn, "calls", 2, &mut self.calls)?;
             flush_table(conn, "call_site", 1, &mut self.call_site)?;
             flush_table(conn, "call_edge", 2, &mut self.call_edge)?;
             flush_table(conn, "extends", 2, &mut self.extends)?;
@@ -650,7 +620,6 @@ impl DbWriter {
                 1,
                 &mut self.file_classification,
             )?;
-            flush_table(conn, "nolint", 2, &mut self.nolint)?;
             flush_table(conn, "build_meta", 1, &mut self.build_meta)?;
             flush_table(conn, "build_meta_files", 1, &mut self.build_meta_files)?;
             flush_table(conn, "occurrence", 1, &mut self.occurrence)?;
@@ -677,10 +646,9 @@ impl DbWriter {
 }
 
 /// Dedupe `rows` by the first `pk_cols` columns, keeping the LAST
-/// occurrence of each key. Mirrors Cozo's `:put` upsert semantics —
-/// extractors that emit overlapping rows (e.g. nested-symbol
-/// duplicates) rely on this to land cleanly under DuckDB's strict
-/// Appender path. O(n) using a HashMap of seen keys.
+/// occurrence of each key. Extractors that emit overlapping rows (e.g.
+/// nested-symbol duplicates) rely on this to land cleanly under
+/// DuckDB's strict Appender path. O(n) using a HashMap of seen keys.
 fn dedupe_by_pk_keep_last(rows: &mut Vec<Row>, pk_cols: usize) {
     if rows.len() < 2 || pk_cols == 0 {
         return;
@@ -844,16 +812,12 @@ fn list_text(items: &[String]) -> Value {
     Value::List(items.iter().map(|s| Value::Text(s.clone())).collect())
 }
 
-// Quiet the unused-import warning when no tests are compiled.
-#[allow(dead_code)]
-fn _unused(_: BTreeMap<String, Value>) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn writer_round_trips_symbols_and_calls() {
+    fn writer_round_trips_symbols_and_call_edges() {
         let store = DbStore::open_in_memory().expect("open");
         let mut writer = DbWriter::new();
 
@@ -888,13 +852,10 @@ mod tests {
             false,
             false,
         );
-        writer.push_calls(
+        writer.push_call_edge(
             "src/a.ts|1|0|login|function",
             "src/a.ts|11|0|checkPassword|function",
             "src/a.ts",
-            42,
-            55,
-            true,
         );
 
         writer.flush(&store).expect("flush");
@@ -902,7 +863,7 @@ mod tests {
         let rows = store
             .run_query(
                 "SELECT s_caller.name, s_callee.name \
-                 FROM calls c \
+                 FROM call_edge c \
                  JOIN symbol s_caller ON s_caller.id = c.caller_id \
                  JOIN symbol s_callee ON s_callee.id = c.callee_id",
                 BTreeMap::new(),

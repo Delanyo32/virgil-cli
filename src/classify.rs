@@ -1,7 +1,7 @@
 //! File-path classification helpers used at graph-build time.
 //!
 //! Moved out of the deleted `src/pipeline/helpers.rs` so the remaining
-//! consumers (`src/graph/builder.rs`, `src/cozo/from_code_graph.rs`) don't
+//! consumers (`src/graph/builder.rs`, `src/db/from_code_graph.rs`) don't
 //! have to keep a vestigial pipeline module alive.
 
 pub fn is_test_file(file_path: &str) -> bool {

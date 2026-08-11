@@ -10,7 +10,7 @@ use tree_sitter::Query;
 
 use crate::classify::{is_barrel_file, is_test_file};
 use crate::db::from_code_graph::{
-    detect_todo_kind, extract_nolints, is_doc_comment, is_generated_marker, symbol_id, type_id,
+    detect_todo_kind, is_doc_comment, is_generated_marker, symbol_id, type_id,
 };
 use crate::db::{DbStore, DbWriter};
 use crate::graph::GraphNode;
@@ -28,8 +28,8 @@ use super::{CodeGraph, Spur, Symbols};
 
 /// Flush the streaming writer every this many files. Caps peak writer
 /// memory to roughly N files' worth of in-flight rows. Picked to
-/// amortise Cozo transaction overhead — too low thrashes SQLite, too
-/// high defeats streaming.
+/// amortise DuckDB transaction overhead — too low thrashes the store,
+/// too high defeats streaming.
 const STREAM_FLUSH_EVERY_N_FILES: u32 = 200;
 
 /// Eager import resolution. Build-time resolver maps each
@@ -38,35 +38,9 @@ const STREAM_FLUSH_EVERY_N_FILES: u32 = 200;
 /// `*imports{importer_file_id, imported_id}` rows. Kept eager because
 /// per-language module-resolution rules (Node, Python sys.path, Java
 /// classpath, etc.) are pages of Rust per language — not practical to
-/// express in Cozoscript at query time. Memory cost is small: ~30 MB
-/// peak on openclaw (14k files).
+/// express in SQL at query time. Memory cost is small: ~30 MB peak on
+/// openclaw (14k files).
 const RESOLVE_IMPORTS_EAGERLY: bool = true;
-
-/// Eager call resolution. Previously the build walked every call site,
-/// resolved the callee to a symbol id via an import-scoped name lookup
-/// (file_symbols_by_name / file_exports_by_name HashMaps), and emitted
-/// a `*calls{caller_id, callee_id, ...}` row. On large C++ repos this
-/// resolution scratch dominated RAM and caused container OOM at the
-/// 4 GiB cap (openclaw, 14k files, peaked at 3.26 GiB → SIGKILL).
-///
-/// Now disabled: `*calls` rows are no longer materialised at build.
-/// Callers compute them at query time via Cozoscript over
-/// `*occurrence{occurrence_kind: 'call', enclosing_symbol_id, name}`
-/// joined to `*imports` + `*symbol` — same accuracy as the build-time
-/// resolver, deferred. See `examples/calls_at_query_time.cozoql` and
-/// `docs/resolution.md` for the replacement pattern; the affected
-/// built-in templates (`find_callers`, `find_callees`, `find_cycles`)
-/// have been rewritten to use it.
-const RESOLVE_CALLS_EAGERLY: bool = false;
-
-/// Minimal record kept in build-local lookup maps that replaces the
-/// old `NodeIndex`. Carries just enough to filter call targets by kind
-/// and to write `*calls` rows by id.
-#[derive(Clone)]
-struct AbsorbedSymbol {
-    id: String,
-    kind: SymbolKind,
-}
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -94,10 +68,9 @@ struct FileGraphData {
     references: ReferencesBucket,
 }
 
-/// A call site extracted from within a symbol's line range. After
-/// Slice B the only consumer is the deferred-Calls resolver, which
-/// needs caller location to write `*calls.call_site_*` columns —
-/// nothing else is read off this record, so it stays minimal.
+/// A call site extracted from within a symbol's line range. Feeds the
+/// `call_site` rows that `from_code_graph::resolve_and_emit_call_edges`
+/// later resolves into `call_edge`.
 struct CallSiteData {
     callee_name: String,
     receiver: Option<String>,
@@ -114,21 +87,6 @@ struct DeferredImport {
     import: ImportInfo,
 }
 
-/// A Calls-edge deferred until every file's symbol table is fully
-/// populated. Resolution is scoped to the caller's file: same-file
-/// symbols always match; symbols in other files match only if the
-/// caller's file imports that file and the callee symbol is exported.
-/// Carries the call-site location so the resolver can emit a `*calls`
-/// row directly without a second lookup pass.
-struct DeferredCall {
-    caller_id: String,
-    caller_file_spur: Spur,
-    callee_spur: Spur,
-    site_file: String,
-    site_start_byte: u32,
-    site_end_byte: u32,
-}
-
 /// Shared scratch state for the parallel parse+absorb pass. All rayon
 /// workers contend on one `Mutex<SharedAbsorb>` while absorbing — the
 /// critical section is short (Vec appends + HashMap inserts) compared
@@ -138,9 +96,6 @@ struct DeferredCall {
 struct SharedAbsorb {
     writer: DbWriter,
     deferred_imports: Vec<DeferredImport>,
-    deferred_calls: Vec<DeferredCall>,
-    file_symbols_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
-    file_exports_by_name: HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
     file_known_spurs: HashSet<Spur>,
     /// Files absorbed since the last flush. Triggers a `writer.flush`
     /// every `STREAM_FLUSH_EVERY_N_FILES` to cap peak memory.
@@ -238,8 +193,7 @@ impl<'a> GraphBuilder<'a> {
         let shared_symbols = Symbols::new();
         // repo_id derives from the workspace root's basename. S3
         // workspaces have synthetic `s3://bucket/prefix` roots — the
-        // last path segment is acceptable here. Mirrors what
-        // `cozo::populate` used to derive.
+        // last path segment is acceptable here.
         let repo_id = self
             .workspace
             .root()
@@ -258,14 +212,7 @@ impl<'a> GraphBuilder<'a> {
         let absorbed_files = AtomicU64::new(0);
         let target_files = grouped_files_ref.len() as u64;
 
-        let (
-            mut stream_writer,
-            deferred_imports,
-            deferred_calls,
-            file_symbols_by_name,
-            file_exports_by_name,
-            file_known_spurs,
-        ) = {
+        let (mut stream_writer, deferred_imports, file_known_spurs) = {
             let span = info_span!("graph.parse_absorb", files = target_files);
             span.pb_set_length(target_files);
             span.pb_set_style(
@@ -289,9 +236,6 @@ impl<'a> GraphBuilder<'a> {
             let shared = Mutex::new(SharedAbsorb {
                 writer: DbWriter::new(),
                 deferred_imports: Vec::new(),
-                deferred_calls: Vec::new(),
-                file_symbols_by_name: HashMap::new(),
-                file_exports_by_name: HashMap::new(),
                 file_known_spurs: HashSet::new(),
                 files_since_flush: 0,
             });
@@ -314,9 +258,6 @@ impl<'a> GraphBuilder<'a> {
                             workspace,
                             repo_id_ref,
                             &mut state.deferred_imports,
-                            &mut state.deferred_calls,
-                            &mut state.file_symbols_by_name,
-                            &mut state.file_exports_by_name,
                             &mut state.file_known_spurs,
                             &mut state.writer,
                         );
@@ -334,9 +275,6 @@ impl<'a> GraphBuilder<'a> {
             let SharedAbsorb {
                 writer: mut stream_writer,
                 deferred_imports,
-                deferred_calls,
-                file_symbols_by_name,
-                file_exports_by_name,
                 file_known_spurs,
                 ..
             } = shared.into_inner().expect("shared absorb mutex poisoned");
@@ -348,17 +286,9 @@ impl<'a> GraphBuilder<'a> {
                 parsed = parsed.load(Ordering::Relaxed),
                 absorbed = absorbed_files.load(Ordering::Relaxed),
                 deferred_imports = deferred_imports.len(),
-                deferred_calls = deferred_calls.len(),
                 "parse + absorb done"
             );
-            (
-                stream_writer,
-                deferred_imports,
-                deferred_calls,
-                file_symbols_by_name,
-                file_exports_by_name,
-                file_known_spurs,
-            )
+            (stream_writer, deferred_imports, file_known_spurs)
         };
         // CodeGraph is a vestigial wrapper around the shared interner
         // after the SQL-staging refactor; still returned to keep the
@@ -368,9 +298,7 @@ impl<'a> GraphBuilder<'a> {
         let _resolve_span = info_span!("graph.resolve_refs").entered();
 
         // Resolve deferred imports now that every file has been
-        // absorbed. Emit `*imports` Cozo rows directly; the in-memory
-        // `file_imports` map only exists long enough for the call
-        // resolver to scope its lookups (when eager calls are enabled).
+        // absorbed, emitting `imports` rows directly.
         // C# `using X` imports a namespace, not a file path. Build a
         // namespace -> declaring-files index from the absorbed `symbol` rows
         // so those imports resolve to every file that declares the namespace.
@@ -379,7 +307,6 @@ impl<'a> GraphBuilder<'a> {
         } else {
             HashMap::new()
         };
-        let mut file_imports: HashMap<Spur, Vec<Spur>> = HashMap::new();
         let mut imports_emitted: usize = 0;
         for di in deferred_imports {
             let Some(from_spur) = graph.symbols.get(&di.from_file_path) else {
@@ -421,87 +348,19 @@ impl<'a> GraphBuilder<'a> {
                     && from_spur != to_spur
                 {
                     stream_writer.push_imports(&di.from_file_path, &resolved);
-                    file_imports.entry(from_spur).or_default().push(to_spur);
                     imports_emitted += 1;
                 }
             }
         }
 
-        // Resolve deferred Calls with import-scoped name lookup:
-        //
-        //   - Same-file: any symbol in the caller's file with a matching name.
-        //   - Cross-file: only symbols whose file the caller imports, and
-        //     which are themselves exported.
-        //
-        // Disabled by default (RESOLVE_CALLS_EAGERLY = false); call
-        // edges are derived at query time over `*occurrence` +
-        // `*imports` + `*symbol`. See `examples/calls_at_query_time.cozoql`
-        // and `docs/resolution.md`. The block is kept compiled (rather
-        // than deleted) so the eager path can be re-enabled without a
-        // refactor if some future workload makes the RAM/latency
-        // trade-off worth flipping again.
-        let mut calls_emitted: usize = 0;
-        if RESOLVE_CALLS_EAGERLY {
-            let mut targets: Vec<AbsorbedSymbol> = Vec::new();
-            for dc in deferred_calls {
-                targets.clear();
-
-                if let Some(syms) = file_symbols_by_name.get(&(dc.caller_file_spur, dc.callee_spur))
-                {
-                    targets.extend(syms.iter().cloned());
-                }
-
-                if let Some(imp_files) = file_imports.get(&dc.caller_file_spur) {
-                    for &imp_file in imp_files {
-                        if let Some(syms) = file_exports_by_name.get(&(imp_file, dc.callee_spur)) {
-                            targets.extend(syms.iter().cloned());
-                        }
-                    }
-                }
-
-                targets.retain(|s| {
-                    matches!(
-                        s.kind,
-                        SymbolKind::Function
-                            | SymbolKind::Method
-                            | SymbolKind::ArrowFunction
-                            | SymbolKind::Macro
-                    )
-                });
-                targets.sort_by(|a, b| a.id.cmp(&b.id));
-                targets.dedup_by(|a, b| a.id == b.id);
-                for t in &targets {
-                    if t.id != dc.caller_id {
-                        stream_writer.push_calls(
-                            &dc.caller_id,
-                            &t.id,
-                            &dc.site_file,
-                            dc.site_start_byte as i64,
-                            dc.site_end_byte as i64,
-                            true,
-                        );
-                        calls_emitted += 1;
-                    }
-                }
-            }
-        } else {
-            // Consume the bindings so the compiler doesn't warn when
-            // the eager block is gated off.
-            let _ = (
-                deferred_calls,
-                file_symbols_by_name,
-                file_exports_by_name,
-                file_imports,
-            );
-        }
-
-        // Flush whatever the resolver added.
+        // Flush whatever the resolver added. Resolved call edges are
+        // emitted later by `from_code_graph::resolve_and_emit_call_edges`
+        // from the `call_site` rows absorb wrote.
         stream_writer.flush(store)?;
 
         info!(
             files = file_known_spurs.len(),
             imports = imports_emitted,
-            calls = calls_emitted,
             "graph build complete"
         );
         Ok(graph)
@@ -542,8 +401,8 @@ fn parse_one_file(
     // Prior shape was a loop over every function symbol that re-walked
     // the whole tree scoped to the symbol's range; nested functions
     // therefore emitted the same call_site twice (once per enclosing
-    // symbol), producing duplicate ids that Cozo silently upserted
-    // and DuckDB's strict Appender rejects with a PK violation.
+    // symbol), producing duplicate ids that DuckDB's strict Appender
+    // rejects with a PK violation.
     let caller_ranges: Vec<(u32, u32, u32)> = symbols
         .iter()
         .filter(|s| {
@@ -601,16 +460,12 @@ fn parse_one_file(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn absorb_file_data(
     interner: &Symbols,
     data: FileGraphData,
     workspace: &Workspace,
     repo_id: &str,
     deferred_imports: &mut Vec<DeferredImport>,
-    deferred_calls: &mut Vec<DeferredCall>,
-    file_symbols_by_name: &mut HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
-    file_exports_by_name: &mut HashMap<(Spur, Spur), Vec<AbsorbedSymbol>>,
     file_known_spurs: &mut HashSet<Spur>,
     stream_writer: &mut DbWriter,
 ) {
@@ -635,9 +490,8 @@ fn absorb_file_data(
     file_known_spurs.insert(path_spur);
     let language_str = language.as_str();
 
-    // *file row + classification + nolints. These used to be emitted by
-    // `from_code_graph::emit_node` for `NodeWeight::File`; folding them
-    // into absorb lets the File "node" exist only as a Cozo row.
+    // `file` row + classification. Emitted here so the file exists
+    // only as a DuckDB row, never as an in-memory graph node.
     stream_writer.push_file(&path, language_str, repo_id);
     let src_for_marker = workspace.read_file(&path);
     let is_generated = src_for_marker
@@ -650,9 +504,6 @@ fn absorb_file_data(
         is_barrel_file(&path),
         is_generated,
     );
-    if let Some(src) = src_for_marker {
-        extract_nolints(&path, &src, stream_writer);
-    }
 
     // Pass 1: compute symbol IDs + populate file-local lookup maps.
     // `local_id_by_line` mirrors the old `graph.symbol_nodes` map
@@ -669,29 +520,6 @@ fn absorb_file_data(
             &sym.name,
             sym.kind,
         );
-        let sym_file_spur = interner.intern(&sym.file_path);
-        let sym_name_spur = interner.intern(&sym.name);
-        // file_symbols_by_name / file_exports_by_name only feed the
-        // eager calls resolver. When that's disabled, skip them — they
-        // were the dominant RAM term on large C++ repos.
-        if RESOLVE_CALLS_EAGERLY {
-            let absorbed = AbsorbedSymbol {
-                id: id.clone(),
-                kind: sym.kind,
-            };
-            file_symbols_by_name
-                .entry((sym_file_spur, sym_name_spur))
-                .or_default()
-                .push(absorbed.clone());
-            if sym.is_exported {
-                file_exports_by_name
-                    .entry((sym_file_spur, sym_name_spur))
-                    .or_default()
-                    .push(absorbed);
-            }
-        } else {
-            let _ = (sym_file_spur, sym_name_spur);
-        }
         // Only function-like symbols can enclose a call, and call-site
         // attribution (`collect_calls`) keys the caller on a function-like
         // symbol's start_line. Parameters/locals/fields share that line
@@ -760,7 +588,7 @@ fn absorb_file_data(
     for &i in &order {
         let sym = &symbols[i];
         qnames[i] = match parent_of[i] {
-            Some(p) => format!("{}{}{}", &qnames[p], sep, sym.name),
+            Some(p) => format!("{}{}{}", qnames[p], sep, sym.name),
             None => sym.name.clone(),
         };
     }
@@ -824,10 +652,8 @@ fn absorb_file_data(
     }
 
     // Queue imports for cross-file resolution AND stream the raw_import
-    // rows directly to Cozo — they're per-file with no cross-file
-    // dependency, so we don't need to keep them on the graph for the
-    // populate phase to walk later (issue 08 incremental-refresh path
-    // reads from Cozo).
+    // rows straight to DuckDB — they're per-file with no cross-file
+    // dependency, so the populate phase never has to walk them.
     let lang_str = language.as_str();
     for (idx, import) in imports.iter().enumerate() {
         stream_writer.push_raw_import(
@@ -988,7 +814,7 @@ fn absorb_file_data(
             kind_str,
         );
     }
-    // Issue #15: stream per-language attrs directly to Cozo. Each row
+    // Issue #15: stream per-language attrs straight to DuckDB. Each row
     // carries its own symbol_id, so no cross-file resolution is needed.
     for r in &attrs.rust {
         stream_writer.push_rust_attrs(&r.symbol_id, r.is_unsafe, r.is_const, &r.derives);
@@ -1053,8 +879,8 @@ fn absorb_file_data(
         );
     }
     // Issue #16: stream occurrence/scope/binding facts directly. Each
-    // row is self-contained (ids are file-local) and the resolver reads
-    // them from Cozo anyway, so there's no reason to keep them on graph.
+    // row is self-contained (ids are file-local), so there's no reason
+    // to keep them in memory.
     for r in &references.scopes {
         stream_writer.push_scope(
             &r.id,
@@ -1090,15 +916,12 @@ fn absorb_file_data(
         );
     }
 
-    // Emit one `*call_site` row per call expression. caller_id is
+    // Emit one `call_site` row per call expression. caller_id is
     // None for calls that sit outside any function/method (e.g.
     // top-level script statements). `id` is a deterministic
     // `file:start_byte` slug — each call site has at most one row.
-    //
-    // When eager resolution is enabled (RESOLVE_CALLS_EAGERLY), we
-    // ALSO push a DeferredCall so the post-channel resolver can emit
-    // *calls rows. Templates that want resolved call edges read
-    // *call_site at query time — see find_callers.cozoql.
+    // `resolve_and_emit_call_edges` turns these into `call_edge` rows
+    // once every file has been absorbed.
     for cs in call_sites {
         let caller_id_opt = local_id_by_line.get(&cs.caller_symbol_line).cloned();
         // Nested calls (`super().__init__(...)` etc.) share start_byte
@@ -1115,24 +938,6 @@ fn absorb_file_data(
             cs.start_byte as i64,
             cs.end_byte as i64,
         );
-
-        if RESOLVE_CALLS_EAGERLY {
-            let Some(caller_id) = caller_id_opt else {
-                continue;
-            };
-            let callee_spur = interner.intern(&cs.callee_name);
-            deferred_calls.push(DeferredCall {
-                caller_id,
-                caller_file_spur: path_spur,
-                callee_spur,
-                site_file: cs.caller_file,
-                site_start_byte: cs.start_byte,
-                site_end_byte: cs.end_byte,
-            });
-        }
-    }
-    if !RESOLVE_CALLS_EAGERLY {
-        let _ = path_spur;
     }
 }
 

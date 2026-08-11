@@ -125,10 +125,6 @@ pub enum ProjectCommand {
         #[arg(short, long)]
         lang: Option<String>,
 
-        /// Glob patterns to exclude (repeatable)
-        #[arg(short, long)]
-        exclude: Vec<String>,
-
         /// Inline SQL query
         #[arg(long, conflicts_with = "template")]
         sql: Option<String>,

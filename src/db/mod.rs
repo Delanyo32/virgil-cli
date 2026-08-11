@@ -1,12 +1,10 @@
-//! DuckDB-backed fact store — experimental swap for the Cozo backend.
+//! DuckDB-backed fact store.
 //!
-//! See `docs/experiments/duckdb-swap.md` for the locked plan. This module
-//! mirrors `src/cozo/`'s shape: schema DDL, a store wrapper, a batched
-//! writer, the populate tail, and a queries helper. There is no
-//! `incremental` module (deferred — cold + warm only).
+//! Schema DDL, a store wrapper, a batched writer, and the populate tail.
+//! Cold + warm builds only — incremental refresh is not implemented.
+//! See `docs/experiments/duckdb-swap.md` for the design.
 
 pub mod from_code_graph;
-pub mod queries;
 pub mod schema;
 pub mod store;
 pub mod writer;
@@ -19,11 +17,13 @@ pub use writer::DbWriter;
 /// requires a fresh build. Persisted into `build_meta(schema_version)`
 /// and checked on open; mismatch wipes the file.
 ///
-/// - 1: initial DuckDB schema (Cozo schema v9 ported 1:1 to DuckDB tables
+/// - 1: initial DuckDB schema (ported from the prior Cozo store
 ///   + a `CREATE PROPERTY GRAPH codegraph` for duckpgq).
 /// - 2: add `call_site.receiver` (immediate object/namespace of a call).
 /// - 3: `scope.kind` for body blocks now holds the owning tree-sitter
 ///   construct (for_statement, if_statement, …) instead of generic "block".
 /// - 4: add `local_type` (local variable -> declared/inferred type name)
 ///   for type-aware call resolution.
-pub const SCHEMA_VERSION: u32 = 4;
+/// - 5: drop the never-populated `calls` and `nolint` tables. Resolved
+///   call edges live in `call_edge`.
+pub const SCHEMA_VERSION: u32 = 5;

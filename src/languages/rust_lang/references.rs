@@ -1,7 +1,6 @@
 //! Issue #16 Rust pilot — `occurrence` / `scope` / `binding` fact
-//! emitter per ADR-0005. The Cozoscript resolver
-//! (`src/cozo/resolver.rs`) materialises `references` rows from
-//! these facts.
+//! emitter per ADR-0005. Queries join these facts to resolve
+//! references.
 //!
 //! Scope model:
 //! - Every file gets a top-level `file` scope.

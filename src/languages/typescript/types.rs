@@ -527,7 +527,7 @@ impl<'a> Ctx<'a> {
     ///   - predefined types → `typescript::primitive::<name>`
     ///   - global ambient allow-list → `typescript::global::<name>`
     ///
-    /// Everything else returns `None` and downstream Cozoscript handles
+    /// Everything else returns `None` and downstream SQL handles
     /// import-based resolution. This matches the Rust pilot, which also
     /// only fills in canonical_name for what it can prove locally.
     fn resolve_head(&self, display: &str) -> Option<String> {

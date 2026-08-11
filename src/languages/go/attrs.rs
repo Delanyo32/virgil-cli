@@ -83,10 +83,9 @@ fn parse_build_tag(text: &str) -> Option<String> {
     // Strip comment markers.
     let body = if let Some(rest) = stripped.strip_prefix("//") {
         rest
-    } else if let Some(rest) = stripped.strip_prefix("/*") {
-        rest.strip_suffix("*/").unwrap_or(rest)
     } else {
-        return None;
+        let rest = stripped.strip_prefix("/*")?;
+        rest.strip_suffix("*/").unwrap_or(rest)
     };
     let body = body.trim();
     if let Some(expr) = body.strip_prefix("go:build ") {

@@ -1,6 +1,6 @@
 //! Issue #16 Go `occurrence` / `scope` / `binding` fact emitter per
-//! ADR-0005 and `docs/references-go.md`. The Cozoscript resolver
-//! materialises `references` rows from these facts.
+//! ADR-0005 and `docs/references-go.md`. Queries join these
+//! facts to resolve references.
 //!
 //! Scope model:
 //! - File root → `file` scope (`parent_id = null`). Imports bind here.
