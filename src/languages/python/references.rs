@@ -1,6 +1,6 @@
 //! Issue #16 Python `occurrence` / `scope` / `binding` fact emitter per
-//! ADR-0005 and `docs/references-python.md`. The Cozoscript resolver
-//! materialises `references` rows from these facts.
+//! ADR-0005 and `docs/references-python.md`. Queries join these
+//! facts to resolve references.
 //!
 //! Scope model (Python is special — no block scope):
 //! - The whole file → top-level scope, `kind = "module"`,

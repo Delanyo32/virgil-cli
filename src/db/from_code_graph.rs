@@ -1,15 +1,11 @@
 //! Populate a [`DbStore`] from a finished [`CodeGraph`].
 //!
-//! 1:1 port of `src/cozo/from_code_graph.rs`. Reads the same scratch
-//! state off `CodeGraph`, emits the same logical rows, runs the same
-//! parallel rayon call-edge resolver — just against DuckDB tables and
-//! the duckdb-rs `Value` type instead of cozo `DataValue`.
+//! Runs the post-parse phase: the SQL `resolve_inheritance` join, the
+//! build-meta file record, and the parallel rayon call-edge resolver.
 //!
-//! Skipped vs the cozo version:
-//! - `wipe_workspace_relations` — no incremental refresh in the
-//!   experiment (Q6 decision).
-//! - `is_warm_compatible` — `DbStore::open_persistent` already
-//!   version-checks via `build_meta`; warm reuse is "fresh = false".
+//! There is no wipe/incremental-refresh path (cold + warm only), and no
+//! warm-compatibility check — `DbStore::open_persistent` already
+//! version-checks via `build_meta`.
 
 use std::collections::HashMap;
 
@@ -152,8 +148,6 @@ fn bare_type_name(s: &str) -> &str {
     base.rsplit(['.', ':']).next().unwrap_or(base).trim()
 }
 
-/// See `cozo::from_code_graph::resolve_and_emit_call_edges` for the
-/// algorithm — this is the same code path against DuckDB tables.
 /// Self-reference receiver tokens across the supported languages
 /// (`this`: JS/TS/Java/C#/C++, `self`: Python/Rust, `$this`: PHP). Go's
 /// receiver is a named variable, not a keyword, so it isn't covered here.
@@ -508,30 +502,4 @@ pub(crate) fn is_generated_marker(source: &str) -> bool {
         }
     }
     false
-}
-
-pub(crate) fn extract_nolints(file_path: &str, source: &str, writer: &mut DbWriter) {
-    for (i, line) in source.lines().enumerate() {
-        let line_no = (i + 1) as i64;
-        if let Some(pat) = find_nolint(line) {
-            writer.push_nolint(file_path, line_no, pat);
-        }
-    }
-}
-
-fn find_nolint(line: &str) -> Option<&str> {
-    const PREFIXES: &[&str] = &["// nolint:", "# nolint:", "/* nolint:"];
-    for prefix in PREFIXES {
-        if let Some(start) = line.find(prefix) {
-            let rest = &line[start + prefix.len()..];
-            let end = rest
-                .find(|c: char| c.is_whitespace() || c == '*' || c == ',')
-                .unwrap_or(rest.len());
-            let pat = rest[..end].trim();
-            if !pat.is_empty() {
-                return Some(pat);
-            }
-        }
-    }
-    None
 }

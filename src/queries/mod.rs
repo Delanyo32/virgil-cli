@@ -1,14 +1,8 @@
-//! User-facing Cozoscript query surface (issue 05).
-//!
-//! Three entry points (mutually exclusive at the CLI):
-//!   - `--cozoscript '<inline>'`
-//!   - `--file <path.cozoql>`
-//!   - `--template <name>` (plus `--param k=v`)
-//!
-//! See [`runner::run`] for the unified entry point; [`templates`] for the
-//! embedded built-ins; [`rust_templates`] for the three handlers that
-//! cannot be expressed as pure Cozoscript (complexity_hotspots,
-//! taint_paths, unreleased_resources).
+//! User-facing SQL query surface. Three mutually exclusive CLI entry
+//! points: `--sql '<inline>'`, `--file <path.sql>`, `--template <name>`
+//! (plus `--param k=v`). See [`runner::run`] for the dispatcher,
+//! [`templates`] for the embedded SQL built-ins, and [`rust_templates`]
+//! for `complexity_hotspots`, the one handler that needs source access.
 
 pub mod runner;
 pub mod rust_templates;

@@ -1,9 +1,7 @@
 //! DuckDB DDL for the virgil fact store.
 //!
-//! 1:1 port of `src/cozo/schema.rs` — same relation names, same columns,
-//! same stringly composite IDs (ADR-0002). Cozo `String` → `VARCHAR`,
-//! `Int` → `BIGINT`, `Bool` → `BOOLEAN`, `String?`/`Int?` → nullable,
-//! `[String]` → `VARCHAR[]`. Composite key relations get `PRIMARY KEY (...)`.
+//! Stringly composite IDs per ADR-0002. Composite-key tables get an
+//! explicit `PRIMARY KEY (...)`; list-valued columns are `VARCHAR[]`.
 //!
 //! The duckpgq `CREATE PROPERTY GRAPH` DDL lives in [`pgq_statements`]
 //! and is applied after the base tables exist. It defines two vertex
@@ -48,15 +46,6 @@ pub fn create_statements() -> &'static [&'static str] {
             PRIMARY KEY (entity_id, file_path)\
          )",
         // ─── graph edges ───────────────────────────────────────────────────
-        "CREATE TABLE calls (\
-            caller_id VARCHAR NOT NULL, \
-            callee_id VARCHAR NOT NULL, \
-            call_site_file VARCHAR NOT NULL, \
-            call_site_start_byte BIGINT NOT NULL, \
-            call_site_end_byte BIGINT NOT NULL, \
-            is_direct BOOLEAN NOT NULL, \
-            PRIMARY KEY (caller_id, callee_id)\
-         )",
         // Raw call sites — one row per call expression. caller_id is
         // NULL for top-level calls. Cross-file resolution to a symbol
         // id is done by `resolve_and_emit_call_edges` at build end.
@@ -271,12 +260,6 @@ pub fn create_statements() -> &'static [&'static str] {
             is_barrel BOOLEAN NOT NULL, \
             is_generated BOOLEAN NOT NULL\
          )",
-        "CREATE TABLE nolint (\
-            file_path VARCHAR NOT NULL, \
-            line BIGINT NOT NULL, \
-            suppressed_pattern VARCHAR NOT NULL, \
-            PRIMARY KEY (file_path, line)\
-         )",
         // ─── metadata ──────────────────────────────────────────────────────
         "CREATE TABLE build_meta (\
             key VARCHAR PRIMARY KEY, \
@@ -298,7 +281,6 @@ pub fn index_statements() -> &'static [&'static str] {
         "CREATE INDEX idx_symbol_by_qname ON symbol(qualified_name)",
         "CREATE INDEX idx_symbol_by_file ON symbol(file_path)",
         "CREATE INDEX idx_symbol_by_name_kind ON symbol(name, kind)",
-        "CREATE INDEX idx_calls_by_callee ON calls(callee_id)",
         "CREATE INDEX idx_imports_by_imported ON imports(imported_id)",
         "CREATE INDEX idx_imports_by_importer ON imports(importer_file_id)",
         "CREATE INDEX idx_comment_by_file ON comment(file_path)",
@@ -318,8 +300,8 @@ pub fn index_statements() -> &'static [&'static str] {
 /// - edge tables: `call_edge` (symbol→symbol), `imports` (file→symbol),
 ///   `extends` (symbol→symbol), `implements` (symbol→symbol)
 ///
-/// Other graph-shaped relations (`calls`, `binding`, `occurrence`) are
-/// not exposed via PGQ — templates use plain SQL for those.
+/// Other graph-shaped relations (`binding`, `occurrence`) are not
+/// exposed via PGQ — templates use plain SQL for those.
 pub fn pgq_statements() -> &'static [&'static str] {
     &[
         // duckpgq does not (currently) accept explicit KEY clauses on

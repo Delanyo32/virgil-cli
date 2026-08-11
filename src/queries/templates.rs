@@ -1,38 +1,46 @@
 //! Built-in template discovery.
 //!
 //! Built-in pure-SQL templates live under `src/queries/builtin/`, one
-//! `.sql` file per template. The `include_dir!` macro embeds them at
-//! build time so they ship inside the binary. To add a new template,
-//! drop a `<name>.sql` file next to the existing ones — no Rust glue
-//! required.
+//! `.sql` file per template, embedded at build time so they ship inside
+//! the binary. To add a new template, drop a `<name>.sql` file next to
+//! the existing ones and add one line to `BUILTIN_TEMPLATES`.
 //!
 //! Rust-side handlers (templates that need source access beyond what's
 //! in the fact store) live in `rust_templates.rs` and short-circuit
 //! the SQL path; their names are kept disjoint from the `.sql` file
 //! names.
 
-use include_dir::{Dir, include_dir};
-
-static BUILTIN_TEMPLATES_DIR: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/src/queries/builtin");
+static BUILTIN_TEMPLATES: &[(&str, &str)] = &[
+    ("export_surface", include_str!("builtin/export_surface.sql")),
+    ("find_callees", include_str!("builtin/find_callees.sql")),
+    ("find_callers", include_str!("builtin/find_callers.sql")),
+    ("find_cycles", include_str!("builtin/find_cycles.sql")),
+    (
+        "find_function_by_name",
+        include_str!("builtin/find_function_by_name.sql"),
+    ),
+    (
+        "find_implementations_of",
+        include_str!("builtin/find_implementations_of.sql"),
+    ),
+    ("import_depth", include_str!("builtin/import_depth.sql")),
+];
 
 /// Pure-SQL template names (one `.sql` file each).
 pub fn sql_template_names() -> Vec<String> {
-    BUILTIN_TEMPLATES_DIR
-        .files()
-        .filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("sql"))
-        .filter_map(|f| f.path().file_stem().and_then(|s| s.to_str()))
-        .map(|s| s.to_string())
+    BUILTIN_TEMPLATES
+        .iter()
+        .map(|(name, _)| name.to_string())
         .collect()
 }
 
 /// Returns the SQL body for a built-in template, or `None` if no `.sql`
 /// file by that name is embedded.
 pub fn load_sql_template(name: &str) -> Option<&'static str> {
-    let path = format!("{name}.sql");
-    BUILTIN_TEMPLATES_DIR
-        .get_file(&path)
-        .and_then(|f| f.contents_utf8())
+    BUILTIN_TEMPLATES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, sql)| *sql)
 }
 
 #[cfg(test)]

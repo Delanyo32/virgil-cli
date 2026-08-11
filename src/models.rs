@@ -179,7 +179,7 @@ pub struct CommentInfo {
 }
 
 /// A type-expression occurrence extracted from one file. Maps to one row
-/// in the Cozo `type` relation; rows dedupe per `(file_path, display_name)`
+/// in the `type` table; rows dedupe per `(file_path, display_name)`
 /// per ADR-0003.
 #[derive(Debug, Clone)]
 pub struct TypeRow {
@@ -268,8 +268,7 @@ pub type ExtractedTypes = (
 );
 
 /// Issue #16 fact-emission rows per ADR-0005. Each per-language
-/// extractor emits these; the Cozoscript resolver consumes them to
-/// materialise the `references` view.
+/// extractor emits these; queries join them to resolve references.
 
 #[derive(Debug, Clone)]
 pub struct OccurrenceRow {
@@ -333,13 +332,13 @@ pub struct ReferencesBucket {
 
 /// Issue #15 attribute rows. One per applicable symbol per the
 /// language's `docs/attrs-<lang>.md` contract. Columns mirror the
-/// schema declared in `src/cozo/schema.rs` (additive — no `symbol`
+/// schema declared in `src/db/schema.rs` (additive — no `symbol`
 /// columns duplicated per contract review policy 4).
 ///
 /// `AttrsBucket` is the per-file output from each language's attrs
 /// extractor: only the language's own variant is populated; the rest
 /// are `None`. The emitter walks each variant and pushes via the
-/// matching `CozoWriter::push_*_attrs` method.
+/// matching `DbWriter::push_*_attrs` method.
 #[derive(Debug, Clone, Default)]
 pub struct AttrsBucket {
     pub rust: Vec<RustAttrsRow>,

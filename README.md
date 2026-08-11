@@ -81,7 +81,6 @@ virgil-cli projects query <NAME> --file <path.sql> [--param k=v ...] [OPTIONS]
 |--------|-------------|---------|
 | `<NAME>` | Project name | required |
 | `-l`, `--lang` | Comma-separated language filter | all supported |
-| `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
 | `--template` | Built-in template name (see list below) | — |
 | `--sql` | Inline SQL query | — |
 | `-f`, `--file` | Path to a SQL file | — |
@@ -204,7 +203,6 @@ Authored queries can reach into any of these tables. See `src/db/schema.rs` for 
 | `file` | `path PK, language, repo_id` |
 | `symbol` | `id PK, kind, name, qualified_name, language, visibility, file_path, parent_id, is_async, is_static, is_abstract, is_mutable, exported` |
 | `span` | `(entity_id, file_path) PK, start_byte, end_byte, start_line, end_line, start_col, end_col` — positional metadata for symbols / comments / call sites |
-| `calls` | `(caller_id, callee_id) PK, call_site_file, call_site_start_byte, call_site_end_byte, is_direct` |
 | `call_site` | `id PK, caller_id, callee_name, file_path, start_byte, end_byte` — raw, unresolved call sites |
 | `call_edge` | `(caller_id, callee_id) PK, file_path` — resolved direct call edges (PGQ edge table for `codegraph`) |
 | `occurrence` | `id PK, name, file_path, start_byte, end_byte, enclosing_symbol_id, enclosing_scope_id, occurrence_kind` |
@@ -222,7 +220,6 @@ Authored queries can reach into any of these tables. See `src/db/schema.rs` for 
 | `comment` | `id PK, documents_id, file_path, kind, is_doc, text, todo_kind, start_byte, end_byte` |
 | `<lang>_attrs` | per-language attribute table (`rust_attrs`, `python_attrs`, `typescript_attrs`, `cpp_attrs`, `csharp_attrs`, `go_attrs`, `php_attrs`, `c_attrs`, `java_attrs`) |
 | `file_classification` | `path PK, is_test, is_barrel, is_generated` |
-| `nolint` | `(file_path, line) PK, suppressed_pattern` |
 | `build_meta` | `key PK, value` — includes `schema_version` |
 | `build_meta_files` | `file_path PK, hash, size, mtime` |
 

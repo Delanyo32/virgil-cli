@@ -241,8 +241,8 @@ pub fn extract_attrs(
 }
 
 /// Issue #16 references-fact emission facade per ADR-0005. Each
-/// language emits `occurrence` / `scope` / `binding` rows; the
-/// Cozoscript resolver consumes them to materialise `references`.
+/// language emits `occurrence` / `scope` / `binding` rows; queries
+/// join them to resolve references.
 pub fn extract_references(
     tree: &Tree,
     source: &[u8],
