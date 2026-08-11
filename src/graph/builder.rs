@@ -588,7 +588,7 @@ fn absorb_file_data(
     for &i in &order {
         let sym = &symbols[i];
         qnames[i] = match parent_of[i] {
-            Some(p) => format!("{}{}{}", &qnames[p], sep, sym.name),
+            Some(p) => format!("{}{}{}", qnames[p], sep, sym.name),
             None => sym.name.clone(),
         };
     }

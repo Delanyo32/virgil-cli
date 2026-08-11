@@ -550,12 +550,10 @@ pub fn resolve_import(
     specifier: &str,
     known_files: &HashSet<String>,
 ) -> Option<String> {
-    // Strip the final segment — it's the item name, not a module
-    let module_path = if let Some(pos) = specifier.rfind("::") {
-        &specifier[..pos]
-    } else {
-        return None; // Single segment, can't resolve to a file
-    };
+    // Strip the final segment — it's the item name, not a module.
+    // A single segment has no `::`, so it can't resolve to a file.
+    let pos = specifier.rfind("::")?;
+    let module_path = &specifier[..pos];
 
     let segments: Vec<&str> = if let Some(rest) = module_path.strip_prefix("crate::") {
         // crate::foo::bar -> src/foo/bar
