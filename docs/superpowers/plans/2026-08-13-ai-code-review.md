@@ -606,9 +606,15 @@ git commit -m "feat(scan): add cersei with provider selection (anthropic/openai/
 - [ ] **Step 1: Write `src/scan/report.rs` (data types only; rendering comes in Task 8)**
 
 ```rust
+use cersei::prelude::schemars; // cersei re-exports schemars 0.8; see note below
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+// `JsonSchema` is required because `ReportFindingInput` (Step 4) embeds
+// `Severity`, and cersei's `ToolExecute::Input` bound is
+// `DeserializeOwned + schemars::JsonSchema`. Do NOT `cargo add schemars` —
+// `use cersei::prelude::*` re-exports cersei's own schemars 0.8, and a direct
+// dependency on schemars 1.x would shadow it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     High,
@@ -741,11 +747,38 @@ Note the `$path` binding: `run_query` supports `$name` substitution (the old que
 
 - [ ] **Step 4: Wrap as cersei tools** (names per Task 4's verification)
 
+Task 4 verified the real cersei 0.2.6 API. Bring the names into scope with
+`use cersei::prelude::*;` — that glob supplies the `Tool` derive, `ToolExecute`,
+`ToolContext`, `ToolResult`, the `#[async_trait]` attribute macro, and `schemars`.
+Two extra direct dependencies are already in `Cargo.toml` and are **required**:
+`cersei-tools` and `async-trait`, because the derive expands to
+`cersei_tools::…` and `#[async_trait::async_trait]`, and neither of those crate
+names is reachable through the prelude glob.
+
 ```rust
+use cersei::prelude::*;
+
 // Each agent gets its own DbStore clone; Mutex is uncontended, it exists
-// only to satisfy Sync bounds on the tool struct.
+// only to satisfy Sync bounds on the tool struct. The `#[derive(Tool)]` /
+// `#[tool(...)]` attributes below carry the name+description the model sees;
+// `permission` accepts "none" | "read_only" | "write" | "execute" | "dangerous"
+// and `category` is optional (defaults to Custom). `description` defaults to an
+// empty string, so always set it.
+#[derive(Tool)]
+#[tool(
+    name = "query",
+    description = "Run a read-only SQL query against the code database. \
+        Tables and columns are listed in the system prompt.",
+    permission = "read_only"
+)]
 pub struct QueryTool(pub Arc<Mutex<DbStore>>);
+
+#[derive(Tool)]
+#[tool(name = "read_source", description = "...", permission = "read_only")]
 pub struct ReadSourceTool(pub Arc<Mutex<DbStore>>);
+
+#[derive(Tool)]
+#[tool(name = "report_finding", description = "...", permission = "none")]
 pub struct ReportFindingTool(pub Arc<Mutex<Vec<Finding>>>);
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -774,19 +807,27 @@ pub struct ReportFindingInput {
     pub message: String,
 }
 
-// #[derive(Tool)] / impl ToolExecute per the API confirmed in Task 4, e.g.:
-//
-// #[derive(Tool)]
-// #[tool(name = "query", description = "Run a read-only SQL query against the \
-//   code database. Tables and columns are listed in the system prompt.")]
-// ... impl ToolExecute for QueryTool { type Input = QueryInput;
-//       async fn run(&self, input, _ctx) -> ToolResult {
-//           ToolResult::success(run_sql(&self.0.lock().unwrap(), &input.sql))
-//       }
-//   }
-// ReadSourceTool → read_lines(...) mapped to success/error.
+// Confirmed cersei 0.2.6 shape: the derive sits on the struct (above), the
+// behaviour goes in a separate `impl ToolExecute`.
+#[async_trait]
+impl ToolExecute for QueryTool {
+    type Input = QueryInput;
+    async fn run(&self, input: QueryInput, _ctx: &ToolContext) -> ToolResult {
+        ToolResult::success(run_sql(&self.0.lock().unwrap(), &input.sql))
+    }
+}
+// ReadSourceTool → read_lines(...) mapped to ToolResult::success / ::error.
 // ReportFindingTool → push a Finding (review name filled later by the runner),
 //   reply ToolResult::success("recorded").
+//
+// The derive generates `Tool::input_schema` from
+// `schemars::schema_for!(Self::Input)` (draft-07) and `Tool::execute`, which
+// deserializes the JSON input and returns `ToolResult::error("Invalid input
+// for '<name>': …")` on a bad payload — so tools never need to hand-validate.
+//
+// NOTE for the tests: `ToolContext` has no `Default` and no constructor, so
+// unit tests should exercise `run_sql` / `read_lines` directly (as Step 2 does)
+// rather than calling `Tool::execute`.
 
 pub fn make_tools(
     store: DbStore,
@@ -1109,15 +1150,22 @@ pub async fn run(cfg: ScanConfig) -> Result<()> {
 
             let (q, r, f) = tools::make_tools(agent_store, sink.clone());
             let provider = provider::build(provider_kind, &model)?;
-            // Builder shape per Task 4 verification:
+            // Builder shape verified against cersei 0.2.6 in Task 4.
+            // `provider_boxed` takes the `Box<dyn Provider>` that
+            // `provider::build` returns. `run_with` lives on AgentBuilder and
+            // consumes it — do NOT write `.build()?.run_with(..)`; that does
+            // not compile. Use `.run_with(..)` alone, or `.build()?.run(..)`.
+            // `max_turns` defaults to 10, `max_tokens` to 16384, and the
+            // permission policy to AllowAll — set max_turns higher if reviews
+            // need more SQL round-trips.
             let out = cersei::Agent::builder()
-                .provider(provider)
+                .provider_boxed(provider)
                 .system_prompt(&system)
                 .model(&model)
+                .max_turns(30)
                 .tool(q)
                 .tool(r)
                 .tool(f)
-                .build()?
                 .run_with(&prompt.body)
                 .await;
 
@@ -1164,7 +1212,11 @@ pub async fn run(cfg: ScanConfig) -> Result<()> {
 ```
 
 Adaptation notes for the implementer:
-- If cersei's builder wants tools as one call (`.tools(vec![...])` with boxed trait objects), use that form — Task 4 told you which.
+- `.tool(t)` takes one `impl Tool + 'static` and can be chained, as above. `.tools(Vec<Box<dyn Tool>>)` also exists if a single call reads better.
+- **No built-in tools are added implicitly.** `AgentBuilder::default()` starts with an empty `tools` vec, `build()` copies it verbatim, and the runner sends only `agent.tools` to the provider. An agent with three custom tools has exactly those three. There is no switch to turn off.
+- The agent's own `.model(..)` is the only model that matters — the runner reads `agent.model` (falling back to `"claude-sonnet-4-6"`) and ignores the provider's `default_model`.
+- The system prompt is passed through verbatim; the runner only appends a todo nudge when the `todo_write` tool has recorded todos, which never happens here.
+- `run_with` returns `cersei_types::Result<AgentOutput>`; `CerseiError` is a `thiserror` enum, so `?` into `anyhow` works. `output.text()` returns `&str`.
 - If `DbStore` is not `Send` (compiler will say so at `tokio::spawn`), fall back to `tokio::task::spawn_blocking` for the whole per-agent body with a small inner `Runtime::block_on` — but check first; `duckdb::Connection` is documented `Send`.
 - `report::emit` doesn't exist yet — for THIS task stub it as `println!("{}", serde_json::to_string_pretty(findings)?)` inside `report.rs`; Task 8 replaces it.
 
