@@ -1,8 +1,16 @@
 # virgil-cli
 
-A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/PHP codebases on-demand with [tree-sitter](https://tree-sitter.github.io/), materialises them into a [DuckDB](https://duckdb.org/) fact store, and answers queries via SQL — including graph traversal via the [duckpgq](https://duckpgq.org/) SQL/PGQ extension. Persistent on-disk cache with warm-start in tens of milliseconds.
+AI code review that reads your repository as a database instead of crawling files.
 
-## Installation
+`virgil-cli scan` parses your code with [tree-sitter](https://tree-sitter.github.io/)
+and writes the result into a local [DuckDB](https://duckdb.org/) database: every file,
+every symbol, every call edge, every import, plus the full source text. It then starts
+one AI agent per review topic. Each agent explores the codebase by writing SQL, not by
+opening files one at a time, so it can ask "which functions have no callers?" or "which
+files import each other in a cycle?" in a single query and get an answer over the whole
+repository. Agents report findings; the CLI prints them grouped by review.
+
+## Install
 
 ### macOS / Linux
 
@@ -10,533 +18,168 @@ A fast Rust CLI that parses TypeScript/JavaScript/C/C++/C#/Rust/Python/Go/Java/P
 curl -fsSL https://raw.githubusercontent.com/Delanyo32/virgil-cli/master/install.sh | sh
 ```
 
-> Note: Windows is not currently supported. The bundled `libduckdb-sys` C++ build
-> hits an MSVC removal of `stdext::checked_array_iterator` in VS 2026; the
-> regression is upstream and will be revisited when libduckdb-sys ships a
-> compatible DuckDB. Use WSL in the meantime.
+The script downloads a prebuilt binary into `~/.local/bin`. Pass `-b DIR` to install
+somewhere else. Released targets are `x86_64` and `aarch64` for both Linux (glibc) and
+macOS.
 
-### From source (requires Rust)
+> Windows is not supported yet. The bundled DuckDB C++ build hits an MSVC removal of
+> `stdext::checked_array_iterator` in VS 2026. `stdext::checked_array_iterator` is a
+> Microsoft compiler helper that DuckDB's vendored code still uses. The fix belongs
+> upstream, so use WSL (Windows Subsystem for Linux) for now.
+
+### From source
 
 ```bash
 cargo install --path .
 ```
 
-The DuckDB backend is bundled (no system DuckDB required). `duckpgq` is installed from the community extension repository the first time you run a cold build; the binary is cached under `~/.duckdb/extensions/` for subsequent runs.
+DuckDB is bundled into the binary, so you do not need to install a database.
+No extension is ever downloaded at run time.
 
-## Usage
-
-> **This README is stale.** The `projects` and `serve` commands below were removed. The
-> current surface is `virgil-cli scan <PATH>`, `virgil-cli init-prompts <DIR>`, and
-> `virgil-cli clean`. Run `virgil-cli --help` until this page is rewritten.
->
-> `--exclude` was **not** carried over to `scan`. The old flag never filtered anything —
-> `projects create` saved the globs into `projects.json` and no code ever read them back.
-> File discovery already honours `.gitignore`. Wiring real glob excludes (an
-> `ignore::overrides::OverrideBuilder` threaded through `discover_files` and
-> `Workspace::load`) is future work.
+## Quickstart
 
 ```bash
-virgil-cli projects <COMMAND>   # create / list / delete / query
-virgil-cli serve <NAME>         # expose a parsed project over a local HTTP API
+export ANTHROPIC_API_KEY=sk-ant-...
+virgil-cli scan .
 ```
 
-## Projects
+The first run on a repository parses it, which takes a few seconds for a small project.
+Later runs reuse the parsed database and start immediately.
 
-All commands are nested under `virgil-cli projects`:
+A run prints findings grouped by review, worst first. Here is the layout, with made-up
+findings standing in for real ones:
 
-| Command | Description |
-|---------|-------------|
-| `create` | Register a project for querying (scans files, saves to `~/.virgil-cli/projects.json`) |
-| `list` | List registered projects with file counts |
-| `delete` | Remove a registered project |
-| `query` | Run a SQL template, file, or inline query against the project's fact store |
+```
+security (2 findings)
+  HIGH  src/api/users.ts:118                     the WHERE clause is built by string concatenation
+  LOW   src/config/load.ts:24                    the fallback secret is hard-coded
 
-### `projects create`
-
-```bash
-virgil-cli projects create <NAME> [OPTIONS]
+bugs (1 finding)
+  MED   src/queue/worker.ts:57                   the retry loop swallows the error and returns success
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<NAME>` | Project name | required |
-| `-p`, `--path` | Root directory of the project | `.` |
-| `-e`, `--exclude` | Glob patterns to exclude (repeatable) | none |
-| `-l`, `--lang` | Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php) | all supported |
+`HIGH`, `MED`, `LOW`, and `INFO` are severity labels the agent picks. The number after
+each review name counts that review's findings. Each line is
+`severity  file:line  what is wrong`. When nothing is found, the run prints
+`No findings.`
 
-### `projects list`
+## `scan` flags
 
-```bash
-virgil-cli projects list
-```
-
-No arguments. Lists all registered projects with file counts.
-
-### `projects delete`
-
-```bash
-virgil-cli projects delete <NAME>
-```
-
-### `projects query`
-
-```bash
-# Exactly one of --template / --sql / --file required
-virgil-cli projects query <NAME> --template <name> [--param k=v ...] [OPTIONS]
-virgil-cli projects query <NAME> --sql '<inline>' [--param k=v ...] [OPTIONS]
-virgil-cli projects query <NAME> --file <path.sql> [--param k=v ...] [OPTIONS]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<NAME>` | Project name | required |
-| `-l`, `--lang` | Comma-separated language filter | all supported |
-| `--template` | Built-in template name (see list below) | — |
-| `--sql` | Inline SQL query | — |
-| `-f`, `--file` | Path to a SQL file | — |
-| `--param` | Parameter binding for `$param` references in the script (repeatable; `key=value`) | none |
-| `--rebuild` | Force a fresh rebuild of the cached fact store | false |
-| `--pretty` | Pretty-print JSON output | false |
-
-Parameters substitute into `$name` placeholders in the SQL as quoted literals. Integers and `true`/`false` are auto-coerced; everything else binds as a string. (DuckDB's positional `?` binding isn't used because duckpgq's `GRAPH_TABLE(... WHERE ...)` doesn't consume placeholders — see [`docs/experiments/duckdb-swap.md`](docs/experiments/duckdb-swap.md) for the long story.)
-
-## `serve`
-
-Expose an **already-parsed** project over a local HTTP API so subsequent queries skip the per-invocation startup and warm-open cost, and run concurrently.
-
-```bash
-virgil-cli serve <NAME> [--port 7777] [--max-concurrency 4] [--result-ttl-secs 600]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `<NAME>` | Project name (**must already be parsed**) | required |
-| `-p`, `--port` | TCP port to bind on `127.0.0.1` | `7777` |
-| `--max-concurrency` | Max queries running at once | `4` |
-| `--result-ttl-secs` | Seconds to retain a finished job's result before evicting it | `600` |
-
-Serve is **read-only** and never builds: if the project's fact store is missing or stale it exits with an error pointing you at `projects query … --rebuild`. Build the store first, then serve it.
-
-Queries run as **async jobs**. `POST /query` returns a `job_id` immediately; the result is delivered when the query finishes (queries can take minutes). Up to `--max-concurrency` queries run in parallel, each on its own DuckDB connection (`Connection::try_clone`, MVCC reads); further submissions queue.
-
-| Endpoint | Purpose |
-|----------|---------|
-| `POST /query` | Submit a query. Body: `{"sql": "...", "params": {...}}` **or** `{"template": "find_callers", "params": {...}}`, plus optional `"timeout_secs"`. Returns `{"job_id": "..."}`. |
-| `GET /jobs/{id}` | Snapshot: `{"status", "result"?, "error"?}`. |
-| `GET /jobs/{id}/events` | **SSE** stream — emits `status` then a terminal `completed`/`error`/`cancelled`/`timed_out` event carrying the result, then closes. |
-| `DELETE /jobs/{id}` | Cancel. A **queued** job is cancelled before it runs; a **running** query cannot be force-stopped (DuckDB exposes no interrupt) — it is marked abandoned and its result discarded when it eventually finishes. |
-| `GET /health` | `{"project", "ready", "schema_version"}`. |
-
-`status` ∈ `queued · running · done · error · cancelled · timed_out`. A `result` mirrors the `projects query` envelope (`project`, `query_ms`, `result`). `timeout_secs` is **advisory** — on expiry the job is marked `timed_out` but the query keeps running in the background until DuckDB returns.
-
-```bash
-# Start serving an already-parsed project
-virgil-cli serve myapp --port 7777 &
-
-# Submit a query, then stream its result
-curl -s localhost:7777/query -H 'content-type: application/json' \
-  -d '{"template":"find_callers","params":{"name":"login"}}'
-# → {"job_id":"job-1"}
-curl -sN localhost:7777/jobs/job-1/events
-# → event: completed
-#   data: {"status":"done","result":{...}}
-```
-
-> Caveats: results are held in memory until their TTL elapses (and cleared on restart); a running query can't be interrupted; and don't `projects query --rebuild` a project while it's being served — the rebuild wipes the on-disk store the server has open.
-
-## Built-in Templates
-
-Templates live under `src/queries/builtin/` (pure SQL) and `src/queries/rust_templates.rs` (Rust-side handlers that need source-level access).
-
-| Template | Params | What it returns |
+| Flag | What it does | Default |
 |---|---|---|
-| `find_function_by_name` | `name` | Function/method symbols whose `name` or `qualified_name` matches |
-| `find_callers` | `name` | Direct callers of the callee `$name` (PGQ MATCH on `call_edge`) |
-| `find_callees` | `name` | Direct callees of the caller `$name` (PGQ MATCH on `call_edge`) |
-| `find_cycles` | — | Pairs of mutually-reachable symbols (recursive CTE over `call_edge`) |
-| `import_depth` | — | Longest file-import chain ending at each file (recursive CTE) |
-| `export_surface` | — | Public exported symbols whose host file is imported elsewhere |
-| `find_implementations_of` | `name` | Types that `implements`/`extends` `$name` |
-| `complexity_hotspots` | `cc_threshold`, `length_threshold` | Functions exceeding cyclomatic or length thresholds; excludes tests |
-
-`complexity_hotspots` is a Rust-side handler — it queries `symbol` + `span` + `file_classification` from DuckDB, then calls tree-sitter to compute metrics on demand. Output uses the audit-shape convention (see below).
-
-### Why PGQ for some templates and plain SQL for others
-
-The schema defines `CREATE PROPERTY GRAPH codegraph` with vertex tables `file` + `symbol` and edge tables `call_edge`, `imports`, `extends`, `implements`. Templates that traverse those edges single-hop (`find_callers`, `find_callees`) use the PGQ `GRAPH_TABLE(... MATCH ...)` form for declarative clarity. Templates that need transitive closure (`find_cycles`, `import_depth`) fall back to `WITH RECURSIVE` CTEs over the underlying tables — duckpgq 1.x crashes when `GRAPH_TABLE` is wrapped in a `WITH` clause.
-
-### Resolved call edges (`call_edge`)
-
-`call_edge {caller_id, callee_id, file_path}` is a precomputed call-graph edge table populated at build time by the parallel Rust resolver in `from_code_graph::resolve_and_emit_call_edges`. Intra-file matches by `(name, kind)` plus cross-file via `imports` + `exported=true`. Queries join it directly instead of recomputing the resolution.
-
-```sql
--- All symbols that transitively call `parse`:
-SELECT DISTINCT caller.name, caller.file_path
-FROM GRAPH_TABLE (codegraph
-    MATCH ANY ACYCLIC (caller:symbol)-[e:calls]->+(callee:symbol)
-    WHERE callee.name = 'parse'
-    COLUMNS (caller.name AS name, caller.file_path AS file_path)
-);
-```
-
-## Audit-shape Output
-
-A query (or template handler) returning columns `(file, line, severity, pattern, message)` is auto-formatted as audit findings. Extra columns are preserved alongside as `extras`. Other column shapes return raw row tables.
-
-## Output Shape
-
-```json
-{
-  "project": "myapp",
-  "query_ms": 17,
-  "cache": "warm",
-  "result": {
-    "headers": ["name", "kind", "file_path", "start_line", "end_line"],
-    "rows": [ ... ]
-  }
-}
-```
-
-`cache` is one of:
-
-- `cold` — full parse + populate (first run on a fresh workspace)
-- `warm` — reused the persistent DuckDB store without any rebuild
-
-(Incremental refresh is not implemented in the DuckDB branch — pass `--rebuild` to force a fresh parse.)
-
-## Schema (queryable tables)
-
-Authored queries can reach into any of these tables. See `src/db/schema.rs` for the canonical DDL.
-
-| Table | Columns |
-|---|---|
-| `file` | `path PK, language, repo_id` |
-| `symbol` | `id PK, kind, name, qualified_name, language, visibility, file_path, parent_id, is_async, is_static, is_abstract, is_mutable, exported` |
-| `span` | `(entity_id, file_path) PK, start_byte, end_byte, start_line, end_line, start_col, end_col` — positional metadata for symbols / comments / call sites |
-| `call_site` | `id PK, caller_id, callee_name, file_path, start_byte, end_byte` — raw, unresolved call sites |
-| `call_edge` | `(caller_id, callee_id) PK, file_path` — resolved direct call edges (PGQ edge table for `codegraph`) |
-| `occurrence` | `id PK, name, file_path, start_byte, end_byte, enclosing_symbol_id, enclosing_scope_id, occurrence_kind` |
-| `scope` | `id PK, parent_id, file_path, kind, start_byte, end_byte` |
-| `binding` | `(scope_id, name, start_byte) PK, symbol_id, binding_kind` |
-| `extends` | `(child_id, parent_id) PK` (PGQ edge table for `codegraph`) |
-| `implements` | `(impl_id, interface_id) PK` (PGQ edge table for `codegraph`) |
-| `imports` | `(importer_file_id, imported_id) PK` (PGQ edge table for `codegraph`) |
-| `raw_import` | `(file_path, position) PK, raw_path, language, kind` |
-| `parameter` | `id PK, name, function_id, position, type_id, is_optional, has_default, is_taint_source` |
-| `returns_type` | `function_id PK, type_id` |
-| `throws` | `(function_id, exception_type_id) PK` |
-| `field_type` | `symbol_id PK, type_id` |
-| `type` | `id PK, kind, language, display_name, canonical_name` |
-| `comment` | `id PK, documents_id, file_path, kind, is_doc, text, todo_kind, start_byte, end_byte` |
-| `<lang>_attrs` | per-language attribute table (`rust_attrs`, `python_attrs`, `typescript_attrs`, `cpp_attrs`, `csharp_attrs`, `go_attrs`, `php_attrs`, `c_attrs`, `java_attrs`) |
-| `file_classification` | `path PK, is_test, is_barrel, is_generated` |
-| `build_meta` | `key PK, value` — includes `schema_version` |
-| `build_meta_files` | `file_path PK, hash, size, mtime` |
-
-## Writing queries
-
-Three flavors:
-
-1. **Plain SQL** over the tables above. Works for everything except graph traversal patterns where PGQ is clearer.
-2. **SQL/PGQ via `GRAPH_TABLE(codegraph MATCH ...)`** — declarative pattern match against the property graph. Best for "find me a vertex/edge shape" questions where you don't want to write the join by hand.
-3. **`WITH RECURSIVE` CTEs** — for transitive closure (longest paths, reachability) or anything PGQ refuses to run (`find_cycles` is the canonical example: duckpgq crashes when `GRAPH_TABLE` is wrapped in a CTE).
-
-Pass any of them with `--sql '<inline>'` or `--file <path.sql>`. Reference parameters as `$name`; the runner substitutes them as quoted SQL literals at execution time.
-
-### PGQ syntax in 90 seconds
-
-The schema defines one property graph called `codegraph`:
-
-```
-vertex tables: file (KEY path), symbol (KEY id)
-edge tables:   call_edge   symbol → symbol   (LABEL calls)
-               imports     file   → symbol   (LABEL imports)
-               extends     symbol → symbol
-               implements  symbol → symbol
-```
-
-A `GRAPH_TABLE` clause is a `FROM`-able source you build with one or more `MATCH` patterns:
-
-```sql
-SELECT a_name, b_name
-FROM GRAPH_TABLE (codegraph
-    MATCH (a:symbol)-[e:calls]->(b:symbol)
-    WHERE a.kind = 'function'
-    COLUMNS (a.name AS a_name, b.name AS b_name)
-);
-```
-
-| Piece | Meaning |
-|---|---|
-| `(a:symbol)` | A vertex variable `a` bound to the `symbol` table |
-| `[e:calls]` | An edge variable `e` bound to edges labelled `calls` (= the `call_edge` table) |
-| `->` | Single hop in the edge's declared source→destination direction |
-| `->+` | One or more hops |
-| `->*` | Zero or more hops |
-| `->{1,5}` | Bounded quantifier |
-| `MATCH ANY ACYCLIC ...` | Path mode required for `->+` / `->*` (default `WALK` is rejected because cycles would produce infinite results) |
-| `COLUMNS (...)` | Projection — what flows out of `GRAPH_TABLE` |
-
-### duckpgq gotchas worth knowing as a user
-
-- **`$name` parameters do not bind inside `GRAPH_TABLE(... WHERE ...)`** — duckpgq's parser eats the WHERE before DuckDB sees the placeholder. The runner sidesteps this by substituting `$name` as a quoted SQL literal at runtime, so it still works in templates. Trust your `--param` input — there's no prepared-statement protection inside `MATCH WHERE`.
-- **Unbounded `->+` / `->*` need an explicit path mode.** Use `MATCH ANY ACYCLIC ...` (no repeated vertices) or `MATCH ANY TRAIL ...` (no repeated edges). Without one of these, duckpgq refuses to run the query.
-- **`GRAPH_TABLE` can't be wrapped in `WITH`** — duckpgq 1.x crashes with `INTERNAL Error: NULL unique_ptr`. If you need a CTE-shaped result for a graph query, materialise it into a regular table via `CREATE TEMP TABLE ... AS SELECT ... FROM GRAPH_TABLE(...)` and join the temp table.
-- **Leading `--` line comments and `/* */` blocks are stripped** before the SQL is sent to DuckDB — duckpgq's parser rejects leading `--`, so the runner removes both kinds preemptively. Side benefit: `$name` references inside comments aren't accidentally substituted.
-
-### Common code-analysis queries
-
-Copy-paste and adapt. Every example assumes you've registered a project and run it via `virgil-cli projects query <name> --sql '<query>'` (or save the query to a file and pass `--file`).
-
-**Functions with no callers (dead-code candidates):**
-
-```sql
-SELECT s.name, s.file_path, sp.start_line
-FROM symbol s
-JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path
-WHERE s.kind IN ('function', 'method')
-  AND NOT EXISTS (
-      SELECT 1 FROM call_edge ce WHERE ce.callee_id = s.id
-  )
-ORDER BY s.file_path, sp.start_line;
-```
-
-**All transitive callers of a function (acyclic paths):**
-
-```sql
-SELECT DISTINCT caller.name, caller.file_path
-FROM GRAPH_TABLE (codegraph
-    MATCH ANY ACYCLIC (caller:symbol)-[e:calls]->+(callee:symbol)
-    WHERE callee.name = $name
-    COLUMNS (caller.name AS name, caller.file_path AS file_path)
-);
-```
-
-**Most-called functions (call-graph hotspots):**
-
-```sql
-SELECT s.name, s.file_path, COUNT(*) AS incoming
-FROM call_edge ce
-JOIN symbol s ON s.id = ce.callee_id
-GROUP BY s.name, s.file_path
-ORDER BY incoming DESC
-LIMIT 20;
-```
-
-**Public API surface of a file (what other files import from it):**
-
-```sql
-SELECT s.name, s.qualified_name, s.kind, sp.start_line
-FROM symbol s
-JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path
-WHERE s.file_path = $path
-  AND s.exported = true
-  AND s.visibility = 'public'
-ORDER BY sp.start_line;
-```
-
-**Cross-file fan-out (files that import the most):**
-
-```sql
-SELECT importer_file_id AS file, COUNT(*) AS imports
-FROM imports
-GROUP BY importer_file_id
-ORDER BY imports DESC
-LIMIT 20;
-```
-
-**TODOs / FIXMEs grouped by file:**
-
-```sql
-SELECT file_path, todo_kind, COUNT(*) AS n
-FROM comment
-WHERE todo_kind IS NOT NULL
-GROUP BY file_path, todo_kind
-ORDER BY n DESC;
-```
-
-**Find a class's full inheritance chain (recursive):**
-
-```sql
-WITH RECURSIVE ancestors(child_id, parent_id, depth) AS (
-    SELECT e.child_id, e.parent_id, 1
-    FROM extends e
-    JOIN symbol c ON c.id = e.child_id
-    WHERE c.name = $name
-  UNION
-    SELECT a.child_id, e.parent_id, a.depth + 1
-    FROM ancestors a
-    JOIN extends e ON e.child_id = a.parent_id
-    WHERE a.depth < 32
-)
-SELECT s.name, s.file_path, a.depth
-FROM ancestors a
-JOIN symbol s ON s.id = a.parent_id
-ORDER BY a.depth;
-```
-
-**Find all classes that implement an interface (one-hop):**
-
-```sql
-SELECT impl.name, impl.file_path, sp.start_line
-FROM implements i
-JOIN symbol iface ON iface.id = i.interface_id
-JOIN symbol impl ON impl.id = i.impl_id
-JOIN span sp ON sp.entity_id = impl.id AND sp.file_path = impl.file_path
-WHERE iface.name = $name
-ORDER BY impl.file_path, sp.start_line;
-```
-
-**Tests that exercise a function (callers from test files):**
-
-```sql
-SELECT caller.name AS test_name, caller.file_path
-FROM call_edge ce
-JOIN symbol caller ON caller.id = ce.caller_id
-JOIN symbol callee ON callee.id = ce.callee_id
-JOIN file_classification fc ON fc.path = caller.file_path AND fc.is_test = true
-WHERE callee.name = $name;
-```
-
-**Symbols-per-file histogram:**
-
-```sql
-SELECT file_path, COUNT(*) AS symbols
-FROM symbol
-GROUP BY file_path
-ORDER BY symbols DESC
-LIMIT 50;
-```
-
-**Async functions only (TypeScript / JS / Rust / Python):**
-
-```sql
-SELECT name, kind, file_path
-FROM symbol
-WHERE is_async = true
-ORDER BY file_path, name;
-```
-
-**Throws of a specific exception type:**
-
-```sql
-SELECT s.name AS function, s.file_path, t.display_name AS exception
-FROM throws th
-JOIN symbol s ON s.id = th.function_id
-JOIN type t ON t.id = th.exception_type_id
-WHERE t.display_name = $type
-ORDER BY s.file_path;
-```
-
-**File-import cycle detection (transitive intersection):**
-
-```sql
-WITH RECURSIVE reach(a, b) AS (
-    SELECT importer_file_id, imported_id FROM imports
-  UNION
-    SELECT r.a, i.imported_id
-    FROM reach r
-    JOIN imports i ON i.importer_file_id = r.b
-)
-SELECT r1.a AS file_a, r1.b AS file_b
-FROM reach r1
-JOIN reach r2 ON r1.a = r2.b AND r1.b = r2.a
-WHERE r1.a < r1.b;
-```
-
-**Methods defined on a class (Python / TS / C# / Java):**
-
-```sql
-SELECT m.name, sp.start_line
-FROM symbol c
-JOIN symbol m ON m.parent_id = c.id
-JOIN span sp ON sp.entity_id = m.id AND sp.file_path = m.file_path
-WHERE c.kind = 'class'
-  AND c.name = $class_name
-  AND m.kind = 'method'
-ORDER BY sp.start_line;
-```
-
-**Audit-shape output — flag long functions:**
-
-When your query returns columns named exactly `(file, line, severity, pattern, message)`, the CLI auto-formats it as audit findings instead of a row table.
-
-```sql
-SELECT
-    s.file_path                                 AS file,
-    sp.start_line                               AS line,
-    'warning'                                   AS severity,
-    'long_function'                             AS pattern,
-    s.name || ' is ' || (sp.end_line - sp.start_line + 1) || ' lines' AS message
-FROM symbol s
-JOIN span sp ON sp.entity_id = s.id AND sp.file_path = s.file_path
-WHERE s.kind IN ('function', 'method')
-  AND (sp.end_line - sp.start_line + 1) > 100
-ORDER BY (sp.end_line - sp.start_line) DESC;
-```
-
-## Persistence
-
-The fact store is persisted to `~/.cache/virgil/<hash>.duckdb` (a single DuckDB file). Subsequent invocations against the same workspace warm-start by reopening the existing store.
-
-- **Schema version check**: `build_meta.schema_version` is compared on open; mismatch wipes the file and triggers a clean rebuild.
-- **Force a cold rebuild** with `--rebuild`.
-- **No incremental refresh** in this branch — changing files requires `--rebuild` to pick up the change. (See `docs/experiments/duckdb-swap.md` for why incremental was deferred.)
-
-### Benchmark snapshot
-
-From `docs/experiments/duckdb-swap-findings.md` (DuckDB branch vs Cozo on the same machine, 2 corpora available):
-
-| Repo | Phase | Cozo | DuckDB | Speedup |
-|---|---|---:|---:|---:|
-| openclaw/discord (522 ts/tsx) | parse cold | 1.79 s / 204 MB | **0.47 s / 110 MB** | 3.8× / 1.9× memory |
-| openclaw/discord | find_cycles | 12.23 s | **0.28 s** | 43× |
-| openclaw/discord | import_depth | 30 s (TIMEOUT) / 2.8 GB | **0.28 s / 44 MB** | >100× |
-| openclaw/ui (461 ts/tsx) | parse cold | 1.78 s / 248 MB | **0.45 s / 129 MB** | 4.0× / 1.9× memory |
-| openclaw/ui | find_cycles | 30 s (TIMEOUT) | **0.28 s** | >100× |
-
-Flat queries (`find_function_by_name`, `find_callers`, `find_callees`, etc.) tie within process-startup noise (~0.26-0.28s) because both engines are dominated by binary launch + extension load, not real query work.
-
-**Parallel parse + SQL staging (2026-05-27)** — openclaw `/extensions` (5,510 TS files):
-
-| Architecture | Wall (cold full build) | Peak RSS |
-|---|---:|---:|
-| `mpsc` channel + single drainer (prior) | 25.7 s | 860 MiB |
-| Shared `DbWriter` + rayon parallel parse (current) | 28.8 s | 760 MiB |
-
-The current design trades ~3s of wall time for lower peak memory and a simpler control flow (no per-worker accumulator state, no fold/reduce). See `docs/experiments/duckdb-swap-findings.md` for the full alternatives matrix that was explored.
-
-## Examples
+| `[PATH]` | Directory to scan | `.` (the current directory) |
+| `--prompts <PATH>` | Use your own review prompt file, or a directory of them, instead of the four built-ins | built-ins |
+| `--workers <N>` | How many review agents may run at the same time | `4` |
+| `--provider <NAME>` | Which AI service to call: `anthropic`, `openai`, `ollama`, `openrouter` | `anthropic` |
+| `--model <ID>` | Which model to use | `claude-opus-5` for `anthropic`; required for the rest |
+| `--json` | Print findings as JSON instead of the grouped report | off |
+| `--output <FILE>` | Also write a Markdown report to this file | off |
+| `--rebuild` | Delete the cached database and parse the repository again | off |
+| `--lang <LIST>` | Comma-separated extensions to parse, for example `ts,tsx,rs` | all supported |
+| `-v`, `-vv`, `-vvv` | Show more log detail (info, debug, trace) | warnings only |
+| `--quiet` | Show errors only | off |
+
+`--json` and `--output` are independent. You can pass both: JSON goes to the terminal
+and Markdown goes to the file.
+
+There is no `--exclude` flag. File discovery already honours `.gitignore`, so ignored
+files never reach the parser.
+
+Two more commands round out the surface:
 
 ```bash
-# Register a project
-virgil-cli projects create myapp --path ./src
-
-# Find every function named `login`
-virgil-cli projects query myapp --template find_function_by_name --param name=login
-
-# Who calls `authenticate`?
-virgil-cli projects query myapp --template find_callers --param name=authenticate
-
-# Cycle detection (recursive CTE over the materialised call graph)
-virgil-cli projects query myapp --template find_cycles --pretty
-
-# Complexity hotspots above threshold (Rust-side handler)
-virgil-cli projects query myapp --template complexity_hotspots \
-    --param cc_threshold=15 --param length_threshold=100
-
-# Custom inline SQL
-virgil-cli projects query myapp --sql \
-    "SELECT name, file_path FROM symbol WHERE exported = true ORDER BY file_path"
-
-# SQL from a file
-virgil-cli projects query myapp --file my_query.sql --param target=login
-
-# Force a fresh rebuild
-virgil-cli projects query myapp --template find_cycles --rebuild
+virgil-cli init-prompts <DIR>   # copy the built-in prompts into DIR so you can edit them
+virgil-cli clean                # delete every cached database
 ```
 
-## Supported Languages
+Caches live in your operating system's cache directory, under a `virgil` folder:
+`~/.cache/virgil` on Linux and `~/Library/Caches/virgil` on macOS. `init-prompts`
+refuses to overwrite a prompt file that already exists, so it is safe to re-run.
+
+## Custom reviews
+
+A review is a Markdown file. Its filename becomes the review's name in the report, and
+its text becomes the instruction the agent follows. The four built-ins are `security`,
+`bugs`, `maintainability`, and `architecture`.
+
+Copy them out, edit them, and point `--prompts` at the directory:
+
+```bash
+virgil-cli init-prompts ./reviews
+$EDITOR ./reviews/security.md
+virgil-cli scan . --prompts ./reviews
+```
+
+`--prompts` replaces the built-ins rather than adding to them. Pass a single `.md` file
+to run exactly one review:
+
+```bash
+virgil-cli scan . --prompts ./reviews/security.md
+```
+
+Prompt files in a directory are read in sorted filename order, and only `.md` files
+count.
+
+## Providers
+
+Pick the service with `--provider` and give it credentials through an environment
+variable. An environment variable is a value your shell hands to the program, set with
+`export NAME=value`.
+
+| `--provider` | Environment variable | `--model` | Notes |
+|---|---|---|---|
+| `anthropic` (default) | `ANTHROPIC_API_KEY` | optional, defaults to `claude-opus-5` | Claude models |
+| `openai` | `OPENAI_API_KEY` | required | OpenAI models |
+| `openrouter` | `OPENROUTER_API_KEY` | required | Routes to many vendors through one key |
+| `ollama` | none | required | Talks to `http://localhost:11434/v1`, so the model runs on your machine |
+
+Ollama needs no key, but it does need the Ollama server running and the model already
+pulled:
+
+```bash
+ollama pull qwen2.5:14b
+virgil-cli scan . --provider ollama --model qwen2.5:14b
+```
+
+Pick an Ollama model that supports tool calling. Tool calling is the model's ability to
+invoke the `query`, `read_source`, and `report_finding` functions. A model without it
+cannot report anything.
+
+## Security posture
+
+The review agents never touch your filesystem or the network. They see one thing: a
+local DuckDB database, opened with `enable_external_access=false`. That setting is a
+DuckDB switch that blocks the database from reading files or making network requests,
+so an agent cannot run `SELECT * FROM read_text('/etc/passwd')` or fetch a URL. The
+switch is one-way; DuckDB refuses to turn it back on. On top of that, the `query` tool
+accepts only statements starting with `SELECT` or `WITH`.
+
+Your code does leave the machine in one way: the agent reads source snippets and puts
+them in its prompts, and those prompts go to whichever model provider you chose. Use
+`--provider ollama` to keep everything local.
+
+## How it works
+
+1. tree-sitter parses every supported file into a syntax tree, and extractors turn each
+   tree into rows: symbols, call sites, imports, comments, types, scopes.
+2. Those rows go into a DuckDB file in your cache directory, together with each file's
+   complete source text, so nothing later needs to read the disk again.
+3. One agent starts per review prompt. Each gets three tools: `query` runs read-only SQL
+   against the database, `read_source` returns a line range of a file, and
+   `report_finding` records one problem. Agents run in parallel, capped by `--workers`.
+
+The parsed database is cached by the absolute path of the directory you scanned. Scan
+the same directory again and the run skips parsing entirely. Pass `--rebuild` after
+changing code, because there is no incremental update: the cache is either reused whole
+or rebuilt whole.
+
+Coverage is not equal across languages. Import resolution currently produces nothing on
+Rust repositories, and inheritance edges are sparse, so the `architecture` review has
+less to work with there than on a TypeScript repository. Agents are told to count a
+table's rows before building a finding on it, so a thin table means fewer findings, not
+invented ones.
+
+## Supported languages
 
 | Language | Extensions |
 |----------|------------|
@@ -553,16 +196,12 @@ virgil-cli projects query myapp --template find_cycles --rebuild
 | Java | `.java` |
 | PHP | `.php` |
 
-## Features
+`.h` maps to C on purpose. Name C++ headers `.hpp`, `.hxx`, or `.hh` so they parse as
+C++.
 
-- **Multi-language** — TypeScript, JavaScript, C, C++, C#, Rust, Python, Go, Java, and PHP via tree-sitter
-- **SQL query language** — standard SQL with `WITH RECURSIVE` for graph closures; SQL/PGQ via duckpgq for declarative `MATCH` patterns
-- **Persistent fact store** — single-file DuckDB store cached at `~/.cache/virgil/<hash>.duckdb`
-- **Warm-start in milliseconds** — unchanged workspaces skip parsing entirely
-- **Scales to multi-thousand-file codebases** — rayon-parallel parse with a shared `DbWriter` (Arrow-backed `Appender` for scalar tables, batched `INSERT` for array columns). Inheritance edges are resolved via a single SQL `INSERT...SELECT` against a `raw_inheritance` staging table after parse
-- **Audit-shape output convention** — `(file, line, severity, pattern, message)` columns auto-format as findings
-- **Parameter binding** — `--param key=value` substitutes into `$name` placeholders
-- **Materialised call graph** — `call_edge` built at parse time so warm queries hit a join instead of a recursive resolver
+Files in any other language get no row in the database at all. Agents are told this, and
+told not to claim anything about `.env` files, YAML, Dockerfiles, or lockfiles, because
+they cannot see them.
 
 ## License
 
