@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "virgil-cli",
-    about = "Parse and query codebases on-demand — DuckDB-backed fact store, SQL + PGQ queries",
+    about = "AI code review — parses your repo into DuckDB, then AI agents review it",
     version
 )]
 pub struct Cli {
@@ -16,143 +16,74 @@ pub struct Cli {
     #[arg(long, global = true, conflicts_with = "verbose")]
     pub quiet: bool,
 
-    /// Log output format.
-    #[arg(long, global = true, value_enum, default_value_t = LogFormat::Compact)]
-    pub log_format: LogFormat,
-
     #[command(subcommand)]
     pub command: Command,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum LogFormat {
-    Compact,
-    Json,
+// LogFormat is deliberately gone: the Json variant existed for serve-mode log
+// shippers (observability/mod.rs's own comment said so). Compact-only now;
+// observability::init lost its format parameter.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ProviderKind {
+    Anthropic,
+    Openai,
+    Ollama,
+    Openrouter,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Manage and query projects
-    Projects {
-        #[command(subcommand)]
-        command: ProjectCommand,
-    },
-
-    /// Expose an already-parsed project over a local HTTP API.
-    ///
-    /// Serves read-only queries against the warm DuckDB store at
-    /// 127.0.0.1:<port>. The project must already be parsed — run a
-    /// query against it first (which cold-builds the store). Serve does
-    /// not build; it errors if the store is missing or stale.
-    ///
-    /// Queries run as async jobs: POST /query returns a job_id; stream
-    /// the result from GET /jobs/{id}/events (SSE) or snapshot it from
-    /// GET /jobs/{id}. Up to --max-concurrency queries run at once.
-    #[command(verbatim_doc_comment)]
-    Serve {
-        /// Project name (must already be parsed)
-        name: String,
-
-        /// TCP port to bind on 127.0.0.1
-        #[arg(short, long, default_value_t = 7777)]
-        port: u16,
-
-        /// Max queries running concurrently
-        #[arg(long, default_value_t = 4)]
-        max_concurrency: usize,
-
-        /// Seconds to retain a finished job's result before evicting it
-        #[arg(long, default_value_t = 600)]
-        result_ttl_secs: u64,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum ProjectCommand {
-    /// Register a project for querying
-    Create {
-        /// Project name
-        name: String,
-
-        /// Root directory of the project
-        #[arg(short, long, default_value = ".")]
+    /// Parse a repo and run an AI code review over it.
+    Scan {
+        /// Root directory of the project to scan
+        #[arg(default_value = ".")]
         path: PathBuf,
 
-        /// Glob patterns to exclude (repeatable)
-        #[arg(short, long)]
-        exclude: Vec<String>,
+        /// Markdown prompt file or directory (replaces the built-in reviews)
+        #[arg(long)]
+        prompts: Option<PathBuf>,
 
-        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cc,cxx,hpp,cs,rs,py,pyi,go,java,php)
-        #[arg(short, long)]
-        lang: Option<String>,
-    },
+        /// Max review agents running at once
+        #[arg(long, default_value_t = 4)]
+        workers: usize,
 
-    /// List registered projects
-    List,
+        /// AI provider
+        #[arg(long, value_enum, default_value_t = ProviderKind::Anthropic)]
+        provider: ProviderKind,
 
-    /// Remove a registered project
-    Delete {
-        /// Project name to delete
-        name: String,
-    },
+        /// Model id (defaults to claude-opus-5 for anthropic; required otherwise)
+        #[arg(long)]
+        model: Option<String>,
 
-    /// Query a project using SQL (with PGQ extensions for graph templates)
-    ///
-    /// Pass the query via exactly one of:
-    ///   --sql '<inline>'       inline SQL
-    ///   --file <path>          load SQL from a file
-    ///   --template <name>      a built-in template (see src/queries/builtin/)
-    ///
-    /// Bind parameters with --param key=value (repeatable). Integers and
-    /// booleans are auto-coerced; everything else binds as a string.
-    /// Templates reference parameters as $name.
-    ///
-    /// Queries that return columns (file, line, severity, pattern, message)
-    /// are auto-formatted as audit findings; any other shape prints as rows.
-    ///
-    /// EXAMPLES:
-    ///   # Built-in template with a parameter
-    ///   virgil-cli projects query myapp --template find_function_by_name --param name=login
-    ///
-    ///   # Inline SQL
-    ///   virgil-cli projects query myapp --sql 'SELECT name FROM symbol LIMIT 10'
-    #[command(verbatim_doc_comment)]
-    Query {
-        /// Project name
-        name: String,
+        /// Emit findings as JSON instead of the terminal report
+        #[arg(long)]
+        json: bool,
 
-        /// Comma-separated language filter
-        #[arg(short, long)]
-        lang: Option<String>,
+        /// Also write a markdown report to this path
+        #[arg(long)]
+        output: Option<PathBuf>,
 
-        /// Inline SQL query
-        #[arg(long, conflicts_with = "template")]
-        sql: Option<String>,
-
-        /// Path to a SQL file (.sql or any text file)
-        #[arg(short, long, conflicts_with_all = ["template", "sql"])]
-        file: Option<PathBuf>,
-
-        /// Built-in template name (see `src/queries/builtin/`)
-        #[arg(long, conflicts_with_all = ["sql", "file"])]
-        template: Option<String>,
-
-        /// Parameter binding for SQL / template (repeatable). Format: key=value
-        #[arg(long = "param", value_parser = parse_key_value)]
-        params: Vec<(String, String)>,
-
-        /// Force a fresh rebuild of the cached fact store.
+        /// Force a fresh rebuild of the cached fact store
         #[arg(long)]
         rebuild: bool,
 
-        /// Pretty-print JSON output
-        #[arg(long)]
-        pretty: bool,
+        // ponytail: no --exclude. The old flag was decorative — registry.rs
+        // stored the globs in projects.json and nothing ever read them back.
+        // File discovery already honours .gitignore via ignore::WalkBuilder.
+        // Add it by threading an OverrideBuilder through discover_files +
+        // Workspace::load when someone actually needs a non-gitignored exclude.
+        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cs,rs,py,go,java,php)
+        #[arg(short, long)]
+        lang: Option<String>,
     },
-}
 
-fn parse_key_value(s: &str) -> Result<(String, String), String> {
-    s.split_once('=')
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .ok_or_else(|| format!("expected key=value, got '{s}'"))
+    /// Copy the built-in review prompts into a directory so you can edit or extend them.
+    InitPrompts {
+        /// Destination directory (created if missing)
+        dir: PathBuf,
+    },
+
+    /// Delete all cached databases (~/.cache/virgil).
+    Clean,
 }

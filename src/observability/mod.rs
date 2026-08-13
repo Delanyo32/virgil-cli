@@ -1,23 +1,8 @@
-pub mod sampler;
-
-use std::sync::atomic::{AtomicBool, Ordering};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
 
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogFormat {
-    Compact,
-    Json,
-}
-
-pub fn init(verbosity: u8, quiet: bool, format: LogFormat) {
-    if INITIALIZED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
+pub fn init(verbosity: u8, quiet: bool) {
     let level = if quiet {
         "error"
     } else {
@@ -32,12 +17,8 @@ pub fn init(verbosity: u8, quiet: bool, format: LogFormat) {
     let filter = EnvFilter::try_from_env("VIRGIL_LOG")
         .unwrap_or_else(|_| EnvFilter::new(format!("virgil_cli={level},warn")));
 
-    // JSON format is meant for machine consumption (serve mode, log shippers) —
-    // progress bars would corrupt that. Only enable indicatif for compact output
-    // attached to a TTY.
-    let want_bars = matches!(format, LogFormat::Compact)
-        && !quiet
-        && std::io::IsTerminal::is_terminal(&std::io::stderr());
+    // Progress bars only when logs go to a terminal a human is watching.
+    let want_bars = !quiet && std::io::IsTerminal::is_terminal(&std::io::stderr());
 
     let registry = tracing_subscriber::registry().with(filter);
 
@@ -50,21 +31,10 @@ pub fn init(verbosity: u8, quiet: bool, format: LogFormat) {
             .compact();
         registry.with(fmt_layer).with(indicatif_layer).init();
     } else {
-        match format {
-            LogFormat::Compact => {
-                let layer = tracing_subscriber::fmt::layer()
-                    .with_writer(std::io::stderr)
-                    .with_target(false)
-                    .compact();
-                registry.with(layer).init();
-            }
-            LogFormat::Json => {
-                let layer = tracing_subscriber::fmt::layer()
-                    .with_writer(std::io::stderr)
-                    .with_target(true)
-                    .json();
-                registry.with(layer).init();
-            }
-        }
+        let layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_target(false)
+            .compact();
+        registry.with(layer).init();
     }
 }

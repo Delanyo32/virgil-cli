@@ -25,6 +25,16 @@ The DuckDB backend is bundled (no system DuckDB required). `duckpgq` is installe
 
 ## Usage
 
+> **This README is stale.** The `projects` and `serve` commands below were removed. The
+> current surface is `virgil-cli scan <PATH>`, `virgil-cli init-prompts <DIR>`, and
+> `virgil-cli clean`. Run `virgil-cli --help` until this page is rewritten.
+>
+> `--exclude` was **not** carried over to `scan`. The old flag never filtered anything —
+> `projects create` saved the globs into `projects.json` and no code ever read them back.
+> File discovery already honours `.gitignore`. Wiring real glob excludes (an
+> `ignore::overrides::OverrideBuilder` threaded through `discover_files` and
+> `Workspace::load`) is future work.
+
 ```bash
 virgil-cli projects <COMMAND>   # create / list / delete / query
 virgil-cli serve <NAME>         # expose a parsed project over a local HTTP API
@@ -495,6 +505,33 @@ Flat queries (`find_function_by_name`, `find_callers`, `find_callees`, etc.) tie
 | Shared `DbWriter` + rayon parallel parse (current) | 28.8 s | 760 MiB |
 
 The current design trades ~3s of wall time for lower peak memory and a simpler control flow (no per-worker accumulator state, no fold/reduce). See `docs/experiments/duckdb-swap-findings.md` for the full alternatives matrix that was explored.
+
+## Does it help an agent? (SWE-Explore-Bench)
+
+The benchmarks above measure speed. This one measures whether giving a coding agent `virgil-cli` actually helps it find the right code.
+
+**What we ran.** [SWE-Explore-Bench](https://github.com/Qiushao-E/SWE-Explore-Bench) hands an agent a repo plus an issue and asks for a ranked list of relevant code regions, scored against line-level ground truth from trajectories that really solved the issue. We took the benchmark's own Claude Code explorer and changed exactly one thing — the toolset:
+
+| | baseline | ours |
+|---|---|---|
+| tools | `Read,Glob,Grep` | `Read,Glob,Grep,Bash(virgil-cli:*)` |
+
+Same model, same prompt shape, same parser. 30 instances, stratified across the benchmark's three source sets, 8 languages, both arms on the same instances.
+
+**Result** (paired, 20k-sample bootstrap):
+
+| metric | baseline | + virgil | delta |
+|---|---:|---:|---|
+| **hit_file_rate** | 0.500 | **0.635** | **+0.135**, CI [+0.070, +0.205] — 13 wins / 1 loss |
+| recall | 0.150 | 0.156 | +0.006 — noise |
+| precision | 0.597 | 0.520 | -0.077 — worse |
+| f1 | 0.188 | 0.179 | -0.009 — noise |
+
+**The one-line read: virgil helps the agent find the right _files_, not the right _lines_.** That is a real and repeatable win on localization. It does not yet turn into better overall exploration, because the extra files reached come with extra wrong regions, and the two cancel in f1.
+
+All 30 repos parsed cleanly (C, Java, Go, JS, TS, Rust, Python), 0.7-27.5 s each.
+
+Full numbers, per-language breakdown, and the benchmark's five silent-failure modes: `docs/experiments/swe-explore-bench.md`.
 
 ## Examples
 

@@ -530,50 +530,10 @@ mod tests {
     }
 
     #[test]
-    fn all_builtin_templates_parse_against_empty_store() {
-        // Smoke-check that each .sql template under
-        // src/queries/builtin/ at least parses cleanly through DuckDB
-        // (and through duckpgq for the PGQ-flavored ones). Runs each
-        // template against an empty store with a dummy $name binding;
-        // expects zero rows but no error. Reports every failure so we
-        // see the full picture in one run.
-        let store = DbStore::open_in_memory().expect("open");
-        let templates_dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/queries/builtin");
-        let mut paths: Vec<_> = std::fs::read_dir(&templates_dir)
-            .expect("read templates dir")
-            .filter_map(|e| e.ok().map(|x| x.path()))
-            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("sql"))
-            .collect();
-        paths.sort();
-        assert_eq!(paths.len(), 7, "expected 7 .sql templates");
-        let mut failures = Vec::new();
-        for path in &paths {
-            let sql = std::fs::read_to_string(path)
-                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-            let mut params = BTreeMap::new();
-            params.insert("name".to_string(), Value::Text("__dummy__".to_string()));
-            if let Err(e) = store.run_query(&sql, params) {
-                failures.push(format!(
-                    "  {} -> {e}",
-                    path.file_name().unwrap().to_string_lossy()
-                ));
-            }
-        }
-        if !failures.is_empty() {
-            panic!(
-                "{} template(s) failed:\n{}",
-                failures.len(),
-                failures.join("\n")
-            );
-        }
-    }
-
-    #[test]
     fn cloned_store_reads_shared_database() {
         // try_clone_store yields an independent connection that sees the
         // same data and can run a PGQ query (proves duckpgq loaded on the
-        // clone). Mirrors how serve mode hands one clone per worker.
+        // clone). One clone per concurrent reader.
         let store = DbStore::open_in_memory().expect("open");
         store
             .run_script(
