@@ -2,7 +2,6 @@
 //!
 //! Schema DDL, a store wrapper, a batched writer, and the populate tail.
 //! Cold + warm builds only — incremental refresh is not implemented.
-//! See `docs/experiments/duckdb-swap.md` for the design.
 
 pub mod from_code_graph;
 pub mod schema;

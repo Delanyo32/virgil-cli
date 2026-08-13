@@ -4,12 +4,14 @@
 //!
 //! Cersei's agent runner reads the model id off the *agent* builder
 //! (`AgentBuilder::model`), never off the provider, so `resolve_model` is what
-//! callers must feed to `Agent::builder().model(..)`. The provider builders
-//! below are also told the model, purely so the value is visible in one place.
+//! callers must feed to `Agent::builder().model(..)`. Only the two
+//! `OpenAi::builder()` arms below are also told the model, because that
+//! builder requires one; the `from_env` arms take no model at all.
 
 use anyhow::{Context, Result};
 use cersei::prelude::Provider;
 use cersei::{Anthropic, OpenAi};
+use clap::ValueEnum;
 
 use crate::cli::ProviderKind;
 
@@ -26,7 +28,16 @@ pub fn resolve_model(kind: ProviderKind, model: Option<&str>) -> Result<String> 
     model
         .map(str::to_string)
         .or_else(|| default_model(kind).map(str::to_string))
-        .with_context(|| format!("--model is required for provider {kind:?}"))
+        // Name the provider the way the user spelled it on the command
+        // line, not the way Rust debug-prints the enum.
+        .with_context(|| format!("--model is required for provider {}", flag_name(kind)))
+}
+
+/// The `--provider` spelling clap accepts for this variant.
+fn flag_name(kind: ProviderKind) -> String {
+    kind.to_possible_value()
+        .map(|v| v.get_name().to_string())
+        .unwrap_or_else(|| format!("{kind:?}"))
 }
 
 /// Build the LLM client. Boxed because the four arms are two different concrete
@@ -76,9 +87,14 @@ mod tests {
         );
     }
 
+    /// The error must name the provider the way `--provider` spells it,
+    /// so the message can be pasted straight back onto the command line.
     #[test]
     fn openai_requires_model_flag() {
-        assert!(resolve_model(ProviderKind::Openai, None).is_err());
+        let err = resolve_model(ProviderKind::Openai, None)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "--model is required for provider openai");
     }
 
     #[test]

@@ -5,8 +5,7 @@
 //! and streams the rows in.
 //!
 //! Appender rather than hand-rolled Arrow batches: ~5× less code for the
-//! same internal columnar batch path inside duckdb. See
-//! `docs/experiments/duckdb-swap.md` under "Deviations".
+//! same internal columnar batch path inside duckdb.
 
 #[cfg(test)]
 use std::collections::BTreeMap;
