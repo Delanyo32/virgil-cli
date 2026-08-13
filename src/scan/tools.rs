@@ -22,9 +22,15 @@ const MAX_LINES: u32 = 400;
 /// to the model, errors included — a failed query is information, not a
 /// crash.
 pub(crate) fn run_sql(store: &DbStore, sql: &str) -> String {
-    let head = sql.trim_start().to_ascii_lowercase();
-    // ponytail: prefix guard, not a SQL parser — the store is local and
-    // the model is the only caller; this just stops accidental writes.
+    // Strip comments first, exactly as `run_query` will, so a query that
+    // opens with `-- a note` is judged on its real first keyword.
+    let head = crate::db::store::strip_sql_comments(sql)
+        .trim_start()
+        .to_ascii_lowercase();
+    // ponytail: prefix guard, not a SQL parser. It stops writes only.
+    // Filesystem and network reads are blocked at the connection instead
+    // (`lock_down` in db/store.rs), because no prefix check can catch
+    // `SELECT * FROM read_text(...)`.
     if !(head.starts_with("select") || head.starts_with("with")) {
         return "ERROR: only SELECT/WITH queries are allowed".into();
     }
@@ -251,6 +257,31 @@ mod tests {
             out,
             r#"{"headers":["path","language","n"],"rows":[["src/a.rs","rust",28]],"total_rows":1,"truncated":false}"#
         );
+    }
+
+    /// `read_text` and `glob` are ordinary table functions, so a SELECT can
+    /// call them. The connection must refuse, not the prefix check.
+    #[test]
+    fn query_cannot_reach_the_filesystem() {
+        let store = store_with_one_file();
+        for sql in [
+            "SELECT * FROM read_text('Cargo.toml')",
+            "SELECT * FROM glob('/**')",
+        ] {
+            let out = run_sql(&store, sql);
+            assert!(out.starts_with("ERROR"), "{sql} was allowed: {out}");
+            assert!(!out.contains("[package]"), "{sql} leaked a file: {out}");
+        }
+    }
+
+    /// A leading comment is legal SQL; it must not read as a write.
+    #[test]
+    fn leading_comment_is_allowed() {
+        let out = run_sql(
+            &store_with_one_file(),
+            "-- every file in the project\nSELECT path FROM file",
+        );
+        assert!(out.contains("src/a.rs"), "got: {out}");
     }
 
     #[test]

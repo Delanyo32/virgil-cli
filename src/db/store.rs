@@ -30,6 +30,7 @@ impl DbStore {
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()
             .map_err(|e| anyhow!("failed to open duckdb mem store: {e}"))?;
+        lock_down(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
             fresh: true,
@@ -58,6 +59,7 @@ impl DbStore {
 
         let conn = Connection::open(path)
             .map_err(|e| anyhow!("failed to open duckdb store at {}: {e}", path.display()))?;
+        lock_down(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
             fresh: true,
@@ -75,6 +77,7 @@ impl DbStore {
             Ok(c) => c,
             Err(_) => return Ok(None),
         };
+        lock_down(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
             fresh: false,
@@ -112,6 +115,7 @@ impl DbStore {
             .try_clone()
             .map_err(|e| anyhow!("failed to clone duckdb connection: {e}"))?;
         drop(conn);
+        lock_down(&cloned)?;
         Ok(Self {
             conn: Mutex::new(cloned),
             fresh: false,
@@ -213,13 +217,32 @@ pub struct QueryRows {
     pub rows: Vec<Vec<Value>>,
 }
 
+/// Cut DuckDB off from the filesystem and the network, for every
+/// connection this process opens.
+///
+/// Without this, `read_text('/etc/passwd')` and `glob('/**')` are plain
+/// table functions that any SELECT can call, and an `https://` path
+/// auto-installs `httpfs` and fetches it. The scan agents compose SQL
+/// from repository text they do not control, so that is an exfiltration
+/// path, not a theoretical one.
+///
+/// The switch is one-way by design: DuckDB refuses to turn external
+/// access back on once it is off. It keeps the already-attached database
+/// file and the temp directory allowed, so the cache still works, and
+/// nothing in this crate loads a DuckDB extension any more.
+fn lock_down(conn: &Connection) -> Result<()> {
+    conn.execute("SET enable_external_access=false", [])
+        .map_err(|e| anyhow!("disabling duckdb external access: {e}"))?;
+    Ok(())
+}
+
 /// Strip SQL comments (`-- to end of line` and `/* ... */` blocks) so
 /// they don't get scanned for `$name` placeholders we'd mistakenly
 /// bind.
 ///
 /// Stays inside string literals — both `'...'` and `"..."` — without
 /// stripping their contents.
-fn strip_sql_comments(sql: &str) -> String {
+pub(crate) fn strip_sql_comments(sql: &str) -> String {
     let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut i = 0;
