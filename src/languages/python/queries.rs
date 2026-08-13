@@ -582,8 +582,7 @@ pub fn extract_comments(
             let is_docstring = is_docstring_position(node);
 
             if is_docstring {
-                let (associated_symbol, _) =
-                    find_docstring_symbol(node, source);
+                let (associated_symbol, _) = find_docstring_symbol(node, source);
 
                 comments.push(CommentInfo {
                     file_path: file_path.to_string(),

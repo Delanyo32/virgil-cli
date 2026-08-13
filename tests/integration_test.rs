@@ -172,14 +172,20 @@ fn import_extraction_typescript() {
     assert_eq!(dynamic_count, 1, "expected 1 dynamic import");
     assert_eq!(reexport_count, 2, "expected 2 re-exports");
 
-    let react = imps.iter().filter(|i| i.module_specifier == "react").count();
+    let react = imps
+        .iter()
+        .filter(|i| i.module_specifier == "react")
+        .count();
     assert_eq!(react, 2, "expected 2 statements importing from react");
 
     let namespace = imps.iter().find(|i| i.module_specifier == "path");
     assert!(namespace.is_some(), "missing namespace import for path");
 
     let type_only = imps.iter().find(|i| i.module_specifier == "./models");
-    assert!(type_only.is_some(), "missing type-only import from ./models");
+    assert!(
+        type_only.is_some(),
+        "missing type-only import from ./models"
+    );
 
     let side_effect = imps.iter().find(|i| i.module_specifier == "./polyfill");
     assert!(
