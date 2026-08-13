@@ -1,4 +1,4 @@
-pub mod prompts; // stub: only init_prompts for now — Task 5 fills this in
+pub mod prompts;
 pub mod provider;
 pub mod report;
 pub mod tools;
