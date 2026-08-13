@@ -2,8 +2,10 @@
 //!
 //! ponytail: data types only — rendering lives in a later task.
 
+use anyhow::Result;
 use cersei::prelude::schemars; // cersei re-exports schemars 0.8; do NOT `cargo add schemars`
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// How bad a finding is. Declaration order is the sort order, so an
 /// ascending sort puts `High` first.
@@ -31,4 +33,23 @@ pub struct Finding {
     pub file: String,
     pub line: Option<u32>,
     pub message: String,
+}
+
+/// ponytail: stub. It prints JSON and ignores `json` / `output`; the
+/// next task replaces the body with real text + JSON rendering. The
+/// signature is already the final one, so the runner's call site stands.
+pub fn emit(
+    findings: &[Finding],
+    failures: &[String],
+    _json: bool,
+    _output: Option<&Path>,
+) -> Result<()> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "findings": findings,
+            "failures": failures,
+        }))?
+    );
+    Ok(())
 }
