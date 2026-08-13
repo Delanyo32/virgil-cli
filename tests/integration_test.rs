@@ -230,3 +230,42 @@ fn import_extraction_javascript() {
     assert_eq!(require_count, 2, "expected 2 require calls");
     assert_eq!(dynamic_count, 1, "expected 1 dynamic import");
 }
+
+#[test]
+fn file_content_is_stored() {
+    let store = virgil_cli::db::DbStore::open_in_memory().expect("open store");
+    let workspace =
+        virgil_cli::storage::workspace::Workspace::load(&fixtures_dir(), Language::all(), None)
+            .expect("load workspace");
+    virgil_cli::graph::builder::GraphBuilder::new(&workspace, Language::all())
+        .build(&store)
+        .expect("build");
+
+    let rows = store
+        .run_query(
+            "SELECT content FROM file WHERE content <> '' LIMIT 1",
+            Default::default(),
+        )
+        .expect("query");
+    assert_eq!(
+        rows.rows.len(),
+        1,
+        "expected at least one file with stored content"
+    );
+
+    // The stored text is the real source, not a placeholder: byte
+    // length must match the fixture on disk.
+    let expected_bytes = std::fs::read_to_string(fixtures_dir().join("sample.ts"))
+        .expect("read fixture")
+        .len();
+    let matched = store
+        .run_query(
+            &format!(
+                "SELECT path FROM file \
+                 WHERE path = 'sample.ts' AND strlen(content) = {expected_bytes}"
+            ),
+            Default::default(),
+        )
+        .expect("query");
+    assert_eq!(matched.rows.len(), 1, "sample.ts content differs from disk");
+}

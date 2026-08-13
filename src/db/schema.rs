@@ -15,7 +15,8 @@ pub fn create_statements() -> &'static [&'static str] {
         "CREATE TABLE file (\
             path VARCHAR PRIMARY KEY, \
             language VARCHAR NOT NULL, \
-            repo_id VARCHAR NOT NULL\
+            repo_id VARCHAR NOT NULL, \
+            content VARCHAR NOT NULL\
          )",
         "CREATE TABLE symbol (\
             id VARCHAR PRIMARY KEY, \

@@ -26,4 +26,6 @@ pub use writer::DbWriter;
 ///   for type-aware call resolution.
 /// - 5: drop the never-populated `calls` and `nolint` tables. Resolved
 ///   call edges live in `call_edge`.
-pub const SCHEMA_VERSION: u32 = 5;
+/// - 6: add `file.content` (full source text) so the store is
+///   self-contained and readers never touch the filesystem.
+pub const SCHEMA_VERSION: u32 = 6;

@@ -492,8 +492,13 @@ fn absorb_file_data(
 
     // `file` row + classification. Emitted here so the file exists
     // only as a DuckDB row, never as an in-memory graph node.
-    stream_writer.push_file(&path, language_str, repo_id);
     let src_for_marker = workspace.read_file(&path);
+    stream_writer.push_file(
+        &path,
+        language_str,
+        repo_id,
+        src_for_marker.as_deref().unwrap_or(""),
+    );
     let is_generated = src_for_marker
         .as_ref()
         .map(|src| is_generated_marker(src))

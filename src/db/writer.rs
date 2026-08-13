@@ -102,9 +102,13 @@ impl DbWriter {
         self.java_attrs.append(&mut other.java_attrs);
     }
 
-    pub fn push_file(&mut self, path: &str, language: &str, repo_id: &str) {
-        self.file
-            .push(vec![text(path), text(language), text(repo_id)]);
+    pub fn push_file(&mut self, path: &str, language: &str, repo_id: &str, content: &str) {
+        self.file.push(vec![
+            text(path),
+            text(language),
+            text(repo_id),
+            text(content),
+        ]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -821,7 +825,7 @@ mod tests {
         let store = DbStore::open_in_memory().expect("open");
         let mut writer = DbWriter::new();
 
-        writer.push_file("src/a.ts", "typescript", "");
+        writer.push_file("src/a.ts", "typescript", "", "");
         writer.push_symbol(
             "src/a.ts|1|0|login|function",
             "function",
@@ -895,7 +899,7 @@ mod tests {
     fn writer_pushes_attrs_with_list_columns() {
         let store = DbStore::open_in_memory().expect("open");
         let mut w = DbWriter::new();
-        w.push_file("src/lib.rs", "rust", "");
+        w.push_file("src/lib.rs", "rust", "", "");
         w.push_symbol(
             "src/lib.rs|1|0|foo|function",
             "function",
