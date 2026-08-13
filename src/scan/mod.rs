@@ -1,5 +1,7 @@
 pub mod prompts; // stub: only init_prompts for now — Task 5 fills this in
 pub mod provider;
+pub mod report;
+pub mod tools;
 
 use crate::cli::ProviderKind;
 use anyhow::Result;
