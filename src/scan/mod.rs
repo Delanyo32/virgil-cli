@@ -75,31 +75,33 @@ pub async fn run(cfg: ScanConfig) -> Result<()> {
                 .run_with(&prompt.body)
                 .await;
 
+            // Drained on both paths: an agent that errors mid-run usually
+            // breaks *after* it has reported real, confirmed findings
+            // (rate limit, dropped connection), so they travel back with
+            // the failure instead of being thrown away.
             let batch = std::mem::take(&mut *sink.lock().unwrap());
-            match out {
+            let failure = match out {
                 Ok(_) => {
                     info!(review = %name, findings = batch.len(), "review finished");
-                    Ok((name, batch))
+                    None
                 }
                 // One failed review must not sink the scan.
                 Err(e) => {
-                    warn!(review = %name, error = %e, "review failed");
-                    Err(format!("review '{name}' failed: {e}"))
+                    warn!(review = %name, findings = batch.len(), error = %e, "review failed");
+                    Some(format!("review '{name}' failed: {e}"))
                 }
-            }
+            };
+            (name, batch, failure)
         }));
     }
 
-    let mut findings = Vec::new();
-    let mut failures = Vec::new();
+    let mut outcomes = Vec::with_capacity(handles.len());
     for handle in handles {
         // A `JoinError` means an agent task panicked — that is a bug, not
         // a failed review, so it aborts the scan.
-        match handle.await? {
-            Ok((name, batch)) => merge(&mut findings, batch, &name),
-            Err(e) => failures.push(e),
-        }
+        outcomes.push(handle.await?);
     }
+    let (mut findings, failures) = collect(outcomes);
     sort_findings(&mut findings);
     report::emit(&findings, &failures, cfg.json, cfg.output.as_deref())?;
 
@@ -107,6 +109,24 @@ pub async fn run(cfg: ScanConfig) -> Result<()> {
         anyhow::bail!("all reviews failed");
     }
     Ok(())
+}
+
+/// One review's outcome: its name, whatever it reported, and the failure
+/// message if it broke. A review can contribute both findings and a
+/// failure — the two are independent.
+type Outcome = (String, Vec<Finding>, Option<String>);
+
+/// Fold every review's outcome into one finding list plus the failure
+/// messages. Findings reported before a review broke are kept and tagged
+/// exactly like a clean review's.
+fn collect(outcomes: Vec<Outcome>) -> (Vec<Finding>, Vec<String>) {
+    let mut findings = Vec::new();
+    let mut failures = Vec::new();
+    for (name, batch, failure) in outcomes {
+        merge(&mut findings, batch, &name);
+        failures.extend(failure);
+    }
+    (findings, failures)
 }
 
 /// Stamp the review's name onto each finding and append it. The agent
@@ -203,6 +223,32 @@ mod tests {
                 (Severity::Info, "bugs", "z.rs"),
             ]
         );
+    }
+
+    /// A review that breaks mid-run keeps what it already reported. The
+    /// error usually lands after real findings, so dropping them can empty
+    /// a scan that actually found things.
+    #[test]
+    fn a_failed_review_still_contributes_its_findings() {
+        let (findings, failures) = collect(vec![
+            (
+                "bugs".into(),
+                vec![
+                    finding(Severity::High, "a.rs"),
+                    finding(Severity::Low, "b.rs"),
+                ],
+                Some("review 'bugs' failed: rate limited".into()),
+            ),
+            ("security".into(), vec![], None),
+        ]);
+        assert_eq!(findings.len(), 2, "both partial findings survive");
+        assert!(
+            findings.iter().all(|f| f.review == "bugs"),
+            "partial findings are tagged like any other"
+        );
+        assert_eq!(failures.len(), 1, "the failure is still reported");
+        // The scan itself must not bail: it has findings to print.
+        assert!(!scan_failed(findings.len(), failures.len()));
     }
 
     /// One broken review must not sink a scan that still found something.
