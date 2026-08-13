@@ -173,7 +173,9 @@ mod tests {
         let bug = s.find("bugs (1 finding)").unwrap();
         assert!(s.contains("HIGH"));
         assert!(s.contains("src/auth.ts:42"));
-        assert!(sec < bug || bug < sec); // both present; order = severity of worst finding
+        // Groups run in first-appearance order, and the runner sorts High
+        // before Medium — so security's HIGH group precedes bugs' MED one.
+        assert!(sec < bug);
     }
 
     #[test]
