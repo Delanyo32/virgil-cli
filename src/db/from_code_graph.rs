@@ -408,7 +408,6 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
     for (caller_id, callee_id, file) in resolved {
         writer.push_call_edge(&caller_id, &callee_id, &file);
     }
-    eprintln!("[bench] call_edge_count={count}");
     info!(call_edges = count, "db call_edge resolution complete");
     Ok(())
 }
