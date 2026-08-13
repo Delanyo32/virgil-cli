@@ -1,7 +1,0 @@
-target/
-.git/
-.claude/
-docs/
-examples/
-*.md
-Dockerfile*

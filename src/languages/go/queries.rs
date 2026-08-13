@@ -227,12 +227,11 @@ pub fn extract_imports(
         let path_cap = path_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let import_cap = import_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
 
-        let (Some(path_cap), Some(import_cap)) = (path_cap, import_cap) else {
+        let (Some(path_cap), Some(_)) = (path_cap, import_cap) else {
             continue;
         };
 
         let path_node = path_cap.node;
-        let import_node = import_cap.node;
 
         let raw_path = path_node.utf8_text(source).unwrap_or("").to_string();
         // Strip quotes
@@ -241,28 +240,10 @@ pub fn extract_imports(
             continue;
         }
 
-        // Get the last segment as the imported name
-        let imported_name = module_specifier
-            .rsplit('/')
-            .next()
-            .unwrap_or(&module_specifier)
-            .to_string();
-
-        // Check for alias (name field on import_spec)
-        let local_name = import_node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| imported_name.clone());
-
         imports.push(ImportInfo {
             source_file: file_path.to_string(),
             module_specifier,
-            imported_name,
-            local_name,
             kind: "import".to_string(),
-            is_type_only: false,
-            line: import_node.start_position().row as u32 + 1,
             is_external: true, // Go has no syntactic internal/external distinction
         });
     }
@@ -298,7 +279,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -311,7 +292,6 @@ pub fn extract_comments(
             end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 
@@ -559,7 +539,6 @@ mod tests {
         let imports = parse_and_extract_imports("package main\nimport \"fmt\"");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "fmt");
-        assert_eq!(imports[0].imported_name, "fmt");
         assert_eq!(imports[0].kind, "import");
         assert!(imports[0].is_external);
     }
@@ -577,7 +556,6 @@ mod tests {
         let imports = parse_and_extract_imports("package main\nimport \"net/http\"");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "net/http");
-        assert_eq!(imports[0].imported_name, "http");
     }
 
     #[test]

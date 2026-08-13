@@ -295,13 +295,11 @@ pub fn extract_imports(
         let path_cap = path_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let import_cap = import_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
 
-        let (Some(path_cap), Some(import_cap)) = (path_cap, import_cap) else {
+        let (Some(path_cap), Some(_)) = (path_cap, import_cap) else {
             continue;
         };
 
         let path_node = path_cap.node;
-        let import_node = import_cap.node;
-        let line = import_node.start_position().row as u32 + 1;
 
         let path_text = path_node.utf8_text(source).unwrap_or("").to_string();
         if path_text.is_empty() {
@@ -309,13 +307,13 @@ pub fn extract_imports(
         }
 
         // Extract individual imports from the use path
-        extract_use_imports(&path_text, file_path, line, &mut imports);
+        extract_use_imports(&path_text, file_path, &mut imports);
     }
 
     imports
 }
 
-fn extract_use_imports(path_text: &str, file_path: &str, line: u32, imports: &mut Vec<ImportInfo>) {
+fn extract_use_imports(path_text: &str, file_path: &str, imports: &mut Vec<ImportInfo>) {
     let is_internal = path_text.starts_with("crate::")
         || path_text.starts_with("self::")
         || path_text.starts_with("super::");
@@ -332,52 +330,26 @@ fn extract_use_imports(path_text: &str, file_path: &str, line: u32, imports: &mu
                 continue;
             }
 
-            let (imported_name, local_name) = if let Some((name, alias)) = item.split_once(" as ") {
-                (name.trim().to_string(), alias.trim().to_string())
-            } else {
-                let name = item.split("::").last().unwrap_or(item).trim().to_string();
-                (name.clone(), name)
-            };
-
             let module = format!("{}{}", prefix, item).trim().to_string();
 
             imports.push(ImportInfo {
                 source_file: file_path.to_string(),
                 module_specifier: module,
-                imported_name,
-                local_name,
                 kind: "use".to_string(),
-                is_type_only: false,
-                line,
                 is_external: !is_internal,
             });
         }
     } else {
         // Simple path: use std::collections::HashMap or use std::collections::HashMap as Map
-        let (module, imported_name, local_name) =
-            if let Some((path, alias)) = path_text.split_once(" as ") {
-                let name = path.split("::").last().unwrap_or(path).trim().to_string();
-                (path.trim().to_string(), name, alias.trim().to_string())
-            } else if path_text.ends_with("::*") {
-                (path_text.to_string(), "*".to_string(), "*".to_string())
-            } else {
-                let name = path_text
-                    .split("::")
-                    .last()
-                    .unwrap_or(path_text)
-                    .trim()
-                    .to_string();
-                (path_text.to_string(), name.clone(), name)
-            };
+        let module = match path_text.split_once(" as ") {
+            Some((path, _alias)) => path.trim().to_string(),
+            None => path_text.to_string(),
+        };
 
         imports.push(ImportInfo {
             source_file: file_path.to_string(),
             module_specifier: module,
-            imported_name,
-            local_name,
             kind: "use".to_string(),
-            is_type_only: false,
-            line,
             is_external: !is_internal,
         });
     }
@@ -411,7 +383,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -424,7 +396,6 @@ pub fn extract_comments(
             end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 
@@ -842,7 +813,6 @@ mod tests {
         let imports = parse_and_extract_imports("use std::collections::HashMap;");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "std::collections::HashMap");
-        assert_eq!(imports[0].imported_name, "HashMap");
         assert_eq!(imports[0].kind, "use");
         assert!(imports[0].is_external);
     }
@@ -872,15 +842,14 @@ mod tests {
     fn wildcard_import() {
         let imports = parse_and_extract_imports("use std::io::*;");
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "*");
+        assert_eq!(imports[0].module_specifier, "std::io::*");
     }
 
     #[test]
     fn aliased_import() {
         let imports = parse_and_extract_imports("use std::collections::HashMap as Map;");
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "HashMap");
-        assert_eq!(imports[0].local_name, "Map");
+        assert_eq!(imports[0].module_specifier, "std::collections::HashMap");
     }
 
     #[test]

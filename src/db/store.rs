@@ -1,5 +1,5 @@
 //! Wrapper around a single DuckDB connection. Owns lifecycle, applies
-//! schema, loads duckpgq, version-checks on reopen.
+//! schema, version-checks on reopen.
 //!
 //! Mutability is unified — DuckDB doesn't distinguish at the connection
 //! level — but `run_script` / `run_query` stay as separate names to keep
@@ -26,7 +26,7 @@ pub struct DbStore {
 }
 
 impl DbStore {
-    /// Open a fresh in-memory store with the schema + duckpgq applied.
+    /// Open a fresh in-memory store with the schema applied.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()
             .map_err(|e| anyhow!("failed to open duckdb mem store: {e}"))?;
@@ -34,7 +34,6 @@ impl DbStore {
             conn: Mutex::new(conn),
             fresh: true,
         };
-        store.load_duckpgq()?;
         store.apply_schema()?;
         store.record_schema_version()?;
         Ok(store)
@@ -63,7 +62,6 @@ impl DbStore {
             conn: Mutex::new(conn),
             fresh: true,
         };
-        store.load_duckpgq()?;
         store.apply_schema()?;
         store.record_schema_version()?;
         Ok(store)
@@ -81,9 +79,6 @@ impl DbStore {
             conn: Mutex::new(conn),
             fresh: false,
         };
-        if store.load_duckpgq().is_err() {
-            return Ok(None);
-        }
         let matches = store.schema_version_matches();
         if matches { Ok(Some(store)) } else { Ok(None) }
     }
@@ -109,34 +104,18 @@ impl DbStore {
     /// read connections, one per concurrent query worker — DuckDB
     /// supports concurrent reads across sibling connections (MVCC).
     ///
-    /// duckpgq is loaded per-connection, so the clone re-`LOAD`s it. The
-    /// clone is never `fresh` (the schema already exists on the shared
-    /// database).
+    /// The clone is never `fresh` (the schema already exists on the
+    /// shared database).
     pub fn try_clone_store(&self) -> Result<Self> {
         let conn = self.conn.lock().unwrap();
         let cloned = conn
             .try_clone()
             .map_err(|e| anyhow!("failed to clone duckdb connection: {e}"))?;
         drop(conn);
-        let store = Self {
+        Ok(Self {
             conn: Mutex::new(cloned),
             fresh: false,
-        };
-        store.load_duckpgq()?;
-        Ok(store)
-    }
-
-    fn load_duckpgq(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        // INSTALL writes to the shared ~/.duckdb/extensions/ cache;
-        // cargo runs lib tests in parallel, so multiple connections
-        // can race the same INSTALL and either tread on each other's
-        // temp file or LOAD before the rename completes. Serialise
-        // INSTALL across the process once, then LOAD per-connection.
-        ensure_duckpgq_installed(&conn)?;
-        conn.execute_batch("LOAD duckpgq;")
-            .map_err(|e| anyhow!("LOAD duckpgq failed: {e}"))?;
-        Ok(())
+        })
     }
 
     fn apply_schema(&self) -> Result<()> {
@@ -148,10 +127,6 @@ impl DbStore {
         for stmt in schema::index_statements() {
             conn.execute(stmt, [])
                 .map_err(|e| anyhow!("applying CREATE INDEX: {e}\nstmt: {stmt}"))?;
-        }
-        for stmt in schema::pgq_statements() {
-            conn.execute(stmt, [])
-                .map_err(|e| anyhow!("applying CREATE PROPERTY GRAPH: {e}\nstmt: {stmt}"))?;
         }
         Ok(())
     }
@@ -239,10 +214,8 @@ pub struct QueryRows {
 }
 
 /// Strip SQL comments (`-- to end of line` and `/* ... */` blocks) so
-/// they (a) don't get scanned for `$name` placeholders we'd
-/// mistakenly bind, and (b) don't trip up duckpgq's parser, which
-/// rejects `--` in front of `GRAPH_TABLE` statements where plain
-/// DuckDB accepts them.
+/// they don't get scanned for `$name` placeholders we'd mistakenly
+/// bind.
 ///
 /// Stays inside string literals — both `'...'` and `"..."` — without
 /// stripping their contents.
@@ -301,12 +274,8 @@ fn strip_sql_comments(sql: &str) -> String {
 
 /// Substitute `$name` placeholders with literal SQL values.
 ///
-/// We don't use DuckDB prepared-statement binding because duckpgq's
-/// `GRAPH_TABLE(... MATCH ... WHERE ?)` rejects positional placeholders
-/// — the WHERE clause is interpreted by the PGQ engine, not by the
-/// outer SQL parameter binder. Values come from `--param k=v` CLI
-/// input which is trusted (the user runs their own queries on their
-/// own machine); injection isn't a threat model.
+/// Values come from trusted local input (the user runs their own
+/// queries on their own machine); injection isn't a threat model.
 ///
 /// Stays inside string literals so a `$name` inside `'...'` is left
 /// alone.
@@ -387,26 +356,6 @@ fn format_sql_literal(v: &Value) -> String {
     }
 }
 
-/// Run `INSTALL duckpgq FROM community` at most once per process,
-/// serialised across threads. The shared `~/.duckdb/extensions/`
-/// cache isn't safe for concurrent writes from a single process —
-/// CI surfaced this as a flaky "Extension not found" from LOAD when
-/// cargo runs lib tests in parallel and several DbStore opens race
-/// the install at the same time.
-fn ensure_duckpgq_installed(conn: &Connection) -> Result<()> {
-    use std::sync::Mutex;
-    static INSTALLED: Mutex<bool> = Mutex::new(false);
-    let mut done = INSTALLED.lock().unwrap();
-    if *done {
-        return Ok(());
-    }
-    let _ = conn.execute_batch("SET allow_community_extensions = true;");
-    conn.execute_batch("INSTALL duckpgq FROM community;")
-        .map_err(|e| anyhow!("INSTALL duckpgq FROM community failed: {e}"))?;
-    *done = true;
-    Ok(())
-}
-
 /// Cache file path for a workspace identified by `id`. Returns
 /// `~/.cache/virgil/<hash>.duckdb`.
 pub fn cache_dir_for_db(id: &str) -> Result<PathBuf> {
@@ -474,55 +423,6 @@ mod tests {
     }
 
     #[test]
-    fn pgq_match_walks_call_edges() {
-        // Seeds three symbols + two call_edges (a→b→c) and asks PGQ
-        // for everyone a transitive caller of `c` reaches. This is the
-        // shape `find_callers` will run, but minimal — proves that
-        // duckpgq parses our DDL and walks our edges correctly.
-        let store = DbStore::open_in_memory().expect("open");
-        store
-            .run_script(
-                "INSERT INTO symbol VALUES \
-                   ('a', 'function', 'a', 'a', 'rust', 'public', 'lib.rs', NULL, \
-                    false, false, false, false, true), \
-                   ('b', 'function', 'b', 'b', 'rust', 'public', 'lib.rs', NULL, \
-                    false, false, false, false, true), \
-                   ('c', 'function', 'c', 'c', 'rust', 'public', 'lib.rs', NULL, \
-                    false, false, false, false, true)",
-                BTreeMap::new(),
-            )
-            .expect("insert symbols");
-        store
-            .run_script(
-                "INSERT INTO call_edge VALUES ('a','b','lib.rs'), ('b','c','lib.rs')",
-                BTreeMap::new(),
-            )
-            .expect("insert edges");
-        let rows = store
-            .run_query(
-                "SELECT caller_name FROM GRAPH_TABLE (codegraph \
-                   MATCH ANY ACYCLIC (a:symbol)-[e:calls]->+(c:symbol) \
-                   WHERE c.id = 'c' \
-                   COLUMNS (a.name AS caller_name) \
-                 ) ORDER BY caller_name",
-                BTreeMap::new(),
-            )
-            .expect("pgq match");
-        // Transitive walk to c reaches {a, b}; c itself depends on
-        // whether `->*` is zero-or-more or one-or-more in duckpgq.
-        let names: Vec<String> = rows
-            .rows
-            .iter()
-            .filter_map(|r| match &r[0] {
-                Value::Text(s) => Some(s.clone()),
-                _ => None,
-            })
-            .collect();
-        assert!(names.contains(&"a".to_string()), "expected a in {names:?}");
-        assert!(names.contains(&"b".to_string()), "expected b in {names:?}");
-    }
-
-    #[test]
     fn duckdb_handles_leading_sql_comments() {
         let store = DbStore::open_in_memory().expect("open");
         let res = store.run_query("-- a comment\nSELECT 1 AS x", BTreeMap::new());
@@ -532,8 +432,7 @@ mod tests {
     #[test]
     fn cloned_store_reads_shared_database() {
         // try_clone_store yields an independent connection that sees the
-        // same data and can run a PGQ query (proves duckpgq loaded on the
-        // clone). One clone per concurrent reader.
+        // same data. One clone per concurrent reader.
         let store = DbStore::open_in_memory().expect("open");
         store
             .run_script(
@@ -556,13 +455,12 @@ mod tests {
         assert!(!clone.fresh());
         let rows = clone
             .run_query(
-                "SELECT caller_name FROM GRAPH_TABLE (codegraph \
-                   MATCH ANY ACYCLIC (a:symbol)-[e:calls]->+(c:symbol) \
-                   WHERE c.id = 'b' \
-                   COLUMNS (a.name AS caller_name))",
+                "SELECT caller.name FROM call_edge ce \
+                 JOIN symbol caller ON caller.id = ce.caller_id \
+                 WHERE ce.callee_id = 'b'",
                 BTreeMap::new(),
             )
-            .expect("pgq on clone");
+            .expect("query on clone");
         assert_eq!(rows.rows.len(), 1);
         assert_eq!(rows.rows[0][0], Value::Text("a".into()));
     }

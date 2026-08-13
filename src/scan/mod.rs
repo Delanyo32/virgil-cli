@@ -42,8 +42,8 @@ pub(crate) fn build_store(
     }
     let store = crate::db::DbStore::open_persistent(&cache_path)?;
     if store.fresh() {
-        let graph = crate::graph::builder::GraphBuilder::new(&ws, &languages).build(&store)?;
-        crate::db::populate(&store, &graph, Some(&ws))?;
+        crate::graph::builder::GraphBuilder::new(&ws, &languages).build(&store)?;
+        crate::db::populate(&store)?;
     }
     Ok((store, ws))
 }

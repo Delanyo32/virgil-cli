@@ -17,8 +17,7 @@ pub use writer::DbWriter;
 /// requires a fresh build. Persisted into `build_meta(schema_version)`
 /// and checked on open; mismatch wipes the file.
 ///
-/// - 1: initial DuckDB schema (ported from the prior Cozo store
-///   + a `CREATE PROPERTY GRAPH codegraph` for duckpgq).
+/// - 1: initial DuckDB schema (ported from the prior Cozo store).
 /// - 2: add `call_site.receiver` (immediate object/namespace of a call).
 /// - 3: `scope.kind` for body blocks now holds the owning tree-sitter
 ///   construct (for_statement, if_statement, …) instead of generic "block".
