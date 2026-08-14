@@ -9,7 +9,7 @@ pub mod store;
 pub mod writer;
 
 pub use from_code_graph::populate;
-pub use store::{DbStore, cache_dir_for_db};
+pub use store::{DbStore, cache_dir_for_db, cache_root};
 pub use writer::DbWriter;
 
 /// Bump when the schema in [`schema`] changes shape in a way that

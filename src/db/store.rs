@@ -103,8 +103,8 @@ impl DbStore {
     }
 
     /// Open a new sibling connection to the already-opened database via
-    /// `Connection::try_clone`. Used by serve mode to build a pool of
-    /// read connections, one per concurrent query worker — DuckDB
+    /// `Connection::try_clone`. The scan runner calls it once per review
+    /// agent, so each agent queries on its own connection — DuckDB
     /// supports concurrent reads across sibling connections (MVCC).
     ///
     /// The clone is never `fresh` (the schema already exists on the
@@ -379,15 +379,25 @@ fn format_sql_literal(v: &Value) -> String {
     }
 }
 
-/// Cache file path for a workspace identified by `id`. Returns
-/// `<dirs::cache_dir()>/virgil/<hash>.duckdb` — that is
-/// `~/.cache/virgil` on Linux but `~/Library/Caches/virgil` on macOS.
-pub fn cache_dir_for_db(id: &str) -> Result<PathBuf> {
-    let base = dirs::cache_dir()
+/// The directory every cached database lives in:
+/// `<dirs::cache_dir()>/virgil` — that is `~/.cache/virgil` on Linux but
+/// `~/Library/Caches/virgil` on macOS.
+///
+/// `pub` rather than `pub(crate)` because `virgil-cli clean` deletes this
+/// directory from the binary crate, which is a separate crate from the
+/// library. One definition, so `clean` cannot drift off the path `scan`
+/// actually writes to.
+pub fn cache_root() -> Result<PathBuf> {
+    Ok(dirs::cache_dir()
         .context("could not determine OS cache directory")?
-        .join("virgil");
+        .join("virgil"))
+}
+
+/// Cache file path for a workspace identified by `id`:
+/// `<cache_root()>/<hash>.duckdb`.
+pub fn cache_dir_for_db(id: &str) -> Result<PathBuf> {
     let hash = stable_hash(id);
-    Ok(base.join(format!("{hash:016x}.duckdb")))
+    Ok(cache_root()?.join(format!("{hash:016x}.duckdb")))
 }
 
 fn stable_hash(s: &str) -> u64 {

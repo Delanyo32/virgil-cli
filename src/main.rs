@@ -44,9 +44,8 @@ fn dispatch(command: Command) -> Result<()> {
         }
         Command::InitPrompts { dir } => virgil_cli::scan::prompts::init_prompts(&dir),
         Command::Clean => {
-            let dir = dirs::cache_dir()
-                .ok_or_else(|| anyhow::anyhow!("no cache dir"))?
-                .join("virgil");
+            // Same helper `scan` writes through, so the two cannot drift.
+            let dir = virgil_cli::db::cache_root()?;
             if dir.exists() {
                 std::fs::remove_dir_all(&dir)?;
                 println!("removed {}", dir.display());
