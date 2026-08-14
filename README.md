@@ -75,7 +75,7 @@ each review name counts that review's findings. Each line is
 | `--json` | Print findings as JSON instead of the grouped report | off |
 | `--output <FILE>` | Also write a Markdown report to this file | off |
 | `--rebuild` | Delete the cached database and parse the repository again | off |
-| `--lang <LIST>` | Comma-separated extensions to parse, for example `ts,tsx,rs` | all supported |
+| `-l`, `--lang <LIST>` | Comma-separated extensions to parse, for example `ts,tsx,rs` | all supported |
 | `-v`, `-vv`, `-vvv` | Show more log detail (info, debug, trace) | warnings only |
 | `--quiet` | Show errors only | off |
 
@@ -145,10 +145,8 @@ Pick an Ollama model that supports tool calling. Tool calling is the model's abi
 invoke the `query`, `read_source`, and `report_finding` functions. A model without it
 cannot report anything.
 
-> Known problem: a review can stop making progress and never finish. There is no
-> timeout yet, so the command waits forever instead of failing. If a scan goes quiet for
-> minutes, press Ctrl-C and run it again. This was seen most often with `--provider
-> ollama`.
+Each review gives up after 10 minutes and is reported as a failed review. The other
+reviews keep going, and anything that review already found is still printed.
 
 ## Security posture
 

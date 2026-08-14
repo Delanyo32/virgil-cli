@@ -73,7 +73,8 @@ pub enum Command {
         // File discovery already honours .gitignore via ignore::WalkBuilder.
         // Add it by threading an OverrideBuilder through discover_files +
         // Workspace::load when someone actually needs a non-gitignored exclude.
-        /// Comma-separated language filter (ts,tsx,js,jsx,c,h,cpp,cs,rs,py,go,java,php)
+        /// Comma-separated file extensions to parse. One of: ts, tsx, js, jsx, c, h,
+        /// cpp, cc, cxx, hpp, hxx, hh, cs, rs, py, pyi, go, java, php
         #[arg(short, long)]
         lang: Option<String>,
     },

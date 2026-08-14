@@ -292,18 +292,28 @@ quietly fix them inside an unrelated change.
 - **`MAX_TURNS = 30` is a guess.** cersei's default of 10 is too low for
   query → read → report, but 30 was never tuned against a real scan. An agent that hits
   the cap loses whatever it hadn't reported yet.
-- **A review can hang forever, and nothing breaks it.** Measured on 2026-08-13 against
-  `--provider ollama` (`qwen2.5:7b` and `qwen2.5:14b`) on `tests/fixtures`: 4 of 5 live
-  runs stopped making progress after the provider returned a normal `200`. `sample` on
-  the stuck process shows all 36 threads parked (26 `__psynch_cvwait`, 13
-  `semaphore_wait`, 2 `kevent` — the idle tokio driver), 0% CPU, and **zero open TCP
-  sockets**, so the agent task is not waiting on the network; it is simply never woken
-  again. It reproduces at `--workers 1`, so it is not contention between agents. There
-  is no per-request timeout, no per-review timeout, and no scan deadline, so the CLI
-  waits forever and prints nothing. Untriaged: it may be cersei 0.2.6's
-  OpenAI-compatible client. Whoever picks this up should add a `tokio::time::timeout`
-  around `run_with` first — that converts a hang into a failed review, which the runner
-  already handles (findings survive, other reviews still report).
+- **Never call cersei's `run_with` / `run` / `reply`. Use `run_stream(..).collect()`.**
+  This is a deadlock in cersei 0.2.6, not a slow model, and it is the single most
+  expensive thing anyone has debugged on this branch. `run_with` delegates to
+  `runner::run_agent`, which opens `let (event_tx, _event_rx) = mpsc::channel(512)`
+  (`cersei-agent-0.2.6/src/runner.rs:147`) and never reads `_event_rx`. The underscore
+  is a *prefix*, not the wildcard pattern `_`, so the receiver stays alive for the whole
+  call and the channel simply fills. Every streamed chunk is forwarded with
+  `event_tx.send(..).await` (runner.rs:381), so send number 513 parks forever. One
+  normal reply streamed **2,351** chunks against 512 slots, so this is not an edge case
+  and it is not provider-specific — `Agent::run_stream` (`src/lib.rs:119`) builds the
+  same channel but hands the receiver back to the caller, and `AgentStream::collect`
+  (`src/events.rs:178`) drains it while the loop runs. Same `cersei_types::Result<AgentOutput>`
+  either way; `run_stream` just needs the agent in an `Arc`. Worth reporting upstream.
+  The earlier note here blamed an untriaged hang in cersei's OpenAI client and told the
+  next engineer to reach for `tokio::time::timeout` around `run_with` — both wrong. The
+  "zero open TCP sockets, all threads parked, reproduces at `--workers 1`" evidence
+  from 2026-08-13 was real and correctly ruled out the network; it just never reached
+  the channel. `src/scan/mod.rs` does now also wrap each review in a 10-minute
+  `tokio::time::timeout`, but that is a second layer for a stalled provider (cersei
+  builds its client with `reqwest::Client::new()`, which sets no read timeout). A
+  timeout alone would have turned the deadlock into four 10-minute failures, not a
+  working scan.
 - **The `SELECT`/`WITH` prefix guard is not a parser.** See above — it stops writes, and
   `lock_down` is what stops reads. Don't "improve" one while forgetting the other.
 - **Release builds are glibc-only.** `.github/workflows/release.yml` documents this as a
