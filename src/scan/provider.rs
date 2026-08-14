@@ -46,8 +46,14 @@ fn flag_name(kind: ProviderKind) -> String {
 /// Construction is offline — no request is sent until the agent runs.
 pub fn build(kind: ProviderKind, model: &str) -> Result<Box<dyn Provider>> {
     Ok(match kind {
-        ProviderKind::Anthropic => Box::new(Anthropic::from_env()?),
-        ProviderKind::Openai => Box::new(OpenAi::from_env()?),
+        ProviderKind::Anthropic => {
+            require_key("ANTHROPIC_API_KEY")?;
+            Box::new(Anthropic::from_env()?)
+        }
+        ProviderKind::Openai => {
+            require_key("OPENAI_API_KEY")?;
+            Box::new(OpenAi::from_env()?)
+        }
         ProviderKind::Ollama => Box::new(
             OpenAi::builder()
                 .base_url("http://localhost:11434/v1")
@@ -58,13 +64,32 @@ pub fn build(kind: ProviderKind, model: &str) -> Result<Box<dyn Provider>> {
         ProviderKind::Openrouter => Box::new(
             OpenAi::builder()
                 .base_url("https://openrouter.ai/api/v1")
-                .api_key(
-                    std::env::var("OPENROUTER_API_KEY").context("OPENROUTER_API_KEY is not set")?,
-                )
+                .api_key(require_key("OPENROUTER_API_KEY")?)
                 .model(model)
                 .build()?,
         ),
     })
+}
+
+/// Read an API key, rejecting one that is missing *or* set to an empty
+/// string. Cersei's `from_env` only rejects the first case: an empty key
+/// sails through construction and comes back as one HTTP 401 per review,
+/// several seconds and one whole parse later.
+fn require_key(var: &str) -> Result<String> {
+    check_key(var, std::env::var(var).ok())
+}
+
+/// The check itself, split out so a test can hit both arms without
+/// mutating process-wide environment state (which is `unsafe` in edition
+/// 2024, and racy across parallel test threads either way).
+fn check_key(var: &str, value: Option<String>) -> Result<String> {
+    let key = value.unwrap_or_default();
+    anyhow::ensure!(
+        !key.trim().is_empty(),
+        "{var} is not set, or is set to an empty value — export a real key, \
+or pass --provider ollama to run locally"
+    );
+    Ok(key)
 }
 
 #[cfg(test)]
@@ -101,5 +126,27 @@ mod tests {
     fn ollama_provider_constructs_without_network() {
         let p = build(ProviderKind::Ollama, "qwen3").unwrap();
         assert_eq!(p.name(), "openai");
+    }
+
+    /// An unset key and a key set to "" must both fail here, before the
+    /// project is parsed — not later as one HTTP 401 per review. The
+    /// message has to name the variable, since that is what the user
+    /// must go and export.
+    #[test]
+    fn a_missing_or_empty_key_is_rejected_by_name() {
+        for absent in [None, Some(String::new()), Some("   ".to_string())] {
+            let err = check_key("ANTHROPIC_API_KEY", absent.clone())
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("ANTHROPIC_API_KEY"), "got: {err} ({absent:?})");
+        }
+    }
+
+    #[test]
+    fn a_real_key_passes_through_unchanged() {
+        assert_eq!(
+            check_key("OPENAI_API_KEY", Some("sk-abc".into())).unwrap(),
+            "sk-abc"
+        );
     }
 }
