@@ -8,6 +8,7 @@ use crate::scan::report::Finding;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
@@ -16,6 +17,17 @@ use tracing::{info, warn};
 ///
 /// ponytail: a guess, not a measurement — tune it from a real scan.
 const MAX_TURNS: u32 = 30;
+
+/// Wall-clock cap on one review. Hitting it fails that review only: the
+/// findings it already reported still travel back, and the other reviews
+/// are untouched.
+///
+/// This is the *second* layer of hang protection. The first is
+/// `run_stream` below, which fixes the deadlock. This one covers a
+/// provider that accepts the request and then stops answering, because
+/// cersei builds its HTTP client with `reqwest::Client::new()`, which
+/// sets no read timeout.
+const REVIEW_TIMEOUT: Duration = Duration::from_secs(600);
 
 pub struct ScanConfig {
     pub path: PathBuf,
@@ -33,19 +45,23 @@ pub struct ScanConfig {
 /// `cfg.workers` at a time. A review that fails is recorded and skipped;
 /// only an all-failed scan is an error.
 pub async fn run(cfg: ScanConfig) -> Result<()> {
-    let (store, _ws) = build_store(&cfg)?;
+    // Everything that can fail on bad input runs before the parse, so a
+    // missing API key or an empty --prompts directory costs a second,
+    // not a full repository parse. The provider built here is thrown
+    // away; each review gets its own below.
     let prompts = prompts::load(cfg.prompts.as_deref())?;
     let model = provider::resolve_model(cfg.provider, cfg.model.as_deref())?;
+    drop(provider::build(cfg.provider, &model)?);
+
+    let (store, _ws) = build_store(&cfg)?;
     let system = prompts::system_prompt();
 
     let sem = Arc::new(Semaphore::new(cfg.workers.max(1)));
     let mut handles = Vec::new();
 
     for prompt in prompts {
-        // Both of these run here, before the spawn, on purpose:
-        // `try_clone_store` must be called on the thread holding the
-        // original store, and building the provider here makes a missing
-        // API key fail the scan once instead of once per review.
+        // `try_clone_store` runs here, before the spawn, because it must
+        // be called on the thread holding the original store.
         let agent_store = store.try_clone_store()?;
         let provider = provider::build(cfg.provider, &model)?;
 
@@ -55,58 +71,106 @@ pub async fn run(cfg: ScanConfig) -> Result<()> {
         let system = system.clone();
         let model = model.clone();
 
-        handles.push(tokio::spawn(async move {
-            let _permit = sem
-                .acquire_owned()
-                .await
-                .expect("the semaphore is never closed");
-            let name = prompt.name;
-            info!(review = %name, "review started");
+        // Kept outside the task so a panicked task can still be named.
+        let label = prompt.name.clone();
 
-            let (query, read_source, report_finding) = tools::make_tools(agent_store, sink.clone());
-            let out = cersei::Agent::builder()
-                .provider_boxed(provider)
-                .system_prompt(&system)
-                .model(&model)
-                .max_turns(MAX_TURNS)
-                .tool(query)
-                .tool(read_source)
-                .tool(report_finding)
-                .run_with(&prompt.body)
-                .await;
+        handles.push((
+            label,
+            tokio::spawn(async move {
+                let _permit = sem
+                    .acquire_owned()
+                    .await
+                    .expect("the semaphore is never closed");
+                let name = prompt.name;
+                info!(review = %name, "review started");
 
-            // Drained on both paths: an agent that errors mid-run usually
-            // breaks *after* it has reported real, confirmed findings
-            // (rate limit, dropped connection), so they travel back with
-            // the failure instead of being thrown away.
-            let batch = std::mem::take(&mut *sink.lock().unwrap());
-            let failure = match out {
-                Ok(_) => {
-                    info!(review = %name, findings = batch.len(), "review finished");
-                    None
-                }
-                // One failed review must not sink the scan.
-                Err(e) => {
-                    warn!(review = %name, findings = batch.len(), error = %e, "review failed");
-                    Some(format!("review '{name}' failed: {e}"))
-                }
-            };
-            (name, batch, failure)
-        }));
+                let (query, read_source, report_finding) =
+                    tools::make_tools(agent_store, sink.clone());
+
+                // `run_stream`, NOT `run_with` — this is load-bearing.
+                // cersei 0.2.6's `run_with` calls `run_agent`, which
+                // creates `mpsc::channel(512)` and binds the receiving
+                // end to `_event_rx` (runner.rs:147). An underscore
+                // *prefix* still holds the receiver alive for the whole
+                // function, and nothing ever reads it, so the channel
+                // fills and `event_tx.send().await` (runner.rs:381)
+                // blocks forever. A single normal reply streamed 2,351
+                // chunks against a 512-slot channel, so this deadlocked
+                // on every provider. `run_stream` hands us the receiver
+                // instead, and `collect` drains it while the agent runs.
+                let run = async {
+                    match cersei::Agent::builder()
+                        .provider_boxed(provider)
+                        .system_prompt(&system)
+                        .model(&model)
+                        .max_turns(MAX_TURNS)
+                        .tool(query)
+                        .tool(read_source)
+                        .tool(report_finding)
+                        .build()
+                    {
+                        // `run_stream` takes `&Arc<Agent>` because it
+                        // spawns the loop as its own task.
+                        Ok(agent) => Arc::new(agent).run_stream(&prompt.body).collect().await,
+                        Err(e) => Err(e),
+                    }
+                };
+                let out = tokio::time::timeout(REVIEW_TIMEOUT, run).await;
+
+                // Drained on every path: an agent that errors or stalls
+                // mid-run usually breaks *after* it has reported real,
+                // confirmed findings (rate limit, dropped connection),
+                // so they travel back with the failure instead of being
+                // thrown away.
+                let batch = std::mem::take(&mut *sink.lock().unwrap());
+                let failure = match out {
+                    Ok(Ok(_)) => {
+                        info!(review = %name, findings = batch.len(), "review finished");
+                        None
+                    }
+                    // One failed review must not sink the scan.
+                    Ok(Err(e)) => {
+                        warn!(review = %name, findings = batch.len(), error = %e, "review failed");
+                        Some(format!("review '{name}' failed: {e}"))
+                    }
+                    // ponytail: the abandoned agent task runs on to its
+                    // own end — cersei 0.2.6 ignores the control channel
+                    // it hands back, so `AgentStream::cancel` is a no-op.
+                    // Dropping the stream does un-block it (its sends
+                    // start failing instead of waiting), so this costs
+                    // tokens, not a stuck process.
+                    Err(_) => {
+                        let secs = REVIEW_TIMEOUT.as_secs();
+                        warn!(review = %name, findings = batch.len(), secs, "review timed out");
+                        Some(format!("review '{name}' timed out after {secs}s"))
+                    }
+                };
+                (name, batch, failure)
+            }),
+        ));
     }
 
     let mut outcomes = Vec::with_capacity(handles.len());
-    for handle in handles {
-        // A `JoinError` means an agent task panicked — that is a bug, not
-        // a failed review, so it aborts the scan.
-        outcomes.push(handle.await?);
+    for (label, handle) in handles {
+        match handle.await {
+            Ok(outcome) => outcomes.push(outcome),
+            // A `JoinError` means the agent task panicked. That is a bug,
+            // but aborting here would throw away every other review's
+            // findings and print nothing, so record it like any other
+            // failed review and carry on.
+            Err(e) => {
+                warn!(review = %label, error = %e, "review panicked");
+                let failure = format!("review '{label}' panicked");
+                outcomes.push((label, Vec::new(), Some(failure)));
+            }
+        }
     }
     let (mut findings, failures) = collect(outcomes);
     sort_findings(&mut findings);
     report::emit(&findings, &failures, cfg.json, cfg.output.as_deref())?;
 
     if scan_failed(findings.len(), failures.len()) {
-        anyhow::bail!("all reviews failed");
+        anyhow::bail!("no findings, and {} review(s) failed", failures.len());
     }
     Ok(())
 }
@@ -152,8 +216,8 @@ fn sort_findings(findings: &mut [Finding]) {
 ///
 /// Note the corollary: on a genuinely clean repo, one broken review is
 /// enough to fail the scan, because there are no findings to outweigh
-/// it. The bail message says "all reviews failed", which is wrong in
-/// exactly that case.
+/// it. The bail message counts the broken reviews rather than claiming
+/// they all broke, because in that case most of them did not.
 fn scan_failed(findings: usize, failures: usize) -> bool {
     findings == 0 && failures > 0
 }
