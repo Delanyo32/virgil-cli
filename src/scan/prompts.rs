@@ -79,9 +79,51 @@ pub fn init_prompts(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The worked example queries shown to the agent under QUERY HINTS, as
+/// `(what it answers, SQL)`.
+///
+/// They live in a const, rather than inline in the prompt text, so
+/// `hint_queries_all_run` can execute every one of them against a real
+/// empty schema. A hint that names a dropped column teaches the agent a
+/// query that always errors, and nothing else in the build would catch
+/// it.
+const HINT_QUERIES: &[(&str, &str)] = &[
+    (
+        "Files and sizes",
+        "SELECT path, length(content) AS bytes FROM file ORDER BY bytes DESC LIMIT 20",
+    ),
+    (
+        "Symbols in a file",
+        "SELECT name, kind FROM symbol WHERE file_path = 'db/schema.rs'",
+    ),
+    (
+        "Callers of a function",
+        "SELECT s.file_path, s.name FROM call_edge e JOIN symbol s ON s.id = e.caller_id \
+JOIN symbol t ON t.id = e.callee_id WHERE t.name = 'target_fn'",
+    ),
+    (
+        "Who imports a file",
+        "SELECT importer_file_id FROM imports WHERE imported_id LIKE '%auth%'",
+    ),
+    (
+        "Line span of a symbol",
+        "SELECT sp.start_line, sp.end_line FROM span sp JOIN symbol s ON s.id = sp.entity_id \
+WHERE s.name = 'target_fn'",
+    ),
+    (
+        "Skip tests and generated code",
+        "SELECT f.path FROM file f JOIN file_classification c ON c.path = f.path \
+WHERE NOT c.is_test AND NOT c.is_generated",
+    ),
+];
+
 /// Shared system prompt: role, tools, the real DDL, example queries.
 pub fn system_prompt() -> String {
     let ddl = crate::db::schema::create_statements().join(";\n");
+    let hints: String = HINT_QUERIES
+        .iter()
+        .map(|(what, sql)| format!("- {what}: {sql}\n"))
+        .collect();
     format!(
         "You are a code-review agent. The codebase you are reviewing has been \
 parsed into a DuckDB database. You cannot access the filesystem, the network, \
@@ -113,20 +155,10 @@ a real path out of the file table before you filter on one.
 - Some tables are empty for some languages, because a fact is only there if \
 that language's extractor produces it. COUNT(*) a table before you build a \
 review around it.
-- Files and sizes: SELECT path, length(content) AS bytes FROM file ORDER BY bytes DESC LIMIT 20
-- Symbols in a file: SELECT name, kind FROM symbol WHERE file_path = 'db/schema.rs'
-- Callers of a function: SELECT s.file_path, s.name FROM call_edge e \
-JOIN symbol s ON s.id = e.caller_id JOIN symbol t ON t.id = e.callee_id \
-WHERE t.name = 'target_fn'
 - imports holds file-to-file edges: importer_file_id and imported_id are both \
 file paths from file.path, despite the `_id` names.
-- Who imports a file: SELECT importer_file_id FROM imports WHERE imported_id LIKE '%auth%'
-- Line span of a symbol: SELECT sp.start_line, sp.end_line FROM span sp \
-JOIN symbol s ON s.id = sp.entity_id WHERE s.name = 'target_fn'
-- Skip tests and generated code: SELECT f.path FROM file f \
-JOIN file_classification c ON c.path = f.path \
-WHERE NOT c.is_test AND NOT c.is_generated
 - Never SELECT file.content in bulk; use read_source for code.
+{hints}
 
 METHOD
 Start broad (queries), narrow to suspects, confirm by reading source, then \
@@ -173,6 +205,28 @@ mod tests {
         let sp = system_prompt();
         assert!(sp.contains("CREATE TABLE file"));
         assert!(sp.contains("read_source"));
+    }
+
+    /// Every worked example we hand the agent must actually run. An empty
+    /// database is enough: a wrong table or column name is a plan-time
+    /// error, so it fails before any row is needed.
+    #[test]
+    fn hint_queries_all_run() {
+        let store = crate::db::DbStore::open_in_memory().unwrap();
+        for (what, sql) in HINT_QUERIES {
+            let r = store.run_query(sql, Default::default());
+            assert!(r.is_ok(), "hint '{what}' does not run: {:?}", r.err());
+        }
+    }
+
+    /// The hints reach the agent only through the prompt, so the const
+    /// and the prompt text must not drift apart.
+    #[test]
+    fn hint_queries_appear_in_the_prompt() {
+        let sp = system_prompt();
+        for (what, sql) in HINT_QUERIES {
+            assert!(sp.contains(sql), "hint '{what}' is missing from the prompt");
+        }
     }
 
     #[test]
