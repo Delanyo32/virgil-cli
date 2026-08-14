@@ -1456,3 +1456,12 @@ A streamlining audit found ~3,000 more lines of consolidation work in `src/langu
 8. Merge the two SQL string-walk copies in `store.rs` (comment stripping + `$name` inlining) into one pass (~50); `pk_key` via `format!("{:?}", …)` (~30); small dup/stdlib items from the audit report (~450 across C/C++ shared fns, `symbol_id` ×10, `classify_comment` ×8, quote-strippers, `normalise_whitespace`).
 
 Product calls left open: dropping `indicatif`/`tracing-indicatif` (one progress bar), `dirs` (one call), and whether all 10 language grammars stay.
+
+### Post-execution follow-ups (recorded at branch completion, 2026-08-13)
+
+1. **Run one live anthropic scan.** The deadlock fix was verified live on ollama only (0 hangs in 3 runs; one 4/4-review run with real findings, exit 0). The anthropic path is verified only to auth errors — run `virgil-cli scan <repo>` once with a real `ANTHROPIC_API_KEY`.
+2. **Report the cersei bug upstream** (github.com/pacifio/cersei): `run_with` → `run_agent` binds the event receiver as `_event_rx` (underscore *prefix* keeps it alive, unread) with a 512-slot channel; any reply beyond ~512 stream chunks deadlocks. One-character fix upstream (`_`), or keep using `run_stream().collect()` as this repo now does.
+3. **`--timeout-secs` flag.** `REVIEW_TIMEOUT` is a 600s const; 3 of 12 live reviews on local models hit it. Also note: a timed-out agent's detached task keeps running (cersei `cancel()` is a no-op) — it spends tokens, briefly exceeds `--workers`, and its late `report_finding` calls land in a drained sink. Acceptable today; revisit with the flag.
+4. **Pre-existing pipeline gaps** (found while validating prompts, pre-date this branch): `imports` resolves 0 rows on Rust corpora, `extends` empty on both corpora tested, and `from_code_graph.rs:74` joins a file path to a symbol id (dead branch — priority-2 inheritance never resolves). The architecture review is thin on Rust/Go until fixed.
+5. **Musl static builds** now possible (duckpgq download gone) — `release.yml`'s glibc-only constraint looks liftable.
+6. Cosmetic parked items: `review` column in markdown not escaped (user-controlled filenames only), writer buffers 200 files of source text between flushes (246 MB peak measured, fine), panicked review loses its already-reported findings (needs mutex-poison handling).
