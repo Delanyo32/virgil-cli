@@ -84,6 +84,7 @@ pub enum Command {
         dir: PathBuf,
     },
 
-    /// Delete all cached databases (~/.cache/virgil).
+    /// Delete all cached databases from the OS cache directory
+    /// (~/.cache/virgil on Linux, ~/Library/Caches/virgil on macOS).
     Clean,
 }

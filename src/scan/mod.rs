@@ -146,8 +146,14 @@ fn sort_findings(findings: &mut [Finding]) {
         .sort_by(|a, b| (a.severity, &a.review, &a.file).cmp(&(b.severity, &b.review, &b.file)));
 }
 
-/// The scan itself fails only when every review broke and nothing came
-/// back. Findings from the reviews that worked beat a partial failure.
+/// The scan fails when nothing was reported *and* at least one review
+/// broke. Any finding at all beats a partial failure, so a scan that
+/// reported something exits 0 even though a review died.
+///
+/// Note the corollary: on a genuinely clean repo, one broken review is
+/// enough to fail the scan, because there are no findings to outweigh
+/// it. The bail message says "all reviews failed", which is wrong in
+/// exactly that case.
 fn scan_failed(findings: usize, failures: usize) -> bool {
     findings == 0 && failures > 0
 }

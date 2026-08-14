@@ -149,8 +149,13 @@ The runner drains that sink on **both** the ok and error paths, because an agent
 dies to a rate limit usually died after reporting real findings. It then stamps the
 review name onto each finding (the agent never sets it) and sorts by
 `(severity, review, file)` — `Severity` declares variants worst-first, so ascending is
-already the right order. The scan only exits non-zero when every review failed **and**
-nothing was reported.
+already the right order.
+
+`scan_failed` is `findings == 0 && failures > 0`: the scan exits non-zero when nothing
+was reported **and at least one** review broke. It is *not* "every review broke" —
+three clean reviews plus one rate-limited review on a genuinely clean repo exits 1, and
+the bail message still says "all reviews failed", which is wrong in that case. Any
+finding at all flips it back to exit 0.
 
 **Cost of the dependency.** cersei pulls 255 transitive crates (522 packages in
 `Cargo.lock` total). That was accepted deliberately; don't re-litigate it in a sweep.

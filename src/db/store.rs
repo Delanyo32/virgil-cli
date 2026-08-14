@@ -380,7 +380,8 @@ fn format_sql_literal(v: &Value) -> String {
 }
 
 /// Cache file path for a workspace identified by `id`. Returns
-/// `~/.cache/virgil/<hash>.duckdb`.
+/// `<dirs::cache_dir()>/virgil/<hash>.duckdb` — that is
+/// `~/.cache/virgil` on Linux but `~/Library/Caches/virgil` on macOS.
 pub fn cache_dir_for_db(id: &str) -> Result<PathBuf> {
     let base = dirs::cache_dir()
         .context("could not determine OS cache directory")?
