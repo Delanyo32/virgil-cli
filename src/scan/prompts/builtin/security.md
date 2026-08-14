@@ -1,7 +1,9 @@
 Review this codebase for security problems. Focus on:
 
 - Injection: SQL, shell, or path strings built by concatenating untrusted input.
-- Secrets committed to code: API keys, tokens, passwords in source or config.
+- Secrets hard-coded in source: API keys, tokens, passwords written as literals.
+  Only source files are in the database, so say nothing about `.env`, CI, or any
+  other config file.
 - Unsafe input handling: missing validation at boundaries (HTTP handlers, CLI args,
   file parsing), unchecked deserialization.
 - Dangerous patterns: `eval`-style execution, disabled TLS verification, weak

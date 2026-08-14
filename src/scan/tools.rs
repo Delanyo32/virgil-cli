@@ -78,6 +78,12 @@ fn value_to_json(v: &Value) -> serde_json::Value {
         Value::List(items) | Value::Array(items) => {
             J::from(items.iter().map(value_to_json).collect::<Vec<_>>())
         }
+        // Both are wider than an f64, so they go over as decimal strings
+        // rather than as JSON numbers. Debug would print `HugeInt(12)`,
+        // which reads to the model as a type name, not a count — and
+        // COUNT(*) on a big table is exactly where these turn up.
+        Value::HugeInt(n) => J::from(n.to_string()),
+        Value::Decimal(d) => J::from(d.to_string()),
         // ponytail: dates, blobs, structs render as their Debug form —
         // the model reads them, it never parses them back.
         other => J::from(format!("{other:?}")),
@@ -257,6 +263,24 @@ mod tests {
             out,
             r#"{"headers":["path","language","n"],"rows":[["src/a.rs","rust",28]],"total_rows":1,"truncated":false}"#
         );
+    }
+
+    /// A HUGEINT or DECIMAL must reach the model as a number it can read,
+    /// not as `HugeInt(...)`. These turn up on aggregates, so the model
+    /// would be reading a debug type name where it expects a count.
+    #[test]
+    fn wide_numbers_are_decimal_strings_not_debug() {
+        let out = run_sql(
+            &store_with_one_file(),
+            "SELECT 170141183460469231731687303715884105727::HUGEINT AS h, \
+             1234.56::DECIMAL(10,2) AS d",
+        );
+        assert!(
+            out.contains(r#""170141183460469231731687303715884105727""#),
+            "hugeint: {out}"
+        );
+        assert!(out.contains(r#""1234.56""#), "decimal: {out}");
+        assert!(!out.contains("HugeInt("), "still debug-formatted: {out}");
     }
 
     /// `read_text` and `glob` are ordinary table functions, so a SELECT can

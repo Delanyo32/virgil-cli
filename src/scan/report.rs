@@ -116,15 +116,25 @@ fn render_terminal(findings: &[Finding], failures: &[String]) -> String {
     out
 }
 
+/// Make agent-supplied text safe to drop into one markdown table cell.
+/// `\r` goes first so a CRLF does not leave a stray carriage return.
+fn cell(s: &str) -> String {
+    s.replace('|', "\\|").replace(['\r', '\n'], " ")
+}
+
 fn render_markdown(findings: &[Finding], failures: &[String]) -> String {
     let mut out = String::from("# Code review findings\n");
     writeln!(out, "\n{} findings\n", findings.len()).unwrap();
     writeln!(out, "| Severity | Review | Location | Finding |").unwrap();
     writeln!(out, "|---|---|---|---|").unwrap();
     for f in findings {
+        // The agent supplies both the path and the message, so both get
+        // escaped. A `|` would otherwise open a new table cell, and a
+        // newline would end the row mid-finding and break every row
+        // under it.
         let loc = match f.line {
-            Some(l) => format!("`{}:{}`", f.file, l),
-            None => format!("`{}`", f.file),
+            Some(l) => format!("`{}:{}`", cell(&f.file), l),
+            None => format!("`{}`", cell(&f.file)),
         };
         writeln!(
             out,
@@ -132,8 +142,7 @@ fn render_markdown(findings: &[Finding], failures: &[String]) -> String {
             sev_label(f.severity),
             f.review,
             loc,
-            // A `|` in a message would otherwise open a new table cell.
-            f.message.replace('|', "\\|")
+            cell(&f.message)
         )
         .unwrap();
     }
@@ -183,6 +192,26 @@ mod tests {
         let s = render_markdown(&sample(), &[]);
         assert!(s.contains("| Severity |"));
         assert!(s.contains("src/auth.ts"));
+    }
+
+    /// A newline in a message used to end the table row early, which
+    /// broke every row printed after it. A `|` in a path did the same
+    /// sideways.
+    #[test]
+    fn markdown_cells_survive_pipes_and_newlines() {
+        let s = render_markdown(
+            &[Finding {
+                review: "bugs".into(),
+                severity: Severity::High,
+                file: "src/a|b.ts".into(),
+                line: Some(7),
+                message: "first line\nsecond | line".into(),
+            }],
+            &[],
+        );
+        let row = s.lines().find(|l| l.contains("a\\|b.ts")).expect("row");
+        assert!(row.contains("first line second \\| line"), "got: {row}");
+        assert_eq!(row.matches('|').count() - row.matches("\\|").count(), 5);
     }
 
     #[test]
