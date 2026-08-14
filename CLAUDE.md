@@ -287,6 +287,18 @@ quietly fix them inside an unrelated change.
 - **`MAX_TURNS = 30` is a guess.** cersei's default of 10 is too low for
   query → read → report, but 30 was never tuned against a real scan. An agent that hits
   the cap loses whatever it hadn't reported yet.
+- **A review can hang forever, and nothing breaks it.** Measured on 2026-08-13 against
+  `--provider ollama` (`qwen2.5:7b` and `qwen2.5:14b`) on `tests/fixtures`: 4 of 5 live
+  runs stopped making progress after the provider returned a normal `200`. `sample` on
+  the stuck process shows all 36 threads parked (26 `__psynch_cvwait`, 13
+  `semaphore_wait`, 2 `kevent` — the idle tokio driver), 0% CPU, and **zero open TCP
+  sockets**, so the agent task is not waiting on the network; it is simply never woken
+  again. It reproduces at `--workers 1`, so it is not contention between agents. There
+  is no per-request timeout, no per-review timeout, and no scan deadline, so the CLI
+  waits forever and prints nothing. Untriaged: it may be cersei 0.2.6's
+  OpenAI-compatible client. Whoever picks this up should add a `tokio::time::timeout`
+  around `run_with` first — that converts a hang into a failed review, which the runner
+  already handles (findings survive, other reviews still report).
 - **The `SELECT`/`WITH` prefix guard is not a parser.** See above — it stops writes, and
   `lock_down` is what stops reads. Don't "improve" one while forgetting the other.
 - **Release builds are glibc-only.** `.github/workflows/release.yml` documents this as a

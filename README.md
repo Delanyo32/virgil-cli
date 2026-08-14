@@ -145,6 +145,11 @@ Pick an Ollama model that supports tool calling. Tool calling is the model's abi
 invoke the `query`, `read_source`, and `report_finding` functions. A model without it
 cannot report anything.
 
+> Known problem: a review can stop making progress and never finish. There is no
+> timeout yet, so the command waits forever instead of failing. If a scan goes quiet for
+> minutes, press Ctrl-C and run it again. This was seen most often with `--provider
+> ollama`.
+
 ## Security posture
 
 The review agents never touch your filesystem or the network. They see one thing: a
