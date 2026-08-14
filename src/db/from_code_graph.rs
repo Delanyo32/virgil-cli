@@ -1,7 +1,7 @@
-//! Populate a [`DbStore`] from a finished [`CodeGraph`].
+//! Post-parse populate phase for a [`DbStore`].
 //!
-//! Runs the post-parse phase: the SQL `resolve_inheritance` join, the
-//! build-meta file record, and the parallel rayon call-edge resolver.
+//! Runs the SQL `resolve_inheritance` join and the parallel rayon
+//! call-edge resolver.
 //!
 //! There is no wipe/incremental-refresh path (cold + warm only), and no
 //! warm-compatibility check — `DbStore::open_persistent` already
@@ -14,9 +14,7 @@ use duckdb::types::Value;
 use rayon::prelude::*;
 use tracing::{info, info_span};
 
-use crate::graph::CodeGraph;
 use crate::models::SymbolKind;
-use crate::storage::workspace::Workspace;
 
 use super::{DbStore, DbWriter};
 
@@ -24,21 +22,12 @@ use super::{DbStore, DbWriter};
 /// / throws / field_types are now emitted file-locally during absorb,
 /// so this phase only:
 ///   - resolves staged `raw_inheritance` rows into `extends` / `implements`
-///   - records workspace file metadata
 ///   - resolves call sites into `call_edge`
-pub fn populate(store: &DbStore, _graph: &CodeGraph, workspace: Option<&Workspace>) -> Result<()> {
-    info!(
-        files = workspace.map(|w| w.file_count()).unwrap_or(0),
-        "db populate starting"
-    );
+pub fn populate(store: &DbStore) -> Result<()> {
+    info!("db populate starting");
     {
         let _r = info_span!("db.populate.inheritance").entered();
         resolve_inheritance(store)?;
-    }
-    if let Some(ws) = workspace {
-        let mut writer = DbWriter::new();
-        record_build_meta_files(ws, &mut writer);
-        writer.flush(store)?;
     }
     {
         let _r = info_span!("db.populate.call_edge_flush").entered();
@@ -52,9 +41,8 @@ pub fn populate(store: &DbStore, _graph: &CodeGraph, workspace: Option<&Workspac
 
 /// Resolve every row in `raw_inheritance` to an `extends` / `implements`
 /// edge using a SQL JOIN against `symbol` + `imports`. Replaces the
-/// per-file Rust loop in the old `emit_types_and_hierarchy` plus the
-/// `symbol_ids_by_name` / `symbol_ids_by_global_name` HashMaps held on
-/// `CodeGraph`.
+/// per-file Rust loop in the old `emit_types_and_hierarchy` plus its
+/// `symbol_ids_by_name` / `symbol_ids_by_global_name` HashMaps.
 ///
 /// Resolution priority is encoded in the `priority` column inside the
 /// CTE — same-file beats imported beats global. `ROW_NUMBER` picks one
@@ -408,7 +396,6 @@ fn resolve_and_emit_call_edges(store: &DbStore, writer: &mut DbWriter) -> Result
     for (caller_id, callee_id, file) in resolved {
         writer.push_call_edge(&caller_id, &callee_id, &file);
     }
-    eprintln!("[bench] call_edge_count={count}");
     info!(call_edges = count, "db call_edge resolution complete");
     Ok(())
 }
@@ -460,27 +447,6 @@ pub fn type_id(language: &str, file_path: &str, display_name: &str) -> String {
         }
     }
     format!("type:{h:016x}")
-}
-
-fn record_build_meta_files(workspace: &Workspace, writer: &mut DbWriter) {
-    let root = workspace.root();
-    let on_disk = root.exists();
-    for path in workspace.files() {
-        let (size, mtime) = if on_disk {
-            let full = root.join(path);
-            let meta = std::fs::metadata(&full).ok();
-            (
-                meta.as_ref().map(|m| m.len() as i64).unwrap_or(0),
-                meta.and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0),
-            )
-        } else {
-            (0, 0)
-        };
-        writer.push_build_meta_file(path, "", size, mtime);
-    }
 }
 
 pub(crate) fn is_generated_marker(source: &str) -> bool {

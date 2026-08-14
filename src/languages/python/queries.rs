@@ -394,7 +394,6 @@ pub fn extract_imports(
         };
 
         let import_node = import_cap.node;
-        let line = import_node.start_position().row as u32 + 1;
 
         match import_node.kind() {
             "import_statement" => {
@@ -406,16 +405,10 @@ pub fn extract_imports(
                         continue;
                     }
 
-                    let imported_name = module.rsplit('.').next().unwrap_or(&module).to_string();
-
                     imports.push(ImportInfo {
                         source_file: file_path.to_string(),
                         module_specifier: module,
-                        imported_name: imported_name.clone(),
-                        local_name: imported_name,
                         kind: "import".to_string(),
-                        is_type_only: false,
-                        line,
                         is_external: true,
                     });
                 }
@@ -441,11 +434,7 @@ pub fn extract_imports(
                                 imports.push(ImportInfo {
                                     source_file: file_path.to_string(),
                                     module_specifier: module.clone(),
-                                    imported_name: name.clone(),
-                                    local_name: name,
                                     kind: "from".to_string(),
-                                    is_type_only: false,
-                                    line,
                                     is_external: !is_internal,
                                 });
                             }
@@ -453,23 +442,13 @@ pub fn extract_imports(
                         "aliased_import" => {
                             found_names = true;
                             let name_node = child.child_by_field_name("name");
-                            let alias_node = child.child_by_field_name("alias");
                             if let Some(name_node) = name_node {
-                                let name = name_node.utf8_text(source).unwrap_or("").to_string();
-                                let local = alias_node
-                                    .and_then(|n| n.utf8_text(source).ok())
-                                    .map(|s| s.to_string())
-                                    .unwrap_or_else(|| name.clone());
-
+                                let name = name_node.utf8_text(source).unwrap_or("");
                                 if !name.is_empty() {
                                     imports.push(ImportInfo {
                                         source_file: file_path.to_string(),
                                         module_specifier: module.clone(),
-                                        imported_name: name,
-                                        local_name: local,
                                         kind: "from".to_string(),
-                                        is_type_only: false,
-                                        line,
                                         is_external: !is_internal,
                                     });
                                 }
@@ -480,11 +459,7 @@ pub fn extract_imports(
                             imports.push(ImportInfo {
                                 source_file: file_path.to_string(),
                                 module_specifier: module.clone(),
-                                imported_name: "*".to_string(),
-                                local_name: "*".to_string(),
                                 kind: "from".to_string(),
-                                is_type_only: false,
-                                line,
                                 is_external: !is_internal,
                             });
                         }
@@ -576,7 +551,7 @@ pub fn extract_comments(
                 continue;
             }
 
-            let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+            let (associated_symbol, _) = find_associated_symbol(node, source);
 
             comments.push(CommentInfo {
                 file_path: file_path.to_string(),
@@ -589,7 +564,6 @@ pub fn extract_comments(
                 end_line: node.end_position().row as u32 + 1,
                 end_column: node.end_position().column as u32,
                 associated_symbol,
-                associated_symbol_kind,
             });
             continue;
         }
@@ -608,8 +582,7 @@ pub fn extract_comments(
             let is_docstring = is_docstring_position(node);
 
             if is_docstring {
-                let (associated_symbol, associated_symbol_kind) =
-                    find_docstring_symbol(node, source);
+                let (associated_symbol, _) = find_docstring_symbol(node, source);
 
                 comments.push(CommentInfo {
                     file_path: file_path.to_string(),
@@ -622,7 +595,6 @@ pub fn extract_comments(
                     end_line: node.end_position().row as u32 + 1,
                     end_column: node.end_position().column as u32,
                     associated_symbol,
-                    associated_symbol_kind,
                 });
             }
         }
@@ -946,7 +918,6 @@ mod tests {
         let imports = parse_and_extract_imports("from os import path");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "os");
-        assert_eq!(imports[0].imported_name, "path");
         assert_eq!(imports[0].kind, "from");
     }
 

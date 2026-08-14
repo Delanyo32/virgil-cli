@@ -6,21 +6,14 @@ use std::sync::{Arc, Mutex};
 use lru::LruCache;
 
 /// Read-only file source abstraction. Only implementation is
-/// [`DiskFileSource`]; the prior `MemoryFileSource` / `S3FileSource`
-/// dropped with the S3 + serve scope (see
-/// `docs/experiments/duckdb-swap.md`).
+/// [`DiskFileSource`]; the prior `MemoryFileSource` / `S3FileSource` were
+/// dropped with the S3 + serve scope.
 pub trait FileSource: Send + Sync {
     /// Read file content by relative path. Returns None if not found.
     fn read_file(&self, relative_path: &str) -> Option<Arc<str>>;
 
     /// List all available file paths (relative).
     fn list_files(&self) -> &[String];
-
-    /// Check if a file exists.
-    fn file_exists(&self, relative_path: &str) -> bool;
-
-    /// Get file size in bytes (without reading content).
-    fn file_size(&self, relative_path: &str) -> Option<u64>;
 }
 
 /// Default capacity for the disk LRU cache. The working set during a build is
@@ -77,14 +70,6 @@ impl FileSource for DiskFileSource {
     fn list_files(&self) -> &[String] {
         &self.file_list
     }
-
-    fn file_exists(&self, relative_path: &str) -> bool {
-        self.sizes.contains_key(relative_path)
-    }
-
-    fn file_size(&self, relative_path: &str) -> Option<u64> {
-        self.sizes.get(relative_path).copied()
-    }
 }
 
 #[cfg(test)]
@@ -109,9 +94,7 @@ mod tests {
         assert_eq!(source.list_files(), &["a.rs", "b.rs"]);
         assert_eq!(source.read_file("a.rs").unwrap().as_ref(), "fn a() {}");
         assert_eq!(source.read_file("b.rs").unwrap().as_ref(), "fn b() {}");
-        assert!(source.file_exists("a.rs"));
-        assert!(!source.file_exists("missing.rs"));
-        assert_eq!(source.file_size("a.rs"), Some(9));
+        assert!(source.read_file("missing.rs").is_none());
     }
 
     #[test]

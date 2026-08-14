@@ -7,6 +7,5 @@ pub mod languages;
 pub mod models;
 pub mod observability;
 pub mod parser;
-pub mod queries;
-pub mod serve;
+pub mod scan;
 pub mod storage;

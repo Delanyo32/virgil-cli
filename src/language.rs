@@ -17,28 +17,6 @@ pub enum Language {
 }
 
 impl Language {
-    /// Inverse of [`Language::as_str`]. Used when round-tripping a
-    /// `Language` value through a serialised representation (e.g. the
-    /// `raw_import` table).
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "typescript" => Some(Language::TypeScript),
-            "tsx" => Some(Language::Tsx),
-            "javascript" => Some(Language::JavaScript),
-            "jsx" => Some(Language::Jsx),
-            "c" => Some(Language::C),
-            "cpp" => Some(Language::Cpp),
-            "csharp" => Some(Language::CSharp),
-            "rust" => Some(Language::Rust),
-            "python" => Some(Language::Python),
-            "go" => Some(Language::Go),
-            "java" => Some(Language::Java),
-            "php" => Some(Language::Php),
-            _ => None,
-        }
-    }
-
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext {
             "ts" => Some(Language::TypeScript),
@@ -84,23 +62,6 @@ impl Language {
             Language::CSharp => "csharp",
             Language::Rust => "rust",
             Language::Python => "python",
-            Language::Go => "go",
-            Language::Java => "java",
-            Language::Php => "php",
-        }
-    }
-
-    pub fn extension(&self) -> &'static str {
-        match self {
-            Language::TypeScript => "ts",
-            Language::Tsx => "tsx",
-            Language::JavaScript => "js",
-            Language::Jsx => "jsx",
-            Language::C => "c",
-            Language::Cpp => "cpp",
-            Language::CSharp => "cs",
-            Language::Rust => "rs",
-            Language::Python => "py",
             Language::Go => "go",
             Language::Java => "java",
             Language::Php => "php",
@@ -186,14 +147,6 @@ mod tests {
     fn from_extension_invalid() {
         assert_eq!(Language::from_extension("rb"), None);
         assert_eq!(Language::from_extension(""), None);
-    }
-
-    #[test]
-    fn extension_round_trip() {
-        for lang in Language::all() {
-            let ext = lang.extension();
-            assert_eq!(Language::from_extension(ext), Some(*lang));
-        }
     }
 
     #[test]

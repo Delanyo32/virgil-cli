@@ -5,8 +5,7 @@
 //! and streams the rows in.
 //!
 //! Appender rather than hand-rolled Arrow batches: ~5× less code for the
-//! same internal columnar batch path inside duckdb. See
-//! `docs/experiments/duckdb-swap.md` under "Deviations".
+//! same internal columnar batch path inside duckdb.
 
 #[cfg(test)]
 use std::collections::BTreeMap;
@@ -31,8 +30,6 @@ pub struct DbWriter {
     span: Vec<Row>,
     call_site: Vec<Row>,
     call_edge: Vec<Row>,
-    extends: Vec<Row>,
-    implements: Vec<Row>,
     raw_inheritance: Vec<Row>,
     imports: Vec<Row>,
     raw_import: Vec<Row>,
@@ -43,8 +40,6 @@ pub struct DbWriter {
     ty: Vec<Row>,
     comment: Vec<Row>,
     file_classification: Vec<Row>,
-    build_meta: Vec<Row>,
-    build_meta_files: Vec<Row>,
     occurrence: Vec<Row>,
     scope: Vec<Row>,
     binding: Vec<Row>,
@@ -65,46 +60,13 @@ impl DbWriter {
         Self::default()
     }
 
-    /// Append every row from `other` into `self`, leaving `other` empty.
-    pub fn merge(&mut self, other: &mut DbWriter) {
-        self.file.append(&mut other.file);
-        self.symbol.append(&mut other.symbol);
-        self.span.append(&mut other.span);
-        self.call_site.append(&mut other.call_site);
-        self.call_edge.append(&mut other.call_edge);
-        self.extends.append(&mut other.extends);
-        self.implements.append(&mut other.implements);
-        self.raw_inheritance.append(&mut other.raw_inheritance);
-        self.imports.append(&mut other.imports);
-        self.raw_import.append(&mut other.raw_import);
-        self.parameter.append(&mut other.parameter);
-        self.returns_type.append(&mut other.returns_type);
-        self.throws.append(&mut other.throws);
-        self.field_type.append(&mut other.field_type);
-        self.ty.append(&mut other.ty);
-        self.comment.append(&mut other.comment);
-        self.file_classification
-            .append(&mut other.file_classification);
-        self.build_meta.append(&mut other.build_meta);
-        self.build_meta_files.append(&mut other.build_meta_files);
-        self.occurrence.append(&mut other.occurrence);
-        self.scope.append(&mut other.scope);
-        self.binding.append(&mut other.binding);
-        self.local_type.append(&mut other.local_type);
-        self.rust_attrs.append(&mut other.rust_attrs);
-        self.python_attrs.append(&mut other.python_attrs);
-        self.typescript_attrs.append(&mut other.typescript_attrs);
-        self.cpp_attrs.append(&mut other.cpp_attrs);
-        self.csharp_attrs.append(&mut other.csharp_attrs);
-        self.go_attrs.append(&mut other.go_attrs);
-        self.php_attrs.append(&mut other.php_attrs);
-        self.c_attrs.append(&mut other.c_attrs);
-        self.java_attrs.append(&mut other.java_attrs);
-    }
-
-    pub fn push_file(&mut self, path: &str, language: &str, repo_id: &str) {
-        self.file
-            .push(vec![text(path), text(language), text(repo_id)]);
+    pub fn push_file(&mut self, path: &str, language: &str, repo_id: &str, content: &str) {
+        self.file.push(vec![
+            text(path),
+            text(language),
+            text(repo_id),
+            text(content),
+        ]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -190,15 +152,6 @@ impl DbWriter {
     pub fn push_call_edge(&mut self, caller_id: &str, callee_id: &str, file_path: &str) {
         self.call_edge
             .push(vec![text(caller_id), text(callee_id), text(file_path)]);
-    }
-
-    pub fn push_extends(&mut self, child_id: &str, parent_id: &str) {
-        self.extends.push(vec![text(child_id), text(parent_id)]);
-    }
-
-    pub fn push_implements(&mut self, impl_id: &str, interface_id: &str) {
-        self.implements
-            .push(vec![text(impl_id), text(interface_id)]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -344,15 +297,6 @@ impl DbWriter {
             Value::Boolean(is_barrel),
             Value::Boolean(is_generated),
         ]);
-    }
-
-    pub fn push_build_meta(&mut self, key: &str, value: &str) {
-        self.build_meta.push(vec![text(key), text(value)]);
-    }
-
-    pub fn push_build_meta_file(&mut self, file_path: &str, hash: &str, size: i64, mtime: i64) {
-        self.build_meta_files
-            .push(vec![text(file_path), text(hash), big(size), big(mtime)]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -603,8 +547,6 @@ impl DbWriter {
             flush_table(conn, "span", 2, &mut self.span)?;
             flush_table(conn, "call_site", 1, &mut self.call_site)?;
             flush_table(conn, "call_edge", 2, &mut self.call_edge)?;
-            flush_table(conn, "extends", 2, &mut self.extends)?;
-            flush_table(conn, "implements", 2, &mut self.implements)?;
             flush_table(conn, "raw_inheritance", 0, &mut self.raw_inheritance)?;
             flush_table(conn, "imports", 2, &mut self.imports)?;
             flush_table(conn, "raw_import", 2, &mut self.raw_import)?;
@@ -620,8 +562,6 @@ impl DbWriter {
                 1,
                 &mut self.file_classification,
             )?;
-            flush_table(conn, "build_meta", 1, &mut self.build_meta)?;
-            flush_table(conn, "build_meta_files", 1, &mut self.build_meta_files)?;
             flush_table(conn, "occurrence", 1, &mut self.occurrence)?;
             flush_table(conn, "scope", 1, &mut self.scope)?;
             flush_table(conn, "binding", 3, &mut self.binding)?;
@@ -821,7 +761,7 @@ mod tests {
         let store = DbStore::open_in_memory().expect("open");
         let mut writer = DbWriter::new();
 
-        writer.push_file("src/a.ts", "typescript", "");
+        writer.push_file("src/a.ts", "typescript", "", "");
         writer.push_symbol(
             "src/a.ts|1|0|login|function",
             "function",
@@ -895,7 +835,7 @@ mod tests {
     fn writer_pushes_attrs_with_list_columns() {
         let store = DbStore::open_in_memory().expect("open");
         let mut w = DbWriter::new();
-        w.push_file("src/lib.rs", "rust", "");
+        w.push_file("src/lib.rs", "rust", "", "");
         w.push_symbol(
             "src/lib.rs|1|0|foo|function",
             "function",

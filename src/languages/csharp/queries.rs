@@ -392,11 +392,7 @@ pub fn extract_imports(
         imports.push(ImportInfo {
             source_file: file_path.to_string(),
             module_specifier,
-            imported_name: "*".to_string(),
-            local_name: "*".to_string(),
             kind: "using".to_string(),
-            is_type_only: false,
-            line: (node.start_position().row + 1) as u32,
             is_external: true, // no syntactic way to distinguish
         });
     }
@@ -447,7 +443,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -460,7 +456,6 @@ pub fn extract_comments(
             end_line: (node.end_position().row + 1) as u32,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 

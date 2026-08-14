@@ -166,42 +166,25 @@ fn import_extraction_typescript() {
     let dynamic_count = imps.iter().filter(|i| i.kind == "dynamic").count();
     let reexport_count = imps.iter().filter(|i| i.kind == "re_export").count();
 
-    assert!(
-        static_count >= 8,
-        "expected at least 8 static imports, got {static_count}"
-    );
+    // One row per import statement (not per binding): 7 static + 1 dynamic
+    // + 2 re-exports in imports_sample.ts.
+    assert_eq!(static_count, 7, "expected 7 static imports");
     assert_eq!(dynamic_count, 1, "expected 1 dynamic import");
-    assert!(
-        reexport_count >= 2,
-        "expected at least 2 re-exports, got {reexport_count}"
-    );
+    assert_eq!(reexport_count, 2, "expected 2 re-exports");
 
-    let react_default = imps
+    let react = imps
         .iter()
-        .find(|i| i.module_specifier == "react" && i.imported_name == "default");
-    assert!(react_default.is_some(), "missing default import from react");
-    assert_eq!(react_default.unwrap().local_name, "React");
+        .filter(|i| i.module_specifier == "react")
+        .count();
+    assert_eq!(react, 2, "expected 2 statements importing from react");
 
-    let namespace = imps
-        .iter()
-        .find(|i| i.imported_name == "*" && i.local_name == "path");
+    let namespace = imps.iter().find(|i| i.module_specifier == "path");
     assert!(namespace.is_some(), "missing namespace import for path");
 
-    let aliased = imps
-        .iter()
-        .find(|i| i.imported_name == "useState" && i.local_name == "useMyState");
+    let type_only = imps.iter().find(|i| i.module_specifier == "./models");
     assert!(
-        aliased.is_some(),
-        "missing aliased import useState as useMyState"
-    );
-
-    let type_only = imps
-        .iter()
-        .find(|i| i.imported_name == "User" && i.module_specifier == "./models");
-    assert!(type_only.is_some(), "missing type-only import User");
-    assert!(
-        type_only.unwrap().is_type_only,
-        "User import should be type-only"
+        type_only.is_some(),
+        "missing type-only import from ./models"
     );
 
     let side_effect = imps.iter().find(|i| i.module_specifier == "./polyfill");
@@ -229,4 +212,43 @@ fn import_extraction_javascript() {
     );
     assert_eq!(require_count, 2, "expected 2 require calls");
     assert_eq!(dynamic_count, 1, "expected 1 dynamic import");
+}
+
+#[test]
+fn file_content_is_stored() {
+    let store = virgil_cli::db::DbStore::open_in_memory().expect("open store");
+    let workspace =
+        virgil_cli::storage::workspace::Workspace::load(&fixtures_dir(), Language::all(), None)
+            .expect("load workspace");
+    virgil_cli::graph::builder::GraphBuilder::new(&workspace, Language::all())
+        .build(&store)
+        .expect("build");
+
+    let rows = store
+        .run_query(
+            "SELECT content FROM file WHERE content <> '' LIMIT 1",
+            Default::default(),
+        )
+        .expect("query");
+    assert_eq!(
+        rows.rows.len(),
+        1,
+        "expected at least one file with stored content"
+    );
+
+    // The stored text is the real source, not a placeholder: byte
+    // length must match the fixture on disk.
+    let expected_bytes = std::fs::read_to_string(fixtures_dir().join("sample.ts"))
+        .expect("read fixture")
+        .len();
+    let matched = store
+        .run_query(
+            &format!(
+                "SELECT path FROM file \
+                 WHERE path = 'sample.ts' AND strlen(content) = {expected_bytes}"
+            ),
+            Default::default(),
+        )
+        .expect("query");
+    assert_eq!(matched.rows.len(), 1, "sample.ts content differs from disk");
 }

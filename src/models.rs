@@ -37,34 +37,6 @@ pub enum SymbolKind {
     Field,
 }
 
-impl SymbolKind {
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "function" => Some(SymbolKind::Function),
-            "class" => Some(SymbolKind::Class),
-            "method" => Some(SymbolKind::Method),
-            "variable" => Some(SymbolKind::Variable),
-            "interface" => Some(SymbolKind::Interface),
-            "type_alias" => Some(SymbolKind::TypeAlias),
-            "enum" => Some(SymbolKind::Enum),
-            "arrow_function" => Some(SymbolKind::ArrowFunction),
-            "struct" => Some(SymbolKind::Struct),
-            "union" => Some(SymbolKind::Union),
-            "namespace" => Some(SymbolKind::Namespace),
-            "macro" => Some(SymbolKind::Macro),
-            "property" => Some(SymbolKind::Property),
-            "typedef" => Some(SymbolKind::Typedef),
-            "trait" => Some(SymbolKind::Trait),
-            "constant" => Some(SymbolKind::Constant),
-            "module" => Some(SymbolKind::Module),
-            "parameter" => Some(SymbolKind::Parameter),
-            "field" => Some(SymbolKind::Field),
-            _ => None,
-        }
-    }
-}
-
 impl fmt::Display for SymbolKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
@@ -155,11 +127,7 @@ pub struct SymbolInfo {
 pub struct ImportInfo {
     pub source_file: String,
     pub module_specifier: String,
-    pub imported_name: String,
-    pub local_name: String,
     pub kind: String,
-    pub is_type_only: bool,
-    pub line: u32,
     pub is_external: bool,
 }
 
@@ -175,7 +143,6 @@ pub struct CommentInfo {
     pub end_line: u32,
     pub end_column: u32,
     pub associated_symbol: Option<String>,
-    pub associated_symbol_kind: Option<String>,
 }
 
 /// A type-expression occurrence extracted from one file. Maps to one row
@@ -453,17 +420,6 @@ pub struct InheritanceRow {
     pub parent_display_name: String,
     pub parent_canonical_name: Option<String>,
     pub kind: InheritanceKind,
-}
-
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub file_path: String,
-    pub file_name: String,
-    pub extension: String,
-    pub language: String,
-    pub error_type: String,
-    pub error_message: String,
-    pub size_bytes: u64,
 }
 
 impl ImportInfo {

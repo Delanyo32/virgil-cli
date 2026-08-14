@@ -7,7 +7,10 @@ edition = "2024"
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 ignore = "0.4"
-tree-sitter = "0.25"
+# 0.26 is required by cersei-tools; `tree-sitter` sets `links = "tree-sitter"`,
+# so exactly one version may exist in the graph. The grammar crates below only
+# depend on `tree-sitter-language 0.1`, so they are unaffected by the bump.
+tree-sitter = "0.26"
 tree-sitter-typescript = "0.23"
 tree-sitter-javascript = "0.25"
 tree-sitter-c = "0.23"
@@ -24,25 +27,22 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indicatif = "0.18"
 dirs = "5"
-chrono = { version = "0.4", features = ["serde"] }
 lru = "0.12"
-lasso = { version = "0.7", features = ["multi-threaded"] }
-# DuckDB backend (formerly Cozo — replaced as the fact store, see
-# docs/experiments/duckdb-swap.md). Bundled so we don't depend on a
-# system DuckDB. vtab-arrow + appender-arrow give us the Arrow ingest
-# path; duckpgq is loaded at runtime from the community repo on first
-# cold-build and cached under ~/.duckdb/extensions/.
-duckdb = { version = "1", features = ["bundled", "vtab-arrow", "appender-arrow"] }
+# DuckDB backend. Bundled so we don't depend on a system DuckDB.
+duckdb = { version = "1", features = ["bundled"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-indicatif = "0.3"
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
-# Serve mode (local HTTP API exposing an already-parsed project). axum on
-# tokio handles HTTP + holds idle SSE/poll connections cheaply; DuckDB
-# queries still run on blocking threads (the binding is synchronous).
-axum = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time", "net"] }
-async-stream = "0.3"
+# The scan runner drives review agents concurrently on a tokio runtime.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time"] }
+# Agent SDK. default-features = false drops the `vms` feature (sandboxed VM
+# tooling) — the scan agents only need the agent core, providers, and tools.
+cersei = { version = "0.2.6", default-features = false }
+# Direct deps only because `#[derive(Tool)]` expands to `cersei_tools::…` and
+# `#[async_trait::async_trait]`, and neither name is reachable through
+# `cersei::prelude::*`. Both are already in the tree via cersei.
+cersei-tools = "0.2.6"
+async-trait = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

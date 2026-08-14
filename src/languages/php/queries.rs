@@ -408,12 +408,7 @@ pub fn extract_imports(
         {
             let node = import_cap.node;
             let text = node.utf8_text(source).unwrap_or("").to_string();
-            parse_use_declaration(
-                &text,
-                file_path,
-                (node.start_position().row + 1) as u32,
-                &mut imports,
-            );
+            parse_use_declaration(&text, file_path, &mut imports);
             continue;
         }
 
@@ -428,11 +423,7 @@ pub fn extract_imports(
                 imports.push(ImportInfo {
                     source_file: file_path.to_string(),
                     module_specifier: path.clone(),
-                    imported_name: path.rsplit('/').next().unwrap_or(&path).to_string(),
-                    local_name: "*".to_string(),
                     kind: "require".to_string(),
-                    is_type_only: false,
-                    line: (node.start_position().row + 1) as u32,
                     is_external,
                 });
             }
@@ -450,11 +441,7 @@ pub fn extract_imports(
                 imports.push(ImportInfo {
                     source_file: file_path.to_string(),
                     module_specifier: path.clone(),
-                    imported_name: path.rsplit('/').next().unwrap_or(&path).to_string(),
-                    local_name: "*".to_string(),
                     kind: "include".to_string(),
-                    is_type_only: false,
-                    line: (node.start_position().row + 1) as u32,
                     is_external,
                 });
             }
@@ -465,7 +452,7 @@ pub fn extract_imports(
     imports
 }
 
-fn parse_use_declaration(text: &str, file_path: &str, line: u32, imports: &mut Vec<ImportInfo>) {
+fn parse_use_declaration(text: &str, file_path: &str, imports: &mut Vec<ImportInfo>) {
     let text = text.trim();
     let text = text.strip_prefix("use").unwrap_or(text).trim();
     let text = text.strip_suffix(';').unwrap_or(text).trim();
@@ -486,15 +473,6 @@ fn parse_use_declaration(text: &str, file_path: &str, line: u32, imports: &mut V
                 continue;
             }
 
-            let (imported_name, local_name) = if let Some((name, alias)) = item.split_once(" as ") {
-                let name = name.trim();
-                let imported = name.rsplit('\\').next().unwrap_or(name);
-                (imported.to_string(), alias.trim().to_string())
-            } else {
-                let imported = item.rsplit('\\').next().unwrap_or(item);
-                (imported.to_string(), imported.to_string())
-            };
-
             let module = format!(
                 "{}\\{}",
                 prefix,
@@ -504,32 +482,21 @@ fn parse_use_declaration(text: &str, file_path: &str, line: u32, imports: &mut V
             imports.push(ImportInfo {
                 source_file: file_path.to_string(),
                 module_specifier: module,
-                imported_name,
-                local_name,
                 kind: "use".to_string(),
-                is_type_only: false,
-                line,
                 is_external: true,
             });
         }
     } else {
         // Simple use: App\Models\User or App\Models\User as U
-        let (path, local_name) = if let Some((path, alias)) = text.split_once(" as ") {
-            (path.trim(), alias.trim().to_string())
-        } else {
-            (text, text.rsplit('\\').next().unwrap_or(text).to_string())
+        let path = match text.split_once(" as ") {
+            Some((path, _alias)) => path.trim(),
+            None => text,
         };
-
-        let imported_name = path.rsplit('\\').next().unwrap_or(path).to_string();
 
         imports.push(ImportInfo {
             source_file: file_path.to_string(),
             module_specifier: path.to_string(),
-            imported_name,
-            local_name,
             kind: "use".to_string(),
-            is_type_only: false,
-            line,
             is_external: true,
         });
     }
@@ -593,7 +560,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -606,7 +573,6 @@ pub fn extract_comments(
             end_line: (node.end_position().row + 1) as u32,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 
@@ -906,7 +872,6 @@ mod tests {
         let imports = parse_and_extract_imports("<?php\nuse App\\Models\\User;");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "App\\Models\\User");
-        assert_eq!(imports[0].imported_name, "User");
         assert_eq!(imports[0].kind, "use");
         assert!(imports[0].is_external);
     }
@@ -915,16 +880,15 @@ mod tests {
     fn use_with_alias() {
         let imports = parse_and_extract_imports("<?php\nuse App\\Models\\User as U;");
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "User");
-        assert_eq!(imports[0].local_name, "U");
+        assert_eq!(imports[0].module_specifier, "App\\Models\\User");
     }
 
     #[test]
     fn grouped_use() {
         let imports = parse_and_extract_imports("<?php\nuse App\\Models\\{User, Post};");
         assert_eq!(imports.len(), 2);
-        assert_eq!(imports[0].imported_name, "User");
-        assert_eq!(imports[1].imported_name, "Post");
+        assert_eq!(imports[0].module_specifier, "App\\Models\\User");
+        assert_eq!(imports[1].module_specifier, "App\\Models\\Post");
     }
 
     #[test]
@@ -982,7 +946,6 @@ mod tests {
         let c = comments.iter().find(|c| c.text.contains("Describes Foo"));
         assert!(c.is_some());
         assert_eq!(c.unwrap().associated_symbol.as_deref(), Some("Foo"));
-        assert_eq!(c.unwrap().associated_symbol_kind.as_deref(), Some("class"));
     }
 
     #[test]

@@ -313,12 +313,11 @@ pub fn extract_imports(
         let path_cap = path_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
         let include_cap = include_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
 
-        let (Some(path_cap), Some(include_cap)) = (path_cap, include_cap) else {
+        let (Some(path_cap), Some(_)) = (path_cap, include_cap) else {
             continue;
         };
 
         let path_node = path_cap.node;
-        let include_node = include_cap.node;
 
         let raw_path = path_node.utf8_text(source).unwrap_or("").to_string();
         if raw_path.is_empty() {
@@ -331,11 +330,7 @@ pub fn extract_imports(
         imports.push(ImportInfo {
             source_file: file_path.to_string(),
             module_specifier,
-            imported_name: "*".to_string(),
-            local_name: "*".to_string(),
             kind: "include".to_string(),
-            is_type_only: false,
-            line: include_node.start_position().row as u32 + 1,
             is_external: is_system,
         });
     }
@@ -380,7 +375,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -393,7 +388,6 @@ pub fn extract_comments(
             end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 
@@ -719,10 +713,6 @@ mod tests {
         );
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].associated_symbol.as_deref(), Some("sum"));
-        assert_eq!(
-            comments[0].associated_symbol_kind.as_deref(),
-            Some("function")
-        );
     }
 
     #[test]

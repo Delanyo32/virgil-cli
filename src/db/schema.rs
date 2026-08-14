@@ -2,11 +2,6 @@
 //!
 //! Stringly composite IDs per ADR-0002. Composite-key tables get an
 //! explicit `PRIMARY KEY (...)`; list-valued columns are `VARCHAR[]`.
-//!
-//! The duckpgq `CREATE PROPERTY GRAPH` DDL lives in [`pgq_statements`]
-//! and is applied after the base tables exist. It defines two vertex
-//! tables (`file`, `symbol`) and four edge tables (`call_edge`,
-//! `imports`, `extends`, `implements`).
 
 /// `CREATE TABLE` statements applied in order on a fresh store.
 pub fn create_statements() -> &'static [&'static str] {
@@ -15,7 +10,8 @@ pub fn create_statements() -> &'static [&'static str] {
         "CREATE TABLE file (\
             path VARCHAR PRIMARY KEY, \
             language VARCHAR NOT NULL, \
-            repo_id VARCHAR NOT NULL\
+            repo_id VARCHAR NOT NULL, \
+            content VARCHAR NOT NULL\
          )",
         "CREATE TABLE symbol (\
             id VARCHAR PRIMARY KEY, \
@@ -265,12 +261,6 @@ pub fn create_statements() -> &'static [&'static str] {
             key VARCHAR PRIMARY KEY, \
             value VARCHAR NOT NULL\
          )",
-        "CREATE TABLE build_meta_files (\
-            file_path VARCHAR PRIMARY KEY, \
-            hash VARCHAR NOT NULL, \
-            size BIGINT NOT NULL, \
-            mtime BIGINT NOT NULL\
-         )",
     ]
 }
 
@@ -278,9 +268,7 @@ pub fn create_statements() -> &'static [&'static str] {
 pub fn index_statements() -> &'static [&'static str] {
     &[
         "CREATE INDEX idx_symbol_by_name ON symbol(name)",
-        "CREATE INDEX idx_symbol_by_qname ON symbol(qualified_name)",
         "CREATE INDEX idx_symbol_by_file ON symbol(file_path)",
-        "CREATE INDEX idx_symbol_by_name_kind ON symbol(name, kind)",
         "CREATE INDEX idx_imports_by_imported ON imports(imported_id)",
         "CREATE INDEX idx_imports_by_importer ON imports(importer_file_id)",
         "CREATE INDEX idx_comment_by_file ON comment(file_path)",
@@ -290,45 +278,5 @@ pub fn index_statements() -> &'static [&'static str] {
         "CREATE INDEX idx_scope_by_file ON scope(file_path)",
         "CREATE INDEX idx_call_site_by_caller ON call_site(caller_id)",
         "CREATE INDEX idx_call_site_by_name ON call_site(callee_name)",
-    ]
-}
-
-/// `CREATE PROPERTY GRAPH` DDL for duckpgq. Applied last, after the
-/// tables and indices exist. Defines:
-///
-/// - vertex tables: `file` (KEY path), `symbol` (KEY id)
-/// - edge tables: `call_edge` (symbol→symbol), `imports` (file→symbol),
-///   `extends` (symbol→symbol), `implements` (symbol→symbol)
-///
-/// Other graph-shaped relations (`binding`, `occurrence`) are not
-/// exposed via PGQ — templates use plain SQL for those.
-pub fn pgq_statements() -> &'static [&'static str] {
-    &[
-        // duckpgq does not (currently) accept explicit KEY clauses on
-        // vertex tables — the vertex's PK is taken implicitly. Edge
-        // tables still need explicit SOURCE/DESTINATION KEY clauses.
-        "CREATE PROPERTY GRAPH codegraph \
-            VERTEX TABLES ( \
-                file, \
-                symbol \
-            ) \
-            EDGE TABLES ( \
-                call_edge \
-                    SOURCE KEY (caller_id) REFERENCES symbol (id) \
-                    DESTINATION KEY (callee_id) REFERENCES symbol (id) \
-                    LABEL calls, \
-                imports \
-                    SOURCE KEY (importer_file_id) REFERENCES file (path) \
-                    DESTINATION KEY (imported_id) REFERENCES symbol (id) \
-                    LABEL imports, \
-                extends \
-                    SOURCE KEY (child_id) REFERENCES symbol (id) \
-                    DESTINATION KEY (parent_id) REFERENCES symbol (id) \
-                    LABEL extends, \
-                implements \
-                    SOURCE KEY (impl_id) REFERENCES symbol (id) \
-                    DESTINATION KEY (interface_id) REFERENCES symbol (id) \
-                    LABEL implements \
-            )",
     ]
 }

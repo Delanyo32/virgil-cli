@@ -622,115 +622,33 @@ pub fn extract_imports(
             .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
             .is_some();
 
-        if has_import {
-            let import_node = import_idx
-                .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
-                .unwrap()
-                .node;
-            let line = import_node.start_position().row as u32 + 1;
-            let is_type_only = has_type_keyword(import_node);
-            let extracted = extract_import_bindings(import_node, source);
-
-            let is_external = ImportInfo::is_external_specifier(&module_specifier);
-
-            if extracted.is_empty() {
-                // Side-effect import: import "./polyfill"
-                imports.push(ImportInfo {
-                    source_file: file_path.to_string(),
-                    module_specifier: module_specifier.clone(),
-                    imported_name: "*".to_string(),
-                    local_name: "*".to_string(),
-                    kind: "static".to_string(),
-                    is_type_only,
-                    line,
-                    is_external,
-                });
-            } else {
-                for (imported, local, binding_type_only) in extracted {
-                    imports.push(ImportInfo {
-                        source_file: file_path.to_string(),
-                        module_specifier: module_specifier.clone(),
-                        imported_name: imported,
-                        local_name: local,
-                        kind: "static".to_string(),
-                        is_type_only: is_type_only || binding_type_only,
-                        line,
-                        is_external,
-                    });
-                }
-            }
+        // One row per import statement — the per-binding rows the old
+        // shape emitted only differed in fields nothing reads any more.
+        let kind = if has_import {
+            "static"
         } else if has_reexport {
-            let reexport_node = reexport_idx
-                .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
-                .unwrap()
-                .node;
-            let line = reexport_node.start_position().row as u32 + 1;
-            let extracted = extract_reexport_bindings(reexport_node, source);
-            let is_external = ImportInfo::is_external_specifier(&module_specifier);
-
-            if extracted.is_empty() {
-                imports.push(ImportInfo {
-                    source_file: file_path.to_string(),
-                    module_specifier: module_specifier.clone(),
-                    imported_name: "*".to_string(),
-                    local_name: "*".to_string(),
-                    kind: "re_export".to_string(),
-                    is_type_only: has_type_keyword(reexport_node),
-                    line,
-                    is_external,
-                });
-            } else {
-                for (imported, local) in extracted {
-                    imports.push(ImportInfo {
-                        source_file: file_path.to_string(),
-                        module_specifier: module_specifier.clone(),
-                        imported_name: imported,
-                        local_name: local,
-                        kind: "re_export".to_string(),
-                        is_type_only: has_type_keyword(reexport_node),
-                        line,
-                        is_external,
-                    });
-                }
-            }
+            "re_export"
         } else if has_dynamic {
-            let dynamic_node = dynamic_import_idx
-                .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
-                .unwrap()
-                .node;
-            imports.push(ImportInfo {
-                source_file: file_path.to_string(),
-                module_specifier: module_specifier.clone(),
-                imported_name: "*".to_string(),
-                local_name: "*".to_string(),
-                kind: "dynamic".to_string(),
-                is_type_only: false,
-                line: dynamic_node.start_position().row as u32 + 1,
-                is_external: ImportInfo::is_external_specifier(&module_specifier),
-            });
+            "dynamic"
         } else if has_call {
-            let fn_name_cap =
-                fn_name_idx.and_then(|idx| m.captures.iter().find(|c| c.index == idx));
-            if let Some(fn_cap) = fn_name_cap {
-                let fn_name = fn_cap.node.utf8_text(source).unwrap_or("");
-                if fn_name == "require" {
-                    let call_node = call_idx
-                        .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
-                        .unwrap()
-                        .node;
-                    imports.push(ImportInfo {
-                        source_file: file_path.to_string(),
-                        module_specifier: module_specifier.clone(),
-                        imported_name: "*".to_string(),
-                        local_name: "*".to_string(),
-                        kind: "require".to_string(),
-                        is_type_only: false,
-                        line: call_node.start_position().row as u32 + 1,
-                        is_external: ImportInfo::is_external_specifier(&module_specifier),
-                    });
-                }
+            let is_require = fn_name_idx
+                .and_then(|idx| m.captures.iter().find(|c| c.index == idx))
+                .map(|c| c.node.utf8_text(source).unwrap_or("") == "require")
+                .unwrap_or(false);
+            if !is_require {
+                continue;
             }
-        }
+            "require"
+        } else {
+            continue;
+        };
+
+        imports.push(ImportInfo {
+            source_file: file_path.to_string(),
+            module_specifier: module_specifier.clone(),
+            kind: kind.to_string(),
+            is_external: ImportInfo::is_external_specifier(&module_specifier),
+        });
     }
 
     imports
@@ -747,149 +665,6 @@ fn strip_quotes(s: &str) -> String {
         s[1..s.len() - 1].trim().to_string()
     } else {
         s.to_string()
-    }
-}
-
-fn has_type_keyword(node: tree_sitter::Node) -> bool {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "type" && !child.is_named() {
-            return true;
-        }
-    }
-    false
-}
-
-fn extract_import_bindings(
-    import_node: tree_sitter::Node,
-    source: &[u8],
-) -> Vec<(String, String, bool)> {
-    let mut results = Vec::new();
-    let mut cursor = import_node.walk();
-
-    for child in import_node.children(&mut cursor) {
-        if child.kind() == "import_clause" {
-            extract_import_clause(child, source, &mut results);
-        }
-    }
-
-    results
-}
-
-fn extract_import_clause(
-    clause_node: tree_sitter::Node,
-    source: &[u8],
-    results: &mut Vec<(String, String, bool)>,
-) {
-    let mut cursor = clause_node.walk();
-    for child in clause_node.children(&mut cursor) {
-        match child.kind() {
-            "identifier" => {
-                let name = child.utf8_text(source).unwrap_or("").to_string();
-                if !name.is_empty() {
-                    results.push(("default".to_string(), name, false));
-                }
-            }
-            "namespace_import" => {
-                let local = extract_namespace_local(child, source);
-                results.push(("*".to_string(), local, false));
-            }
-            "named_imports" => {
-                extract_named_imports(child, source, results);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn extract_namespace_local(node: tree_sitter::Node, source: &[u8]) -> String {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "identifier" {
-            return child.utf8_text(source).unwrap_or("*").to_string();
-        }
-    }
-    "*".to_string()
-}
-
-fn extract_named_imports(
-    node: tree_sitter::Node,
-    source: &[u8],
-    results: &mut Vec<(String, String, bool)>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "import_specifier" {
-            let (imported, local, is_type) = extract_import_specifier(child, source);
-            if !imported.is_empty() {
-                results.push((imported, local, is_type));
-            }
-        }
-    }
-}
-
-fn extract_import_specifier(node: tree_sitter::Node, source: &[u8]) -> (String, String, bool) {
-    let mut identifiers = Vec::new();
-    let mut is_type = false;
-    let mut cursor = node.walk();
-
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "identifier" | "type_identifier" => {
-                identifiers.push(child.utf8_text(source).unwrap_or("").to_string());
-            }
-            "type" => {
-                is_type = true;
-            }
-            _ => {}
-        }
-    }
-
-    match identifiers.len() {
-        0 => (String::new(), String::new(), is_type),
-        1 => (identifiers[0].clone(), identifiers[0].clone(), is_type),
-        _ => (identifiers[0].clone(), identifiers[1].clone(), is_type),
-    }
-}
-
-fn extract_reexport_bindings(
-    export_node: tree_sitter::Node,
-    source: &[u8],
-) -> Vec<(String, String)> {
-    let mut results = Vec::new();
-    let mut cursor = export_node.walk();
-
-    for child in export_node.children(&mut cursor) {
-        if child.kind() == "export_clause" {
-            let mut inner_cursor = child.walk();
-            for specifier in child.children(&mut inner_cursor) {
-                if specifier.kind() == "export_specifier" {
-                    let (imported, local) = extract_export_specifier(specifier, source);
-                    if !imported.is_empty() {
-                        results.push((imported, local));
-                    }
-                }
-            }
-        }
-    }
-
-    results
-}
-
-fn extract_export_specifier(node: tree_sitter::Node, source: &[u8]) -> (String, String) {
-    let mut identifiers = Vec::new();
-    let mut cursor = node.walk();
-
-    for child in node.children(&mut cursor) {
-        if child.kind() == "identifier" || child.kind() == "type_identifier" {
-            identifiers.push(child.utf8_text(source).unwrap_or("").to_string());
-        }
-    }
-
-    match identifiers.len() {
-        0 => (String::new(), String::new()),
-        1 => (identifiers[0].clone(), identifiers[0].clone()),
-        _ => (identifiers[0].clone(), identifiers[1].clone()),
     }
 }
 
@@ -921,7 +696,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -934,7 +709,6 @@ pub fn extract_comments(
             end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 
@@ -1451,14 +1225,11 @@ module.exports.deleteItem = function(req, res) {
             r#"import { foo, bar } from "./utils";"#,
             Language::TypeScript,
         );
-        assert_eq!(imports.len(), 2);
-        assert_eq!(imports[0].imported_name, "foo");
-        assert_eq!(imports[0].local_name, "foo");
+        // One row per import statement, not per binding.
+        assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "./utils");
         assert_eq!(imports[0].kind, "static");
-        assert!(!imports[0].is_type_only);
         assert!(!imports[0].is_external); // relative path = internal
-        assert_eq!(imports[1].imported_name, "bar");
     }
 
     #[test]
@@ -1466,8 +1237,6 @@ module.exports.deleteItem = function(req, res) {
         let imports =
             parse_and_extract_imports(r#"import React from "react";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "default");
-        assert_eq!(imports[0].local_name, "React");
         assert_eq!(imports[0].module_specifier, "react");
         assert!(imports[0].is_external); // bare specifier = external
     }
@@ -1477,8 +1246,7 @@ module.exports.deleteItem = function(req, res) {
         let imports =
             parse_and_extract_imports(r#"import * as path from "path";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "*");
-        assert_eq!(imports[0].local_name, "path");
+        assert_eq!(imports[0].module_specifier, "path");
     }
 
     #[test]
@@ -1488,8 +1256,7 @@ module.exports.deleteItem = function(req, res) {
             Language::TypeScript,
         );
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "foo");
-        assert_eq!(imports[0].local_name, "myFoo");
+        assert_eq!(imports[0].module_specifier, "./utils");
     }
 
     #[test]
@@ -1499,16 +1266,14 @@ module.exports.deleteItem = function(req, res) {
             Language::TypeScript,
         );
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "User");
-        assert!(imports[0].is_type_only);
+        assert_eq!(imports[0].module_specifier, "./models");
+        assert_eq!(imports[0].kind, "static");
     }
 
     #[test]
     fn side_effect_import() {
         let imports = parse_and_extract_imports(r#"import "./polyfill";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].imported_name, "*");
-        assert_eq!(imports[0].local_name, "*");
         assert_eq!(imports[0].module_specifier, "./polyfill");
     }
 
@@ -1526,7 +1291,7 @@ module.exports.deleteItem = function(req, res) {
         let imports = parse_and_extract_imports(r#"export * from "./base";"#, Language::TypeScript);
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, "re_export");
-        assert_eq!(imports[0].imported_name, "*");
+        assert_eq!(imports[0].module_specifier, "./base");
     }
 
     #[test]
@@ -1535,12 +1300,9 @@ module.exports.deleteItem = function(req, res) {
             r#"export { foo, bar as baz } from "./helpers";"#,
             Language::TypeScript,
         );
-        assert_eq!(imports.len(), 2);
+        assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].kind, "re_export");
-        assert_eq!(imports[0].imported_name, "foo");
-        assert_eq!(imports[0].local_name, "foo");
-        assert_eq!(imports[1].imported_name, "bar");
-        assert_eq!(imports[1].local_name, "baz");
+        assert_eq!(imports[0].module_specifier, "./helpers");
     }
 
     #[test]
@@ -1570,11 +1332,8 @@ module.exports.deleteItem = function(req, res) {
             r#"import React, { useState, useEffect } from "react";"#,
             Language::TypeScript,
         );
-        assert_eq!(imports.len(), 3);
-        assert_eq!(imports[0].imported_name, "default");
-        assert_eq!(imports[0].local_name, "React");
-        assert_eq!(imports[1].imported_name, "useState");
-        assert_eq!(imports[2].imported_name, "useEffect");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].module_specifier, "react");
     }
 
     #[test]
@@ -1627,14 +1386,6 @@ const fs = require("fs");
         // fs = external (require)
         assert_eq!(imports[5].module_specifier, "fs");
         assert!(imports[5].is_external);
-    }
-
-    #[test]
-    fn line_numbers_correct() {
-        let source = "// comment\nimport { foo } from \"./bar\";\n";
-        let imports = parse_and_extract_imports(source, Language::TypeScript);
-        assert_eq!(imports.len(), 1);
-        assert_eq!(imports[0].line, 2);
     }
 
     // ── resolve_import tests ──

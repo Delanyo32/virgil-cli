@@ -24,23 +24,11 @@ use crate::models::{
 use crate::parser;
 use crate::storage::workspace::Workspace;
 
-use super::{CodeGraph, Spur, Symbols};
-
 /// Flush the streaming writer every this many files. Caps peak writer
 /// memory to roughly N files' worth of in-flight rows. Picked to
 /// amortise DuckDB transaction overhead — too low thrashes the store,
 /// too high defeats streaming.
 const STREAM_FLUSH_EVERY_N_FILES: u32 = 200;
-
-/// Eager import resolution. Build-time resolver maps each
-/// `*raw_import{module_specifier}` to a concrete file path using the
-/// per-language `languages::resolve_import` logic, then emits
-/// `*imports{importer_file_id, imported_id}` rows. Kept eager because
-/// per-language module-resolution rules (Node, Python sys.path, Java
-/// classpath, etc.) are pages of Rust per language — not practical to
-/// express in SQL at query time. Memory cost is small: ~30 MB peak on
-/// openclaw (14k files).
-const RESOLVE_IMPORTS_EAGERLY: bool = true;
 
 /// Per-file extraction result, collected in parallel.
 struct FileGraphData {
@@ -96,7 +84,7 @@ struct DeferredImport {
 struct SharedAbsorb {
     writer: DbWriter,
     deferred_imports: Vec<DeferredImport>,
-    file_known_spurs: HashSet<Spur>,
+    file_known_paths: HashSet<String>,
     /// Files absorbed since the last flush. Triggers a `writer.flush`
     /// every `STREAM_FLUSH_EVERY_N_FILES` to cap peak memory.
     files_since_flush: u32,
@@ -115,7 +103,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn build(&self, store: &DbStore) -> Result<CodeGraph> {
+    pub fn build(&self, store: &DbStore) -> Result<()> {
         let total_files = self.workspace.file_count();
         info!(
             files = total_files,
@@ -178,7 +166,7 @@ impl<'a> GraphBuilder<'a> {
         // Rayon workers each parse a file (CPU-heavy, no shared state),
         // then briefly lock a shared `SharedAbsorb` to push the
         // extracted rows into a single `DbWriter` + the cross-file
-        // deferred Vecs + the interner. This was previously done via
+        // deferred Vecs. This was previously done via
         // a per-worker `WorkerLocal` reduced at the end, which held
         // ~850 MiB of scratch state at peak (measured 2026-05-27).
         // Sharing the writer keeps memory near baseline; the absorb
@@ -189,8 +177,6 @@ impl<'a> GraphBuilder<'a> {
             .build()
             .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
-        // Shared interner. Cloning is cheap (just bumps an Arc).
-        let shared_symbols = Symbols::new();
         // repo_id derives from the workspace root's basename. S3
         // workspaces have synthetic `s3://bucket/prefix` roots — the
         // last path segment is acceptable here.
@@ -212,7 +198,7 @@ impl<'a> GraphBuilder<'a> {
         let absorbed_files = AtomicU64::new(0);
         let target_files = grouped_files_ref.len() as u64;
 
-        let (mut stream_writer, deferred_imports, file_known_spurs) = {
+        let (mut stream_writer, deferred_imports, file_known_paths) = {
             let span = info_span!("graph.parse_absorb", files = target_files);
             span.pb_set_length(target_files);
             span.pb_set_style(
@@ -227,7 +213,6 @@ impl<'a> GraphBuilder<'a> {
             let parsed_ref = &parsed;
             let absorbed_ref = &absorbed_files;
             let repo_id_ref = repo_id.as_str();
-            let interner = &shared_symbols;
 
             // One shared writer + cross-file scratch, behind a mutex.
             // The lock is held only across `absorb_file_data` (Vec
@@ -236,7 +221,7 @@ impl<'a> GraphBuilder<'a> {
             let shared = Mutex::new(SharedAbsorb {
                 writer: DbWriter::new(),
                 deferred_imports: Vec::new(),
-                file_known_spurs: HashSet::new(),
+                file_known_paths: HashSet::new(),
                 files_since_flush: 0,
             });
 
@@ -253,12 +238,11 @@ impl<'a> GraphBuilder<'a> {
                         let mut state = shared.lock().expect("shared absorb mutex poisoned");
                         let state = &mut *state;
                         absorb_file_data(
-                            interner,
                             data,
                             workspace,
                             repo_id_ref,
                             &mut state.deferred_imports,
-                            &mut state.file_known_spurs,
+                            &mut state.file_known_paths,
                             &mut state.writer,
                         );
                         absorbed_ref.fetch_add(1, Ordering::Relaxed);
@@ -275,7 +259,7 @@ impl<'a> GraphBuilder<'a> {
             let SharedAbsorb {
                 writer: mut stream_writer,
                 deferred_imports,
-                file_known_spurs,
+                file_known_paths,
                 ..
             } = shared.into_inner().expect("shared absorb mutex poisoned");
             // Flush the writer's tail rows before cross-file resolution
@@ -288,12 +272,8 @@ impl<'a> GraphBuilder<'a> {
                 deferred_imports = deferred_imports.len(),
                 "parse + absorb done"
             );
-            (stream_writer, deferred_imports, file_known_spurs)
+            (stream_writer, deferred_imports, file_known_paths)
         };
-        // CodeGraph is a vestigial wrapper around the shared interner
-        // after the SQL-staging refactor; still returned to keep the
-        // public API stable for callers that take a `&CodeGraph`.
-        let graph = CodeGraph::with_symbols(shared_symbols);
 
         let _resolve_span = info_span!("graph.resolve_refs").entered();
 
@@ -309,12 +289,6 @@ impl<'a> GraphBuilder<'a> {
         };
         let mut imports_emitted: usize = 0;
         for di in deferred_imports {
-            let Some(from_spur) = graph.symbols.get(&di.from_file_path) else {
-                continue;
-            };
-            if !file_known_spurs.contains(&from_spur) {
-                continue;
-            }
             // A `File` resolves to one workspace file; a `Package` (Go) resolves
             // to a directory — every file under it is a dependency, so fan out.
             // C# resolves a `using` namespace to every file declaring it.
@@ -343,10 +317,7 @@ impl<'a> GraphBuilder<'a> {
                 }
             };
             for resolved in targets {
-                if let Some(to_spur) = graph.symbols.get(&resolved)
-                    && file_known_spurs.contains(&to_spur)
-                    && from_spur != to_spur
-                {
+                if file_known_paths.contains(&resolved) && di.from_file_path != resolved {
                     stream_writer.push_imports(&di.from_file_path, &resolved);
                     imports_emitted += 1;
                 }
@@ -359,11 +330,11 @@ impl<'a> GraphBuilder<'a> {
         stream_writer.flush(store)?;
 
         info!(
-            files = file_known_spurs.len(),
+            files = file_known_paths.len(),
             imports = imports_emitted,
             "graph build complete"
         );
-        Ok(graph)
+        Ok(())
     }
 }
 
@@ -461,12 +432,11 @@ fn parse_one_file(
 }
 
 fn absorb_file_data(
-    interner: &Symbols,
     data: FileGraphData,
     workspace: &Workspace,
     repo_id: &str,
     deferred_imports: &mut Vec<DeferredImport>,
-    file_known_spurs: &mut HashSet<Spur>,
+    file_known_paths: &mut HashSet<String>,
     stream_writer: &mut DbWriter,
 ) {
     let FileGraphData {
@@ -486,14 +456,18 @@ fn absorb_file_data(
         references,
     } = data;
 
-    let path_spur = interner.intern(&path);
-    file_known_spurs.insert(path_spur);
+    file_known_paths.insert(path.clone());
     let language_str = language.as_str();
 
     // `file` row + classification. Emitted here so the file exists
     // only as a DuckDB row, never as an in-memory graph node.
-    stream_writer.push_file(&path, language_str, repo_id);
     let src_for_marker = workspace.read_file(&path);
+    stream_writer.push_file(
+        &path,
+        language_str,
+        repo_id,
+        src_for_marker.as_deref().unwrap_or(""),
+    );
     let is_generated = src_for_marker
         .as_ref()
         .map(|src| is_generated_marker(src))
@@ -540,7 +514,7 @@ fn absorb_file_data(
 
     // File-local symbol lookup. Built up front so the populate-tail
     // emitters below can resolve `(file, name)` -> symbol_id without
-    // round-tripping to DuckDB or stashing on a global CodeGraph map.
+    // round-tripping to DuckDB or stashing on a global map.
     // Same-file collisions: keep the first (mirrors the prior
     // `pick_symbol_id` behaviour of `v.first()`).
     let mut name_to_id: HashMap<&str, &str> = HashMap::with_capacity(symbols.len());
@@ -664,16 +638,16 @@ fn absorb_file_data(
             &import.kind,
         );
     }
-    if RESOLVE_IMPORTS_EAGERLY {
-        for import in imports {
-            deferred_imports.push(DeferredImport {
-                from_file_path: path.clone(),
-                language,
-                import,
-            });
-        }
-    } else {
-        let _ = imports;
+    // Import resolution stays eager: per-language module-resolution rules
+    // (Node, Python sys.path, Java classpath, …) are pages of Rust each —
+    // not practical to express in SQL at query time. Memory cost is small
+    // (~30 MB peak on a 14k-file corpus).
+    for import in imports {
+        deferred_imports.push(DeferredImport {
+            from_file_path: path.clone(),
+            language,
+            import,
+        });
     }
 
     // Emit per-file type / signature / field / throws rows directly.
@@ -971,34 +945,6 @@ fn build_namespace_index(store: &DbStore) -> Result<HashMap<String, Vec<String>>
     })
 }
 
-/// Find a tree-sitter node that matches the given line range. Used by
-/// `complexity_hotspots` for on-demand metric computation.
-pub fn find_node_at_line(
-    node: tree_sitter::Node,
-    start_line: u32,
-    end_line: u32,
-) -> Option<tree_sitter::Node> {
-    let node_start = node.start_position().row as u32 + 1;
-    let node_end = node.end_position().row as u32 + 1;
-
-    if node_start == start_line && node_end == end_line {
-        return Some(node);
-    }
-
-    if node_end < start_line || node_start > end_line {
-        return None;
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_node_at_line(child, start_line, end_line) {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
 fn call_expression_types(language: Language) -> Vec<&'static str> {
     match language {
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
@@ -1166,8 +1112,8 @@ mod tests {
     fn build_into_store(dir: &std::path::Path, langs: &[Language]) -> DbStore {
         let ws = Workspace::load(dir, langs, None).unwrap();
         let store = DbStore::open_in_memory().unwrap();
-        let graph = GraphBuilder::new(&ws, langs).build(&store).unwrap();
-        fcg::populate(&store, &graph, Some(&ws)).unwrap();
+        GraphBuilder::new(&ws, langs).build(&store).unwrap();
+        fcg::populate(&store).unwrap();
         store
     }
 

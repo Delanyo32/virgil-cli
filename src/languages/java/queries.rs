@@ -310,7 +310,7 @@ pub fn extract_imports(
         let node = import_cap.node;
         let text = node.utf8_text(source).unwrap_or("").to_string();
 
-        let (module_specifier, imported_name, is_static) = parse_java_import(&text);
+        let (module_specifier, is_static) = parse_java_import(&text);
         if module_specifier.is_empty() {
             continue;
         }
@@ -324,11 +324,7 @@ pub fn extract_imports(
         imports.push(ImportInfo {
             source_file: file_path.to_string(),
             module_specifier,
-            imported_name: imported_name.clone(),
-            local_name: imported_name,
             kind,
-            is_type_only: false,
-            line: node.start_position().row as u32 + 1,
             is_external: true, // Java imports are always external (no relative imports)
         });
     }
@@ -336,7 +332,7 @@ pub fn extract_imports(
     imports
 }
 
-fn parse_java_import(text: &str) -> (String, String, bool) {
+fn parse_java_import(text: &str) -> (String, bool) {
     let text = text.trim();
     let text = text.strip_prefix("import").unwrap_or(text).trim();
     let is_static = text.starts_with("static");
@@ -348,19 +344,10 @@ fn parse_java_import(text: &str) -> (String, String, bool) {
     let text = text.strip_suffix(';').unwrap_or(text).trim();
 
     if text.is_empty() {
-        return (String::new(), String::new(), is_static);
+        return (String::new(), is_static);
     }
 
-    let module_specifier = text.to_string();
-
-    // Handle wildcards: import java.util.* → imported_name = "*"
-    let imported_name = if text.ends_with(".*") {
-        "*".to_string()
-    } else {
-        text.rsplit('.').next().unwrap_or(text).to_string()
-    };
-
-    (module_specifier, imported_name, is_static)
+    (text.to_string(), is_static)
 }
 
 // ── Comment extraction ──
@@ -391,7 +378,7 @@ pub fn extract_comments(
         }
 
         let kind = classify_comment(&text);
-        let (associated_symbol, associated_symbol_kind) = find_associated_symbol(node, source);
+        let (associated_symbol, _) = find_associated_symbol(node, source);
 
         comments.push(CommentInfo {
             file_path: file_path.to_string(),
@@ -404,7 +391,6 @@ pub fn extract_comments(
             end_line: node.end_position().row as u32 + 1,
             end_column: node.end_position().column as u32,
             associated_symbol,
-            associated_symbol_kind,
         });
     }
 
@@ -691,7 +677,6 @@ mod tests {
         let imports = parse_and_extract_imports("import java.util.List;");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "java.util.List");
-        assert_eq!(imports[0].imported_name, "List");
         assert_eq!(imports[0].kind, "import");
         assert!(imports[0].is_external);
     }
@@ -701,7 +686,6 @@ mod tests {
         let imports = parse_and_extract_imports("import java.util.*;");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "java.util.*");
-        assert_eq!(imports[0].imported_name, "*");
     }
 
     #[test]
@@ -709,7 +693,6 @@ mod tests {
         let imports = parse_and_extract_imports("import static java.lang.Math.PI;");
         assert_eq!(imports.len(), 1);
         assert_eq!(imports[0].module_specifier, "java.lang.Math.PI");
-        assert_eq!(imports[0].imported_name, "PI");
         assert_eq!(imports[0].kind, "static");
     }
 
@@ -743,7 +726,6 @@ mod tests {
         let c = comments.iter().find(|c| c.text.contains("Describes Foo"));
         assert!(c.is_some());
         assert_eq!(c.unwrap().associated_symbol.as_deref(), Some("Foo"));
-        assert_eq!(c.unwrap().associated_symbol_kind.as_deref(), Some("class"));
     }
 
     #[test]
