@@ -49,10 +49,11 @@ pub enum Command {
         workers: usize,
 
         /// AI provider
-        #[arg(long, value_enum, default_value_t = ProviderKind::Anthropic)]
+        #[arg(long, value_enum, default_value_t = ProviderKind::Openrouter)]
         provider: ProviderKind,
 
-        /// Model id (defaults to claude-opus-5 for anthropic; required otherwise)
+        /// Model id (defaults to z-ai/glm-4.6 for openrouter and claude-opus-5
+        /// for anthropic; required for openai and ollama)
         #[arg(long)]
         model: Option<String>,
 

@@ -74,9 +74,30 @@ registry, no `serve` mode, no `--sql` / `--template` / `--file` query surface, a
   - `prompts.rs` — the four `include_str!`'d built-ins, `--prompts` loading (file or
     sorted `.md` directory), `init_prompts`, and `system_prompt()` — which embeds the
     live DDL from `db::schema::create_statements()` so the agent's schema can never
-    drift from the real one
+    drift from the real one. Past the DDL it also carries **HOW THE TABLES CONNECT**
+    (the two join keys — `file.path` and `symbol.id` — and where each reappears),
+    **WHICH TABLE ANSWERS WHICH QUESTION**, and a **COST** section. ~14.6k chars /
+    ~3.6k tokens; it roughly doubled in the 2026-08-13 navigation pass and that was
+    deliberate — the agent was previously given 31 tables of DDL with no relational
+    map and no worked cross-file example
+  - **Never put an unseeded `WITH RECURSIVE` in `HINT_QUERIES`.** Measured on the
+    1093-file go/cpp store (30,717 `imports` edges): an all-pairs walk anchored on the
+    whole table ran 34ms at depth 2, 1.0s at depth 3, and **did not finish in 150s at
+    depth 4** (~30x per hop). `REVIEW_TIMEOUT` is 10 minutes for the *whole* review, so
+    one such query ends it with zero findings. Short cycles are plain self-joins
+    (2-file and 3-file, both 3ms); the one recursive hint is seeded from a single
+    literal path. `recursive_hints_are_seeded_and_bounded` enforces this — it was
+    verified to fail on the bad form, not just to pass on the good one
+  - `hint_queries_all_run` only proves a hint *parses* (it runs against an empty
+    schema). It cannot catch a query that parses and then hangs. All 15 hints were
+    additionally run against the real store with real values substituted; slowest was
+    39.5ms. Re-run that by hand if you add one
   - `provider.rs` — `resolve_model` + `build`. Anthropic and OpenAI come from
-    `from_env`; ollama and openrouter are `OpenAi::builder()` with a `base_url`
+    `from_env`; ollama and openrouter are `OpenAi::builder()` with a `base_url`.
+    **openrouter is the default `--provider`** (`cli.rs`), defaulting to
+    `z-ai/glm-4.6`; anthropic defaults to `claude-opus-5`. openai and ollama have
+    no default and still require `--model`. The openrouter slug is
+    vendor-prefixed on purpose — openrouter routes on the qualified id
   - `tools.rs` — the three `#[derive(Tool)]` types plus `run_sql` / `read_lines`
   - `report.rs` — `Severity`, `Finding`, and the terminal / JSON / markdown renderers
 - `src/db/` — fact store
@@ -278,12 +299,25 @@ field_type` non-empty.
 Real, measured, and deliberately unfixed. Don't "discover" these again — and don't
 quietly fix them inside an unrelated change.
 
-- **`imports` resolves 0 rows on Rust corpora.** Import resolution works on TypeScript
-  but produces nothing on Rust. Any review that leans on `imports` (the architecture
-  prompt does) degrades to nothing on a Rust repo.
-- **`extends` was empty on both tested corpora.** `resolve_inheritance` INNER JOINs to
-  `symbol` for both endpoints, so a parent outside the workspace is dropped by design —
-  but empty on every corpus tested so far points at something upstream too.
+- **`imports` on Rust depends on the scan root — the old "0 rows on Rust" claim was
+  wrong.** Measured 2026-08-13 by querying the cached stores in `~/Library/Caches/virgil`
+  directly:
+
+  | store | corpus | `raw_import` | `imports` |
+  |---|---|---|---|
+  | `35b499f8916629aa` | virgil-cli scanned at `.` (paths `src/…`) | 719 | **138** |
+  | `de791ed072caee33` | same code scanned at `./src` (paths `graph/…`) | 698 | **0** |
+  | `2558db65e8ab6624` | go/cpp/c, 1093 files | 6,626 | 30,717 |
+
+  Same source, same parser, 138 vs 0 — the only difference is whether file paths carry
+  the `src/` prefix. Rust resolution is real but partial (~19%); it collapses to zero
+  when the crate root isn't the scan root. Go resolves to *more* rows than raw because
+  one package import fans out across the package's files. Before repeating any "language
+  X resolves nothing" claim, re-run the probe — don't trust this file or a single store.
+- **`extends` is 0 on Rust, 49 on the go/cpp corpus.** `resolve_inheritance` INNER JOINs
+  to `symbol` for both endpoints, so a parent outside the workspace is dropped by design.
+  It is not universally empty; the earlier "empty on both tested corpora" note just
+  predated a corpus that had any.
 - **`from_code_graph.rs:74` has a dead join branch.** The `LEFT JOIN imports i … AND
   i.imported_id = parent.id` compares a file path (`imports.imported_id`) against a
   symbol id (`symbol.id`), so priority 2 ("imported") is unreachable and every

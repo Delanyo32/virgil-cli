@@ -17,8 +17,12 @@ use crate::cli::ProviderKind;
 
 pub fn default_model(kind: ProviderKind) -> Option<&'static str> {
     match kind {
+        // Checked against the live openrouter /models list: tool calling is
+        // supported (the agents are useless without it) and the context window
+        // is 204k. The slug must stay vendor-prefixed — openrouter routes on it.
+        ProviderKind::Openrouter => Some("z-ai/glm-4.6"),
         ProviderKind::Anthropic => Some("claude-opus-5"),
-        // openai/ollama/openrouter have no sane default: the user must pass --model
+        // openai/ollama have no sane default: the user must pass --model
         _ => None,
     }
 }
@@ -95,6 +99,17 @@ or pass --provider ollama to run locally"
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// openrouter is the default `--provider`, so a bare `virgil-cli scan .`
+    /// resolves through this arm. The slug keeps its `z-ai/` prefix because
+    /// openrouter routes on the vendor-qualified id, not the bare name.
+    #[test]
+    fn openrouter_default_model() {
+        assert_eq!(
+            resolve_model(ProviderKind::Openrouter, None).unwrap(),
+            "z-ai/glm-4.6"
+        );
+    }
 
     #[test]
     fn anthropic_default_model() {
